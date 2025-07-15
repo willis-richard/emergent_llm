@@ -18,3 +18,18 @@ dependencies:
   - tqdm
   - pyyaml
   - python-dotenv
+
+  # dev packages
+  - autoflake
+  - epc
+  - isort
+  - pandas-stubs
+  - ptvsd>=4.2
+  - pylsp-mypy
+  - python-lsp-server  # though included by pylsp-mypy
+
+  - pip:
+    - -e .  # Install this package in development mode
+
+    # dev packages
+    - importmagic

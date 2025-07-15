@@ -1,8 +1,9 @@
 """Player classes for social dilemma experiments."""
 from abc import ABC, abstractmethod
-from typing import Callable
+from typing import Callable, Optional
 
 from ..common.actions import Action, C, D
+from ..common.attitudes import Attitude
 
 
 class BasePlayer(ABC):
@@ -50,15 +51,15 @@ class LLMPlayer(BasePlayer):
     """Player that uses an LLM-generated strategy."""
 
     def __init__(self, name: str, strategy_function: Callable,
-                 strategy_description: str = "", attitude: str = "neutral", **kwargs):
+                 attitude: Attitude, strategy_description: str = "", **kwargs):
         """
         Initialize LLM player with generated strategy.
 
         Args:
             name: Player name
             strategy_function: Python function implementing the strategy
+            attitude: Player's attitude (cooperative/aggressive)
             strategy_description: Natural language description of strategy
-            attitude: "cooperative", "aggressive", or "neutral"
         """
         super().__init__(name=name, **kwargs)
         self.strategy_function = strategy_function
@@ -76,6 +77,20 @@ class LLMPlayer(BasePlayer):
     def reset(self):
         """Reset strategy state."""
         self.strategy_state = {}
+
+    def clone(self):
+        """Create a copy of this player."""
+        return LLMPlayer(
+            name=self.name,
+            strategy_function=self.strategy_function,
+            attitude=self.attitude,
+            strategy_description=self.strategy_description,
+            **self.init_kwargs
+        )
+
+    def __repr__(self):
+        """String representation of the player."""
+        return f"LLMPlayer({self.name}, {self.attitude})"
 
 
 class SimplePlayer(BasePlayer):
