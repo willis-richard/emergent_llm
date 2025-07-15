@@ -1,0 +1,20 @@
+name: emergent_llm
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy
+  - pandas
+  - scikit-learn
+  - matplotlib
+  - seaborn
+  - jupyter
+
+  - openai
+  - anthropic
+  - transformers
+
+  - pytest
+  - tqdm
+  - pyyaml
+  - python-dotenv
