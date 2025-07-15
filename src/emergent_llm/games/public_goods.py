@@ -1,7 +1,7 @@
 """Public Goods Game implementation."""
-from .base_game import BaseGame
-from ..common.actions import Action, C, D
-from ..players import BasePlayer
+from emergent_llm.games.base_game import BaseGame
+from emergent_llm.common.actions import Action, C, D
+from emergent_llm.players import BasePlayer
 
 
 class PublicGoodsGame(BaseGame):

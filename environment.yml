@@ -9,11 +9,9 @@ dependencies:
   - matplotlib
   - seaborn
   - jupyter
-
   - openai
   - anthropic
   - transformers
-
   - pytest
   - tqdm
   - pyyaml
@@ -28,7 +26,9 @@ dependencies:
   - pylsp-mypy
   - python-lsp-server  # though included by pylsp-mypy
 
+  - pip
   - pip:
+    - axelrod
     - -e .  # Install this package in development mode
 
     # dev packages

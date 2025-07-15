@@ -2,8 +2,8 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from ..common.actions import Action, C, D
-from ..players import BasePlayer
+from emergent_llm.common.actions import Action, C, D
+from emergent_llm.players import BasePlayer
 
 
 @dataclass

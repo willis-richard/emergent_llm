@@ -6,8 +6,8 @@ from typing import List, Dict, Any
 import pandas as pd
 from datetime import datetime
 
-from ..games.base_game import BaseGame, GameResult
-from ..players import BasePlayer
+from emergent_llm.games.base_game import BaseGame, GameResult
+from emergent_llm.players import BasePlayer
 
 
 @dataclass

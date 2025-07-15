@@ -2,8 +2,8 @@
 from abc import ABC, abstractmethod
 from typing import Callable, Optional
 
-from ..common.actions import Action, C, D
-from ..common.attitudes import Attitude
+from emergent_llm.common.actions import Action, C, D
+from emergent_llm.common.attitudes import Attitude
 
 
 class BasePlayer(ABC):
