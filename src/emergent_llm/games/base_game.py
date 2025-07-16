@@ -6,6 +6,7 @@ import numpy as np
 from emergent_llm.common.actions import Action, C, D
 from emergent_llm.common.history import GameHistory
 from emergent_llm.players import BasePlayer
+from emergent_llm.games.game_description import GameDescription
 
 
 @dataclass
@@ -13,17 +14,23 @@ class GameResult:
     """Results from a single game."""
     players: list[str]  # Player names/IDs
     history: GameHistory  # Complete game history
-    game_parameters: dict[str, any]
+    description: GameDescription  # Game parameters and rules
 
 
 class BaseGame(ABC):
     """Abstract base class for social dilemma games."""
 
-    def __init__(self, players: list[BasePlayer], **kwargs):
-        """Initialize game with players and parameters."""
+    def __init__(self, players: list[BasePlayer], description: GameDescription):
+        """Initialize game with players and description."""
+        if len(players) != description.n_players:
+            raise ValueError(
+                f"Number of players ({len(players)}) must match "
+                f"description.n_players ({description.n_players})"
+            )
+
         self.players = players
+        self.description = description
         self.n_players = len(players)
-        self.game_parameters = kwargs
 
         # Initialize game state
         self.history = GameHistory(
@@ -35,11 +42,6 @@ class BaseGame(ABC):
     @abstractmethod
     def calculate_payoffs(self, actions: list[Action]) -> list[float]:
         """Calculate payoffs for a single round given actions."""
-        pass
-
-    @abstractmethod
-    def game_description(self) -> dict[str, any]:
-        """Return game parameters and rules for strategy generation."""
         pass
 
     def play_round(self):
@@ -66,15 +68,15 @@ class BaseGame(ABC):
 
         self.current_round += 1
 
-    def play_game(self, rounds: int) -> GameResult:
-        """Play a complete game for specified number of rounds."""
-        for _ in range(rounds):
+    def play_game(self) -> GameResult:
+        """Play a complete game for the number of rounds specified in description."""
+        for _ in range(self.description.n_rounds):
             self.play_round()
 
         return GameResult(
             players=[player.name for player in self.players],
             history=self.history,
-            game_parameters=self.game_parameters
+            description=self.description
         )
 
     def reset(self):

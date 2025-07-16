@@ -7,6 +7,7 @@ import pandas as pd
 from datetime import datetime
 
 from emergent_llm.games.base_game import BaseGame, GameResult
+from emergent_llm.games.game_description import GameDescription
 from emergent_llm.players import BasePlayer
 
 
@@ -20,6 +21,8 @@ class FairTournamentConfig:
         """Validate configuration."""
         if self.n_players <= 0:
             raise ValueError("n_players must be positive")
+        if self.n_rounds <= 0:
+            raise ValueError("n_rounds must be positive")
 
 
 @dataclass
@@ -35,8 +38,8 @@ class FairTournament:
     """Fair tournament where all players play equal number of games."""
 
     def __init__(self, players: List[BasePlayer], config: FairTournamentConfig,
-                 game_class: type[BaseGame], game_kwargs: Dict[str, Any] = None):
-        """Initialize tournament."""
+                 game_class: type[BaseGame], game_description: GameDescription):
+        """Initialize tournament with typed game description."""
         # Validate population size
         if len(players) % config.n_players != 0:
             raise ValueError(
@@ -44,10 +47,23 @@ class FairTournament:
                 f"n_players ({config.n_players})"
             )
 
+        # Validate that config matches game description
+        if config.n_players != game_description.n_players:
+            raise ValueError(
+                f"Config n_players ({config.n_players}) must match "
+                f"game description n_players ({game_description.n_players})"
+            )
+
+        if config.n_rounds != game_description.n_rounds:
+            raise ValueError(
+                f"Config n_rounds ({config.n_rounds}) must match "
+                f"game description n_rounds ({game_description.n_rounds})"
+            )
+
         self.players = players
         self.config = config
         self.game_class = game_class
-        self.game_kwargs = game_kwargs or {}
+        self.game_description = game_description
 
         # Results storage
         self.results: List[FairMatchResult] = []
@@ -92,15 +108,15 @@ class FairTournament:
 
     def _run_match(self, players: List[BasePlayer], match_id: str) -> FairMatchResult:
         """Run a single match with given players."""
-        # Create game instance
-        game = self.game_class(players, **self.game_kwargs)
+        # Create game instance with description
+        game = self.game_class(players, self.game_description)
 
         # Log match start
         player_names = [p.name for p in players]
         self.logger.info(f"Starting match {match_id} with players: {player_names}")
 
         # Play game
-        game_result = game.play_game(self.config.n_rounds)
+        game_result = game.play_game()
 
         # Create match result
         match_result = FairMatchResult(
@@ -119,11 +135,14 @@ class FairTournament:
         """Log detailed match results."""
         self.logger.info(f"Match {result.match_id} completed")
 
+        # Calculate individual and total payoffs
+        total_payoffs = result.game_result.history.payoffs.sum(axis=0)
+
         # Log individual payoffs
-        for i, (player, payoff) in enumerate(zip(result.players, result.game_result.payoffs)):
+        for i, (player, payoff) in enumerate(zip(result.players, total_payoffs)):
             self.logger.info(f"  {player.name}: {payoff:.3f}")
 
-        avg_payoff = sum(result.game_result.payoffs) / len(result.game_result.payoffs)
+        avg_payoff = total_payoffs.mean()
         self.logger.info(f"  Average payoff: {avg_payoff:.3f}")
 
     def _results_to_dataframe(self) -> pd.DataFrame:
@@ -131,14 +150,18 @@ class FairTournament:
         rows = []
 
         for result in self.results:
+            # Calculate total payoffs for each player
+            total_payoffs = result.game_result.history.payoffs.sum(axis=0)
+
             base_row = {
                 'match_id': result.match_id,
                 'timestamp': result.timestamp,
-                'game_parameters': str(result.game_result.game_parameters)
+                'game_type': result.game_result.description.__class__.__name__,
+                'game_parameters': str(result.game_result.description)
             }
 
             # Add individual player results
-            for i, (player, payoff) in enumerate(zip(result.players, result.game_result.payoffs)):
+            for i, (player, payoff) in enumerate(zip(result.players, total_payoffs)):
                 row = base_row.copy()
                 row.update({
                     'player_name': player.name,

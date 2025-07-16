@@ -3,9 +3,12 @@ import logging
 import sys
 from pathlib import Path
 import pandas as pd
+import numpy as np
 
 from emergent_llm.tournament.fair_tournament import FairTournament, FairTournamentConfig
 from emergent_llm.games.public_goods import PublicGoodsGame
+from emergent_llm.games.collective_risk import CollectiveRiskGame
+from emergent_llm.games.game_description import PublicGoodsDescription, CollectiveRiskDescription
 from emergent_llm.players import SimplePlayer, LLMPlayer
 from emergent_llm.common.actions import C, D
 from emergent_llm.common.attitudes import COOPERATIVE, AGGRESSIVE
@@ -64,32 +67,82 @@ def create_llm_population():
 
     return players
 
-def main():
-    """Run fair tournament."""
+def run_public_goods_tournament():
+    """Run tournament with Public Goods Game."""
     # Create tournament config
     config = FairTournamentConfig(
         n_players=6,
         n_rounds=20
     )
 
+    # Create game description
+    game_description = PublicGoodsDescription(
+        n_players=6,
+        n_rounds=20,
+        k=2.0
+    )
+
     # Create population (36 players = 6 matches)
-    players = create_test_population()  # or create_llm_population()
+    players = create_test_population()
 
     # Create and run tournament
     tournament = FairTournament(
         players=players,
         config=config,
         game_class=PublicGoodsGame,
-        game_kwargs={'k': 2.0}
+        game_description=game_description
     )
 
-    # Run tournament
-    results_df = tournament.run_tournament()
+    return tournament.run_tournament()
 
-    # Save results
-    results_df.to_csv('fair_tournament_results.csv', index=False)
+def run_collective_risk_tournament():
+    """Run tournament with Collective Risk Dilemma."""
+    # Create tournament config
+    config = FairTournamentConfig(
+        n_players=6,
+        n_rounds=20
+    )
 
-    # Basic analysis
+    # Create game description - need at least 3 cooperators to get reward of 2
+    game_description = CollectiveRiskDescription(
+        n_players=6,
+        n_rounds=20,
+        m=3,  # At least 3 cooperators needed
+        k=2.0  # Reward if threshold met
+    )
+
+    # Create population (36 players = 6 matches)
+    players = create_test_population()
+
+    # Create and run tournament
+    tournament = FairTournament(
+        players=players,
+        config=config,
+        game_class=CollectiveRiskGame,
+        game_description=game_description
+    )
+
+    return tournament.run_tournament()
+
+def main():
+    """Run fair tournament."""
+    print("Running Public Goods Tournament...")
+    pgg_results = run_public_goods_tournament()
+    pgg_results.to_csv('public_goods_results.csv', index=False)
+
+    print("\nRunning Collective Risk Tournament...")
+    crd_results = run_collective_risk_tournament()
+    crd_results.to_csv('collective_risk_results.csv', index=False)
+
+    # Analysis
+    print("\n=== PUBLIC GOODS GAME RESULTS ===")
+    analyze_results(pgg_results)
+
+    print("\n=== COLLECTIVE RISK DILEMMA RESULTS ===")
+    analyze_results(crd_results)
+
+def analyze_results(results_df):
+    """Analyze tournament results."""
     print("\nOverall Performance by Player Type:")
     type_summary = results_df.groupby('player_type')['payoff'].agg(['mean', 'std', 'count'])
     print(type_summary)
@@ -101,32 +154,6 @@ def main():
 
     print(f"\nTotal matches: {results_df['match_id'].nunique()}")
     print(f"Total player-games: {len(results_df)}")
-
-    # Additional analysis using history data
-    print("\nHistory Analysis:")
-    analyze_tournament_history(tournament)
-
-def analyze_tournament_history(tournament):
-    """Analyze historical data from tournament results."""
-    total_cooperation_rate = 0
-    total_rounds = 0
-
-    for result in tournament.results:
-        history = result.game_result.history
-        if history.actions.size > 0:
-            # Calculate cooperation rate for this match
-            cooperation_count = np.sum(history.actions == C)
-            total_actions = history.actions.size
-            match_coop_rate = cooperation_count / total_actions
-
-            print(f"Match {result.match_id}: {match_coop_rate:.2%} cooperation")
-
-            total_cooperation_rate += cooperation_count
-            total_rounds += total_actions
-
-    if total_rounds > 0:
-        overall_coop_rate = total_cooperation_rate / total_rounds
-        print(f"Overall cooperation rate: {overall_coop_rate:.2%}")
 
 if __name__ == "__main__":
     main()
