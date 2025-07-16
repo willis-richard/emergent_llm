@@ -45,7 +45,7 @@ class BaseGame(ABC):
         """Play a single round of the game."""
         # Get actions from each player
         actions = [
-            player.strategy(self.history, i, self.game_description())
+            player.strategy(self.history.for_player(i))
             for i, player in enumerate(self.players)
         ]
 
