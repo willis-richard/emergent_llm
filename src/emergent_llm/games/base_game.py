@@ -1,8 +1,10 @@
 """Base game class for social dilemma experiments."""
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+import numpy as np
 
 from emergent_llm.common.actions import Action, C, D
+from emergent_llm.common.history import GameHistory
 from emergent_llm.players import BasePlayer
 
 
@@ -10,9 +12,7 @@ from emergent_llm.players import BasePlayer
 class GameResult:
     """Results from a single game."""
     players: list[str]  # Player names/IDs
-    history: list[list[Action]]  # Round-by-round actions for each player
-    payoffs: list[float]  # Final payoffs for each player
-    round_payoffs: list[list[float]]  # Payoffs for each round
+    history: GameHistory  # Complete game history
     game_parameters: dict[str, any]
 
 
@@ -26,9 +26,10 @@ class BaseGame(ABC):
         self.game_parameters = kwargs
 
         # Initialize game state
-        self.history = []  # List of rounds, each round is list of actions
-        self.payoffs = [0.0] * self.n_players
-        self.round_payoffs = []  # Track payoffs per round
+        self.history = GameHistory(
+            actions=np.array([]).reshape(0, self.n_players),
+            payoffs=np.array([]).reshape(0, self.n_players)
+        )
         self.current_round = 0
 
     @abstractmethod
@@ -41,27 +42,29 @@ class BaseGame(ABC):
         """Return game parameters and rules for strategy generation."""
         pass
 
-    def play_round(self) -> list[Action]:
+    def play_round(self):
         """Play a single round of the game."""
         # Get actions from each player
-        actions = [
-            player.strategy(self.history.for_player(i))
-            for i, player in enumerate(self.players)
-        ]
+        actions = [player.strategy(self.history.for_player(i))
+                   for i, player in enumerate(self.players)]
 
         # Calculate payoffs for this round
         round_payoffs = self.calculate_payoffs(actions)
 
-        # Update game state
-        self.history.append(actions)
-        self.round_payoffs.append(round_payoffs)
+        # Update history with new round
+        actions_array = np.array(actions).reshape(1, -1)
+        payoffs_array = np.array(round_payoffs).reshape(1, -1)
+
+        if self.history.actions.size == 0:
+            # First round
+            self.history.actions = actions_array
+            self.history.payoffs = payoffs_array
+        else:
+            # Append to existing history
+            self.history.actions = np.vstack([self.history.actions, actions_array])
+            self.history.payoffs = np.vstack([self.history.payoffs, payoffs_array])
+
         self.current_round += 1
-
-        # Add to cumulative payoffs
-        for i, payoff in enumerate(round_payoffs):
-            self.payoffs[i] += payoff
-
-        return actions
 
     def play_game(self, rounds: int) -> GameResult:
         """Play a complete game for specified number of rounds."""
@@ -70,17 +73,16 @@ class BaseGame(ABC):
 
         return GameResult(
             players=[player.name for player in self.players],
-            history=self.history.copy(),
-            payoffs=self.payoffs.copy(),
-            round_payoffs=self.round_payoffs.copy(),
+            history=self.history,
             game_parameters=self.game_parameters
         )
 
     def reset(self):
         """Reset game to initial state."""
-        self.history = []
-        self.payoffs = [0.0] * self.n_players
-        self.round_payoffs = []
+        self.history = GameHistory(
+            actions=np.array([]).reshape(0, self.n_players),
+            payoffs=np.array([]).reshape(0, self.n_players)
+        )
         self.current_round = 0
 
         # Reset all players

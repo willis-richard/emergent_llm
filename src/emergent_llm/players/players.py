@@ -4,6 +4,7 @@ from typing import Callable, Optional
 
 from emergent_llm.common.actions import Action, C, D
 from emergent_llm.common.attitudes import Attitude
+from emergent_llm.common.history import PlayerHistory
 
 
 class BasePlayer(ABC):
@@ -21,15 +22,12 @@ class BasePlayer(ABC):
         pass
 
     @abstractmethod
-    def strategy(self, history: list[list[Action]], player_index: int,
-                game_info: dict[str, any]) -> Action:
+    def strategy(self, history: PlayerHistory) -> Action:
         """
         Player's strategy function.
 
         Args:
-            history: List of previous rounds, each round is list of actions
-            player_index: This player's index in the game
-            game_info: Game parameters and rules
+            history: Player-specific view of game history
 
         Returns:
             Action: C (cooperate) or D (defect)
@@ -66,13 +64,10 @@ class LLMPlayer(BasePlayer):
         self.strategy_description = strategy_description
         self.attitude = attitude
 
-        # Store any additional state the strategy might need
-        self.strategy_state = {}
 
-    def strategy(self, history: list[list[Action]], player_index: int,
-                game_info: dict[str, any]) -> Action:
+    def strategy(self, history: PlayerHistory) -> Action:
         """Execute the LLM-generated strategy."""
-        return self.strategy_function(history, player_index, game_info, self.strategy_state)
+        return self.strategy_function(history)
 
     def reset(self):
         """Reset strategy state."""
@@ -96,7 +91,7 @@ class LLMPlayer(BasePlayer):
 class SimplePlayer(BasePlayer):
     """Simple player for testing with no-argument strategy function."""
 
-    def __init__(self, name: str, strategy_func: Callable[[], Action] = None, **kwargs):
+    def __init__(self, name: str, strategy_func: Callable[[], Action], **kwargs):
         """
         Initialize simple player with a no-argument strategy function.
 
@@ -106,9 +101,8 @@ class SimplePlayer(BasePlayer):
                           Defaults to always cooperate.
         """
         super().__init__(name=name, **kwargs)
-        self.strategy_func = strategy_func or (lambda: C)
+        self.strategy_func = strategy_func
 
-    def strategy(self, history: list[list[Action]], player_index: int,
-                game_info: dict[str, any]) -> Action:
+    def strategy(self, history: PlayerHistory) -> Action:
         """Execute the strategy function (ignoring game context)."""
         return self.strategy_func()

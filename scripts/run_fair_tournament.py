@@ -40,7 +40,7 @@ def create_llm_population():
 
     # 18 LLM cooperative players
     for i in range(18):
-        def cooperative_strategy(history, player_index, game_info, state):
+        def cooperative_strategy(history):
             return C
 
         players.append(LLMPlayer(
@@ -52,7 +52,7 @@ def create_llm_population():
 
     # 18 LLM aggressive players
     for i in range(18):
-        def aggressive_strategy(history, player_index, game_info, state):
+        def aggressive_strategy(history):
             return D
 
         players.append(LLMPlayer(
@@ -101,6 +101,32 @@ def main():
 
     print(f"\nTotal matches: {results_df['match_id'].nunique()}")
     print(f"Total player-games: {len(results_df)}")
+
+    # Additional analysis using history data
+    print("\nHistory Analysis:")
+    analyze_tournament_history(tournament)
+
+def analyze_tournament_history(tournament):
+    """Analyze historical data from tournament results."""
+    total_cooperation_rate = 0
+    total_rounds = 0
+
+    for result in tournament.results:
+        history = result.game_result.history
+        if history.actions.size > 0:
+            # Calculate cooperation rate for this match
+            cooperation_count = np.sum(history.actions == C)
+            total_actions = history.actions.size
+            match_coop_rate = cooperation_count / total_actions
+
+            print(f"Match {result.match_id}: {match_coop_rate:.2%} cooperation")
+
+            total_cooperation_rate += cooperation_count
+            total_rounds += total_actions
+
+    if total_rounds > 0:
+        overall_coop_rate = total_cooperation_rate / total_rounds
+        print(f"Overall cooperation rate: {overall_coop_rate:.2%}")
 
 if __name__ == "__main__":
     main()

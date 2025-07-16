@@ -2,7 +2,6 @@
 from enum import Enum
 from functools import total_ordering
 
-@total_ordering
 class Action(Enum):
     """Core actions in social dilemma games.
     There are only two possible actions, namely Cooperate or Defect,
