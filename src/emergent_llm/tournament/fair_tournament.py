@@ -12,20 +12,6 @@ from emergent_llm.players import BasePlayer
 
 
 @dataclass
-class FairTournamentConfig:
-    """Configuration for fair tournament."""
-    n_players: int = 6
-    n_rounds: int = 20
-
-    def __post_init__(self):
-        """Validate configuration."""
-        if self.n_players <= 0:
-            raise ValueError("n_players must be positive")
-        if self.n_rounds <= 0:
-            raise ValueError("n_rounds must be positive")
-
-
-@dataclass
 class FairMatchResult:
     """Results from a single match."""
     match_id: str
@@ -37,31 +23,17 @@ class FairMatchResult:
 class FairTournament:
     """Fair tournament where all players play equal number of games."""
 
-    def __init__(self, players: List[BasePlayer], config: FairTournamentConfig,
-                 game_class: type[BaseGame], game_description: GameDescription):
+    def __init__(self, players: List[BasePlayer], game_class: type[BaseGame],
+                 game_description: GameDescription):
         """Initialize tournament with typed game description."""
         # Validate population size
-        if len(players) % config.n_players != 0:
+        if len(players) % game_description.n_players != 0:
             raise ValueError(
                 f"Population size ({len(players)}) must be divisible by "
-                f"n_players ({config.n_players})"
-            )
-
-        # Validate that config matches game description
-        if config.n_players != game_description.n_players:
-            raise ValueError(
-                f"Config n_players ({config.n_players}) must match "
-                f"game description n_players ({game_description.n_players})"
-            )
-
-        if config.n_rounds != game_description.n_rounds:
-            raise ValueError(
-                f"Config n_rounds ({config.n_rounds}) must match "
-                f"game description n_rounds ({game_description.n_rounds})"
+                f"n_players ({game_description.n_players})"
             )
 
         self.players = players
-        self.config = config
         self.game_class = game_class
         self.game_description = game_description
 
@@ -75,7 +47,7 @@ class FairTournament:
     def run_tournament(self) -> pd.DataFrame:
         """Run tournament with fair player distribution."""
         total_players = len(self.players)
-        n_matches = total_players // self.config.n_players
+        n_matches = total_players // self.game_description.n_players
 
         self.logger.info(f"Starting fair tournament: {total_players} players, {n_matches} matches")
 
@@ -87,8 +59,8 @@ class FairTournament:
 
         # Divide players into groups
         for match_num in range(n_matches):
-            start_idx = match_num * self.config.n_players
-            end_idx = start_idx + self.config.n_players
+            start_idx = match_num * self.game_description.n_players
+            end_idx = start_idx + self.game_description.n_players
 
             match_players = shuffled_players[start_idx:end_idx]
             match_id = f"match_{match_num:04d}"

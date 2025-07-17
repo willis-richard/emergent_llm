@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from abc import ABC
 
 
@@ -8,12 +8,19 @@ class GameDescription(ABC):
     n_players: int
     n_rounds: int
 
+    def to_dict(self) -> dict:
+        """Convert GameDescription to dictionary for serialization."""
+        return asdict(self)
+
     def __post_init__(self):
         """Validate common parameters."""
         if self.n_players <= 0:
             raise ValueError("n_players must be positive")
         if self.n_rounds <= 0:
             raise ValueError("n_rounds must be positive")
+
+    def __repr__(self):
+        return str(self.to_dict())
 
 
 @dataclass
@@ -35,7 +42,7 @@ class CollectiveRiskDescription(GameDescription):
 
     def __post_init__(self):
         super().__post_init__()
-        if not (1 <= self.m <= self.n_players):
+        if not (1 < self.m <= self.n_players):
             raise ValueError(f"m must be between 1 and {self.n_players}, got {self.m}")
         if self.k <= 0:
             raise ValueError(f"k must be positive, got {self.k}")

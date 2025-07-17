@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
-from emergent_llm.tournament.fair_tournament import FairTournament, FairTournamentConfig
+from emergent_llm.tournament.fair_tournament import FairTournament
 from emergent_llm.games.public_goods import PublicGoodsGame
 from emergent_llm.games.collective_risk import CollectiveRiskGame
 from emergent_llm.games.game_description import PublicGoodsDescription, CollectiveRiskDescription
@@ -48,9 +48,8 @@ def create_llm_population():
 
         players.append(LLMPlayer(
             name=f"llm_coop_{i}",
-            strategy_function=cooperative_strategy,
             attitude=COOPERATIVE,
-            strategy_description="Always cooperate"
+            strategy_function=cooperative_strategy,
         ))
 
     # 18 LLM aggressive players
@@ -60,21 +59,14 @@ def create_llm_population():
 
         players.append(LLMPlayer(
             name=f"llm_aggr_{i}",
-            strategy_function=aggressive_strategy,
             attitude=AGGRESSIVE,
-            strategy_description="Always defect"
+            strategy_function=aggressive_strategy,
         ))
 
     return players
 
 def run_public_goods_tournament():
     """Run tournament with Public Goods Game."""
-    # Create tournament config
-    config = FairTournamentConfig(
-        n_players=6,
-        n_rounds=20
-    )
-
     # Create game description
     game_description = PublicGoodsDescription(
         n_players=6,
@@ -88,7 +80,6 @@ def run_public_goods_tournament():
     # Create and run tournament
     tournament = FairTournament(
         players=players,
-        config=config,
         game_class=PublicGoodsGame,
         game_description=game_description
     )
@@ -97,12 +88,6 @@ def run_public_goods_tournament():
 
 def run_collective_risk_tournament():
     """Run tournament with Collective Risk Dilemma."""
-    # Create tournament config
-    config = FairTournamentConfig(
-        n_players=6,
-        n_rounds=20
-    )
-
     # Create game description - need at least 3 cooperators to get reward of 2
     game_description = CollectiveRiskDescription(
         n_players=6,
@@ -117,7 +102,6 @@ def run_collective_risk_tournament():
     # Create and run tournament
     tournament = FairTournament(
         players=players,
-        config=config,
         game_class=CollectiveRiskGame,
         game_description=game_description
     )

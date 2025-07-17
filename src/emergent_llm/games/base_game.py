@@ -44,10 +44,10 @@ class BaseGame(ABC):
         """Calculate payoffs for a single round given actions."""
         pass
 
-    def play_round(self):
+    def play_round(self, players: list[BasePlayer]):
         """Play a single round of the game."""
         # Get actions from each player
-        actions = [player.strategy(self.history.for_player(i))
+        actions = [player.strategy(self.description, self.history.for_player(i))
                    for i, player in enumerate(self.players)]
 
         # Calculate payoffs for this round
@@ -70,11 +70,12 @@ class BaseGame(ABC):
 
     def play_game(self) -> GameResult:
         """Play a complete game for the number of rounds specified in description."""
+        players = [p.clone() for p in self.players]
         for _ in range(self.description.n_rounds):
-            self.play_round()
+            self.play_round(players)
 
         return GameResult(
-            players=[player.name for player in self.players],
+            players=[player.name for player in players],
             history=self.history,
             description=self.description
         )
@@ -86,7 +87,3 @@ class BaseGame(ABC):
             payoffs=np.array([]).reshape(0, self.n_players)
         )
         self.current_round = 0
-
-        # Reset all players
-        for player in self.players:
-            player.reset()
