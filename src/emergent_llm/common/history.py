@@ -55,7 +55,7 @@ class PlayerHistory:
     @property
     def round_number(self) -> int:
         """Current round number (number of completed rounds)."""
-        return len(self.my_actions) if len(self.my_actions) > 0 else 0
+        return len(self.my_actions)
 
     @property
     def is_first_round(self) -> bool:

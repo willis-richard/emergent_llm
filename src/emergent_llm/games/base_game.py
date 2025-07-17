@@ -1,12 +1,12 @@
 """Base game class for social dilemma experiments."""
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-import numpy as np
 
-from emergent_llm.common.actions import Action, C, D
+import numpy as np
+from emergent_llm.common.actions import Action
+from emergent_llm.common.game_description import GameDescription
 from emergent_llm.common.history import GameHistory
-from emergent_llm.players import BasePlayer
-from emergent_llm.games.game_description import GameDescription
+from emergent_llm.players.base_player import BasePlayer
 
 
 @dataclass
@@ -42,7 +42,6 @@ class BaseGame(ABC):
     @abstractmethod
     def calculate_payoffs(self, actions: list[Action]) -> list[float]:
         """Calculate payoffs for a single round given actions."""
-        pass
 
     def play_round(self, players: list[BasePlayer]):
         """Play a single round of the game."""

@@ -8,7 +8,7 @@ from datetime import datetime
 
 from emergent_llm.games.base_game import BaseGame, GameResult
 from emergent_llm.games.game_description import GameDescription
-from emergent_llm.players import BasePlayer
+from emergent_llm.players.base_player import BasePlayer
 
 
 @dataclass

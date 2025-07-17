@@ -1,5 +1,6 @@
 from emergent_llm.common.attitudes import Attitude
-from emergent_llm.games.game_description import GameDescription, PublicGoodsDescription, CollectiveRiskDescription
+from emergent_llm.common.game_description import GameDescription
+from emergent_llm.games.public_goods import PublicGoodsDescription
 
 
 def format_game_description(game_description: GameDescription) -> str:
@@ -94,53 +95,63 @@ Focus on:
 {strategy_description}
 
 **Your Task:**
-Implement this strategy as a Python function with exactly this signature:
+Implement this strategy in a Python block as a function with this signature:
 
 ```python
-def strategy(self, history):
-    \"\"\"Explanation of the strategy\"\"\"
+def strategy(self, game_description, history):
+    \"\"\"Strategy description here\"\"\"
     # Your implementation here
     return C  # or D
 ```
 
 Requirements:
 
+Assume numpy and pandas have been imported as np and pd, respectively
 Use self.variable_name to store state between rounds
 Initialize state variables when history.is_first_round is True
 Only return C or D (imported at module level)
-Handle edge cases properly
 Include brief comments for complex logic
-Assume numpy and pandas have been imported as np and pd, respectively
-
-Example pattern:
-
-```python
-def strategy(self, history):
-    if history.is_first_round:
-        self.cooperation_count = 0
-        return C  # Initial choice
-
-    # Your strategy logic here
-    # Use history.opponent_actions, history.my_actions, etc.
-
-    return C  # or D based on your logic
-```
 
 Implement the strategy faithfully. Only provide the Python function, no explanation."""
 
 
 def get_interface_description() -> str:
     """Get description of the PlayerHistory interface."""
-    return """Available Information in history:
+    return """Available Information in game_description:
+
+game_description.
+
+Available information in history:
 
 history.is_first_round: True if this is the first round
 history.round_number: Current round (0-indexed)
-history.my_actions: numpy array of your past actions [C, D, C, ...]
-history.my_payoffs: numpy array of your past payoffs [1.5, 2.0, 1.0, ...]
+history.my_actions: numpy array of your past actions [C, D, ...]
+history.my_payoffs: numpy array of your past payoffs [1.5, 2.0, ...]
 history.opponent_actions: 2D numpy array [round][opponent] of all opponents' actions
 history.opponent_payoffs: 2D numpy array [round][opponent] of all opponents' payoffs
 
-Available Actions:
+Available actions:
 
 C: Cooperate
 D: Defect"""
+
+
+@dataclass
+class PlayerHistory:
+    """
+    Player-specific view of game history with convenience access.
+    """
+    my_actions: np.ndarray      # This player's actions
+    my_payoffs: np.ndarray      # This player's payoffs
+    opponent_actions: np.ndarray  # Opponents' actions [round, opponent]
+    opponent_payoffs: np.ndarray  # Opponents' payoffs [round, opponent]
+
+    @property
+    def round_number(self) -> int:
+        """Current round number (number of completed rounds)."""
+        return len(self.my_actions)
+
+    @property
+    def is_first_round(self) -> bool:
+        """True if this is the first round (no history yet)."""
+        return self.round_number == 0

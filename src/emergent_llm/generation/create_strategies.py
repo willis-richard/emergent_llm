@@ -10,10 +10,11 @@ from typing import Union
 
 import anthropic
 import openai
-
 from emergent_llm.common.attitudes import Attitude
-from emergent_llm.games.game_description import GameDescription, PublicGoodsDescription, CollectiveRiskDescription
+from emergent_llm.common.game_description import GameDescription
+from emergent_llm.games.collective_risk import CollectiveRiskDescription
 from emergent_llm.games.prompts import *
+from emergent_llm.games.public_goods import PublicGoodsDescription
 
 # Configure logging
 logging.basicConfig(
@@ -49,7 +50,6 @@ def generate_strategy_description(client: Union[openai.OpenAI, anthropic.Anthrop
     return response
 
 
-
 def generate_strategy_code(client: Union[openai.OpenAI, anthropic.Anthropic],
                           strategy_description: str,
                           game_description: GameDescription) -> str:
@@ -59,15 +59,15 @@ def generate_strategy_code(client: Union[openai.OpenAI, anthropic.Anthropic],
     user_prompt = create_code_user_prompt(strategy_description, game_description)
 
     logger.info("Generating strategy code")
-    logger.info(f"Code user prompt: {user_prompt[:200]}...")
+    logger.info(f"Code user prompt: {user_prompt}")
 
     response = get_llm_response(client, system_prompt, user_prompt, temperature=0.0)
+
+    logger.info(f"Generated code: {response}")
 
     # Clean and validate the code
     code = clean_generated_code(response)
     validate_strategy_code(code, game_description)
-
-    logger.info(f"Generated code: {code[:200]}...")
     return code
 
 
@@ -148,22 +148,21 @@ def get_llm_response(client: Union[openai.OpenAI, anthropic.Anthropic],
                      user_prompt: str,
                      temperature: float) -> str:
     """Get response from LLM client."""
-    if isinstance(client, openai.OpenAI):
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=temperature,
-            max_tokens=1500
-        )
-        return response.choices[0].message.content
+    for attempt in range(3):
+        try:
+            if isinstance(client, openai.OpenAI):
+                response = client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    temperature=temperature,
+                    max_tokens=1500
+                )
+                return response.choices[0].message.content
 
-    elif isinstance(client, anthropic.Anthropic):
-        # Retry logic for Anthropic
-        for attempt in range(3):
-            try:
+            elif isinstance(client, anthropic.Anthropic):
                 response = client.messages.create(
                     model="claude-4-sonnet",
                     max_tokens=1500,
@@ -172,22 +171,14 @@ def get_llm_response(client: Union[openai.OpenAI, anthropic.Anthropic],
                     messages=[{"role": "user", "content": user_prompt}]
                 )
                 return response.content[0].text
-            except anthropic.InternalServerError:
-                if attempt < 2:
-                    time.sleep(2 ** attempt)  # Exponential backoff
-                    continue
-                raise
+        except (openai.InternalServerError, anthropic.InternalServerError):
+            if attempt < 2:
+                time.sleep(2 ** attempt)  # Exponential backoff
+                continue
+            raise
 
     else:
         raise ValueError(f"Unknown client type: {type(client)}")
-
-
-def format_class_comment(text: str, width: int = 78) -> str:
-    """Format text as Python comments."""
-    if not text:
-    return ""
-    wrapped = textwrap.wrap(text, width=width)
-    return "\n".join("# " + line for line in wrapped)
 
 
 def write_strategy_class(description: str, code: str, attitude: Attitude,
