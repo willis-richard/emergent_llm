@@ -1,5 +1,5 @@
 """Game history classes for tournament and player use."""
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 import numpy as np
 from typing import List
 from emergent_llm.common.actions import Action
@@ -42,6 +42,7 @@ class GameHistory:
         )
 
 
+
 @dataclass
 class PlayerHistory:
     """
@@ -61,3 +62,12 @@ class PlayerHistory:
     def is_first_round(self) -> bool:
         """True if this is the first round (no history yet)."""
         return self.round_number == 0
+
+    @classmethod
+    def print_definition(cls):
+        print("@dataclass")
+        print(f"class {cls.__name__}:")
+
+        for field in fields(cls):
+            type_name = field.type.__name__ if hasattr(field.type, '__name__') else str(field.type)
+            print(f"    {field.name}: {type_name}")

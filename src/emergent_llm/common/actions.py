@@ -22,6 +22,16 @@ class Action(Enum):
             return Action.D
         return Action.C
 
+    @classmethod
+    def print_definition(cls):
+        print(f"class {cls.__name__}(Enum):")
+
+        for member in cls:
+            if isinstance(member.value, str):
+                print(f"    {member.name} = \"{member.value}\"")
+            else:
+                print(f"    {member.name} = {member.value}")
+
 # Export for convenience
 C, D = Action.C, Action.D
 

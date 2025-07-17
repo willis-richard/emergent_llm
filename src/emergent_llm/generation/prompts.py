@@ -1,3 +1,4 @@
+from emergent_llm.common.actions import Actions
 from emergent_llm.common.attitudes import Attitude
 from emergent_llm.common.game_description import GameDescription
 from emergent_llm.games.public_goods import PublicGoodsDescription
@@ -76,9 +77,6 @@ Provide a detailed strategy description with concrete decision rules. Include so
 def create_code_user_prompt(strategy_description: str, game_description: GameDescription) -> str:
     """Create user prompt for code generation."""
 
-    game_info = format_game_description(game_description)
-    interface_info = get_interface_description()
-
     return f"""Your task is to convert a natural language strategy description into clean, efficient Python code.
 
 Focus on:
@@ -87,60 +85,46 @@ Focus on:
 - Handling edge cases (first round, empty history)
 - Clean, readable code structure
 
-{game_info}
-
-{interface_info}
+{format_game_description(game_description)}
 
 **Strategy to Implement:**
 {strategy_description}
 
 **Your Task:**
-Implement this strategy in a Python block as a function with this signature:
+Implement this strategy in a Python block as a callable class with this signature:
 
 ```python
-def strategy(self, game_description, history):
-    \"\"\"Strategy description here\"\"\"
-    # Your implementation here
-    return C  # or D
+class Strategy:
+    def __init__(self, game_description: GameDescription):
+        # your implementation here
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory):
+        \"\"\"Strategy description here\"\"\"
+        # Your implementation here
+        return C  # or D
 ```
 
-Requirements:
-
-Assume numpy and pandas have been imported as np and pd, respectively
-Use self.variable_name to store state between rounds
-Initialize state variables when history.is_first_round is True
-Only return C or D (imported at module level)
-Include brief comments for complex logic
-
-Implement the strategy faithfully. Only provide the Python function, no explanation."""
+Existing code:
+{get_interface_description(game_description)}"""
 
 
-def get_interface_description() -> str:
+def get_interface_description(game_description: GameDescription) -> str:
     """Get description of the PlayerHistory interface."""
-    return """Available Information in game_description:
+    return f"""from dataclasses import dataclass
+from enum import Enum
 
-game_description.
+import numpy as np
 
-Available information in history:
 
-history.is_first_round: True if this is the first round
-history.round_number: Current round (0-indexed)
-history.my_actions: numpy array of your past actions [C, D, ...]
-history.my_payoffs: numpy array of your past payoffs [1.5, 2.0, ...]
-history.opponent_actions: 2D numpy array [round][opponent] of all opponents' actions
-history.opponent_payoffs: 2D numpy array [round][opponent] of all opponents' payoffs
+{Actions.print_definition}
 
-Available actions:
 
-C: Cooperate
-D: Defect"""
+{game_description.print_definition()}
 
 
 @dataclass
 class PlayerHistory:
-    """
-    Player-specific view of game history with convenience access.
-    """
     my_actions: np.ndarray      # This player's actions
     my_payoffs: np.ndarray      # This player's payoffs
     opponent_actions: np.ndarray  # Opponents' actions [round, opponent]
@@ -148,10 +132,13 @@ class PlayerHistory:
 
     @property
     def round_number(self) -> int:
-        """Current round number (number of completed rounds)."""
+        \"\"\"Current round number (number of completed rounds).\"\"\"
         return len(self.my_actions)
 
     @property
     def is_first_round(self) -> bool:
-        """True if this is the first round (no history yet)."""
+        \"\"\"True if this is the first round (no history yet).\"\"\"
         return self.round_number == 0
+
+Requirements:
+- You may not import and libraries."""

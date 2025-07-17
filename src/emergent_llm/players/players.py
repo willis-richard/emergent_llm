@@ -25,19 +25,6 @@ class LLMPlayer(BasePlayer):
         self.attitude = attitude
         self.strategy_function = strategy_function
 
-
-    def strategy(self, game_description: GameDescription, history: PlayerHistory) -> Action:
-        """Execute the LLM-generated strategy."""
-        return self.strategy_function(game_description, history)
-
-    def clone(self):
-        """Create a copy of this player."""
-        return LLMPlayer(
-            name=self.name,
-            attitude=self.attitude,
-            strategy_function=self.strategy_function,
-        )
-
     def __repr__(self):
         """String representation of the player."""
         return f"LLMPlayer({self.name}, {self.attitude})"
@@ -58,14 +45,6 @@ class SimplePlayer(BasePlayer):
         super().__init__(name=name, **kwargs)
         self.strategy_function = strategy_function
 
-    def strategy(self, game_description: GameDescription, history: PlayerHistory) -> Action:
+    def __call__(self, game_description: GameDescription, history: PlayerHistory) -> Action:
         """Execute the strategy function (ignoring game context)."""
         return self.strategy_function()
-
-
-    def clone(self):
-        """Create a copy of this player."""
-        return SimplePlayer(
-            name=self.name,
-            strategy_function=self.strategy_function,
-        )

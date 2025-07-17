@@ -1,4 +1,4 @@
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, fields
 from abc import ABC
 
 
@@ -21,3 +21,12 @@ class GameDescription(ABC):
 
     def __repr__(self):
         return str(self.to_dict())
+
+    @classmethod
+    def print_definition(cls):
+        print("@dataclass")
+        print(f"class {cls.__name__}:")
+
+        for field in fields(cls):
+            type_name = field.type.__name__ if hasattr(field.type, '__name__') else str(field.type)
+            print(f"    {field.name}: {type_name}")

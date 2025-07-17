@@ -14,12 +14,7 @@ class BasePlayer(ABC):
         self.name = name
 
     @abstractmethod
-    def clone(self):
-        """Reset player to initial state."""
-        # Override in subclasses if needed
-
-    @abstractmethod
-    def strategy(self, game_description: GameDescription, history: PlayerHistory) -> Action:
+    def __call__(self, history: PlayerHistory) -> Action:
         """
         Player's strategy function.
 
