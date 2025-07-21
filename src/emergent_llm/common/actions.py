@@ -1,6 +1,6 @@
 """Minimal action enum for social dilemma games."""
 from enum import Enum
-from functools import total_ordering
+
 
 class Action(Enum):
     """Core actions in social dilemma games.
@@ -10,27 +10,31 @@ class Action(Enum):
     C = 0  # Cooperate
     D = 1  # Defect
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self.name
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
 
-    def flip(self):
+    def flip(self) -> "Action":
         """Returns the opposite Action."""
         if self == Action.C:
             return Action.D
         return Action.C
 
     @classmethod
-    def print_definition(cls):
-        print(f"class {cls.__name__}(Enum):")
+    def print_definition(cls) -> str:
+        """For printing in prompts"""
+        definition = f"class {cls.__name__}(Enum):\n"
 
-        for member in cls:
-            if isinstance(member.value, str):
-                print(f"    {member.name} = \"{member.value}\"")
-            else:
-                print(f"    {member.name} = {member.value}")
+        definition += "\n".join(
+            f"    {member.name} = \"{member.value}\""
+            if isinstance(member.value, str)
+            else f"    {member.name} = {member.value}"
+            for member in cls)
+
+        return definition
+
 
 # Export for convenience
 C, D = Action.C, Action.D

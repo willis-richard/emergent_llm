@@ -71,7 +71,7 @@ Design a {attitude.lower()} strategy for this game. Your strategy should:
 3. **Handle edge cases** - What do you do in the first round, last rounds, etc.?
 4. **Be {attitude.lower()}** - Clearly align with the {attitude.lower()} mindset
 
-Provide a detailed strategy description with concrete decision rules. Include some pseudocode or logical steps if helpful."""
+Provide a detailed strategy description with concrete decision rules. Include pseudocode or logical steps if helpful."""
 
 
 def create_code_user_prompt(strategy_description: str, game_description: GameDescription) -> str:
@@ -95,18 +95,20 @@ Implement this strategy in a Python block as a callable class with this signatur
 
 ```python
 class Strategy:
-    def __init__(self, game_description: GameDescription):
-        # your implementation here
+    def __init__(self, game_description: {game_description.__class__.__name__}):
+        # your implementation here, for example
         self.game_description = game_description
 
-    def __call__(self, history: PlayerHistory):
+    def __call__(self, history: None | PlayerHistory) -> Action:
         \"\"\"Strategy description here\"\"\"
-        # Your implementation here
-        return C  # or D
+        # Your implementation here, for example
+        return Action.C  # or Action.D
 ```
 
 Existing code:
-{get_interface_description(game_description)}"""
+{get_interface_description(game_description)}
+
+If history is None, then it is the first round"""
 
 
 def get_interface_description(game_description: GameDescription) -> str:
@@ -115,9 +117,10 @@ def get_interface_description(game_description: GameDescription) -> str:
 from enum import Enum
 
 import numpy as np
+from numpy.typing import NDArray
 
 
-{Actions.print_definition}
+{Actions.print_definition()}
 
 
 {game_description.print_definition()}
@@ -125,20 +128,15 @@ import numpy as np
 
 @dataclass
 class PlayerHistory:
-    my_actions: np.ndarray      # This player's actions
-    my_payoffs: np.ndarray      # This player's payoffs
-    opponent_actions: np.ndarray  # Opponents' actions [round, opponent]
-    opponent_payoffs: np.ndarray  # Opponents' payoffs [round, opponent]
+    my_actions: NDArray[np.bool_]    # This player's actions, indexed [round]
+    my_payoffs: NDArray[np.float64]  # This player's payoffs, indexed [round]
+    opponent_actions: NDArray[np.bool_]    # Opponents' actions, indexed [round, player]
+    opponent_payoffs: NDArray[np.float64]  # Opponents' payoffs, indexed [round, player]
 
     @property
     def round_number(self) -> int:
         \"\"\"Current round number (number of completed rounds).\"\"\"
         return len(self.my_actions)
-
-    @property
-    def is_first_round(self) -> bool:
-        \"\"\"True if this is the first round (no history yet).\"\"\"
-        return self.round_number == 0
 
 Requirements:
 - You may not import and libraries."""

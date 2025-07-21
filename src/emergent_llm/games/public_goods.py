@@ -1,6 +1,9 @@
 """Public Goods Game implementation."""
 from dataclasses import dataclass
 
+from numpy.typing import NDArray
+import numpy as np
+
 from emergent_llm.common.actions import Action, C, D
 from emergent_llm.common.game_description import GameDescription
 from emergent_llm.games.base_game import BaseGame
@@ -17,6 +20,7 @@ class PublicGoodsDescription(GameDescription):
         if not (1 < self.k < self.n_players):
             raise ValueError(f"k must be between 1 and {self.n_players}, got {self.k}")
 
+
 class PublicGoodsGame(BaseGame):
     """
     Public Goods Game implementation.
@@ -31,12 +35,9 @@ class PublicGoodsGame(BaseGame):
         """Initialize Public Goods Game with typed description."""
         super().__init__(players, description)
 
-    def calculate_payoffs(self, actions: list[Action]) -> list[float]:
+    def calculate_payoffs(self, actions: NDArray[np.bool_]) -> NDArray[np.float64]:
         """Calculate payoffs for a single round."""
-        cooperators = sum(1 for action in actions if action == C)
+        cooperators = len(actions) - np.sum(actions)
         cooperation_benefit = cooperators * self.description.k / self.n_players
 
-        return [
-            1.0 + cooperation_benefit if action == D else cooperation_benefit
-            for action in actions
-        ]
+        return cooperation_benefit + actions.astype(np.float64)

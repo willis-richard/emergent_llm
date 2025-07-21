@@ -1,6 +1,9 @@
 """Collective Risk Dilemma implementation."""
 from dataclasses import dataclass
 
+from numpy.typing import NDArray
+import numpy as np
+
 from emergent_llm.common.actions import Action, C, D
 from emergent_llm.common.game_description import GameDescription
 from emergent_llm.games.base_game import BaseGame
@@ -35,14 +38,11 @@ class CollectiveRiskGame(BaseGame):
         """Initialize Collective Risk Game with typed description."""
         super().__init__(players, description)
 
-    def calculate_payoffs(self, actions: list[Action]) -> list[float]:
+    def calculate_payoffs(self, actions: NDArray[np.bool_]) -> NDArray[np.float64]:
         """Calculate payoffs for a single round."""
-        cooperators = sum(1 for action in actions if action == C)
+        cooperators = len(actions) - np.sum(actions)
         threshold_met = cooperators >= self.description.m
 
-        collective_reward = self.description.k if threshold_met else 0.0
-
-        return [
-            1.0 + collective_reward if action == D else collective_reward
-            for action in actions
-        ]
+        if threshold_met:
+            return np.ones(len(actions)) * self.description.k + actions.astype(np.float64)
+        return actions.astype(np.float64)

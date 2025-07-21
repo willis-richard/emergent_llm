@@ -143,6 +143,9 @@ def validate_strategy_code(code: str, game_description: GameDescription):
         raise ValueError(f"Code validation failed: {e}")
 
 
+class TestClient:
+    pass
+
 def get_llm_response(client: Union[openai.OpenAI, anthropic.Anthropic],
                      system_prompt: str,
                      user_prompt: str,
@@ -171,6 +174,8 @@ def get_llm_response(client: Union[openai.OpenAI, anthropic.Anthropic],
                     messages=[{"role": "user", "content": user_prompt}]
                 )
                 return response.content[0].text
+            elif isinstance(client, TestClient):
+                return "Cooperate, then do what the majority did, randomly breaking ties."
         except (openai.InternalServerError, anthropic.InternalServerError):
             if attempt < 2:
                 time.sleep(2 ** attempt)  # Exponential backoff
@@ -265,8 +270,13 @@ def main():
     # Setup LLM client
     if args.llm == "openai":
         client = openai.OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-    else:
+    elif args.llm == "anthropic":
         client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    elif args.llm == "test":
+        client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    else:
+        assert False, f"Unknown client {args.llm}"
+
 
     # Create game description
     game_description = create_game_description(args)

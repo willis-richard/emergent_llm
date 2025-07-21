@@ -6,6 +6,18 @@ from emergent_llm.common.history import PlayerHistory
 from emergent_llm.common.game_description import GameDescription
 
 
+class BaseStrategy(ABC):
+    """Abstract base class for strategies, which are callable classes."""
+
+    @abstractmethod
+    def __init__(self, game_description: GameDescription):
+        """For initialising member variables"""
+
+    @abstractmethod
+    def __call__(self, history: None | PlayerHistory) -> Action:
+        """For computing the action"""
+
+
 class BasePlayer(ABC):
     """Abstract base class for players in social dilemma games."""
 
@@ -14,7 +26,13 @@ class BasePlayer(ABC):
         self.name = name
 
     @abstractmethod
-    def __call__(self, history: PlayerHistory) -> Action:
+    def reset(self):
+        """
+        Prepare for a new game
+        """
+
+    @abstractmethod
+    def __call__(self, history: None | PlayerHistory) -> Action:
         """
         Player's strategy function.
 

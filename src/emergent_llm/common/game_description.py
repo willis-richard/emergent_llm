@@ -24,9 +24,14 @@ class GameDescription(ABC):
 
     @classmethod
     def print_definition(cls):
-        print("@dataclass")
-        print(f"class {cls.__name__}:")
+        definition = "@dataclass\n"
+        definition += f"class {cls.__name__}:\n"
 
         for field in fields(cls):
             type_name = field.type.__name__ if hasattr(field.type, '__name__') else str(field.type)
-            print(f"    {field.name}: {type_name}")
+            definition += f"    {field.name}: {type_name}\n"
+
+        definition += "\n".join(
+            f"    {field.name}: {field.type.__name__ if hasattr(field.type, '__name__') else str(field.type)}"
+            for field in fields(cls)
+        )

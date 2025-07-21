@@ -1,0 +1,4 @@
+[tool.mypy]
+mypy_path = "src"
+namespace_packages = true
+explicit_package_bases = true

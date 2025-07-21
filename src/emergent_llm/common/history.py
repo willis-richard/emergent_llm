@@ -1,8 +1,25 @@
 """Game history classes for tournament and player use."""
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 import numpy as np
-from typing import List
+from numpy.typing import NDArray
 from emergent_llm.common.actions import Action
+
+
+@dataclass
+class PlayerHistory:
+    """
+    Player-specific view of game history with convenience access.
+    """
+    my_actions: NDArray[np.bool_]    # This player's actions, indexed [round]
+    my_payoffs: NDArray[np.float64]  # This player's payoffs, indexed [round]
+    opponent_actions: NDArray[np.bool_]    # Opponents' actions, indexed [round, player]
+    opponent_payoffs: NDArray[np.float64]  # Opponents' payoffs, indexed [round, player]
+
+    @property
+    def round_number(self) -> int:
+        """Current round number (number of completed rounds)."""
+        return len(self.my_actions)
+
 
 @dataclass
 class GameHistory:
@@ -10,10 +27,10 @@ class GameHistory:
     Complete game history for tournament/logging use.
     Just stores the raw data without player-specific processing.
     """
-    actions: np.ndarray     # All players' actions [round, player] -> Action
-    payoffs: np.ndarray     # All players' payoffs [round, player] -> float
+    actions: NDArray[np.bool_]    # All players' actions,  indexed [round, player]
+    payoffs: NDArray[np.float64]  # All players' payoffs,  indexed [round, player]
 
-    def for_player(self, player_index: int) -> 'PlayerHistory':
+    def for_player(self, player_index: int) -> None | PlayerHistory:
         """Create player-specific view from this game history."""
 
         if len(self.actions) == 0:  # First round - no history yet
@@ -41,33 +58,10 @@ class GameHistory:
             opponent_payoffs=opponent_payoffs
         )
 
-
-
-@dataclass
-class PlayerHistory:
-    """
-    Player-specific view of game history with convenience access.
-    """
-    my_actions: np.ndarray      # This player's actions
-    my_payoffs: np.ndarray      # This player's payoffs
-    opponent_actions: np.ndarray  # Opponents' actions [round, opponent]
-    opponent_payoffs: np.ndarray  # Opponents' payoffs [round, opponent]
-
-    @property
-    def round_number(self) -> int:
-        """Current round number (number of completed rounds)."""
-        return len(self.my_actions)
-
-    @property
-    def is_first_round(self) -> bool:
-        """True if this is the first round (no history yet)."""
-        return self.round_number == 0
-
-    @classmethod
-    def print_definition(cls):
-        print("@dataclass")
-        print(f"class {cls.__name__}:")
-
-        for field in fields(cls):
-            type_name = field.type.__name__ if hasattr(field.type, '__name__') else str(field.type)
-            print(f"    {field.name}: {type_name}")
+    def update(self, actions: np.ndarray, payoffs: np.ndarray):
+        if self.actions is None:
+            self.actions = actions
+            self.payoffs = payoffs
+        else:
+            self.actions = np.vstack([self.actions, actions])
+            self.payoffs = np.vstack([self.payoffs, payoffs])
