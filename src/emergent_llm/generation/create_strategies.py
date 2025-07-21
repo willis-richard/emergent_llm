@@ -186,21 +186,11 @@ def get_llm_response(client: Union[openai.OpenAI, anthropic.Anthropic],
         raise ValueError(f"Unknown client type: {type(client)}")
 
 
-def write_strategy_class(description: str, code: str, attitude: Attitude,
-    n: int, game_description: GameDescription) -> str:
-    """Write complete strategy class."""
-    # Add proper indentation to the strategy method
-    indented_code = "\n".join("    " + line for line in code.splitlines())
-
-    description_comment = format_class_comment(description)
-
-    return f"""{description_comment}
-class {attitude.name}_{n}(LLMStrategyPlayer):
-n = {n}
-attitude = Attitude.{attitude.name}
-game_type = '{game_description.class.name}'
-game_description = {repr(game_description)}
-{indented_code}"""
+def write_strategy_class():
+    # TODO: still to write:
+    # replace "class Strategy:" with "class Strategy_{n}(BaseStrategy)
+    # this avoids name clash and makes it the correct type to pass
+    # to LLMPlayer
 
 
 def create_single_strategy(client: Union[openai.OpenAI, anthropic.Anthropic],
@@ -225,7 +215,7 @@ def create_single_strategy(client: Union[openai.OpenAI, anthropic.Anthropic],
 def parse_arguments() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description=doc)
-    parser.add_argument("--llm", choices=["openai", "anthropic"], required=True,
+    parser.add_argument("--llm", choices=["openai", "anthropic", "test"], required=True,
                        help="LLM provider to use")
     parser.add_argument("--n", type=int, required=True,
                        help="Number of strategies per attitude to generate")
@@ -293,11 +283,8 @@ from emergent_llm.common.attitudes import Attitude
 from emergent_llm.common.actions import C, D
 import numpy as np""")
 
-    # Generate strategies
-    attitudes = [Attitude.COOPERATIVE, Attitude.AGGRESSIVE, Attitude.NEUTRAL]
-
     with open(output_file, "a", encoding="utf8") as f:
-        for attitude in attitudes:
+        for attitude in Attitude.values:
             for i in range(1, args.n + 1):
                 try:
                     strategy_class = create_single_strategy(
