@@ -1,5 +1,4 @@
 """Test generated LLM strategies for correctness and safety."""
-
 import unittest
 import argparse
 import inspect
@@ -10,12 +9,13 @@ from typing import List, Type
 
 import numpy as np
 
-from emergent_llm.players import LLMStrategyPlayer
+from emergent_llm.players import LLMPlayer as LLMStrategyPlayer
 from emergent_llm.common.actions import C, D
 from emergent_llm.common.history import PlayerHistory
 from emergent_llm.games.public_goods import PublicGoodsGame
 from emergent_llm.games.collective_risk import CollectiveRiskGame
-from emergent_llm.games.game_description import PublicGoodsDescription, CollectiveRiskDescription
+from emergent_llm.games.public_goods import PublicGoodsDescription
+from emergent_llm.games.collective_risk import CollectiveRiskDescription
 
 
 class TestStrategyClass(unittest.TestCase):

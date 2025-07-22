@@ -68,11 +68,24 @@ def generate_strategy_code(client: openai.OpenAI | anthropic.Anthropic,
     validate_strategy_code(code)
     return code
 
-
 def clean_generated_code(response: str) -> str:
     """Clean LLM response to extract just the Python code."""
-    # Remove code block markers
-    code = response.replace("```python", "").replace("```", "").strip()
+    import re
+
+    # First try to extract from code blocks
+    code_block_pattern = r'```(?:python)?\s*\n(.*?)```'
+    code_blocks = re.findall(code_block_pattern, response, re.DOTALL)
+
+    if code_blocks:
+        # Use the first (or largest) code block found
+        code = max(code_blocks, key=len).strip()
+    else:
+        # Fallback: use the entire response if no code blocks found
+        assert False, "No python code block in reponse"
+
+    # Remove any remaining markdown artifacts
+    code = re.sub(r'^```.*$', '', code, flags=re.MULTILINE)
+    code = code.strip()
 
     # Fix common LLM mistakes
     replacements = {
@@ -88,149 +101,6 @@ def clean_generated_code(response: str) -> str:
         code = code.replace(old, new)
 
     return code
-
-# def validate_strategy_code(code: str):
-#     """Validate strategy code for safety and correctness."""
-
-#     # Allowed AST node types for safe code execution
-#     SAFE_NODES = {
-#         # Core nodes
-#         ast.Module, ast.ClassDef, ast.FunctionDef, ast.Return, ast.Assign,
-#         ast.AnnAssign, ast.AugAssign, ast.Expr, ast.Pass,
-
-#         # Control flow
-#         ast.If, ast.IfExp, ast.For, ast.While, ast.Break, ast.Continue,
-
-#         # Operators
-#         ast.BoolOp, ast.BinOp, ast.UnaryOp, ast.Compare,
-#         ast.And, ast.Or, ast.Not,
-#         ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow,
-#         ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE,
-#         ast.Is, ast.IsNot, ast.In, ast.NotIn,
-
-#         # Data structures
-#         ast.List, ast.Tuple, ast.Dict, ast.Set,
-#         ast.ListComp, ast.DictComp, ast.SetComp,
-
-#         # Variables and attributes
-#         ast.Name, ast.Attribute, ast.Subscript, ast.Slice,
-#         ast.Load, ast.Store, ast.Del,
-
-#         # Literals
-#         ast.Constant, ast.Num, ast.Str, ast.Bytes,
-
-#         # Function calls (will be validated separately)
-#         ast.Call,
-
-#         # Arguments
-#         ast.arguments, ast.arg, ast.keyword,
-#     }
-
-#     # Allowed function calls (whitelist approach)
-#     SAFE_FUNCTIONS = {
-#         'len', 'max', 'min', 'sum', 'abs', 'round', 'int', 'float', 'bool',
-#         'list', 'tuple', 'dict', 'set', 'str',
-#         'range', 'enumerate', 'zip',
-#     }
-
-#     # Allowed numpy functions
-#     SAFE_NUMPY_FUNCTIONS = {
-#         'random', 'mean', 'std', 'sum', 'max', 'min', 'argmax', 'argmin',
-#         'where', 'any', 'all', 'count_nonzero',
-#     }
-
-#     # Dangerous patterns to explicitly block
-#     DANGEROUS_PATTERNS = [
-#         '__', 'import', 'exec', 'eval', 'compile', 'open', 'file',
-#         'input', 'raw_input', 'globals', 'locals', 'vars', 'dir',
-#         'getattr', 'setattr', 'delattr', 'hasattr',
-#     ]
-
-#     def is_safe_node(node):
-#         """Check if AST node is safe."""
-#         if type(node) not in SAFE_NODES:
-#             raise ValueError(f"Unsafe node type: {type(node).__name__}")
-
-#         # Special validation for function calls
-#         if isinstance(node, ast.Call):
-#             if isinstance(node.func, ast.Name):
-#                 if node.func.id not in SAFE_FUNCTIONS:
-#                     raise ValueError(f"Unsafe function call: {node.func.id}")
-#             elif isinstance(node.func, ast.Attribute):
-#                 # Allow numpy functions like np.random.random()
-#                 if isinstance(node.func.value, ast.Name) and node.func.value.id == 'np':
-#                     if node.func.attr not in SAFE_NUMPY_FUNCTIONS:
-#                         raise ValueError(f"Unsafe numpy function: np.{node.func.attr}")
-#                 else:
-#                     raise ValueError(f"Unsafe attribute call: {ast.unparse(node.func)}")
-#             else:
-#                 raise ValueError(f"Complex function call not allowed: {ast.unparse(node.func)}")
-
-#         # Check for dangerous patterns in names
-#         if isinstance(node, ast.Name):
-#             for pattern in DANGEROUS_PATTERNS:
-#                 if pattern in node.id.lower():
-#                     raise ValueError(f"Dangerous pattern '{pattern}' in name: {node.id}")
-
-#         # Check for dangerous patterns in attributes
-#         if isinstance(node, ast.Attribute):
-#             for pattern in DANGEROUS_PATTERNS:
-#                 if pattern in node.attr.lower():
-#                     raise ValueError(f"Dangerous pattern '{pattern}' in attribute: {node.attr}")
-
-#         # Recursively check child nodes
-#         for child in ast.iter_child_nodes(node):
-#             is_safe_node(child)
-
-#     try:
-#         # Check for dangerous patterns in the raw code
-#         code_lower = code.lower()
-#         for pattern in DANGEROUS_PATTERNS:
-#             if pattern in code_lower:
-#                 raise ValueError(f"Dangerous pattern found in code: {pattern}")
-
-#         # Parse the code
-#         tree = ast.parse(code)
-
-#         # Must be exactly one class definition
-#         if len(tree.body) != 1 or not isinstance(tree.body[0], ast.ClassDef):
-#             raise ValueError("Code must contain exactly one class definition")
-
-#         class_def = tree.body[0]
-
-#         # Check class name
-#         if not class_def.name.startswith('Strategy'):
-#             raise ValueError(f"Class must be named 'Strategy*', got '{class_def.name}'")
-
-#         # Must have __init__ and __call__ methods
-#         methods = [node for node in class_def.body if isinstance(node, ast.FunctionDef)]
-#         method_names = [method.name for method in methods]
-
-#         if '__init__' not in method_names:
-#             raise ValueError("Strategy class must have __init__ method")
-#         if '__call__' not in method_names:
-#             raise ValueError("Strategy class must have __call__ method")
-
-#         # Validate method signatures
-#         for method in methods:
-#             if method.name == '__init__':
-#                 args = [arg.arg for arg in method.args.args]
-#                 if args != ['self', 'game_description']:
-#                     raise ValueError(f"__init__ signature must be (self, game_description), got {args}")
-#             elif method.name == '__call__':
-#                 args = [arg.arg for arg in method.args.args]
-#                 if args != ['self', 'history']:
-#                     raise ValueError(f"__call__ signature must be (self, history), got {args}")
-
-#         # Check for unsafe constructs
-#         is_safe_node(class_def)
-
-#         logger.info("Code validation passed")
-
-#     except SyntaxError as e:
-#         raise ValueError(f"Syntax error in generated code: {e}")
-#     except Exception as e:
-#         raise ValueError(f"Code validation failed: {e}")
 
 
 def validate_strategy_code(code: str):
@@ -450,6 +320,8 @@ from emergent_llm.players.base_player import BaseStrategy
 from emergent_llm.common.actions import Action, C, D
 from emergent_llm.common.history import PlayerHistory
 import numpy as np
+from numpy.typing import NDArray
+import random
 
 '''
 

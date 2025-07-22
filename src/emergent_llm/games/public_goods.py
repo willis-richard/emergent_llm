@@ -35,7 +35,7 @@ class PublicGoodsGame(BaseGame):
         """Initialize Public Goods Game with typed description."""
         super().__init__(players, description)
 
-    def calculate_payoffs(self, actions: NDArray[np.bool_]) -> NDArray[np.float64]:
+    def _calculate_payoffs(self, actions: NDArray[np.bool_]) -> NDArray[np.float64]:
         """Calculate payoffs for a single round."""
         cooperators = len(actions) - np.sum(actions)
         cooperation_benefit = cooperators * self.description.k / self.n_players

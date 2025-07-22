@@ -38,7 +38,7 @@ class CollectiveRiskGame(BaseGame):
         """Initialize Collective Risk Game with typed description."""
         super().__init__(players, description)
 
-    def calculate_payoffs(self, actions: NDArray[np.bool_]) -> NDArray[np.float64]:
+    def _calculate_payoffs(self, actions: NDArray[np.bool_]) -> NDArray[np.float64]:
         """Calculate payoffs for a single round."""
         cooperators = len(actions) - np.sum(actions)
         threshold_met = cooperators >= self.description.m

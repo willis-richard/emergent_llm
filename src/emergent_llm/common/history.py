@@ -33,14 +33,6 @@ class GameHistory:
     def for_player(self, player_index: int) -> None | PlayerHistory:
         """Create player-specific view from this game history."""
 
-        if len(self.actions) == 0:  # First round - no history yet
-            return PlayerHistory(
-                my_actions=np.array([], dtype=object),
-                my_payoffs=np.array([]),
-                opponent_actions=np.array([[]]),
-                opponent_payoffs=np.array([[]])
-            )
-
         # Extract player-specific data
         my_actions = self.actions[:, player_index]
         my_payoffs = self.payoffs[:, player_index]
