@@ -68,20 +68,26 @@ def generate_strategy_code(client: openai.OpenAI | anthropic.Anthropic,
     validate_strategy_code(code)
     return code
 
+
 def clean_generated_code(response: str) -> str:
     """Clean LLM response to extract just the Python code."""
     import re
 
-    # First try to extract from code blocks
+    # Extract from code blocks with proper multiline matching
     code_block_pattern = r'```(?:python)?\s*\n(.*?)```'
     code_blocks = re.findall(code_block_pattern, response, re.DOTALL)
 
     if code_blocks:
-        # Use the first (or largest) code block found
+        # Use the largest code block found (most likely to be the complete class)
         code = max(code_blocks, key=len).strip()
     else:
-        # Fallback: use the entire response if no code blocks found
-        assert False, "No python code block in reponse"
+        # Fallback: look for class definition without code blocks
+        class_pattern = r'(class\s+\w+.*?)(?=\n\n|\Z)'
+        class_matches = re.findall(class_pattern, response, re.DOTALL)
+        if class_matches:
+            code = class_matches[0].strip()
+        else:
+            raise ValueError("No Python code block or class definition found in response")
 
     # Remove any remaining markdown artifacts
     code = re.sub(r'^```.*$', '', code, flags=re.MULTILINE)
@@ -107,20 +113,39 @@ def validate_strategy_code(code: str):
     """Validate strategy code for safety and correctness."""
     def is_safe_node(node):
         """Check if AST node is safe."""
+        # yapf: disable
         allowed_types = (
-            ast.Return, ast.UnaryOp, ast.BoolOp, ast.BinOp, ast.FunctionDef,
-            ast.If, ast.IfExp, ast.And, ast.Or, ast.Not, ast.Compare,
-            ast.List, ast.Dict, ast.Tuple, ast.Constant, ast.Num, ast.Str,
-            ast.Name, ast.arguments, ast.arg, ast.Expr, ast.Attribute,
+            ast.Return, ast.UnaryOp, ast.BoolOp, ast.BinOp, ast.ClassDef, ast.FunctionDef,
+            ast.If, ast.IfExp, ast.And, ast.Or, ast.Not, ast.Eq,
+            ast.BitOr, ast.BitAnd, ast.BitXor, ast.Invert,
+            ast.List, ast.Dict, ast.Tuple, ast.Num, ast.Str, ast.Constant, ast.Set,
+            ast.arg, ast.Name, ast.arguments, ast.keyword, ast.Expr, ast.Attribute,
             ast.Call, ast.Store, ast.Load, ast.Subscript, ast.Index, ast.Slice,
+            ast.GeneratorExp, ast.comprehension, ast.ListComp, ast.Lambda, ast.DictComp,
             ast.For, ast.While, ast.Pass, ast.Break, ast.Continue,
-            ast.Assign, ast.AugAssign, ast.Add, ast.Sub, ast.Mult, ast.Div,
+            ast.Assign, ast.AugAssign, ast.AnnAssign,
             ast.Gt, ast.Lt, ast.GtE, ast.LtE, ast.Eq, ast.NotEq,
-            ast.In, ast.NotIn, ast.Is, ast.IsNot
+            ast.In, ast.NotIn, ast.Is, ast.IsNot, ast.Compare, ast.USub,
+            ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Pow, ast.Mod,
         )
+        # yapf: enable
+
+        # Dangerous constructs
+        dangerous_types = (ast.Import, ast.ImportFrom, ast.Global, ast.Nonlocal,
+                          ast.Delete, ast.With, ast.AsyncWith, ast.Try, ast.Raise)
+
+        if isinstance(node, dangerous_types):
+            raise ValueError(f"Dangerous node type: {type(node).__name__}\nnode:\n{ast.unparse(node)}")
 
         if not isinstance(node, allowed_types):
-            raise ValueError(f"Unsafe node type: {type(node).__name__}")
+            raise ValueError(f"Unsafe node type: {type(node).__name__}\nnode:\n{ast.unparse(node)}")
+
+        # Check for dangerous function calls
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                dangerous_funcs = {'eval', 'exec', 'compile', 'open', '__import__', 'globals', 'locals', 'vars', 'dir'}
+                if node.func.id in dangerous_funcs:
+                    raise ValueError(f"Dangerous function call: {node.func.id}\nnode:\n{ast.unparse(node)}")
 
         for child in ast.iter_child_nodes(node):
             is_safe_node(child)
@@ -129,24 +154,41 @@ def validate_strategy_code(code: str):
         # Parse the code
         tree = ast.parse(code)
 
-        # Must be exactly one function
-        if len(tree.body) != 1 or not isinstance(tree.body[0], ast.FunctionDef):
-            raise ValueError("Code must contain exactly one function definition")
+        # Must be exactly one class
+        if len(tree.body) != 1 or not isinstance(tree.body[0], ast.ClassDef):
+            raise ValueError("Code must contain exactly one class definition")
 
-        func = tree.body[0]
+        class_def = tree.body[0]
 
-        # Check function name and signature
-        if func.name != 'strategy':
-            raise ValueError(f"Function must be named 'strategy', got '{func.name}'")
+        # Check class structure
+        required_methods = {'__init__', '__call__'}
+        found_methods = set()
 
-        args = [arg.arg for arg in func.args.args]
-        if args != ['self', 'history']:
-            raise ValueError(f"Function signature must be (self, history), got {args}")
+        for node in class_def.body:
+            if isinstance(node, ast.FunctionDef):
+                found_methods.add(node.name)
+
+                # Validate __init__ method
+                if node.name == '__init__':
+                    args = [arg.arg for arg in node.args.args]
+                    if args != ['self', 'game_description']:
+                        raise ValueError("__init__ must have signature (self, game_description)")
+
+                # Validate __call__ method
+                elif node.name == '__call__':
+                    args = [arg.arg for arg in node.args.args]
+                    if args != ['self', 'history']:
+                        raise ValueError("__call__ must have signature (self, history)")
+
+        # Check required methods exist
+        missing_methods = required_methods - found_methods
+        if missing_methods:
+            raise ValueError(f"Missing required methods: {missing_methods}")
 
         # Check for unsafe constructs
-        is_safe_node(func)
+        is_safe_node(class_def)
 
-        logger.info("Code validation passed")
+        logger.info("Class validation passed")
 
     except SyntaxError as e:
         raise ValueError(f"Syntax error in generated code: {e}")
@@ -201,7 +243,7 @@ def write_strategy_class(description: str, code: str, attitude: Attitude, n: int
                         game_description: GameDescription) -> str:
     """Create a complete strategy class with proper naming and documentation."""
 
-    # Extract class definition from generated code
+    # Parse and modify the class
     tree = ast.parse(code)
     class_def = tree.body[0]
 
@@ -209,17 +251,16 @@ def write_strategy_class(description: str, code: str, attitude: Attitude, n: int
     class_name = f"Strategy_{attitude.name}_{n}"
     class_def.name = class_name
 
-    # # Add docstring with strategy description
-    # docstring = f'"""{description.strip()}"""'
-    # docstring_node = ast.Expr(value=ast.Constant(value=description.strip()))
-    # class_def.body.insert(0, docstring_node)
-
-    # Add game description as class attribute
-    game_desc_assignment = ast.Assign(
-        targets=[ast.Name(id='game_description', ctx=ast.Store())],
-        value=ast.Constant(value=game_description.to_dict())
-    )
-    class_def.body.insert(1, game_desc_assignment)
+    # Add docstring to __call__ method if it doesn't exist
+    for node in class_def.body:
+        if isinstance(node, ast.FunctionDef) and node.name == '__call__':
+            if (not node.body or
+                not isinstance(node.body[0], ast.Expr) or
+                not isinstance(node.body[0].value, ast.Constant)):
+                # Add docstring
+                docstring = ast.Expr(value=ast.Constant(value=description.strip()))
+                node.body.insert(0, docstring)
+            break
 
     # Convert back to source code
     return ast.unparse(tree)
@@ -228,20 +269,33 @@ def write_strategy_class(description: str, code: str, attitude: Attitude, n: int
 def create_single_strategy(client: openai.OpenAI | anthropic.Anthropic,
                            attitude: Attitude, n: int,
                            game_description: GameDescription,
-                           temperature: float) -> str:
-    """Create a single strategy class."""
-    print(f"Generating {attitude.name}_{n}...")
+                           temperature: float,
+                           max_retries: int = 3) -> str:
+    """Create a single strategy class with retry logic."""
 
-    # Step 1: Generate strategy description
-    description = generate_strategy_description(client, attitude, game_description, temperature)
+    for attempt in range(max_retries):
+        try:
+            print(f"Generating {attitude.name}_{n} (attempt {attempt + 1})...")
 
-    # Step 2: Generate code implementation
-    code = generate_strategy_code(client, description, game_description)
+            # Step 1: Generate strategy description
+            description = generate_strategy_description(client, attitude, game_description, temperature)
 
-    # Step 3: Create complete class
-    class_code = write_strategy_class(description, code, attitude, n, game_description)
+            # Step 2: Generate code implementation
+            code = generate_strategy_code(client, description, game_description)
 
-    return class_code
+            # Step 3: Create complete class
+            class_code = write_strategy_class(description, code, attitude, n, game_description)
+
+            # Step 4: Test the generated strategy
+            # test_generated_strategy(class_code, game_description)
+
+            return class_code
+
+        except Exception as e:
+            logger.warning(f"Attempt {attempt + 1} failed for {attitude.name}_{n}: {e}")
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(1)  # Brief pause before retry
 
 
 def parse_arguments() -> argparse.Namespace:

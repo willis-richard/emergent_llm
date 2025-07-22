@@ -108,38 +108,37 @@ Provide a detailed strategy description with concrete decision rules. Include ps
 def create_code_user_prompt(strategy_description: str, game_description: GameDescription) -> str:
     """Create user prompt for code generation."""
 
-    return f"""Your task is to convert a natural language strategy description into clean, efficient Python code.
-
-Focus on:
-- Correct logic implementation
-- Proper state management using self attributes
-- Handling edge cases (first round, empty history)
-- Clean, readable code structure
+    return f"""Convert this strategy description into a Python class that inherits from BaseStrategy.
 
 {format_game_description(game_description)}
 
 **Strategy to Implement:**
 {strategy_description}
 
-**Your Task:**
-Implement this strategy in a Python block as a callable class with this signature:
+**Requirements:**
+- Must be a single class inheriting from BaseStrategy
+- Must implement __init__(self, game_description) and __call__(self, history)
+- Return only the class definition, no explanatory text
+- Use only numpy and random operations, and basic Python (no imports allowed)
+- Handle first round (history=None) appropriately
 
+**Template:**
 ```python
-class Strategy:
+class Strategy(BaseStrategy):
     def __init__(self, game_description: {game_description.__class__.__name__}):
-        # your implementation here, for example
+        # Initialize any state variables here
         self.game_description = game_description
 
     def __call__(self, history: None | PlayerHistory) -> Action:
-        \"\"\"Strategy description here\"\"\"
-        # Your implementation here, for example
+        \"\"\"Your strategy description here\"\"\"
+        if history is None:
+            # First round logic
+            return Action.C  # or Action.D
+
+        # Subsequent rounds logic using history
         return Action.C  # or Action.D
-```
 
-Existing code:
-{get_interface_description(game_description)}
-
-If history is None, then it is the first round"""
+{get_interface_description(game_description)}"""
 
 
 def get_interface_description(game_description: GameDescription) -> str:
