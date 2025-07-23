@@ -1,19 +1,23 @@
 """Generate LLM strategies for social dilemma games."""
 import argparse
 import ast
+import importlib.util
+import inspect
 import logging
 import os
-import textwrap
 import time
+import numpy as np
 
 import anthropic
 import openai
+from emergent_llm.common.actions import Action, C, D
 from emergent_llm.common.attitudes import AGGRESSIVE, COOPERATIVE, Attitude
 from emergent_llm.common.game_description import GameDescription
 from emergent_llm.games.collective_risk import CollectiveRiskDescription
 from emergent_llm.games.public_goods import PublicGoodsDescription
 from emergent_llm.generation.prompts import (create_code_user_prompt,
                                              create_strategy_user_prompt)
+from emergent_llm.players.base_player import BaseStrategy
 
 # Configure logging
 logging.basicConfig(
@@ -60,7 +64,6 @@ def generate_strategy_code(client: openai.OpenAI | anthropic.Anthropic,
     logger.info(f"Code user prompt: {user_prompt}")
 
     response = get_llm_response(client, system_prompt, user_prompt, temperature=0.0)
-
     logger.info(f"Generated code: {response}")
 
     # Clean and validate the code
@@ -191,13 +194,81 @@ def validate_strategy_code(code: str):
         logger.info("Class validation passed")
 
     except SyntaxError as e:
-        raise ValueError(f"Syntax error in generated code: {e}")
+        raise ValueError(f"Syntax error in generated code: {e}") from e
     except Exception as e:
-        raise ValueError(f"Code validation failed: {e}")
+        raise ValueError(f"Code validation failed: {e}") from e
 
 
-class TestClient:
-    pass
+def test_generated_strategy(class_code: str, game_description: GameDescription):
+    """Test the generated strategy by actually running it in games."""
+    import tempfile
+
+    from emergent_llm.common.attitudes import Attitude
+    from emergent_llm.players import LLMPlayer, SimplePlayer
+
+    # Create a temporary module to load the strategy
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+        # Write necessary imports and the class
+        f.write("""
+from emergent_llm.players.base_player import BaseStrategy
+from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription
+from emergent_llm.common.actions import Action, C, D
+from emergent_llm.common.history import PlayerHistory
+import numpy as np
+from numpy.typing import NDArray
+import random
+
+""")
+        f.write(class_code)
+        temp_file = f.name
+
+    try:
+        # Load the temporary module
+        spec = importlib.util.spec_from_file_location("temp_strategy", temp_file)
+        temp_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(temp_module)
+
+        # Find the strategy class
+        strategy_classes = [cls for name, cls in inspect.getmembers(temp_module)
+                          if inspect.isclass(cls) and issubclass(cls, BaseStrategy) and cls != BaseStrategy]
+
+        if not strategy_classes:
+            raise ValueError("No strategy class found in generated code")
+
+        assert len(strategy_classes) == 1, "More than one strategy class defined"
+        strategy_class = strategy_classes[0]
+
+        # Determine game type and create test games
+        if isinstance(game_description, PublicGoodsDescription):
+            from emergent_llm.games.public_goods import PublicGoodsGame
+            game_class = PublicGoodsGame
+        elif isinstance(game_description, CollectiveRiskDescription):
+            from emergent_llm.games.collective_risk import CollectiveRiskGame
+            game_class = CollectiveRiskGame
+        else:
+            raise ValueError(f"Unknown game description type: {type(game_description)}")
+
+        # Create test player
+        player = LLMPlayer("test_player", Attitude.COOPERATIVE, game_description, strategy_class)
+
+        # Test against different opponent types
+        test_mixtures = [
+            [SimplePlayer(f"cooperator_{i}", lambda: C) for i in range(game_description.n_players - 1)],
+            [SimplePlayer(f"defector_{i}", lambda: D) for i in range(game_description.n_players - 1)],
+            [SimplePlayer(f"random_{i}", lambda: np.random.choice([C, D])) for i in range(game_description.n_players - 1)],
+        ]
+
+        for mixture in test_mixtures:
+            players = [player] + mixture
+            game = game_class(players, game_description)
+
+            # This will raise an exception if the strategy fails
+            result = game.play_game()
+
+    finally:
+        # Clean up temp file
+        os.unlink(temp_file)
+
 
 def get_llm_response(client: openai.OpenAI | anthropic.Anthropic,
                      system_prompt: str,
@@ -227,8 +298,6 @@ def get_llm_response(client: openai.OpenAI | anthropic.Anthropic,
                     messages=[{"role": "user", "content": user_prompt}]
                 )
                 return response.content[0].text
-            elif isinstance(client, TestClient):
-                return "Cooperate, then do what the majority did, randomly breaking ties."
         except (openai.InternalServerError, anthropic.InternalServerError):
             if attempt < 2:
                 time.sleep(2 ** attempt)  # Exponential backoff
@@ -251,16 +320,16 @@ def write_strategy_class(description: str, code: str, attitude: Attitude, n: int
     class_name = f"Strategy_{attitude.name}_{n}"
     class_def.name = class_name
 
-    # Add docstring to __call__ method if it doesn't exist
-    for node in class_def.body:
-        if isinstance(node, ast.FunctionDef) and node.name == '__call__':
-            if (not node.body or
-                not isinstance(node.body[0], ast.Expr) or
-                not isinstance(node.body[0].value, ast.Constant)):
-                # Add docstring
-                docstring = ast.Expr(value=ast.Constant(value=description.strip()))
-                node.body.insert(0, docstring)
-            break
+    # # Add docstring to __call__ method if it doesn't exist
+    # for node in class_def.body:
+    #     if isinstance(node, ast.FunctionDef) and node.name == '__call__':
+    #         if (not node.body or
+    #             not isinstance(node.body[0], ast.Expr) or
+    #             not isinstance(node.body[0].value, ast.Constant)):
+    #             # Add docstring
+    #             docstring = ast.Expr(value=ast.Constant(value=description.strip()))
+    #             node.body.insert(0, docstring)
+    #         break
 
     # Convert back to source code
     return ast.unparse(tree)
@@ -287,7 +356,7 @@ def create_single_strategy(client: openai.OpenAI | anthropic.Anthropic,
             class_code = write_strategy_class(description, code, attitude, n, game_description)
 
             # Step 4: Test the generated strategy
-            # test_generated_strategy(class_code, game_description)
+            test_generated_strategy(class_code, game_description)
 
             return class_code
 
@@ -323,20 +392,21 @@ def parse_arguments() -> argparse.Namespace:
 
     return parser.parse_args()
 
+
 def create_game_description(args: argparse.Namespace) -> GameDescription:
     """Create game description from arguments."""
     if args.game == "public_goods":
         return PublicGoodsDescription(
-            n_players=args.n_players,
-            n_rounds=args.n_rounds,
-            k=args.k
+            n_players=6,
+            n_rounds=20,
+            k=2.0
         )
     elif args.game == "collective_risk":
         return CollectiveRiskDescription(
-            n_players=args.n_players,
-            n_rounds=args.n_rounds,
-            m=args.m,
-            k=args.k
+            n_players=6,
+            n_rounds=20,
+            m=3,
+            k=2.0,
         )
     else:
         raise ValueError(f"Unknown game: {args.game}")
@@ -371,6 +441,7 @@ Each strategy is a callable class that implements a specific approach to the gam
 """
 
 from emergent_llm.players.base_player import BaseStrategy
+from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription
 from emergent_llm.common.actions import Action, C, D
 from emergent_llm.common.history import PlayerHistory
 import numpy as np

@@ -87,9 +87,9 @@ def create_test(strategy_class: type, game_name: str, log: bool = False):
 
         # Test in different opponent mixtures
         test_mixtures = [
-            [SimplePlayer(f"cooperator_{i}", lambda: C) for i in range(5)],
-            [SimplePlayer(f"defector_{i}", lambda: D) for i in range(5)],
-            [SimplePlayer(f"random_{i}", lambda: np.random.choice([C,D])) for i in range(5)],
+            [SimplePlayer(f"cooperator_{i}", lambda: C) for i in range(game_description.n_players - 1)],
+            [SimplePlayer(f"defector_{i}", lambda: D) for i in range(game_description.n_players - 1)],
+            [SimplePlayer(f"random_{i}", lambda: np.random.choice([C,D])) for i in range(game_description.n_players - 1)],
         ]
 
         for i, mixture in enumerate(test_mixtures):

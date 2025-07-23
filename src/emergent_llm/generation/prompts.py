@@ -118,8 +118,9 @@ def create_code_user_prompt(strategy_description: str, game_description: GameDes
 **Requirements:**
 - Must be a single class inheriting from BaseStrategy
 - Must implement __init__(self, game_description) and __call__(self, history)
-- Return only the class definition, no explanatory text
-- Use only numpy and random operations, and basic Python (no imports allowed)
+- The __call__ method must have a proper docstring that concisely describes the strategy
+- Return only the class definition, wrapped in a python block, no explanatory text
+- Use only numpy, random, and basic Python (no imports allowed)
 - Handle first round (history=None) appropriately
 
 **Template:**
@@ -130,7 +131,7 @@ class Strategy(BaseStrategy):
         self.game_description = game_description
 
     def __call__(self, history: None | PlayerHistory) -> Action:
-        \"\"\"Your strategy description here\"\"\"
+        \"\"\"Write a description of your strategy here.\"\"\"
         if history is None:
             # First round logic
             return Action.C  # or Action.D
