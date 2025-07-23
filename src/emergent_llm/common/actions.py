@@ -16,11 +16,12 @@ class Action(Enum):
     def __str__(self) -> str:
         return self.name
 
+    def __bool__(self) -> bool:
+        """Convert to boolean. C=False, D=True."""
+        return bool(self.value)
+
     def flip(self) -> "Action":
-        """Returns the opposite Action."""
-        if self == Action.C:
-            return Action.D
-        return Action.C
+        return Action(1 - self.value)
 
     @classmethod
     def print_definition(cls) -> str:

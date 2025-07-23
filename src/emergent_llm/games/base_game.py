@@ -46,12 +46,12 @@ class BaseGame(ABC):
         """Play a single round of the game."""
         if self.history is None:
             # Get actions from each player
-            actions = np.array([player(None) for player in players])
+            actions = np.array([player(None).value for player in players])
 
         else:
             # Get actions from each player
-            actions = np.array([player(self.history.for_player(i))
-                                for i, player in enumerate(players)])
+            actions = np.array([player(self.history.for_player(i)).value
+                                for i, player in enumerate(players)], dtype=np.bool_)
 
         # Calculate payoffs for this round
         payoffs = self._calculate_payoffs(actions)

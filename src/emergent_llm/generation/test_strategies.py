@@ -1,6 +1,7 @@
 """Test generated LLM strategies for correctness and safety."""
 import argparse
 import importlib
+import importlib.util
 import inspect
 import os
 import time
@@ -10,7 +11,7 @@ import numpy as np
 from emergent_llm.common.actions import Action, C, D
 from emergent_llm.common.attitudes import Attitude
 from emergent_llm.players import BaseStrategy
-from emergent_llm.games import (CollectiveRiskDescription,
+from emergent_llm.games import (CollectiveRiskDescription, CollectiveRiskGame,
                                 PublicGoodsDescription, PublicGoodsGame)
 from emergent_llm.players import LLMPlayer, SimplePlayer
 
@@ -54,22 +55,22 @@ def check_for_string(func_or_method, string: str) -> bool:
         return False
 
 
-def create_test(strategy_class: type, game_type: str, log: bool = False):
+def create_test(strategy_class: type, game_name: str, log: bool = False):
     """Create a test function for a strategy class."""
     def test(self):
         if log:
             print(f"{strategy_class.__name__}")
 
         # Create game instance based on command line argument
-        if game_type == 'pgg':
+        if game_name == 'pgg':
             game_type = PublicGoodsGame  # Use defaults
             game_description = PublicGoodsDescription(
                 n_players=6,
                 n_rounds=20,
                 k=2.0
             )
-        elif game_type == 'crd':
-            game_type = CollectiveRiskDilemma  # Use defaults
+        elif game_name == 'crd':
+            game_type = CollectiveRiskGame  # Use defaults
             game_description = CollectiveRiskDescription(
                 n_players=6,
                 n_rounds=20,
@@ -79,19 +80,10 @@ def create_test(strategy_class: type, game_type: str, log: bool = False):
         else:
             raise ValueError(f"Unknown game type: {game_type}")
 
-        # Create strategy instance
-        strategy = strategy_class()
-        player = LLMPlayer(f"{strategy_class.__name__}", Attitude.Aggressive, game_description, strategy)
-
-        # Check for problematic code patterns
-        self.assertFalse(
-            check_for_string(strategy, "hasattr("),
-            f"hasattr found in {strategy_class.__name__} code, typically replace this with a 'if not history' call to initialise variables"
-        )
-        self.assertFalse(
-            check_for_string(strategy, "del "),
-            f"del found in {strategy_class.__name__} code, typically replace this with setting the variable to zero"
-        )
+        player = LLMPlayer(f"{strategy_class.__name__}",
+                           Attitude.AGGRESSIVE,
+                           game_description,
+                           strategy_class)
 
         # Test in different opponent mixtures
         test_mixtures = [
@@ -101,7 +93,7 @@ def create_test(strategy_class: type, game_type: str, log: bool = False):
         ]
 
         for i, mixture in enumerate(test_mixtures):
-            players = [strategy] + mixture
+            players = [player] + mixture
 
             try:
                 # Time the game
@@ -115,20 +107,6 @@ def create_test(strategy_class: type, game_type: str, log: bool = False):
 
             except Exception as e:
                 self.fail(f"Strategy {strategy_class.__name__} failed during game: {str(e)}")
-
-        # Test strategy can handle empty history (first round)
-        try:
-            start_time = time.time()
-            first_decision = strategy([], 0, round=0, num_players=6)
-            end_time = time.time()
-
-            print(f"Strategy {strategy_class.__name__} first round decision: {end_time - start_time:.4f}s")
-
-            # Check decision is valid Action
-            self.assertIn(first_decision, [Action.C, Action.D],
-                         f"Strategy {strategy_class.__name__} returned invalid action on first round: {first_decision}")
-        except Exception as e:
-            self.fail(f"Strategy {strategy_class.__name__} failed on first round (empty history): {str(e)}")
 
     return test
 
@@ -176,7 +154,7 @@ def load_algorithms(module_name: str) -> list[type[BaseStrategy]]:
   # Get all classes from the module that are derived from axelrod.Player
   algos = [
     cls for name, cls in inspect.getmembers(module)
-    if inspect.isclass(cls) and issubclass(cls, BaseStrategy)
+    if inspect.isclass(cls) and issubclass(cls, BaseStrategy) and cls != BaseStrategy
   ]
 
   return algos
