@@ -30,6 +30,13 @@ class GameHistory:
     actions: NDArray[np.bool_]    # All players' actions,  indexed [round, player]
     payoffs: NDArray[np.float64]  # All players' payoffs,  indexed [round, player]
 
+    def __post_init__(self):
+        """Ensure arrays are always 2D."""
+        if self.actions.ndim == 1:
+            self.actions = self.actions.reshape(1, -1)
+        if self.payoffs.ndim == 1:
+            self.payoffs = self.payoffs.reshape(1, -1)
+
     def for_player(self, player_index: int) -> None | PlayerHistory:
         """Create player-specific view from this game history."""
 
@@ -50,10 +57,12 @@ class GameHistory:
             opponent_payoffs=opponent_payoffs
         )
 
-    def update(self, actions: np.ndarray, payoffs: np.ndarray):
-        if self.actions is None:
-            self.actions = actions
-            self.payoffs = payoffs
-        else:
-            self.actions = np.vstack([self.actions, actions])
-            self.payoffs = np.vstack([self.payoffs, payoffs])
+    def update(self, actions: NDArray[np.bool_], payoffs: NDArray[np.float64]):
+        # Ensure input arrays are 2D
+        if actions.ndim == 1:
+            actions = actions.reshape(1, -1)
+        if payoffs.ndim == 1:
+            payoffs = payoffs.reshape(1, -1)
+
+        self.actions = np.vstack([self.actions, actions])
+        self.payoffs = np.vstack([self.payoffs, payoffs])
