@@ -26,26 +26,24 @@ class GameResult:
         lines.append("=" * 60)
         if match_id:
             lines.append(f"MATCH: {match_id}")
-        else:
-            lines.append("MATCH RESULT")
         lines.append("=" * 60)
 
-        # Player list
+        # Player list with their actual names and strategies
         lines.append("PLAYERS:")
         for i, player_name in enumerate(self.players):
             lines.append(f"  {i}: {player_name}")
         lines.append("")
 
-        # Actions DataFrame
+        # Actions DataFrame - already correctly implemented
         lines.append("ACTIONS:")
         actions_df = self._create_actions_dataframe()
-        lines.append(actions_df.to_string(index=False))
+        lines.append(actions_df.to_string(index=True))  # Show round index
         lines.append("")
 
-        # Payoffs DataFrame
+        # Payoffs DataFrame - already correctly implemented
         lines.append("PAYOFFS:")
         payoffs_df = self._create_payoffs_dataframe()
-        lines.append(payoffs_df.to_string(index=False, float_format='%.3f'))
+        lines.append(payoffs_df.to_string(index=True, float_format='%.3f'))  # Show round index
         lines.append("")
 
         # Final scores
@@ -55,11 +53,9 @@ class GameResult:
             lines.append(f"  Player {i}: {total_payoff:.3f}")
         lines.append(f"Average: {total_payoffs.mean():.3f}")
         lines.append("=" * 60)
-        lines.append("")
 
         result_str = "\n".join(lines)
 
-        # Log it if logger provided
         if logger:
             logger.info(result_str)
 

@@ -16,12 +16,16 @@ sys.path.insert(0, str(src_path))
 
 from emergent_llm.tournament.mixture_tournament import MixtureTournament
 from emergent_llm.players.base_player import BaseStrategy
+from emergent_llm.common import GameDescription
+from emergent_llm.players import LLMPlayer, BasePlayer
+from emergent_llm.common import Attitude
 from emergent_llm.games.public_goods import PublicGoodsGame, PublicGoodsDescription
 from emergent_llm.games.collective_risk import CollectiveRiskGame, CollectiveRiskDescription
 
 
-def load_strategies_from_file(file_path: str):
-    """Load strategy classes from a Python file."""
+
+def load_strategies_from_file(file_path: str, game_description: GameDescription):
+    """Load strategy classes and create player instances."""
     if not file_path.endswith(".py"):
         file_path += ".py"
 
@@ -34,8 +38,8 @@ def load_strategies_from_file(file_path: str):
     spec.loader.exec_module(module)
 
     # Extract strategy classes
-    cooperative_strategies = []
-    aggressive_strategies = []
+    cooperative_strategy_classes = []
+    aggressive_strategy_classes = []
 
     for name, cls in inspect.getmembers(module):
         if (inspect.isclass(cls) and
@@ -43,11 +47,30 @@ def load_strategies_from_file(file_path: str):
             cls != BaseStrategy):
 
             if "COOPERATIVE" in name:
-                cooperative_strategies.append(cls)
+                cooperative_strategy_classes.append(cls)
             elif "AGGRESSIVE" in name:
-                aggressive_strategies.append(cls)
+                aggressive_strategy_classes.append(cls)
 
-    return cooperative_strategies, aggressive_strategies
+    # Create player instances from strategy classes
+    cooperative_players = []
+    aggressive_players = []
+
+    for i, strategy_class in enumerate(cooperative_strategy_classes):
+        player = LLMPlayer(f"coop_{strategy_class.__name__}",
+                          Attitude.COOPERATIVE,
+                          game_description,
+                          strategy_class)
+        cooperative_players.append(player)
+
+    for i, strategy_class in enumerate(aggressive_strategy_classes):
+        player = LLMPlayer(f"agg_{strategy_class.__name__}",
+                          Attitude.AGGRESSIVE,
+                          game_description,
+                          strategy_class)
+        aggressive_players.append(player)
+
+    return cooperative_players, aggressive_players
+
 
 
 def create_game_description(game_type: str):
@@ -108,39 +131,38 @@ def main():
     logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
 
     try:
-        # Load strategies
-        print(f"Loading strategies from {args.strategies}...")
-        cooperative_strategies, aggressive_strategies = load_strategies_from_file(args.strategies)
-
-        print(f"Found {len(cooperative_strategies)} cooperative strategies")
-        print(f"Found {len(aggressive_strategies)} aggressive strategies")
-
-        if not cooperative_strategies or not aggressive_strategies:
-            raise ValueError("Need both cooperative and aggressive strategies")
-
-        # Create game components
+        # Create game components first
         game_description = create_game_description(args.game)
         game_class = get_game_class(args.game)
+
+        # Load players (passing game_description)
+        print(f"Loading strategies from {args.strategies}...")
+        cooperative_players, aggressive_players = load_strategies_from_file(args.strategies, game_description)
+
+        print(f"Found {len(cooperative_players)} cooperative players")
+        print(f"Found {len(aggressive_players)} aggressive players")
+
+        if not cooperative_players or not aggressive_players:
+            raise ValueError("Need both cooperative and aggressive players")
 
         print(f"Game: {game_description}")
         print(f"Matches per mixture: {args.matches}")
 
         # Create and run tournament
         tournament = MixtureTournament(
-            cooperative_strategies=cooperative_strategies,
-            aggressive_strategies=aggressive_strategies,
+            cooperative_players=cooperative_players,
+            aggressive_players=aggressive_players,
             game_class=game_class,
             game_description=game_description,
             matches_per_mixture=args.matches,
             log_file=args.log_file,
         )
 
-
         print("\nRunning tournament...")
         results_df = tournament.run_mixture_tournament()
 
         # Print summary
-        tournament.print_summary(results_df)  # Pass results_df here
+        tournament.print_summary(results_df)
 
         # Print DataFrame
         print("\nDetailed Results:")

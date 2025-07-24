@@ -79,7 +79,6 @@ class FairTournament:
 
     def _run_match(self, players: List[BasePlayer], match_id: str) -> FairMatchResult:
         """Run a single match with given players."""
-        # Create game instance with description
         game = self.game_class(players, self.game_description)
 
         # Log match start
@@ -89,32 +88,15 @@ class FairTournament:
         # Play game
         game_result = game.play_game()
 
-        # Create match result
-        match_result = FairMatchResult(
+        # Use the game's built-in logging
+        game_result.log_match_result(match_id, self.logger)
+
+        return FairMatchResult(
             match_id=match_id,
             game_result=game_result,
             timestamp=datetime.now(),
             players=players
         )
-
-        # Log results
-        self._log_match_result(match_result)
-
-        return match_result
-
-    def _log_match_result(self, result: FairMatchResult):
-        """Log detailed match results."""
-        self.logger.info(f"Match {result.match_id} completed")
-
-        # Calculate individual and total payoffs
-        total_payoffs = result.game_result.history.payoffs.sum(axis=0)
-
-        # Log individual payoffs
-        for i, (player, payoff) in enumerate(zip(result.players, total_payoffs)):
-            self.logger.info(f"  {player.name}: {payoff:.3f}")
-
-        avg_payoff = total_payoffs.mean()
-        self.logger.info(f"  Average payoff: {avg_payoff:.3f}")
 
     def _results_to_dataframe(self) -> pd.DataFrame:
         """Convert tournament results to DataFrame for analysis."""
