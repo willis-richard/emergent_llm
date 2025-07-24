@@ -6,6 +6,7 @@ import inspect
 import logging
 import os
 import time
+from pathlib import Path
 import numpy as np
 
 import anthropic
@@ -19,52 +20,67 @@ from emergent_llm.generation.prompts import (create_code_user_prompt,
                                              create_strategy_user_prompt)
 from emergent_llm.players.base_player import BaseStrategy
 
-# Configure logging
-logging.basicConfig(
-    filename="create_strategies.log",
-    filemode="w",
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
-# Reduce noise from HTTP clients
-logging.getLogger("openai._base_client").setLevel(logging.WARNING)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("anthropic").setLevel(logging.WARNING)
+def setup_logging(log_file: Path) -> logging.Logger:
+    """Setup logging configuration."""
+    # Ensure log directory exists
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Configure logging
+    logging.basicConfig(
+        filename=str(log_file),
+        filemode="w",
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
+    logger = logging.getLogger(__name__)
+
+    # Reduce noise from HTTP clients
+    logging.getLogger("openai._base_client").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("anthropic").setLevel(logging.WARNING)
+
+    return logger
+
 
 def generate_strategy_description(client: openai.OpenAI | anthropic.Anthropic,
                                  attitude: Attitude,
                                  game_description: GameDescription,
-                                 temperature: float = 0.7) -> str:
+                                 temperature: float = 0.7,
+                                 logger: logging.Logger = None) -> str:
     """Generate natural language strategy description."""
-
     system_prompt = "You are an AI assistant with expertise in strategic thinking."
     user_prompt = create_strategy_user_prompt(attitude, game_description)
 
-    logger.info(f"Generating {attitude.value} strategy description")
-    logger.info(f"System prompt: {system_prompt}")
-    logger.info(f"User prompt: {user_prompt}")
+    if logger:
+        logger.info(f"Generating {attitude.value} strategy description")
+        logger.info(f"System prompt: {system_prompt}")
+        logger.info(f"User prompt: {user_prompt}")
 
     response = get_llm_response(client, system_prompt, user_prompt, temperature)
-    logger.info(f"Strategy description: {response}")
+
+    if logger:
+        logger.info(f"Strategy description: {response}")
 
     return response
 
 
 def generate_strategy_code(client: openai.OpenAI | anthropic.Anthropic,
                            strategy_description: str,
-                           game_description: GameDescription) -> str:
+                           game_description: GameDescription,
+                           logger: logging.Logger = None) -> str:
     """Generate Python code from strategy description."""
-
     system_prompt = "You are an expert Python programmer implementing game theory strategies."
     user_prompt = create_code_user_prompt(strategy_description, game_description)
 
-    logger.info("Generating strategy code")
-    logger.info(f"Code user prompt: {user_prompt}")
+    if logger:
+        logger.info("Generating strategy code")
+        logger.info(f"Code user prompt: {user_prompt}")
 
     response = get_llm_response(client, system_prompt, user_prompt, temperature=0.0)
-    logger.info(f"Generated code: {response}")
+
+    if logger:
+        logger.info(f"Generated code: {response}")
 
     # Clean and validate the code
     code = clean_generated_code(response)
@@ -80,9 +96,11 @@ def clean_generated_code(response: str) -> str:
     code_block_pattern = r'```(?:python)?\s*\n(.*?)```'
     code_blocks = re.findall(code_block_pattern, response, re.DOTALL)
 
+
     if code_blocks:
-        # Use the largest code block found (most likely to be the complete class)
-        code = max(code_blocks, key=len).strip()
+        if len(code_blocks) != 1:
+            raise ValueError("More than one code block in response")
+        code = code_blocks[0]
     else:
         # Fallback: look for class definition without code blocks
         class_pattern = r'(class\s+\w+.*?)(?=\n\n|\Z)'
@@ -95,19 +113,6 @@ def clean_generated_code(response: str) -> str:
     # Remove any remaining markdown artifacts
     code = re.sub(r'^```.*$', '', code, flags=re.MULTILINE)
     code = code.strip()
-
-    # Fix common LLM mistakes
-    replacements = {
-        "Action.C": "C",
-        "Action.D": "D",
-        "COOPERATE": "C",
-        "DEFECT": "D",
-        "np.random.rand()": "np.random.random()",
-        "random.rand()": "random.random()",
-    }
-
-    for old, new in replacements.items():
-        code = code.replace(old, new)
 
     return code
 
@@ -137,6 +142,8 @@ def validate_strategy_code(code: str):
         dangerous_types = (ast.Import, ast.ImportFrom, ast.Global, ast.Nonlocal,
                           ast.Delete, ast.With, ast.AsyncWith, ast.Try, ast.Raise)
 
+        dangerous_funcs = {'eval', 'exec', 'compile', 'open', '__import__', 'globals', 'locals', 'vars', 'dir'}
+
         if isinstance(node, dangerous_types):
             raise ValueError(f"Dangerous node type: {type(node).__name__}\nnode:\n{ast.unparse(node)}")
 
@@ -146,7 +153,6 @@ def validate_strategy_code(code: str):
         # Check for dangerous function calls
         if isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name):
-                dangerous_funcs = {'eval', 'exec', 'compile', 'open', '__import__', 'globals', 'locals', 'vars', 'dir'}
                 if node.func.id in dangerous_funcs:
                     raise ValueError(f"Dangerous function call: {node.func.id}\nnode:\n{ast.unparse(node)}")
 
@@ -190,8 +196,6 @@ def validate_strategy_code(code: str):
 
         # Check for unsafe constructs
         is_safe_node(class_def)
-
-        logger.info("Class validation passed")
 
     except SyntaxError as e:
         raise ValueError(f"Syntax error in generated code: {e}") from e
@@ -339,18 +343,18 @@ def create_single_strategy(client: openai.OpenAI | anthropic.Anthropic,
                            attitude: Attitude, n: int,
                            game_description: GameDescription,
                            temperature: float,
+                           logger: logging.Logger,
                            max_retries: int = 3) -> str:
     """Create a single strategy class with retry logic."""
-
     for attempt in range(max_retries):
         try:
             print(f"Generating {attitude.name}_{n} (attempt {attempt + 1})...")
 
             # Step 1: Generate strategy description
-            description = generate_strategy_description(client, attitude, game_description, temperature)
+            description = generate_strategy_description(client, attitude, game_description, temperature, logger)
 
             # Step 2: Generate code implementation
-            code = generate_strategy_code(client, description, game_description)
+            code = generate_strategy_code(client, description, game_description, logger)
 
             # Step 3: Create complete class
             class_code = write_strategy_class(description, code, attitude, n, game_description)
@@ -372,8 +376,10 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate LLM strategies for social dilemma games"
     )
-    parser.add_argument("--llm", choices=["openai", "anthropic"], required=True,
+    parser.add_argument("--llm_provider", choices=["openai", "anthropic"], required=True,
                        help="LLM provider to use")
+    parser.add_argument("--model_name", type=str, required=True,
+                       help="Which model to use")
     parser.add_argument("--n", type=int, required=True,
                        help="Number of strategies per attitude to generate")
     parser.add_argument("--output", type=str, required=True,
@@ -384,11 +390,6 @@ def parse_arguments() -> argparse.Namespace:
     # Game parameters
     parser.add_argument("--game", choices=["public_goods", "collective_risk"],
                        default="public_goods", help="Game type")
-    parser.add_argument("--n_players", type=int, default=6, help="Number of players")
-    parser.add_argument("--n_rounds", type=int, default=20, help="Number of rounds")
-    parser.add_argument("--k", type=float, default=2.0, help="Game parameter k")
-    parser.add_argument("--m", type=int, default=3,
-                       help="Threshold parameter for collective risk")
 
     return parser.parse_args()
 
@@ -416,28 +417,45 @@ def main():
     """Main function."""
     args = parse_arguments()
 
+    # Create output directory structure
+    strategies_dir = Path("strategies") / args.game
+    strategies_dir.mkdir(parents=True, exist_ok=True)
+
+    # Setup file paths
+    output_file = strategies_dir / f"{args.output}.py"
+    log_file = strategies_dir / f"{args.output}.log"
+
+    # Setup logging
+    logger = setup_logging(log_file)
+
+    # Check if output file exists
+    if output_file.exists():
+        raise FileExistsError(f"{output_file} already exists")
+
     # Setup LLM client
-    if args.llm == "openai":
+    if args.llm_provider == "openai":
         client = openai.OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-    elif args.llm == "anthropic":
+    elif args.llm_provider == "anthropic":
         client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     else:
         raise ValueError(f"Unknown client {args.llm}")
 
     # Create game description
     game_description = create_game_description(args)
-
-    # Check if output file exists
-    output_file = f"{args.output}.py"
-    if os.path.exists(output_file):
-        raise FileExistsError(f"{output_file} already exists")
+    logger.info(f"Game description: {game_description}")
 
     # Write file header
-    header = '''"""
+    header = f'''"""
 Generated LLM strategies for social dilemma games.
 
 This file contains strategy classes generated by LLMs for game theory experiments.
 Each strategy is a callable class that implements a specific approach to the game.
+
+Generated with:
+- Provider: {args.llm_provider}
+- Model: {args.model_name}
+- Game: {args.game}
+- Temperature: {args.temperature}
 """
 
 from emergent_llm.players.base_player import BaseStrategy
@@ -454,16 +472,17 @@ import random
         f.write(header)
 
     # Generate strategies
-    with open(output_file, "a", encoding="utf8") as f:
+    with output_file.open("a", encoding="utf-8") as f:
         for attitude in [COOPERATIVE, AGGRESSIVE]:
             for i in range(1, args.n + 1):
                 try:
                     strategy_class = create_single_strategy(
-                        client, attitude, i, game_description, args.temperature
+                        client, attitude, i, game_description, args.temperature, logger
                     )
                     f.write("\n\n" + strategy_class)
                     f.flush()  # Save progress
                     print(f"✓ Generated {attitude.name}_{i}")
+                    logger.info(f"Successfully generated {attitude.name}_{i}")
 
                 except Exception as e:
                     logger.error(f"Failed to generate {attitude.name}_{i}: {e}")
@@ -471,6 +490,8 @@ import random
                     continue
 
     print(f"\nStrategies written to {output_file}")
+    print(f"Logs written to {log_file}")
+    logger.info(f"Strategy generation completed. Output: {output_file}")
 
 
 if __name__ == "__main__":
