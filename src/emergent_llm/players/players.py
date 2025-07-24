@@ -37,7 +37,12 @@ class LLMPlayer(BasePlayer):
 
     def __repr__(self):
         """String representation of the player."""
-        return f"LLMPlayer({self.name}, {self.attitude})"
+        return f"LLMPlayer({self.name}, {self.attitude}, {self.strategy_class.__name__})"
+
+    @property
+    def strategy_name(self) -> str:
+        """Get the strategy class name."""
+        return self.strategy_class.__name__
 
 
 class SimplePlayer(BasePlayer):

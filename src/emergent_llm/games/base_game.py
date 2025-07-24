@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 import numpy as np
+import pandas as pd
 from numpy.typing import NDArray
 
 from emergent_llm.common.game_description import GameDescription
@@ -16,6 +17,75 @@ class GameResult:
     players: list[str]  # Player names/IDs
     history: GameHistory  # Complete game history
     description: GameDescription  # Game parameters and rules
+
+    def log_match_result(self, match_id: str = "", logger=None) -> str:
+        """Log match result in clean DataFrame format."""
+        lines = []
+
+        # Header
+        lines.append("=" * 60)
+        if match_id:
+            lines.append(f"MATCH: {match_id}")
+        else:
+            lines.append("MATCH RESULT")
+        lines.append("=" * 60)
+
+        # Player list
+        lines.append("PLAYERS:")
+        for i, player_name in enumerate(self.players):
+            lines.append(f"  {i}: {player_name}")
+        lines.append("")
+
+        # Actions DataFrame
+        lines.append("ACTIONS:")
+        actions_df = self._create_actions_dataframe()
+        lines.append(actions_df.to_string(index=False))
+        lines.append("")
+
+        # Payoffs DataFrame
+        lines.append("PAYOFFS:")
+        payoffs_df = self._create_payoffs_dataframe()
+        lines.append(payoffs_df.to_string(index=False, float_format='%.3f'))
+        lines.append("")
+
+        # Final scores
+        total_payoffs = self.history.payoffs.sum(axis=0)
+        lines.append("TOTAL SCORES:")
+        for i, total_payoff in enumerate(total_payoffs):
+            lines.append(f"  Player {i}: {total_payoff:.3f}")
+        lines.append(f"Average: {total_payoffs.mean():.3f}")
+        lines.append("=" * 60)
+        lines.append("")
+
+        result_str = "\n".join(lines)
+
+        # Log it if logger provided
+        if logger:
+            logger.info(result_str)
+
+        return result_str
+
+    def _create_actions_dataframe(self) -> pd.DataFrame:
+        """Create DataFrame with round and player actions."""
+        data = {'round': range(1, len(self.history.actions) + 1)}
+
+        # Add column for each player (convert bool to C/D)
+        for player_idx in range(len(self.players)):
+            player_actions = ['C' if not action else 'D'
+                            for action in self.history.actions[:, player_idx]]
+            data[str(player_idx)] = player_actions
+
+        return pd.DataFrame(data)
+
+    def _create_payoffs_dataframe(self) -> pd.DataFrame:
+        """Create DataFrame with round and player payoffs."""
+        data = {'round': range(1, len(self.history.payoffs) + 1)}
+
+        # Add column for each player
+        for player_idx in range(len(self.players)):
+            data[str(player_idx)] = self.history.payoffs[:, player_idx]
+
+        return pd.DataFrame(data)
 
 
 class BaseGame(ABC):
@@ -77,10 +147,17 @@ class BaseGame(ABC):
         assert self.history is not None
 
         return GameResult(
-            players=[player.name for player in self.players],
+            players=[self._get_player_display_name(player) for player in self.players],
             history=self.history,
             description=self.description
         )
+
+    def _get_player_display_name(self, player: BasePlayer) -> str:
+        """Get display name for player including strategy if available."""
+        base_name = player.name
+        if hasattr(player, 'strategy_name'):
+            return f"{base_name}({player.strategy_name})"
+        return base_name
 
     def reset(self):
         """Reset game to initial state."""

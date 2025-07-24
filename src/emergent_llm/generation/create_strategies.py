@@ -292,6 +292,15 @@ def get_llm_response(config: LLMConfig,
     for attempt in range(config.max_retries):
         try:
             if isinstance(config.client, openai.OpenAI):
+                if "o4" in config.model_name:
+                    response = config.client.chat.completions.create(
+                        model=config.model_name,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                    )
+                    return response.choices[0].message.content
                 response = config.client.chat.completions.create(
                     model=config.model_name,
                     messages=[
@@ -299,14 +308,12 @@ def get_llm_response(config: LLMConfig,
                         {"role": "user", "content": user_prompt}
                     ],
                     temperature=temperature,
-                    max_tokens=1500
                 )
                 return response.choices[0].message.content
 
             elif isinstance(config.client, anthropic.Anthropic):
                 response = config.client.messages.create(
                     model=config.model_name,
-                    max_tokens=1500,
                     temperature=temperature,
                     system=system_prompt,
                     messages=[{"role": "user", "content": user_prompt}]
