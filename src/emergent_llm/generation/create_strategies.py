@@ -1,5 +1,6 @@
 """Generate LLM strategies for social dilemma games."""
 import argparse
+from dataclasses import dataclass
 import ast
 import importlib.util
 import inspect
@@ -43,10 +44,17 @@ def setup_logging(log_file: Path) -> logging.Logger:
     return logger
 
 
-def generate_strategy_description(client: openai.OpenAI | anthropic.Anthropic,
+@dataclass
+class LLMConfig:
+    client: openai.OpenAI | anthropic.Anthropic
+    model_name: str
+    temperature: float
+    max_retries: int = 3
+
+
+def generate_strategy_description(config: LLMConfig,
                                  attitude: Attitude,
                                  game_description: GameDescription,
-                                 temperature: float = 0.7,
                                  logger: logging.Logger = None) -> str:
     """Generate natural language strategy description."""
     system_prompt = "You are an AI assistant with expertise in strategic thinking."
@@ -57,7 +65,7 @@ def generate_strategy_description(client: openai.OpenAI | anthropic.Anthropic,
         logger.info(f"System prompt: {system_prompt}")
         logger.info(f"User prompt: {user_prompt}")
 
-    response = get_llm_response(client, system_prompt, user_prompt, temperature)
+    response = get_llm_response(config, system_prompt, user_prompt)
 
     if logger:
         logger.info(f"Strategy description: {response}")
@@ -65,7 +73,7 @@ def generate_strategy_description(client: openai.OpenAI | anthropic.Anthropic,
     return response
 
 
-def generate_strategy_code(client: openai.OpenAI | anthropic.Anthropic,
+def generate_strategy_code(config: LLMConfig,
                            strategy_description: str,
                            game_description: GameDescription,
                            logger: logging.Logger = None) -> str:
@@ -77,7 +85,7 @@ def generate_strategy_code(client: openai.OpenAI | anthropic.Anthropic,
         logger.info("Generating strategy code")
         logger.info(f"Code user prompt: {user_prompt}")
 
-    response = get_llm_response(client, system_prompt, user_prompt, temperature=0.0)
+    response = get_llm_response(config, system_prompt, user_prompt, temperature=0.0)
 
     if logger:
         logger.info(f"Generated code: {response}")
@@ -274,16 +282,18 @@ import random
         os.unlink(temp_file)
 
 
-def get_llm_response(client: openai.OpenAI | anthropic.Anthropic,
+def get_llm_response(config: LLMConfig,
                      system_prompt: str,
                      user_prompt: str,
-                     temperature: float) -> str:
+                     temperature=None) -> str:
     """Get response from LLM client."""
-    for attempt in range(3):
+    temperature = config.temperature if temperature is None else temperature
+
+    for attempt in range(config.max_retries):
         try:
-            if isinstance(client, openai.OpenAI):
-                response = client.chat.completions.create(
-                    model="gpt-4.1-nano",
+            if isinstance(config.client, openai.OpenAI):
+                response = config.client.chat.completions.create(
+                    model=config.model_name,
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
@@ -293,27 +303,26 @@ def get_llm_response(client: openai.OpenAI | anthropic.Anthropic,
                 )
                 return response.choices[0].message.content
 
-            elif isinstance(client, anthropic.Anthropic):
-                response = client.messages.create(
-                    model="claude-4-sonnet",
+            elif isinstance(config.client, anthropic.Anthropic):
+                response = config.client.messages.create(
+                    model=config.model_name,
                     max_tokens=1500,
                     temperature=temperature,
                     system=system_prompt,
                     messages=[{"role": "user", "content": user_prompt}]
                 )
                 return response.content[0].text
+            else:
+                raise ValueError(f"Unknown client type: {type(config.client)}")
         except (openai.InternalServerError, anthropic.InternalServerError):
             if attempt < 2:
                 time.sleep(2 ** attempt)  # Exponential backoff
                 continue
             raise
 
-    else:
-        raise ValueError(f"Unknown client type: {type(client)}")
 
 
-def write_strategy_class(description: str, code: str, attitude: Attitude, n: int,
-                        game_description: GameDescription) -> str:
+def write_strategy_class(description: str, code: str, attitude: Attitude, n: int) -> str:
     """Create a complete strategy class with proper naming and documentation."""
 
     # Parse and modify the class
@@ -339,7 +348,7 @@ def write_strategy_class(description: str, code: str, attitude: Attitude, n: int
     return ast.unparse(tree)
 
 
-def create_single_strategy(client: openai.OpenAI | anthropic.Anthropic,
+def create_single_strategy(config: LLMConfig,
                            attitude: Attitude, n: int,
                            game_description: GameDescription,
                            temperature: float,
@@ -351,13 +360,13 @@ def create_single_strategy(client: openai.OpenAI | anthropic.Anthropic,
             print(f"Generating {attitude.name}_{n} (attempt {attempt + 1})...")
 
             # Step 1: Generate strategy description
-            description = generate_strategy_description(client, attitude, game_description, temperature, logger)
+            description = generate_strategy_description(config, attitude, game_description, logger)
 
             # Step 2: Generate code implementation
-            code = generate_strategy_code(client, description, game_description, logger)
+            code = generate_strategy_code(config, description, game_description, logger)
 
             # Step 3: Create complete class
-            class_code = write_strategy_class(description, code, attitude, n, game_description)
+            class_code = write_strategy_class(description, code, attitude, n)
 
             # Step 4: Test the generated strategy
             test_generated_strategy(class_code, game_description)
@@ -438,7 +447,9 @@ def main():
     elif args.llm_provider == "anthropic":
         client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     else:
-        raise ValueError(f"Unknown client {args.llm}")
+        raise ValueError(f"Unknown client {args.llm_provider}")
+
+    config = LLMConfig(client, args.model_name, args.temperature)
 
     # Create game description
     game_description = create_game_description(args)
@@ -477,7 +488,7 @@ import random
             for i in range(1, args.n + 1):
                 try:
                     strategy_class = create_single_strategy(
-                        client, attitude, i, game_description, args.temperature, logger
+                        config, attitude, i, game_description, args.temperature, logger
                     )
                     f.write("\n\n" + strategy_class)
                     f.flush()  # Save progress
