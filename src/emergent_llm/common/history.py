@@ -7,13 +7,10 @@ from emergent_llm.common.actions import Action
 
 @dataclass
 class PlayerHistory:
-    """
-    Player-specific view of game history with convenience access.
-    """
     my_actions: NDArray[np.bool_]    # This player's actions, indexed [round]
     my_payoffs: NDArray[np.float64]  # This player's payoffs, indexed [round]
-    opponent_actions: NDArray[np.bool_]    # Opponents' actions, indexed [round, player]
-    opponent_payoffs: NDArray[np.float64]  # Opponents' payoffs, indexed [round, player]
+    opponent_actions: NDArray[np.bool_]    # Opponents' actions, indexed [round, opponent]
+    opponent_payoffs: NDArray[np.float64]  # Opponents' payoffs, indexed [round, opponent]
 
     @property
     def round_number(self) -> int:
@@ -32,6 +29,10 @@ class GameHistory:
 
     def __post_init__(self):
         """Ensure arrays are always 2D."""
+        if self.actions.dtype != np.bool_:
+            raise TypeError(f"actions must be boolean array, got {self.actions.dtype}")
+        if self.payoffs.dtype != np.float64:
+            raise TypeError(f"payoffs must be float64 array, got {self.payoffs.dtype}")
         if self.actions.ndim == 1:
             self.actions = self.actions.reshape(1, -1)
         if self.payoffs.ndim == 1:

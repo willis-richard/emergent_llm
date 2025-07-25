@@ -170,5 +170,11 @@ class PlayerHistory:
         \"\"\"Current round number (number of completed rounds).\"\"\"
         return len(self.my_actions)
 
-Requirements:
-- You may not import any libraries."""
+# BOOLEAN ENCODING:
+# - True/1 means COOPERATE (Action.C)
+# - False/0 means DEFECT (Action.D)
+# - Arrays are 0-indexed: round 1 data is at index 0
+# - opponent_actions[0, 0] is opponent 1's action in round 1
+#
+# Example - count opponent cooperators in the most recent round:
+# cooperators = sum(history.opponent_actions[history.round_number - 1])"""

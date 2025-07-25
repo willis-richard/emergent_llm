@@ -6,8 +6,7 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
-from emergent_llm.common.game_description import GameDescription
-from emergent_llm.common.history import GameHistory
+from emergent_llm.common import Action, GameDescription, GameHistory
 from emergent_llm.players.base_player import BasePlayer
 
 
@@ -67,8 +66,7 @@ class GameResult:
 
         # Add column for each player (convert bool to C/D)
         for player_idx in range(len(self.players)):
-            player_actions = ['C' if not action else 'D'
-                            for action in self.history.actions[:, player_idx]]
+            player_actions = [str(Action(a)) for a in self.history.actions[:, player_idx]]
             data[str(player_idx)] = player_actions
 
         return pd.DataFrame(data)
@@ -110,14 +108,15 @@ class BaseGame(ABC):
 
     def _play_round(self, players: list[BasePlayer]):
         """Play a single round of the game."""
-        if self.history is None:
-            # Get actions from each player
-            actions = np.array([player(None).value for player in players])
+        action_enums = [player(None) if self.history is None
+                        else player(self.history.for_player(i))
+                        for i, player in enumerate(players)]
 
-        else:
-            # Get actions from each player
-            actions = np.array([player(self.history.for_player(i)).value
-                                for i, player in enumerate(players)], dtype=np.bool_)
+        # Convert to boolean array explicitly
+        actions = Action.to_bool_array(action_enums)
+
+        # Validate the array type
+        assert actions.dtype == np.bool_, f"Expected bool array, got {actions.dtype}"
 
         # Calculate payoffs for this round
         payoffs = self._calculate_payoffs(actions)

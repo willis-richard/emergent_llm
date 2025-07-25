@@ -1,4 +1,6 @@
 """Minimal action enum for social dilemma games."""
+from numpy.typing import NDArray
+import numpy as np
 from enum import Enum
 
 
@@ -7,8 +9,8 @@ class Action(Enum):
     There are only two possible actions, namely Cooperate or Defect,
     which are called C and D for convenience.
     """
-    C = 0  # Cooperate
-    D = 1  # Defect
+    D = 0  # Defect - represented as False/0 in boolean arrays
+    C = 1  # Cooperate - represented as True/1 in boolean arrays
 
     def __repr__(self) -> str:
         return self.name
@@ -17,7 +19,7 @@ class Action(Enum):
         return self.name
 
     def __bool__(self) -> bool:
-        """Convert to boolean. C=False, D=True."""
+        """Convert to boolean. C=True, D=False."""
         return bool(self.value)
 
     def flip(self) -> "Action":
@@ -35,6 +37,19 @@ class Action(Enum):
             for member in cls)
 
         return definition
+
+    @classmethod
+    def to_bool_array(cls, actions: list['Action']) -> NDArray[np.bool_]:
+        """Convert list of Actions to numpy boolean array."""
+        result = np.array([action == cls.C for action in actions], dtype=np.bool_)
+        assert result.dtype == np.bool_, f"Expected bool array, got {result.dtype}"
+        return result
+
+    @classmethod
+    def from_bool_array(cls, bool_array: NDArray[np.bool_]) -> list['Action']:
+        """Convert numpy boolean array to list of Actions."""
+        assert bool_array.dtype == np.bool_, f"Expected bool array, got {bool_array.dtype}"
+        return [cls.C if val else cls.D for val in bool_array]
 
 
 # Export for convenience

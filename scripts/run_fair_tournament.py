@@ -8,7 +8,7 @@ import numpy as np
 from emergent_llm.tournament.fair_tournament import FairTournament
 from emergent_llm.games.public_goods import PublicGoodsGame
 from emergent_llm.games.collective_risk import CollectiveRiskGame
-from emergent_llm.games.game_description import PublicGoodsDescription, CollectiveRiskDescription
+from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription
 from emergent_llm.players import SimplePlayer, LLMPlayer
 from emergent_llm.common.actions import C, D
 from emergent_llm.common.attitudes import COOPERATIVE, AGGRESSIVE

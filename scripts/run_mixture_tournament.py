@@ -77,9 +77,9 @@ def create_game_description(game_type: str):
     """Create game description based on type."""
     if game_type == "public_goods":
         return PublicGoodsDescription(
-            n_players=6,
+            n_players=2,
             n_rounds=20,
-            k=2.0
+            k=1.5
         )
     elif game_type == "collective_risk":
         return CollectiveRiskDescription(
@@ -163,10 +163,6 @@ def main():
 
         # Print summary
         tournament.print_summary(results_df)
-
-        # Print DataFrame
-        print("\nDetailed Results:")
-        print(results_df.to_string(index=False, float_format='%.3f'))
 
         # Save results if requested
         if args.output:

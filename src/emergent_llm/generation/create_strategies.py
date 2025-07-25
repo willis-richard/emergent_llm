@@ -292,7 +292,7 @@ def get_llm_response(config: LLMConfig,
     for attempt in range(config.max_retries):
         try:
             if isinstance(config.client, openai.OpenAI):
-                if "o4" in config.model_name:
+                if any(model in config.model_name for model in ["o3", "o4"]):
                     response = config.client.chat.completions.create(
                         model=config.model_name,
                         messages=[
@@ -398,14 +398,12 @@ def parse_arguments() -> argparse.Namespace:
                        help="Which model to use")
     parser.add_argument("--n", type=int, required=True,
                        help="Number of strategies per attitude to generate")
-    parser.add_argument("--output", type=str, required=True,
-                       help="Output file name (without .py extension)")
     parser.add_argument("--temperature", type=float, default=0.7,
                        help="Temperature for strategy generation")
 
     # Game parameters
     parser.add_argument("--game", choices=["public_goods", "collective_risk"],
-                       default="public_goods", help="Game type")
+                       help="Game type")
 
     return parser.parse_args()
 
@@ -438,8 +436,8 @@ def main():
     strategies_dir.mkdir(parents=True, exist_ok=True)
 
     # Setup file paths
-    output_file = strategies_dir / f"{args.output}.py"
-    log_file = strategies_dir / f"{args.output}.log"
+    output_file = strategies_dir / f"{args.llm_provider}_{args.model_name}.py"
+    log_file = strategies_dir / f"{args.llm_provider}_{args.model_name}.log"
 
     # Setup logging
     logger = setup_logging(log_file)

@@ -40,9 +40,9 @@ class CollectiveRiskGame(BaseGame):
 
     def _calculate_payoffs(self, actions: NDArray[np.bool_]) -> NDArray[np.float64]:
         """Calculate payoffs for a single round."""
-        cooperators = len(actions) - np.sum(actions)
+        cooperators = np.sum(actions)
         threshold_met = cooperators >= self.description.m
 
         if threshold_met:
-            return np.ones(len(actions)) * self.description.k + actions.astype(np.float64)
-        return actions.astype(np.float64)
+            return np.ones(len(actions)) * self.description.k + (~actions).astype(np.float64)
+        return (~actions).astype(np.float64)
