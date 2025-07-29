@@ -57,27 +57,6 @@ class MixtureTournament(FairTournament):
         random.shuffle(players)
         return players
 
-    def _calculate_mixture_averages(self, mixture_results, n_cooperative: int):
-        """Calculate average scores by player type using attitude attribute."""
-        cooperative_scores = []
-        aggressive_scores = []
-
-        for result in mixture_results:
-            total_payoffs = result.history.payoffs.sum(axis=0)
-
-            # Get the actual players used in this match
-            for player, payoff in zip(result.players, total_payoffs):
-                if hasattr(player, 'attitude'):
-                    if player.attitude == Attitude.COOPERATIVE:
-                        cooperative_scores.append(payoff)
-                    elif player.attitude == Attitude.AGGRESSIVE:
-                        aggressive_scores.append(payoff)
-
-        avg_coop = np.mean(cooperative_scores) if cooperative_scores else 0.0
-        avg_agg = np.mean(aggressive_scores) if aggressive_scores else 0.0
-
-        return avg_coop, avg_agg
-
     def run_mixture_tournament(self) -> pd.DataFrame:
         """Run tournament testing different mixtures of cooperative vs aggressive players."""
         n_players = self.game_description.n_players
@@ -113,7 +92,7 @@ class MixtureTournament(FairTournament):
                     continue
 
             # Calculate averages for this mixture
-            avg_coop, avg_agg = self._calculate_mixture_averages_fixed(mixture_results, mixture_players_used)
+            avg_coop, avg_agg = self._calculate_mixture_averages(mixture_results, mixture_players_used)
 
             # Add summary row
             all_results.append({
@@ -126,7 +105,7 @@ class MixtureTournament(FairTournament):
 
         return pd.DataFrame(all_results)
 
-    def _calculate_mixture_averages_fixed(self, mixture_results, mixture_players_used):
+    def _calculate_mixture_averages(self, mixture_results, mixture_players_used):
         """Calculate average scores by player type using stored player references."""
         cooperative_scores = []
         aggressive_scores = []
@@ -145,6 +124,7 @@ class MixtureTournament(FairTournament):
         avg_agg = np.mean(aggressive_scores) if aggressive_scores else 0.0
 
         return avg_coop, avg_agg
+
 
     def print_summary(self, results_df: pd.DataFrame):
         """Print summary of mixture tournament results."""
