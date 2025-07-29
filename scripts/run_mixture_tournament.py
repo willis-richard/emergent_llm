@@ -85,7 +85,7 @@ def create_game_description(game_type: str):
         return CollectiveRiskDescription(
             n_players=6,
             n_rounds=20,
-            m=4,
+            m=3,
             k=2.0
         )
     else:

@@ -23,9 +23,12 @@ class MixtureTournament(FairTournament):
                  game_description: GameDescription,
                  matches_per_mixture: int = 100,
                  verbose_logging: bool = False,
-                 log_file: str = None):
+                 log_file: str | None = None):
 
         super().__init__([], game_class, game_description)
+
+        assert len(cooperative_players) >= game_description.n_players
+        assert len(aggressive_players) >= game_description.n_players
 
         self.cooperative_players = cooperative_players
         self.aggressive_players = aggressive_players
@@ -65,10 +68,6 @@ class MixtureTournament(FairTournament):
         # Test different mixtures from all cooperative to all aggressive
         for n_cooperative in range(n_players + 1):
             n_aggressive = n_players - n_cooperative
-
-            # Skip invalid mixtures
-            if n_cooperative > len(self.cooperative_players) or n_aggressive > len(self.aggressive_players):
-                continue
 
             self.logger.info(f"Testing mixture: {n_cooperative} cooperative, {n_aggressive} aggressive")
 
@@ -122,6 +121,9 @@ class MixtureTournament(FairTournament):
 
         avg_coop = np.mean(cooperative_scores) if cooperative_scores else 0.0
         avg_agg = np.mean(aggressive_scores) if aggressive_scores else 0.0
+
+        self.logger.info(f"DEBUG: Found {len(cooperative_scores)} coop scores, {len(aggressive_scores)} agg scores")
+        self.logger.info(f"DEBUG: Returning avg_coop={avg_coop}, avg_agg={avg_agg}")
 
         return avg_coop, avg_agg
 
