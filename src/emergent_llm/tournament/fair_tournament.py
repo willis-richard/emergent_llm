@@ -2,6 +2,7 @@
 import logging
 import random
 from dataclasses import dataclass
+import numpy as np
 import pandas as pd
 from datetime import datetime
 
@@ -40,7 +41,10 @@ class FairTournament:
 
         # Results storage
         self.match_results: list[MatchResult] = []
-        self.player_payoffs: dict[str, list[float]] = {p.name: [] for p in self.players}
+        self.player_stats: dict[BasePlayer, dict[str, list[float]]] = {
+            player: {'payoffs': [], 'cooperations': []}
+            for player in self.players
+        }
 
         # Setup logging
         self.logger = logging.getLogger(__name__)
@@ -67,8 +71,7 @@ class FairTournament:
             result = self._run_match(match_players, match_id)
             self.match_results.append(result)
 
-        # Convert to DataFrame for analysis
-        return self.pd.Series(_results_to_dataframe())
+        return self._process_stats()
 
     def _run_match(self, players: list[BasePlayer], match_id: str) -> MatchResult:
         """Run a single match with given players."""
@@ -81,8 +84,13 @@ class FairTournament:
         # Play game
         game_result = game.play_game()
 
-        for player_id, total_payoff in zip(player_names, game_result.total_payoffs):
-            self.player_payoffs[player_id] += total_payoff
+        for player, payoff, cooperations in zip(
+            players,
+            game_result.total_payoffs,
+            game_result.total_cooperations
+               ):
+            self.player_stats[player]['payoffs'].append(payoff)
+            self.player_stats[player]['cooperations'].append(cooperations)
 
         # Use the game's built-in logging
         game_result.log_match_result(match_id, self.logger)
@@ -93,26 +101,19 @@ class FairTournament:
             timestamp=datetime.now()
         )
 
-    def _results_to_dataframe(self) -> pd.DataFrame:
-        """Convert tournament results to DataFrame for analysis."""
+    def _process_stats(self) -> pd.DataFrame:
+        """Create summary DataFrame with mean statistics per player."""
         rows = []
 
-        for result in self.match_results:
-            base_row = {
-                'match_id': result.match_id,
-                'timestamp': result.timestamp,
-                'game_type': result.game_result.description.__class__.__name__,
-                'game_parameters': str(result.game_result.description)
-            }
-
-            # Add individual player results
-            for i, (player, payoff) in enumerate(zip(result.players, result.game_result.total_payoffs)):
-                row = base_row.copy()
-                row.update({
-                    'player_name': repr(player),
-                    'payoff': payoff,
-                    'position': i
-                })
-                rows.append(row)
+        for player, stats in self.player_stats.items():
+            rows.append({
+                'player_name': player.name,
+                'player_repr': repr(player),  # Includes strategy info
+                'mean_payoff': np.mean(stats['payoffs']),
+                'mean_cooperations': np.mean(stats['cooperations']),
+                'games_played': len(stats['payoffs']),
+                'total_payoff': sum(stats['payoffs']),
+                'total_cooperations': sum(stats['cooperations'])
+            })
 
         return pd.DataFrame(rows)

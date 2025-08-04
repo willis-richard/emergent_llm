@@ -23,9 +23,9 @@ class LLMPlayer(BasePlayer):
             strategy_class: Callable class implementing the strategy
         """
         super().__init__(name)
-        self.attitude = attitude
-        self.game_description = game_description
-        self.strategy_class = strategy_class
+        self.attitude: Attitude = attitude
+        self.game_description: GameDescription = game_description
+        self.strategy_class: type[BaseStrategy] = strategy_class
         self.reset()
 
     def reset(self):

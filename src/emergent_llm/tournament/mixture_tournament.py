@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
-from emergent_llm.tournament.fair_tournament import FairTournament
+from emergent_llm.tournament.fair_tournament import FairTournament, MatchConfig
 from emergent_llm.games.base_game import BaseGame
 from emergent_llm.common import GameDescription
 from emergent_llm.players import LLMPlayer, BasePlayer
@@ -22,8 +22,6 @@ class MixtureTournament(FairTournament):
                  game_class: type[BaseGame],
                  game_description: GameDescription,
                  matches_per_mixture: int = 100,
-                 verbose_logging: bool = False,
-                 log_file: str | None = None):
 
         super().__init__([], game_class, game_description)
 
@@ -33,7 +31,6 @@ class MixtureTournament(FairTournament):
         self.cooperative_players = cooperative_players
         self.aggressive_players = aggressive_players
         self.matches_per_mixture = matches_per_mixture
-        self.verbose_logging = verbose_logging
 
         # Validate that players have attitude attributes
         for player in cooperative_players:
