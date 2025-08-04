@@ -22,7 +22,7 @@ class LLMPlayer(BasePlayer):
             attitude: Player's attitude (cooperative/aggressive)
             strategy_class: Callable class implementing the strategy
         """
-        super().__init__(name=name)
+        super().__init__(name)
         self.attitude = attitude
         self.game_description = game_description
         self.strategy_class = strategy_class
@@ -37,7 +37,7 @@ class LLMPlayer(BasePlayer):
 
     def __repr__(self):
         """String representation of the player."""
-        return f"LLMPlayer({self.name}, {self.attitude}, {self.strategy_class.__name__})"
+        return f"{self.name}[{self.__class__.__name__}({self.attitude}, {self.strategy_class.__name__})]"
 
     @property
     def strategy_name(self) -> str:
@@ -48,7 +48,7 @@ class LLMPlayer(BasePlayer):
 class SimplePlayer(BasePlayer):
     """Simple player for testing with no-argument strategy function."""
 
-    def __init__(self, name: str, strategy_function: Callable[[], Action], **kwargs):
+    def __init__(self, name: str, strategy_function: Callable[[], Action]):
         """
         Initialize simple player with a no-argument strategy function.
 
@@ -57,7 +57,7 @@ class SimplePlayer(BasePlayer):
             strategy_func: Function that takes no arguments and returns Action.
                           Defaults to always cooperate.
         """
-        super().__init__(name=name, **kwargs)
+        super().__init__(name)
         self.strategy_function = strategy_function
 
     def reset(self):
@@ -66,3 +66,7 @@ class SimplePlayer(BasePlayer):
     def __call__(self, history: None | PlayerHistory) -> Action:
         """Execute the strategy function (ignoring game context)."""
         return self.strategy_function()
+
+    def __repr__(self):
+        """String representation of the player."""
+        return f"{self.__class__.__name__}({self.name})"

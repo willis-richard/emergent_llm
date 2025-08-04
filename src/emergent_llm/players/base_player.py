@@ -11,7 +11,7 @@ class BaseStrategy(ABC):
 
     @abstractmethod
     def __init__(self, game_description: GameDescription):
-        """For initialising member variables"""
+        """For initialising member variables. Names need to be unique"""
 
     @abstractmethod
     def __call__(self, history: None | PlayerHistory) -> Action:
@@ -22,7 +22,6 @@ class BasePlayer(ABC):
     """Abstract base class for players in social dilemma games."""
 
     def __init__(self, name: str):
-        """Initialize player with a name."""
         self.name = name
 
     @abstractmethod
@@ -45,4 +44,4 @@ class BasePlayer(ABC):
 
     def __repr__(self):
         """String representation of the player."""
-        return f"{self.__class__.__name__}({self.name})"
+        return f"{self.name}[{self.__class__.__name__}]"

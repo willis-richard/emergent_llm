@@ -36,3 +36,5 @@ cache/
 fair_tournament_results.csv
 collective_risk_results.csv
 public_goods_results.csv
+*png
+*svg

@@ -13,7 +13,9 @@ from emergent_llm.players.base_player import BasePlayer
 @dataclass
 class GameResult:
     """Results from a single game."""
-    players: list[str]  # Player names/IDs
+    player_ids: list[str]  # Player names/IDs
+    total_payoffs: list[float]  # Total scores by player
+    total_cooperations: list[int]  # Number of cooperate actions by player
     history: GameHistory  # Complete game history
     description: GameDescription  # Game parameters and rules
 
@@ -29,28 +31,25 @@ class GameResult:
 
         # Player list with their actual names and strategies
         lines.append("PLAYERS:")
-        for i, player_name in enumerate(self.players):
+        for i, player_name in enumerate(self.player_ids):
             lines.append(f"  {i}: {player_name}")
         lines.append("")
 
-        # Actions DataFrame - already correctly implemented
         lines.append("ACTIONS:")
-        actions_df = self._create_actions_dataframe()
-        lines.append(actions_df.to_string(index=True))  # Show round index
+        actions_df = pd.DataFrame(self.history.actions_as_string_array())
+        lines.append(actions_df.to_string(index=True))
         lines.append("")
 
-        # Payoffs DataFrame - already correctly implemented
         lines.append("PAYOFFS:")
-        payoffs_df = self._create_payoffs_dataframe()
-        lines.append(payoffs_df.to_string(index=True, float_format='%.3f'))  # Show round index
+        payoffs_df = pd.DataFrame(self.history.payoffs)
+        lines.append(payoffs_df.to_string(index=True, float_format='%.3f'))
         lines.append("")
 
         # Final scores
-        total_payoffs = self.history.payoffs.sum(axis=0)
         lines.append("TOTAL SCORES:")
-        for i, total_payoff in enumerate(total_payoffs):
+        for i, total_payoff in enumerate(self.total_payoffs):
             lines.append(f"  Player {i}: {total_payoff:.3f}")
-        lines.append(f"Average: {total_payoffs.mean():.3f}")
+        lines.append(f"Average: {self.total_payoffs.mean():.3f}")
         lines.append("=" * 60)
 
         result_str = "\n".join(lines)
@@ -59,27 +58,6 @@ class GameResult:
             logger.info(result_str)
 
         return result_str
-
-    def _create_actions_dataframe(self) -> pd.DataFrame:
-        """Create DataFrame with round and player actions."""
-        data = {'round': range(1, len(self.history.actions) + 1)}
-
-        # Add column for each player (convert bool to C/D)
-        for player_idx in range(len(self.players)):
-            player_actions = [str(Action(a)) for a in self.history.actions[:, player_idx]]
-            data[str(player_idx)] = player_actions
-
-        return pd.DataFrame(data)
-
-    def _create_payoffs_dataframe(self) -> pd.DataFrame:
-        """Create DataFrame with round and player payoffs."""
-        data = {'round': range(1, len(self.history.payoffs) + 1)}
-
-        # Add column for each player
-        for player_idx in range(len(self.players)):
-            data[str(player_idx)] = self.history.payoffs[:, player_idx]
-
-        return pd.DataFrame(data)
 
 
 class BaseGame(ABC):
@@ -112,11 +90,7 @@ class BaseGame(ABC):
                         else player(self.history.for_player(i))
                         for i, player in enumerate(players)]
 
-        # Convert to boolean array explicitly
         actions = Action.to_bool_array(action_enums)
-
-        # Validate the array type
-        assert actions.dtype == np.bool_, f"Expected bool array, got {actions.dtype}"
 
         # Calculate payoffs for this round
         payoffs = self._calculate_payoffs(actions)
@@ -133,8 +107,7 @@ class BaseGame(ABC):
 
     def play_game(self) -> GameResult:
         """Play a complete game for the number of rounds specified in description."""
-        for player in self.players:
-            player.reset()
+        self.reset()
 
         for _ in range(self.description.n_rounds):
             self._play_round(self.players)
@@ -142,19 +115,16 @@ class BaseGame(ABC):
         assert self.history is not None
 
         return GameResult(
-            players=[self._get_player_display_name(player) for player in self.players],
+            player_ids=[p.name for p in self.players],
+            total_payoffs=self.history.total_payoffs(),
+            total_cooperations=self.history.total_cooperations(),
             history=self.history,
             description=self.description
         )
-
-    def _get_player_display_name(self, player: BasePlayer) -> str:
-        """Get display name for player including strategy if available."""
-        base_name = player.name
-        if hasattr(player, 'strategy_name'):
-            return f"{base_name}({player.strategy_name})"
-        return base_name
 
     def reset(self):
         """Reset game to initial state."""
         self.history = None
         self.current_round = 0
+        for player in self.players:
+            player.reset()

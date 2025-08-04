@@ -67,3 +67,14 @@ class GameHistory:
 
         self.actions = np.vstack([self.actions, actions])
         self.payoffs = np.vstack([self.payoffs, payoffs])
+
+    def actions_as_string_array(self):
+        fn = lambda a: str(Action(a))
+        vec_fn = np.vectorize(fn)
+        return vec_fn(self.actions)
+
+    def total_payoffs(self):
+        return self.payoffs.sum(axis=0)
+
+    def total_cooperations(self):
+        return self.actions.sum(axis=0)
