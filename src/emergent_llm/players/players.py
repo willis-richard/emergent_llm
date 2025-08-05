@@ -1,4 +1,5 @@
 """Player classes for social dilemma experiments."""
+import logging
 from typing import Callable
 
 from emergent_llm.common.actions import Action
@@ -13,27 +14,68 @@ class LLMPlayer(BasePlayer):
 
     def __init__(self, name: str, attitude: Attitude,
                  game_description: GameDescription,
-                 strategy_class: type[BaseStrategy]):
+                 strategy_class: type[BaseStrategy],
+                 max_errors: int=2):
         """
         Initialize LLM player with generated strategy.
 
         Args:
             name: Player name
             attitude: Player's attitude (cooperative/aggressive)
+            game_description: Game description
             strategy_class: Callable class implementing the strategy
+            max_errors: Number of tolerated errors
         """
         super().__init__(name)
         self.attitude: Attitude = attitude
         self.game_description: GameDescription = game_description
         self.strategy_class: type[BaseStrategy] = strategy_class
+
+        # Setup logging
+        self.logger = logging.getLogger(f"{repr(self)}")
+
+        # Error tracking (reset per game)
+        self.error_count = 0
+        self.max_errors = max_errors
+
         self.reset()
 
     def reset(self):
+        """Reset for a new game."""
         self.strategy_function = self.strategy_class(self.game_description)
+        self.error_count = 0
 
     def __call__(self, history: None | PlayerHistory) -> Action:
-        """Execute the strategy function (ignoring game context)."""
-        return self.strategy_function(history)
+        """Execute the strategy function with limited error handling."""
+        try:
+            action = self.strategy_function(history)
+
+            # Validate the returned action
+            if not isinstance(action, Action):
+                raise TypeError(f"Strategy returned {type(action).__name__} instead of Action")
+
+            return action
+
+        except Exception as e:
+            self.error_count += 1
+
+            # Log the error with context
+            round_info = "first round" if history is None else f"round {history.round_number + 1}"
+            self.logger.warning(
+                f"Strategy {self.strategy_class.__name__} error #{self.error_count} at {round_info}: "
+                f"{e.__class__.__name__}: {e}"
+            )
+
+            # Only allow 2 fallbacks, then let it crash
+            if self.error_count > self.max_errors:
+                self.logger.error(f"Strategy {self.strategy_class.__name__} exceeded error limit")
+                raise
+
+            # Return fallback action based on attitude
+            if self.attitude == Attitude.COOPERATIVE:
+                return Action.C
+            else:
+                return Action.D
 
     def __repr__(self):
         """String representation of the player."""

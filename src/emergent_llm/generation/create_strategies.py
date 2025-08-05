@@ -214,6 +214,7 @@ def validate_strategy_code(code: str):
 def test_generated_strategy(class_code: str, game_description: GameDescription):
     """Test the generated strategy by actually running it in games."""
     import tempfile
+    import numpy as np
 
     from emergent_llm.common.attitudes import Attitude
     from emergent_llm.players import LLMPlayer, SimplePlayer
@@ -261,21 +262,43 @@ import random
             raise ValueError(f"Unknown game description type: {type(game_description)}")
 
         # Create test player
-        player = LLMPlayer("test_player", Attitude.COOPERATIVE, game_description, strategy_class)
+        player = LLMPlayer("test_player", Attitude.COOPERATIVE, game_description, strategy_class, max_errors=0)
 
-        # Test against different opponent types
-        test_mixtures = [
-            [SimplePlayer(f"cooperator_{i}", lambda: C) for i in range(game_description.n_players - 1)],
-            [SimplePlayer(f"defector_{i}", lambda: D) for i in range(game_description.n_players - 1)],
-            [SimplePlayer(f"random_{i}", lambda: np.random.choice([C, D])) for i in range(game_description.n_players - 1)],
-        ]
+        for n_players in [n_players, 4, 8]:
+            game_description.n_players = n_players
+            # Test against different opponent types
+            test_mixtures = [
+                [SimplePlayer(f"cooperator_{i}", lambda: C) for i in range(game_description.n_players - 1)],
+                [SimplePlayer(f"defector_{i}", lambda: D) for i in range(game_description.n_players - 1)],
+                [SimplePlayer(f"random_{i}", lambda: np.random.choice([C, D])) for i in range(game_description.n_players - 1)],
+                # Mostly cooperative (90% C, 10% D)
+                [SimplePlayer(f"mostly_coop_{i}", lambda: C if np.random.random() < 0.9 else D)
+                 for i in range(n_opponents)],
+                # Mostly defective (10% C, 90% D)
+                [SimplePlayer(f"mostly_defect_{i}", lambda: C if np.random.random() < 0.1 else D)
+                 for i in range(n_opponents)],
+                # Alternating cooperation
+                [SimplePlayer(f"alternating_{i}", lambda c=[False]: C if (c[0] := not c[0]) else D)
+                for i in range(game_description.n_players - 1)],
+                # Gradual defection
+                [SimplePlayer(f"grad_{i}", lambda r=[0]: D if (r[0] := r[0] + 1 % i) > 10 else C)
+                for i in range(game_description.n_players - 1)],
+                # periodic
+                [SimplePlayer(f"repeat_{period}",
+                              lambda r=[0], p=i+2: D if (r[0] := (r[0] + 1) % p) == 0 else C)
+                 for i in range(game_description.n_players - 1)]
+            ]
 
-        for mixture in test_mixtures:
-            players = [player] + mixture
-            game = game_class(players, game_description)
+            for mixture in test_mixtures:
+                players = [player] + mixture
+                game = game_class(players, game_description)
 
-            # This will raise an exception if the strategy fails
-            result = game.play_game()
+                # This will raise an exception if the strategy fails
+                result = game.play_game()
+
+    if hasattr(player, 'error_count') and player.error_count > 0:
+                    raise ValueError(f"Strategy had {player.error_count} errors during testing with {len(mixture)} opponents")
+
 
     finally:
         # Clean up temp file
