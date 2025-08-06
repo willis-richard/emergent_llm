@@ -51,28 +51,6 @@ def load_strategies_from_file(file_path: str):
     return cooperative_strategy_classes, aggressive_strategy_classes
 
 
-def create_players_from_strategies(cooperative_classes, aggressive_classes, sample_game_desc):
-    """Create player instances from strategy classes."""
-    cooperative_players = []
-    aggressive_players = []
-
-    for i, strategy_class in enumerate(cooperative_classes):
-        player = LLMPlayer(f"coop_{strategy_class.__name__}",
-                          Attitude.COOPERATIVE,
-                          sample_game_desc,  # Just for initialization
-                          strategy_class)
-        cooperative_players.append(player)
-
-    for i, strategy_class in enumerate(aggressive_classes):
-        player = LLMPlayer(f"agg_{strategy_class.__name__}",
-                          Attitude.AGGRESSIVE,
-                          sample_game_desc,  # Just for initialization
-                          strategy_class)
-        aggressive_players.append(player)
-
-    return cooperative_players, aggressive_players
-
-
 def get_game_class(game_type: str):
     """Get game class based on type."""
     if game_type == "public_goods":
@@ -141,11 +119,6 @@ def main():
 
     sample_desc = game_description_generator(group_size=4)
 
-    # Create players
-    cooperative_players, aggressive_players = create_players_from_strategies(
-        cooperative_classes, aggressive_classes, sample_desc
-    )
-
     # Show parameter scaling
     print(f"Game type: {args.game}")
     print(f"Group sizes: {args.group_sizes}")
@@ -162,8 +135,8 @@ def main():
 
     # Create and run tournament
     tournament = MultiGroupTournament(
-        cooperative_players=cooperative_players,
-        aggressive_players=aggressive_players,
+        cooperative_strategies=cooperative_classes,
+        aggressive_strategies=aggressive_classes,
         config=config
     )
 

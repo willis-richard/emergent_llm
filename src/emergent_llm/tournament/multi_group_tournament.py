@@ -6,8 +6,8 @@ import pandas as pd
 import numpy as np
 
 from emergent_llm.games.base_game import BaseGame
-from emergent_llm.common import GameDescription
-from emergent_llm.players import BasePlayer
+from emergent_llm.common import GameDescription, Attitude
+from emergent_llm.players import BasePlayer, LLMPlayer, BaseStrategy
 from emergent_llm.tournament.mixture_tournament import MixtureTournament, MixtureTournamentConfig
 
 
@@ -25,27 +25,27 @@ class MultiGroupTournament:
     """Tournament that runs mixture tournaments across multiple group sizes."""
 
     def __init__(self,
-                 cooperative_players: List[BasePlayer],
-                 aggressive_players: List[BasePlayer],
+                 cooperative_strategies: List[BaseStrategy],
+                 aggressive_strategies: List[BaseStrategy],
                  config: MultiGroupTournamentConfig):
 
-        self.cooperative_players = cooperative_players
-        self.aggressive_players = aggressive_players
+        self.cooperative_strategies = cooperative_strategies
+        self.aggressive_strategies = aggressive_strategies
         self.config = config
 
         # Setup logging
         self.logger = logging.getLogger(__name__)
-        self.logger.info(f"Initialized multi-group tournament with {len(cooperative_players)} cooperative "
-                        f"and {len(aggressive_players)} aggressive players")
+        self.logger.info(f"Initialized multi-group tournament with {len(cooperative_strategies)} cooperative "
+                        f"and {len(aggressive_strategies)} aggressive strategies")
 
         # Validate we have enough strategies for largest group size
         max_group_size = max(config.group_sizes)
-        if len(cooperative_players) < max_group_size:
+        if len(cooperative_strategies) < max_group_size:
             raise ValueError(f"Need at least {max_group_size} cooperative players for largest group size, "
-                           f"got {len(cooperative_players)}")
-        if len(aggressive_players) < max_group_size:
+                           f"got {len(cooperative_strategies)}")
+        if len(aggressive_strategies) < max_group_size:
             raise ValueError(f"Need at least {max_group_size} aggressive players for largest group size, "
-                           f"got {len(aggressive_players)}")
+                           f"got {len(aggressive_strategies)}")
 
         # Storage for all results
         self.all_results: List[pd.DataFrame] = []
@@ -65,10 +65,13 @@ class MultiGroupTournament:
                 matches_per_mixture=self.config.matches_per_mixture
             )
 
+            # Create players
+            cooperative_players, aggressive_players = self.create_players_from_strategies(game_description)
+
             # Run mixture tournament for this group size
             mixture_tournament = MixtureTournament(
-                cooperative_players=self.cooperative_players,
-                aggressive_players=self.aggressive_players,
+                cooperative_players=cooperative_players,
+                aggressive_players=aggressive_players,
                 config=mixture_config
             )
 
@@ -84,6 +87,30 @@ class MultiGroupTournament:
         self._create_summary_table(combined_results)
 
         return combined_results
+
+
+    def create_players_from_strategies(self, game_description):
+        """Create player instances from strategy classes."""
+        cooperative_players = []
+        aggressive_players = []
+
+        for i, strategy_class in enumerate(self.cooperative_strategies):
+            player = LLMPlayer(f"coop_{strategy_class.__name__}",
+                            Attitude.COOPERATIVE,
+                            game_description,  # Just for initialization
+                            strategy_class)
+            cooperative_players.append(player)
+
+        for i, strategy_class in enumerate(self.aggressive_strategies):
+            player = LLMPlayer(f"agg_{strategy_class.__name__}",
+                            Attitude.AGGRESSIVE,
+                            game_description,  # Just for initialization
+                            strategy_class)
+            aggressive_players.append(player)
+
+        return cooperative_players, aggressive_players
+
+
 
     def _create_summary_table(self, results_df: pd.DataFrame):
         """Create summary table with social welfare across group sizes and ratios."""

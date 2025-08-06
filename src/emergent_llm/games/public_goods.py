@@ -37,6 +37,6 @@ class PublicGoodsGame(BaseGame):
     def _calculate_payoffs(self, actions: NDArray[np.bool_]) -> NDArray[np.float64]:
         """Calculate payoffs for a single round."""
         n_cooperators = np.sum(actions)
-        cooperation_benefit = n_cooperators * self.description.k / self.n_players
+        cooperation_benefit = n_cooperators * self.description.k / self.description.n_players
 
         return cooperation_benefit + (~actions).astype(np.float64)

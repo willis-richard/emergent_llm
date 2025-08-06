@@ -264,28 +264,48 @@ import random
         # Create test player
         player = LLMPlayer("test_player", Attitude.COOPERATIVE, game_description, strategy_class, max_errors=0)
 
-        for n_players in [n_players, 4, 8]:
+        class GradualDefector:
+            def __init__(self, threshold=10):
+                self.threshold = threshold
+                self.round = 0
+
+            def __call__(self):
+                self.round += 1
+                return C if self.round <= self.threshold else D
+
+        class PeriodicDefector:
+            def __init__(self, period):
+                self.period = period
+                self.round = 0
+
+            def __call__(self):
+                self.round = (self.round + 1) % self.period
+                return D if self.round == 0 else C
+
+        for n_players in [game_description.n_players, 4, 8]:
             game_description.n_players = n_players
             # Test against different opponent types
             test_mixtures = [
-                [SimplePlayer(f"cooperator_{i}", lambda: C) for i in range(game_description.n_players - 1)],
-                [SimplePlayer(f"defector_{i}", lambda: D) for i in range(game_description.n_players - 1)],
-                [SimplePlayer(f"random_{i}", lambda: np.random.choice([C, D])) for i in range(game_description.n_players - 1)],
+                [SimplePlayer(f"cooperator_{i}", lambda: C)
+                 for i in range(game_description.n_players - 1)],
+                [SimplePlayer(f"defector_{i}", lambda: D)
+                 for i in range(game_description.n_players - 1)],
+                [SimplePlayer(f"random_{i}", lambda: np.random.choice([C, D]))
+                 for i in range(game_description.n_players - 1)],
                 # Mostly cooperative (90% C, 10% D)
                 [SimplePlayer(f"mostly_coop_{i}", lambda: C if np.random.random() < 0.9 else D)
-                 for i in range(n_opponents)],
+                 for i in range(game_description.n_players - 1)],
                 # Mostly defective (10% C, 90% D)
                 [SimplePlayer(f"mostly_defect_{i}", lambda: C if np.random.random() < 0.1 else D)
-                 for i in range(n_opponents)],
+                 for i in range(game_description.n_players - 1)],
                 # Alternating cooperation
-                [SimplePlayer(f"alternating_{i}", lambda c=[False]: C if (c[0] := not c[0]) else D)
-                for i in range(game_description.n_players - 1)],
+                [SimplePlayer(f"alternating_{i}", PeriodicDefector(2))
+                 for i in range(game_description.n_players - 1)],
                 # Gradual defection
-                [SimplePlayer(f"grad_{i}", lambda r=[0]: D if (r[0] := r[0] + 1 % i) > 10 else C)
-                for i in range(game_description.n_players - 1)],
+                [SimplePlayer(f"grad_{i}", GradualDefector(10+i))
+                 for i in range(game_description.n_players - 1)],
                 # periodic
-                [SimplePlayer(f"repeat_{period}",
-                              lambda r=[0], p=i+2: D if (r[0] := (r[0] + 1) % p) == 0 else C)
+                [SimplePlayer(f"period_{i}", PeriodicDefector(2+i))
                  for i in range(game_description.n_players - 1)]
             ]
 
@@ -295,10 +315,6 @@ import random
 
                 # This will raise an exception if the strategy fails
                 result = game.play_game()
-
-    if hasattr(player, 'error_count') and player.error_count > 0:
-                    raise ValueError(f"Strategy had {player.error_count} errors during testing with {len(mixture)} opponents")
-
 
     finally:
         # Clean up temp file
@@ -457,10 +473,12 @@ def main():
     # Create output directory structure
     strategies_dir = Path("strategies") / args.game
     strategies_dir.mkdir(parents=True, exist_ok=True)
+    log_dir = Path(f"{strategies_dir}/logs")
+    log_dir.mkdir(exist_ok=True)
 
     # Setup file paths
     output_file = strategies_dir / f"{args.llm_provider}_{args.model_name}.py"
-    log_file = strategies_dir / f"{args.llm_provider}_{args.model_name}.log"
+    log_file = log_dir / f"{args.llm_provider}_{args.model_name}.log"
 
     # Setup logging
     logger = setup_logging(log_file)

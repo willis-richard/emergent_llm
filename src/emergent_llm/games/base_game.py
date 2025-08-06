@@ -74,7 +74,6 @@ class BaseGame(ABC):
 
         self.players: list[BasePlayer] = players
         self.description: GameDescription = description
-        self.n_players: int = len(players)
 
         # Initialize game state
         self.history: GameHistory | None = None

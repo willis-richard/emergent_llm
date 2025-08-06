@@ -95,7 +95,7 @@ def create_strategy_user_prompt(attitude: Attitude, game_description: GameDescri
 
     return f"""{format_game_description(game_description)}
 
-Design a {attitude} strategy for this game. Your strategy should:
+Design a {attitude} strategy for this game, to play in a tournament against other LLM generated strategies. Your strategy should:
 
 1. **Specify decision rules** - When exactly do you cooperate vs defect?
 2. **Consider adaptation** - How do you respond to others' behavior over time?
@@ -126,14 +126,17 @@ def create_code_user_prompt(strategy_description: str, game_description: GameDes
 **Template:**
 ```python
 class Strategy(BaseStrategy):
+    \"\"\"
+    Write a description of your strategy here.
+    \"\"\"
+
     def __init__(self, game_description: {game_description.__class__.__name__}):
         # Initialize any state variables here
         self.game_description = game_description
 
     def __call__(self, history: None | PlayerHistory) -> Action:
-        \"\"\"Write a description of your strategy here.\"\"\"
         if history is None:
-            # First round logic
+            # First (zeroth) round logic
             return Action.C  # or Action.D
 
         # Subsequent rounds logic using history

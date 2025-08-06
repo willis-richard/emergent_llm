@@ -42,7 +42,7 @@ class PublicGoodsGame(BaseGame):
         payoffs = share + share * (~actions).astype(np.float64)
 
         self.stock -= np.sum(payoffs)
-        self.stock += 2 * self.stock * (1 - self.stock/self.description.capacity)
+        self.stock += 2 * self.stock * (1 - self.stock / self.description.capacity)
 
         return payoffs
 
