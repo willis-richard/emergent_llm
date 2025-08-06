@@ -78,3 +78,6 @@ class GameHistory:
 
     def total_cooperations(self):
         return self.actions.sum(axis=0)
+
+    def cooperations_by_round(self):
+        return self.actions.sum(axis=1)

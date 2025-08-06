@@ -16,6 +16,7 @@ class GameResult:
     player_ids: list[str]  # Player names/IDs
     total_payoffs: list[float]  # Total scores by player
     total_cooperations: list[int]  # Number of cooperate actions by player
+    cooperations_by_round: list[int]  # Number of cooperate actions in each round
     history: GameHistory  # Complete game history
     description: GameDescription  # Game parameters and rules
 
@@ -117,6 +118,7 @@ class BaseGame(ABC):
             player_ids=[p.name for p in self.players],
             total_payoffs=self.history.total_payoffs(),
             total_cooperations=self.history.total_cooperations(),
+            cooperations_by_round=self.history.cooperations_by_round(),
             history=self.history,
             description=self.description
         )

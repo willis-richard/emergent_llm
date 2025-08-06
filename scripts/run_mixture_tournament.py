@@ -73,21 +73,53 @@ def parse_arguments():
                        help="Number of matches per mixture ratio")
     parser.add_argument("--group-sizes", type=int, nargs="+", default=[2, 4, 8, 16, 32],
                        help="Group sizes to test")
-    parser.add_argument("--output-prefix", type=str, required=True,
-                       help="Prefix for output files (e.g., 'results/public_goods/gpt4')")
     parser.add_argument("--verbose", action="store_true",
                        help="Enable verbose logging")
 
     return parser.parse_args()
 
 
+def setup_results_directory(strategies_path: str, game_type: str) -> tuple[Path, Path, Path]:
+    """
+    Setup results directory structure based on strategies file and game type.
+
+    Returns:
+        tuple: (results_dir, schelling_dir, logs_dir)
+    """
+    # Extract filename without extension from strategies path
+    strategies_filename = Path(strategies_path).stem
+
+    # Create results directory structure
+    results_base = Path("results") / game_type / strategies_filename
+    schelling_dir = results_base / "schelling"
+    logs_dir = results_base / "logs"
+
+    # Create all directories
+    results_base.mkdir(parents=True, exist_ok=True)
+    schelling_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    return results_base, schelling_dir, logs_dir
+
+
 def main():
     """Main function."""
     args = parse_arguments()
 
-    # Setup logging
+    # Setup directory structure
+    results_dir, schelling_dir, logs_dir = setup_results_directory(args.strategies, args.game)
+
+    # Setup logging to file
+    log_file = logs_dir / "tournament.log"
     level = logging.INFO if args.verbose else logging.WARNING
-    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+    logging.basicConfig(
+        level=level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler()
+        ]
+    )
 
     # Load strategy classes
     print(f"Loading strategies from {args.strategies}...")
@@ -117,19 +149,17 @@ def main():
         else:
             raise ValueError(f"Unknown game type: {args.game}")
 
-    sample_desc = game_description_generator(group_size=4)
-
     # Show parameter scaling
     print(f"Game type: {args.game}")
     print(f"Group sizes: {args.group_sizes}")
     print(f"Matches per mixture: {args.matches}")
+    print(f"Results will be saved to: {results_dir}")
 
-    # Create configuration
     config = MultiGroupTournamentConfig(
         game_class=get_game_class(args.game),
         group_sizes=args.group_sizes,
         matches_per_mixture=args.matches,
-        output_prefix=args.output_prefix,
+        results_dir=results_dir,
         game_description_generator=game_description_generator
     )
 
@@ -144,9 +174,7 @@ def main():
     results_df = tournament.run_tournament()
 
     # Save detailed results
-    results_file = f"{args.output_prefix}_detailed_results.csv"
-    results_df.to_csv(results_file, index=False)
-    print(f"\nDetailed results saved to {results_file}")
+    results_df.to_csv(f"{results_dir}/detailed_results.csv", index=False)
 
 
 if __name__ == "__main__":

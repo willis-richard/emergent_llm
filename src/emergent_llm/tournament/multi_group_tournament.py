@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import List, Callable
 import pandas as pd
 import numpy as np
+from pathlib import Path
 
 from emergent_llm.games.base_game import BaseGame
 from emergent_llm.common import GameDescription, Attitude
@@ -17,7 +18,7 @@ class MultiGroupTournamentConfig:
     game_class: type[BaseGame]
     group_sizes: List[int]
     matches_per_mixture: int
-    output_prefix: str
+    results_dir: str
     game_description_generator: Callable[[int], GameDescription]  # Just takes group_size, returns GameDescription
 
 
@@ -79,7 +80,7 @@ class MultiGroupTournament:
             self.all_results.append(results_df)
 
             # Generate Schelling diagram for this group size
-            output_path = f'{self.config.output_prefix}_schelling_n{group_size}'
+            output_path = f'{self.config.results_dir}/schelling/n_{group_size}'
             mixture_tournament.create_schelling_diagram(output_path)
 
         # Combine all results and create summary table
@@ -87,7 +88,6 @@ class MultiGroupTournament:
         self._create_summary_table(combined_results)
 
         return combined_results
-
 
     def create_players_from_strategies(self, game_description):
         """Create player instances from strategy classes."""
@@ -110,8 +110,6 @@ class MultiGroupTournament:
 
         return cooperative_players, aggressive_players
 
-
-
     def _create_summary_table(self, results_df: pd.DataFrame):
         """Create summary table with social welfare across group sizes and ratios."""
         # Create pivot table with aggressive ratios as rows and group sizes as columns
@@ -125,8 +123,8 @@ class MultiGroupTournament:
         # Format as percentages for the index
         pivot_df.index = [f"{ratio:.0%}" for ratio in pivot_df.index]
 
-        # Save to CSV
-        output_file = f'{self.config.output_prefix}_summary_table.csv'
+        # Save to CSV using the main output prefix
+        output_file = f'{self.config.results_dir}/summary_table.csv'
         pivot_df.to_csv(output_file)
 
         self.logger.info(f"Summary table saved: {output_file}")

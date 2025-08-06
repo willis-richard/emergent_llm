@@ -6,6 +6,7 @@ from typing import List, Dict
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from pathlib import Path
 
 from emergent_llm.games.base_game import BaseGame, GameResult
 from emergent_llm.common import GameDescription
@@ -178,6 +179,10 @@ class MixtureTournament:
 
     def create_schelling_diagram(self, output_path: str):
         """Create Schelling diagram for this tournament."""
+        # Ensure output directory exists
+        output_file = Path(output_path).with_suffix('.png')
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
         # Sort stats by number of cooperators
         sorted_stats = sorted(self.mixture_stats.values(), key=lambda x: x.n_cooperative)
 
@@ -200,6 +205,10 @@ class MixtureTournament:
         coop_scores = [stats.avg_cooperative_score for stats in sorted_stats]
         agg_scores = [stats.avg_aggressive_score for stats in sorted_stats]
 
+        # Shift cooperative scores to show payoffs as if there was one fewer cooperator
+        # This matches the original Schelling diagram logic
+        coop_scores = np.roll(coop_scores, -1)
+
         # Plot cooperative and aggressive scores
         ax.plot(n_cooperators, coop_scores,
                 label='Cooperative', lw=0.75, marker='o', markersize=4)
@@ -212,16 +221,16 @@ class MixtureTournament:
         ax.set_xlim(0, group_size)
 
         # Set y-limits based on data range with some padding
-        valid_scores = [s for s in coop_scores + agg_scores if not np.isnan(s)]
-        if valid_scores:
-            y_min = min(valid_scores) * 0.95
-            y_max = max(valid_scores) * 1.05
-            ax.set_ylim(y_min, y_max)
+        # valid_scores = [s for s in coop_scores + agg_scores if not np.isnan(s)]
+        # if valid_scores:
+        #     y_min = min(valid_scores) * 0.95
+        #     y_max = max(valid_scores) * 1.05
+        #     ax.set_ylim(y_min, y_max)
 
         ax.legend(bbox_to_anchor=(0, 1), loc='upper left', ncol=2, frameon=False, columnspacing=0.5)
 
-        # Save plots
-        fig.savefig(f'{output_path}.png', format='png', bbox_inches='tight')
+        # Save plot
+        fig.savefig(output_file, format='png', bbox_inches='tight')
         plt.close(fig)
 
-        self.logger.info(f"Schelling diagram saved: {output_path}.png")
+        self.logger.info(f"Schelling diagram saved: {output_file}")
