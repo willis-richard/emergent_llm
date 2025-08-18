@@ -108,7 +108,3 @@ class SimplePlayer(BasePlayer):
     def __call__(self, history: None | PlayerHistory) -> Action:
         """Execute the strategy function (ignoring game context)."""
         return self.strategy_function()
-
-    def __repr__(self):
-        """String representation of the player."""
-        return f"{self.__class__.__name__}({self.name})"
