@@ -11,7 +11,7 @@ from emergent_llm.players.base_player import BasePlayer
 
 
 @dataclass
-class MatchConfig:
+class FairTournamentConfig:
     game_class: type[BaseGame]
     game_description: GameDescription
     matches_per_player: int
@@ -28,7 +28,7 @@ class MatchResult:
 class FairTournament:
     """Fair tournament where all players play equal number of games."""
 
-    def __init__(self, players: list[BasePlayer], match_config: MatchConfig):
+    def __init__(self, players: list[BasePlayer], match_config: FairTournamentConfig):
         # Validate population size
         if len(players) % match_config.game_description.n_players != 0:
             raise ValueError(
@@ -37,7 +37,7 @@ class FairTournament:
             )
 
         self.players: list[BasePlayer] = players
-        self.match_config: MatchConfig = match_config
+        self.match_config: FairTournamentConfig = match_config
 
         # Results storage
         self.match_results: list[MatchResult] = []

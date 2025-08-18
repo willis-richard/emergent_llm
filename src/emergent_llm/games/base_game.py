@@ -50,7 +50,7 @@ class GameResult:
         lines.append("TOTAL SCORES:")
         for i, total_payoff in enumerate(self.total_payoffs):
             lines.append(f"  Player {i}: {total_payoff:.3f}")
-        lines.append(f"Average: {self.total_payoffs.mean():.3f}")
+        lines.append(f"Average: {np.mean(self.total_payoffs):.3f}")
         lines.append("=" * 60)
 
         result_str = "\n".join(lines)
