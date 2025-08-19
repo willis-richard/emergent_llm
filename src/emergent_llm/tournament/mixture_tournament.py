@@ -1,26 +1,14 @@
 """Mixture tournament for a single group size."""
-import logging
 import random
 from dataclasses import dataclass
-from typing import List, Dict
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
 from pathlib import Path
 
-from emergent_llm.games.base_game import BaseGame, GameResult
-from emergent_llm.common import GameDescription
-from emergent_llm.players import BasePlayer
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 from emergent_llm.common.attitudes import Attitude
-from emergent_llm.tournament.fair_tournament import MatchResult
-
-
-@dataclass
-class MixtureTournamentConfig:
-    """Configuration for single-group-size mixture tournament."""
-    game_class: type[BaseGame]
-    game_description: GameDescription
-    matches_per_mixture: int
+from emergent_llm.players import BasePlayer
+from emergent_llm.tournament.base_tournament import BaseTournament, MatchResult, BaseTournamentConfig
 
 
 @dataclass
@@ -28,8 +16,8 @@ class MixtureStats:
     """Statistics for a specific mixture configuration."""
     n_cooperative: int
     n_aggressive: int
-    cooperative_scores: List[float]
-    aggressive_scores: List[float]
+    cooperative_scores: list[float]
+    aggressive_scores: list[float]
     matches_played: int
 
     @property
@@ -42,32 +30,39 @@ class MixtureStats:
 
     @property
     def avg_cooperative_score(self) -> float:
-        return np.mean(self.cooperative_scores) if self.cooperative_scores else np.nan
+        return float(np.mean(self.cooperative_scores)) if self.cooperative_scores else np.nan
 
     @property
     def avg_aggressive_score(self) -> float:
-        return np.mean(self.aggressive_scores) if self.aggressive_scores else np.nan
+        return float(np.mean(self.aggressive_scores)) if self.aggressive_scores else np.nan
 
     @property
     def avg_social_welfare(self) -> float:
         all_scores = self.cooperative_scores + self.aggressive_scores
-        return np.mean(all_scores) if all_scores else np.nan
+        return float(np.mean(all_scores)) if all_scores else np.nan
 
 
-class MixtureTournament:
+class MixtureTournament(BaseTournament):
     """Tournament testing different mixtures of cooperative vs aggressive players for a single group size."""
 
     def __init__(self,
-                 cooperative_players: List[BasePlayer],
-                 aggressive_players: List[BasePlayer],
-                 config: MixtureTournamentConfig):
+                 cooperative_players: list[BasePlayer],
+                 aggressive_players: list[BasePlayer],
+                 config: BaseTournamentConfig):
+        """
+        Initialize mixture tournament.
+
+        Args:
+            cooperative_players: List of cooperative players
+            aggressive_players: List of aggressive players
+            game_class: Game class to use
+            game_description: Game description
+            config: Tournament configuration
+        """
+        super().__init__(config)
 
         self.cooperative_players = cooperative_players
         self.aggressive_players = aggressive_players
-        self.config = config
-
-        # Setup logging
-        self.logger = logging.getLogger(__name__)
 
         group_size = config.game_description.n_players
 
@@ -78,7 +73,7 @@ class MixtureTournament:
             raise ValueError(f"Need at least {group_size} aggressive players, got {len(aggressive_players)}")
 
         # Stats storage - organized by (n_cooperative, n_aggressive)
-        self.mixture_stats: Dict[tuple, MixtureStats] = {}
+        self.mixture_stats: dict[tuple, MixtureStats] = {}
 
     def run_tournament(self) -> pd.DataFrame:
         """Run tournament across all mixture ratios for this group size."""
@@ -100,60 +95,48 @@ class MixtureTournament:
             )
 
             # Run matches for this mixture
-            self._run_mixture(n_cooperative, n_aggressive)
+            self._run_mixture(mixture_key)
 
-        return self._create_results_dataframe()
+        return self.create_results_dataframe()
 
-    def _run_mixture(self, n_cooperative: int, n_aggressive: int):
-        """Run multiple matches for a specific mixture."""
-        mixture_key = (n_cooperative, n_aggressive)
+    def _run_mixture(self, mixture_key: tuple[int, int]):
+        """Run multiple matches for a specific mixture"""
 
         self.logger.info(f"Testing mixture: {mixture_key}")
 
-        for match_num in range(self.config.matches_per_mixture):
+        for match_num in range(self.config.repetitions):
             # Create players for this match
-            match_players = self._create_match_players(n_cooperative, n_aggressive)
-            match_id = f"match_{mixture_key}_{match_num:04d}"
+            match_players = self._create_match_players(mixture_key)
+            match_id = f"mixture_{mixture_key}a_match{match_num:04d}"
 
-            result = self._run_match(match_players, mixture_key, match_id)
+            # Run the match using base class method
+            match_result = self._run_match(match_players, match_id)
 
-    def _run_match(self, players: list[BasePlayer], mixture_key, match_id: str) -> MatchResult:
-        # Run the match
-        game = self.config.game_class(players, self.config.game_description)
-        result = game.play_game()
+            # Record mixture-specific stats
+            self._record_match_stats(mixture_key, match_players, match_result)
 
-        # Record stats immediately with known player types
-        self._record_match_stats(mixture_key, players, result)
-
-        return MatchResult(
-            match_id=match_id,
-            game_result=game_result,
-            timestamp=datetime.now()
-        )
-
-    def _create_match_players(self, n_cooperative: int, n_aggressive: int) -> List[BasePlayer]:
+    def _create_match_players(self, mixture_key: tuple[int, int]) -> list[BasePlayer]:
         """Create players for a single match by sampling from available strategies."""
         players = []
 
         # Sample cooperative players
-        if n_cooperative > 0:
-            players.extend(random.sample(self.cooperative_players, n_cooperative))
+        if mixture_key[0] > 0:
+            players.extend(random.sample(self.cooperative_players, mixture_key[0]))
 
         # Sample aggressive players
-        if n_aggressive > 0:
-            players.extend(random.sample(self.aggressive_players, n_aggressive))
+        if mixture_key[1] > 0:
+            players.extend(random.sample(self.aggressive_players, mixture_key[1]))
 
         # Shuffle to randomize positions
         random.shuffle(players)
         return players
 
-    def _record_match_stats(self, mixture_key: tuple, players: List[BasePlayer], result: GameResult):
+    def _record_match_stats(self, mixture_key: tuple, players: list[BasePlayer], match_result: MatchResult):
         """Record statistics for a completed match."""
         stats = self.mixture_stats[mixture_key]
-        total_payoffs = result.history.total_payoffs()
 
         # Record payoffs by player type
-        for player, payoff in zip(players, total_payoffs):
+        for player, payoff in zip(players, match_result.payoffs):
             if hasattr(player, 'attitude'):
                 if player.attitude == Attitude.COOPERATIVE:
                     stats.cooperative_scores.append(payoff)
@@ -166,8 +149,8 @@ class MixtureTournament:
 
         stats.matches_played += 1
 
-    def _create_results_dataframe(self) -> pd.DataFrame:
-        """Create DataFrame from collected statistics."""
+    def create_results_dataframe(self) -> pd.DataFrame:
+        """Create DataFrame from collected mixture statistics."""
         rows = []
 
         for stats in self.mixture_stats.values():
