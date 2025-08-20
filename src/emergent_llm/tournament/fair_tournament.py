@@ -52,6 +52,8 @@ class FairTournament(BaseTournament):
 
         self.players = players
 
+        # Initialize player statistics storage
+        self.player_stats: dict[str, PlayerStats] = {}
 
     def run_tournament(self) -> pd.DataFrame:
         """Run complete tournament with all repetitions."""
@@ -69,6 +71,7 @@ class FairTournament(BaseTournament):
 
         n_players = self.game_description.n_players
         matches_per_repetition = len(self.players) // n_players
+
         for match_num in range(matches_per_repetition):
             start_idx = match_num * n_players
             end_idx = start_idx + n_players
@@ -108,4 +111,6 @@ class FairTournament(BaseTournament):
                 'total_cooperations': sum(stats.cooperations),
                 'mean_cooperations': np.mean(stats.cooperations) if stats.cooperations else 0.0,
             })
-        return pd.DataFrame(rows)
+        # Sort by mean payoff descending
+        df = pd.DataFrame(rows)
+        return df.sort_values('mean_payoff', ascending=False).reset_index(drop=True)

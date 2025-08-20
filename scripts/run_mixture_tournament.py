@@ -12,7 +12,7 @@ from pathlib import Path
 src_path = Path(__file__).parent.parent / "src"
 sys.path.insert(0, str(src_path))
 
-from emergent_llm.tournament.multi_group_tournament import MultiGroupTournament, MultiGroupTournamentConfig
+from emergent_llm.tournament.batch_mixture_tournament import BatchMixtureTournament, BatchMixtureTournamentConfig
 from emergent_llm.players.base_player import BaseStrategy
 from emergent_llm.common import GameDescription
 from emergent_llm.players import LLMPlayer, BasePlayer
@@ -155,16 +155,16 @@ def main():
     print(f"Matches per mixture: {args.matches}")
     print(f"Results will be saved to: {results_dir}")
 
-    config = MultiGroupTournamentConfig(
+    config = BatchMixtureTournamentConfig(
         game_class=get_game_class(args.game),
         group_sizes=args.group_sizes,
-        matches_per_mixture=args.matches,
+        repetitions=args.matches,
         results_dir=results_dir,
         game_description_generator=game_description_generator
     )
 
     # Create and run tournament
-    tournament = MultiGroupTournament(
+    tournament = BatchMixtureTournament(
         cooperative_strategies=cooperative_classes,
         aggressive_strategies=aggressive_classes,
         config=config

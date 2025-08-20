@@ -1,7 +1,7 @@
-"""Multi-group tournament that runs mixture tournaments across different group sizes."""
+"""Batch tournament that runs mixture tournaments across different group sizes."""
 import logging
 from dataclasses import dataclass
-from typing import List, Callable
+from typing import Callable
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -9,26 +9,27 @@ from pathlib import Path
 from emergent_llm.games.base_game import BaseGame
 from emergent_llm.common import GameDescription, Attitude
 from emergent_llm.players import BasePlayer, LLMPlayer, BaseStrategy
-from emergent_llm.tournament.mixture_tournament import MixtureTournament, MixtureTournamentConfig
+from emergent_llm.tournament.mixture_tournament import MixtureTournament
+from emergent_llm.tournament.base_tournament import BaseTournamentConfig
 
 
 @dataclass
-class MultiGroupTournamentConfig:
+class BatchMixtureTournamentConfig:
     """Configuration for multi-group tournament."""
     game_class: type[BaseGame]
-    group_sizes: List[int]
-    matches_per_mixture: int
+    group_sizes: list[int]
+    repetitions: int
     results_dir: str
     game_description_generator: Callable[[int], GameDescription]  # Just takes group_size, returns GameDescription
 
 
-class MultiGroupTournament:
+class BatchMixtureTournament:
     """Tournament that runs mixture tournaments across multiple group sizes."""
 
     def __init__(self,
-                 cooperative_strategies: List[BaseStrategy],
-                 aggressive_strategies: List[BaseStrategy],
-                 config: MultiGroupTournamentConfig):
+                 cooperative_strategies: list[type[BaseStrategy]],
+                 aggressive_strategies: list[type[BaseStrategy]],
+                 config: BatchMixtureTournamentConfig):
 
         self.cooperative_strategies = cooperative_strategies
         self.aggressive_strategies = aggressive_strategies
@@ -36,7 +37,7 @@ class MultiGroupTournament:
 
         # Setup logging
         self.logger = logging.getLogger(__name__)
-        self.logger.info(f"Initialized multi-group tournament with {len(cooperative_strategies)} cooperative "
+        self.logger.info(f"Initialised multi-group tournament with {len(cooperative_strategies)} cooperative "
                         f"and {len(aggressive_strategies)} aggressive strategies")
 
         # Validate we have enough strategies for largest group size
@@ -49,7 +50,7 @@ class MultiGroupTournament:
                            f"got {len(aggressive_strategies)}")
 
         # Storage for all results
-        self.all_results: List[pd.DataFrame] = []
+        self.all_results: list[pd.DataFrame] = []
 
     def run_tournament(self) -> pd.DataFrame:
         """Run tournaments across all group sizes."""
@@ -60,10 +61,10 @@ class MultiGroupTournament:
             game_description = self.config.game_description_generator(group_size)
 
             # Create mixture tournament config for this group size
-            mixture_config = MixtureTournamentConfig(
+            mixture_config = BaseTournamentConfig(
                 game_class=self.config.game_class,
                 game_description=game_description,
-                matches_per_mixture=self.config.matches_per_mixture
+                repetitions=self.config.repetitions
             )
 
             # Create players
@@ -89,7 +90,7 @@ class MultiGroupTournament:
 
         return combined_results
 
-    def create_players_from_strategies(self, game_description):
+    def create_players_from_strategies(self, game_description: GameDescription) -> tuple[list[LLMPlayer], list[LLMPlayer]]:
         """Create player instances from strategy classes."""
         cooperative_players = []
         aggressive_players = []
@@ -135,5 +136,5 @@ class MultiGroupTournament:
         print(pivot_df.to_string(float_format='%.3f'))
 
         # Print some debug info
-        print(f"\nMatches played per mixture: {self.config.matches_per_mixture}")
+        print(f"\nMatches played per mixture: {self.config.repetitions}")
         print(f"Group sizes tested: {self.config.group_sizes}")
