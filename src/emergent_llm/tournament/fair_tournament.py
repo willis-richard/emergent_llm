@@ -1,11 +1,10 @@
+from dataclasses import dataclass, field
 import random
 import pandas as pd
 import numpy as np
-from dataclasses import dataclass, field
 
-from src.emergent_llm.base_tournament import BaseTournament, BaseTournamentConfig
-from src.emergent_llm.players import BasePlayer
-from emergent_llm.games import GameResult
+from emergent_llm.tournament.base_tournament import BaseTournament, BaseTournamentConfig
+from emergent_llm.players import BasePlayer
 
 
 @dataclass
@@ -22,7 +21,7 @@ class PlayerStats:
 
     @property
     def mean_payoff(self) -> float:
-        return float(np.mean(self.payoffs))
+        return float(np.mean(self.payoffs)) if self.payoffs else 0.0
 
     @property
     def total_payoff(self) -> float:
@@ -30,10 +29,10 @@ class PlayerStats:
 
     @property
     def mean_cooperations(self) -> float:
-        return float(np.mean(self.cooperations))
+        return float(np.mean(self.cooperations)) if self.cooperations else 0.0
 
     @property
-    def total_cooperations(self) -> float:
+    def total_cooperations(self) -> int:
         return sum(self.cooperations)
 
 
@@ -51,15 +50,14 @@ class FairTournament(BaseTournament):
             )
 
         self.players = players
-
         # Initialize player statistics storage
         self.player_stats: dict[str, PlayerStats] = {}
 
     def run_tournament(self) -> pd.DataFrame:
         """Run complete tournament with all repetitions."""
-        self.logger.info(f"Starting fair tournament: {self.repetitions} repetitions")
+        self.logger.info(f"Starting fair tournament: {self.config.repetitions} repetitions")
 
-        for repetition in range(self.repetitions):
+        for repetition in range(self.config.repetitions):
             self._run_repetition(repetition)
 
         return self.create_results_dataframe()
@@ -69,7 +67,7 @@ class FairTournament(BaseTournament):
         shuffled_players = self.players.copy()
         random.shuffle(shuffled_players)
 
-        n_players = self.game_description.n_players
+        n_players = self.config.game_description.n_players
         matches_per_repetition = len(self.players) // n_players
 
         for match_num in range(matches_per_repetition):
@@ -78,15 +76,15 @@ class FairTournament(BaseTournament):
             match_players = shuffled_players[start_idx:end_idx]
 
             match_id = f"rep{repetition:02d}_match{match_num:04d}"
-            game_result = self._run_match(match_players, match_id)
+            match_result = self._run_match(match_players, match_id)
 
             # Update player statistics
-            self._update_player_stats(shuffled_players, game_result)
+            self._update_player_stats(match_players, match_result)
 
-    def _update_player_stats(self, players: list[BasePlayer], game_result: GameResult):
+    def _update_player_stats(self, players: list[BasePlayer], match_result):
         """Update player statistics with results from a match."""
         for player, payoff, cooperations in zip(
-            players, game_result.total_payoffs, game_result.total_cooperations
+            players, match_result.payoffs, match_result.cooperations
         ):
             if player.name not in self.player_stats:
                 self.player_stats[player.name] = PlayerStats(
@@ -108,9 +106,10 @@ class FairTournament(BaseTournament):
                 'games_played': stats.games_played,
                 'mean_payoff': stats.mean_payoff,
                 'total_payoff': stats.total_payoff,
-                'total_cooperations': sum(stats.cooperations),
-                'mean_cooperations': np.mean(stats.cooperations) if stats.cooperations else 0.0,
+                'total_cooperations': stats.total_cooperations,
+                'mean_cooperations': stats.mean_cooperations,
             })
+
         # Sort by mean payoff descending
         df = pd.DataFrame(rows)
         return df.sort_values('mean_payoff', ascending=False).reset_index(drop=True)

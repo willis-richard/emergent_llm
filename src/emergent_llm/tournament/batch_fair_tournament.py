@@ -143,7 +143,6 @@ class BatchFairTournament:
         # Print summary to console
         print("\n=== GENERALIZATION ANALYSIS ===")
         print(f"Tested group sizes: {self.config.group_sizes}")
-        print(f"Population per group: {[gs * self.config.population_multiplier for gs in self.config.group_sizes]}")
         print("\nTop strategies by overall performance:")
         print(generalization_summary.head(10).to_string(index=False, float_format='%.3f'))
 
