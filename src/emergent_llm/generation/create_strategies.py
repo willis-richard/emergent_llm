@@ -397,33 +397,40 @@ def write_strategy_class(description: str, code: str, attitude: Attitude, n: int
 def create_single_strategy(config: LLMConfig,
                            attitude: Attitude, n: int,
                            game_description: GameDescription,
-                           temperature: float,
                            logger: logging.Logger,
                            max_retries: int = 3) -> str:
-    """Create a single strategy class with retry logic."""
+    """Create a single strategy class with separate retry logic for description vs code."""
+    print(f"Generating {attitude.name}_{n}...")
+
+    # Step 1: Generate strategy description (outside retry loop - rarely fails)
+    logger.info(f"Generating {attitude.value} strategy description")
+    description = generate_strategy_description(config, attitude, game_description, logger)
+
+    # Step 2: Code generation with retry logic (this is what commonly fails)
     for attempt in range(max_retries):
         try:
-            print(f"Generating {attitude.name}_{n} (attempt {attempt + 1})...")
+            print(f"  Coding attempt {attempt + 1}...")
 
-            # Step 1: Generate strategy description
-            description = generate_strategy_description(config, attitude, game_description, logger)
-
-            # Step 2: Generate code implementation
+            # Generate code implementation
             code = generate_strategy_code(config, description, game_description, logger)
 
-            # Step 3: Create complete class
+            # Create complete class
             class_code = write_strategy_class(description, code, attitude, n)
 
-            # Step 4: Test the generated strategy
+            # Test the generated strategy
             test_generated_strategy(class_code, game_description)
 
             return class_code
 
         except Exception as e:
-            logger.warning(f"Attempt {attempt + 1} failed for {attitude.name}_{n}: {e}")
+            logger.warning(f"Coding attempt {attempt + 1} failed for {attitude.name}_{n}: {e}")
             if attempt == max_retries - 1:
+                logger.error(f"All {max_retries} coding attempts failed for {attitude.name}_{n}")
                 raise
             time.sleep(1)  # Brief pause before retry
+
+    # This should never be reached due to the raise above, but included for completeness
+    raise RuntimeError(f"Unexpected failure in strategy generation for {attitude.name}_{n}")
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -534,7 +541,7 @@ import random
             for i in range(1, args.n + 1):
                 try:
                     strategy_class = create_single_strategy(
-                        config, attitude, i, game_description, args.temperature, logger
+                        config, attitude, i, game_description, logger
                     )
                     f.write("\n\n" + strategy_class)
                     f.flush()  # Save progress
