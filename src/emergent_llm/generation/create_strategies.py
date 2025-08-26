@@ -142,12 +142,13 @@ def validate_strategy_code(code: str):
             ast.Gt, ast.Lt, ast.GtE, ast.LtE, ast.Eq, ast.NotEq,
             ast.In, ast.NotIn, ast.Is, ast.IsNot, ast.Compare, ast.USub,
             ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Pow, ast.Mod,
+            ast.Try, ast.ExceptHandler,
         )
         # yapf: enable
 
         # Dangerous constructs
         dangerous_types = (ast.Import, ast.ImportFrom, ast.Global, ast.Nonlocal,
-                          ast.Delete, ast.With, ast.AsyncWith, ast.Try, ast.Raise)
+                          ast.Delete, ast.With, ast.AsyncWith, ast.Raise)
 
         dangerous_funcs = {'eval', 'exec', 'compile', 'open', '__import__', 'globals', 'locals', 'vars', 'dir'}
 
@@ -365,17 +366,6 @@ def write_strategy_class(description: str, code: str, attitude: Attitude, n: int
     class_name = f"Strategy_{attitude.name}_{n}"
     class_def.name = class_name
 
-    # # Add docstring to __call__ method if it doesn't exist
-    # for node in class_def.body:
-    #     if isinstance(node, ast.FunctionDef) and node.name == '__call__':
-    #         if (not node.body or
-    #             not isinstance(node.body[0], ast.Expr) or
-    #             not isinstance(node.body[0].value, ast.Constant)):
-    #             # Add docstring
-    #             docstring = ast.Expr(value=ast.Constant(value=description.strip()))
-    #             node.body.insert(0, docstring)
-    #         break
-
     # Convert back to source code
     return ast.unparse(tree)
 
@@ -410,6 +400,7 @@ def create_single_strategy(config: LLMConfig,
 
         except Exception as e:
             logger.warning(f"Coding attempt {attempt + 1} failed for {attitude.name}_{n}: {e}")
+            print(f"  ✗ Attempt {attempt + 1} failed: {e}")
             if attempt == max_retries - 1:
                 logger.error(f"All {max_retries} coding attempts failed for {attitude.name}_{n}")
                 raise

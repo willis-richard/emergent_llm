@@ -12,7 +12,7 @@ def format_game_description(game_description: GameDescription) -> str:
 
 PARAMETERS:
 - n: number of players (integer, n ≥ 2)
-- r: number of rounds (integer, r ≥ 1)
+- r: number of rounds (integer, r > 1)
 - k: multiplication factor (float, 1 < k < n)
 
 GAME STRUCTURE:
@@ -51,7 +51,7 @@ Total payoff for player i over r rounds = Σ(t=1 to r) π_i,t"""
 
 PARAMETERS:
 - n: number of players (integer, n ≥ 2)
-- r: number of rounds (integer, r ≥ 1)
+- r: number of rounds (integer, r > 1)
 - m: minimum cooperators needed (integer, 1 < m < n)
 - k: reward if threshold met factor (float, k > 1)
 
@@ -95,11 +95,17 @@ def create_strategy_user_prompt(attitude: Attitude, game_description: GameDescri
 
     return f"""{format_game_description(game_description)}
 
+**GAME THEORY ASSUMPTIONS:**
+- Perfect Information: All players can observe all other players' actions and payoffs from previous rounds
+- Common Knowledge: All players know the game rules, parameters and payoff structure
+- Repeated Interaction: This game has multiple rounds (r > 1)
+- No Communication: Players cannot communicate beyond what can be inferred from their actions
+
 Design a {attitude} strategy for this game, to play in a tournament against other LLM generated strategies. Your strategy should:
 
 1. **Specify decision rules** - When exactly do you cooperate vs defect?
 2. **Consider adaptation** - How do you respond to others' behavior over time?
-3. **Handle edge cases** - What do you do in the first round, last rounds, etc.?
+3. **Handle edge cases** - What do you do in the first round, last round, etc.?
 4. **Be {attitude}** - Clearly align with the {attitude} mindset
 
 Provide a detailed strategy description with concrete decision rules. Include pseudocode or logical steps if helpful."""
@@ -117,17 +123,25 @@ def create_code_user_prompt(strategy_description: str, game_description: GameDes
 
 **Requirements:**
 - Must be a single class inheriting from BaseStrategy
+- Return only the class definition, wrapped in a python block, no additional output
 - Must implement __init__(self, game_description) and __call__(self, history)
-- The __call__ method must have a proper docstring that concisely describes the strategy
-- Return only the class definition, wrapped in a python block, no explanatory text
 - Use only numpy, random, and basic Python (no imports allowed)
 - Handle first round (history=None) appropriately
+
+The following constructs are forbidden:
+- Import statements
+- Global/nonlocal variable declarations
+- File operations
+- System calls or subprocess execution
+- Raising exceptions
+- With statements and context managers
+- Async operations (async/await)
 
 **Template:**
 ```python
 class Strategy(BaseStrategy):
     \"\"\"
-    Write a description of your strategy here.
+    Summary of your strategy here.
     \"\"\"
 
     def __init__(self, game_description: {game_description.__class__.__name__}):
