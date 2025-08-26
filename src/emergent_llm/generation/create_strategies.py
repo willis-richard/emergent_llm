@@ -48,7 +48,6 @@ def setup_logging(log_file: Path) -> logging.Logger:
 class LLMConfig:
     client: openai.OpenAI | anthropic.Anthropic
     model_name: str
-    temperature: float
     max_retries: int = 3
 
 
@@ -85,7 +84,7 @@ def generate_strategy_code(config: LLMConfig,
         logger.info("Generating strategy code")
         logger.info(f"Code user prompt: {user_prompt}")
 
-    response = get_llm_response(config, system_prompt, user_prompt, temperature=0.0)
+    response = get_llm_response(config, system_prompt, user_prompt)
 
     if logger:
         logger.info(f"Generated code: {response}")
@@ -323,37 +322,24 @@ import random
 
 def get_llm_response(config: LLMConfig,
                      system_prompt: str,
-                     user_prompt: str,
-                     temperature=None) -> str:
+                     user_prompt: str) -> str:
     """Get response from LLM client."""
-    temperature = config.temperature if temperature is None else temperature
-
     for attempt in range(config.max_retries):
         try:
             if isinstance(config.client, openai.OpenAI):
-                if any(model in config.model_name for model in ["o3", "o4"]):
-                    response = config.client.chat.completions.create(
-                        model=config.model_name,
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt}
-                        ],
-                    )
-                    return response.choices[0].message.content
                 response = config.client.chat.completions.create(
                     model=config.model_name,
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
-                    temperature=temperature,
                 )
+                return response.choices[0].message.content
                 return response.choices[0].message.content
 
             elif isinstance(config.client, anthropic.Anthropic):
                 response = config.client.messages.create(
                     model=config.model_name,
-                    temperature=temperature,
                     system=system_prompt,
                     messages=[{"role": "user", "content": user_prompt}]
                 )
@@ -444,8 +430,6 @@ def parse_arguments() -> argparse.Namespace:
                        help="Which model to use")
     parser.add_argument("--n", type=int, required=True,
                        help="Number of strategies per attitude to generate")
-    parser.add_argument("--temperature", type=float, default=0.7,
-                       help="Temperature for strategy generation")
 
     # Game parameters
     parser.add_argument("--game", choices=["public_goods", "collective_risk"],
@@ -502,7 +486,7 @@ def main():
     else:
         raise ValueError(f"Unknown client {args.llm_provider}")
 
-    config = LLMConfig(client, args.model_name, args.temperature)
+    config = LLMConfig(client, args.model_name)
 
     # Create game description
     game_description = create_game_description(args)
@@ -519,7 +503,6 @@ Generated with:
 - Provider: {args.llm_provider}
 - Model: {args.model_name}
 - Game: {args.game}
-- Temperature: {args.temperature}
 """
 
 from emergent_llm.players.base_player import BaseStrategy

@@ -3,8 +3,8 @@ import logging
 from dataclasses import dataclass
 from typing import Callable
 import pandas as pd
-import numpy as np
 from pathlib import Path
+from tqdm import tqdm
 
 from emergent_llm.games.base_game import BaseGame
 from emergent_llm.common import GameDescription, Attitude
@@ -57,7 +57,7 @@ class BatchFairTournament:
 
     def run_tournament(self) -> pd.DataFrame:
         """Run fair tournaments across all group sizes."""
-        for group_size in self.config.group_sizes:
+        for group_size in tqdm(self.config.group_sizes, desc="Group sizes"):
             self.logger.info(f"Running fair tournament for group size {group_size}")
 
             # Generate game description for this group size

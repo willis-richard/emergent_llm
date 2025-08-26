@@ -81,6 +81,11 @@ class LLMPlayer(BasePlayer):
         """String representation of the player."""
         return f"{self.name}[{self.__class__.__name__}({self.attitude}, {self.strategy_class.__name__})]"
 
+    def __del__(self):
+        """Clean up strategy function reference."""
+        if hasattr(self, 'strategy_function'):
+            del self.strategy_function
+
     @property
     def strategy_name(self) -> str:
         """Get the strategy class name."""
