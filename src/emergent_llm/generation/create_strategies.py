@@ -100,6 +100,7 @@ def parse_strategy_file(strategy_file: Path) -> set[str]:
     Returns set of class names like 'Strategy_COOPERATIVE_1'.
     """
     if not strategy_file.exists():
+        print(f"WARNING: {strategy_file} not found")
         return set()
 
     strategy_classes = set()
@@ -119,18 +120,21 @@ def parse_strategy_file(strategy_file: Path) -> set[str]:
                     strategy_classes.add(class_name)
 
     except Exception as e:
-        logging.warning(f"Error parsing strategy file {strategy_file}: {e}")
+        error_msg = f"Error parsing description file {strategy_file}: {e}"
+        logging.warning(error_msg)
+        print(f"WARNING: {error_msg}")
         return set()
 
     return strategy_classes
 
 
 def write_description_to_file(description_file: Path, attitude: Attitude, n: int, description: str):
-    """Append a new description to the description file."""
+    """Append a new description using triple single quotes."""
     var_name = f"description_{attitude.name}_{n}"
 
     # Create description entry
-    description_entry = f'\n{var_name} = """\n{description}\n"""\n'
+    description = description.replace("'''", "\\'\\'\\'")
+    description_entry = f"\n{var_name} = '''\n{description}\n'''\n"
 
     # Append to file
     with open(description_file, 'a', encoding='utf-8') as f:
