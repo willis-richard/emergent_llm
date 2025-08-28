@@ -255,7 +255,7 @@ def validate_strategy_code(code: str):
             ast.If, ast.IfExp, ast.And, ast.Or, ast.Not, ast.Eq,
             ast.BitOr, ast.BitAnd, ast.BitXor, ast.Invert,
             ast.List, ast.Dict, ast.Tuple, ast.Num, ast.Str, ast.Constant, ast.Set,
-            ast.arg, ast.Name, ast.arguments, ast.keyword, ast.Expr, ast.Attribute,
+            ast.arg, ast.Name, ast.NamedExpr, ast.arguments, ast.keyword, ast.Expr, ast.Attribute,
             ast.Call, ast.Store, ast.Load, ast.Subscript, ast.Index, ast.Slice,
             ast.GeneratorExp, ast.comprehension, ast.ListComp, ast.Lambda, ast.DictComp, ast.SetComp,
             ast.For, ast.While, ast.Pass, ast.Break, ast.Continue,
@@ -269,7 +269,7 @@ def validate_strategy_code(code: str):
 
         # Dangerous constructs
         dangerous_types = (ast.Import, ast.ImportFrom, ast.Global, ast.Nonlocal,
-                          ast.Delete, ast.With, ast.AsyncWith, ast.Raise)
+                           ast.Delete, ast.With, ast.AsyncWith, ast.Raise)
 
         dangerous_funcs = {'eval', 'exec', 'compile', 'open', '__import__', 'globals', 'locals', 'vars', 'dir'}
 
@@ -350,6 +350,7 @@ from emergent_llm.common.actions import Action, C, D
 from emergent_llm.common.history import PlayerHistory
 import numpy as np
 from numpy.typing import NDArray
+import math
 import random
 
 """)
