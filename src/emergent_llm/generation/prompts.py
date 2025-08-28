@@ -126,7 +126,7 @@ def create_code_user_prompt(strategy_description: str, game_description_class: t
 - Must be a single class inheriting from BaseStrategy
 - Return only the class definition, wrapped in a python block, no additional output
 - Must implement __init__(self, game_description) and __call__(self, history)
-- Use only numpy, random, and basic Python (no imports allowed)
+- Use only math, numpy, random, and basic Python (no imports allowed)
 - Handle first round (history=None) appropriately
 
 The following constructs are forbidden:
@@ -164,7 +164,7 @@ def get_interface_description(game_description_class: type[GameDescription]) -> 
     """Get description of the PlayerHistory interface."""
     return f"""from dataclasses import dataclass
 from enum import Enum
-
+import math
 import numpy as np
 from numpy.typing import NDArray
 import random

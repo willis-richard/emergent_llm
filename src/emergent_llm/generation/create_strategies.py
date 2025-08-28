@@ -257,7 +257,7 @@ def validate_strategy_code(code: str):
             ast.List, ast.Dict, ast.Tuple, ast.Num, ast.Str, ast.Constant, ast.Set,
             ast.arg, ast.Name, ast.arguments, ast.keyword, ast.Expr, ast.Attribute,
             ast.Call, ast.Store, ast.Load, ast.Subscript, ast.Index, ast.Slice,
-            ast.GeneratorExp, ast.comprehension, ast.ListComp, ast.Lambda, ast.DictComp,
+            ast.GeneratorExp, ast.comprehension, ast.ListComp, ast.Lambda, ast.DictComp, ast.SetComp,
             ast.For, ast.While, ast.Pass, ast.Break, ast.Continue,
             ast.Assign, ast.AugAssign, ast.AnnAssign,
             ast.Gt, ast.Lt, ast.GtE, ast.LtE, ast.Eq, ast.NotEq,
@@ -464,8 +464,14 @@ def get_llm_response(config: LLMConfig,
                 response = config.client.messages.create(
                     model=config.model_name,
                     system=system_prompt,
+                    max_tokens=4096,
                     messages=[{"role": "user", "content": user_prompt}]
                 )
+                if hasattr(response, 'stop_reason') and response.stop_reason == "max_tokens":
+                    logging.warning(
+                        f"Response was truncated due to max_tokens limit. "
+                        f"Consider increasing max_tokens. Stop reason: {response.stop_reason}"
+                    )
                 return response.content[0].text
             else:
                 raise ValueError(f"Unknown client type: {type(config.client)}")
@@ -589,6 +595,7 @@ from emergent_llm.common.actions import Action, C, D
 from emergent_llm.common.history import PlayerHistory
 import numpy as np
 from numpy.typing import NDArray
+import math
 import random
 
 '''
