@@ -88,6 +88,7 @@ def setup_results_directory(strategies_path: str, game_type: str) -> tuple[Path,
         tuple: (results_dir, schelling_dir, logs_dir)
     """
     # Extract filename without extension from strategies path
+    assert Path(strategies_path).suffix == ".py", "strategies file must end in '.py'"
     strategies_filename = Path(strategies_path).stem
 
     # Create results directory structure

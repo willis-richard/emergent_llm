@@ -1,5 +1,5 @@
 from dataclasses import dataclass, asdict, fields
-from abc import ABC
+from abc import ABC, abstractmethod
 
 
 @dataclass
@@ -9,7 +9,7 @@ class GameDescription(ABC):
     n_rounds: int
 
     def to_dict(self) -> dict:
-        """Convert GameDescription to dictionary for serialization."""
+        """Convert GameDescription to dictionary for serialisation."""
         return asdict(self)
 
     def __post_init__(self):
@@ -44,3 +44,16 @@ class GameDescription(ABC):
             else:
                 params.append(f"{field_name}={field_value}")
         return f"{class_name}({', '.join(params)})"
+
+
+    @abstractmethod
+    def max_social_welfare() -> float:
+        """
+        Return the highest possible social welfare (per player)
+        """
+
+    @abstractmethod
+    def min_social_welfare() -> float:
+        """
+        Return the lowest possible social welfare (per player)
+        """

@@ -23,6 +23,12 @@ class CollectiveRiskDescription(GameDescription):
         if self.k <= 0:
             raise ValueError(f"k must be positive, got {self.k}")
 
+    def max_social_welfare(self) -> float:
+        return (self.k + (self.n_players - self.m) / self.n_players) * self.n_rounds
+
+    def min_social_welfare(self) -> float:
+        return self.n_rounds * (self.n_players - self.m + 1) / self.n_players
+
 
 class CollectiveRiskGame(BaseGame):
     """

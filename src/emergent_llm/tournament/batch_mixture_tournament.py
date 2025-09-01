@@ -88,6 +88,11 @@ class BatchMixtureTournament:
         combined_results = pd.concat(self.all_results, ignore_index=True)
         self._create_summary_table(combined_results)
 
+        self._create_social_welfare_diagram(
+            game_description,
+            combined_results,
+            f'{self.config.results_dir}/social_welfare_diagram')
+
         return combined_results
 
     def create_players_from_strategies(self, game_description: GameDescription) -> tuple[list[LLMPlayer], list[LLMPlayer]]:
@@ -138,3 +143,55 @@ class BatchMixtureTournament:
         # Print some debug info
         print(f"\nMatches played per mixture: {self.config.repetitions}")
         print(f"Group sizes tested: {self.config.group_sizes}")
+
+    def _create_social_welfare_diagram(self, game_desciption: GameDescription,
+                                       results_df: pd.DataFrame, output_path: str):
+        """Create social welfare vs aggressive ratio diagram with lines for each group size."""
+        import matplotlib.pyplot as plt
+
+        # Ensure output directory exists
+        output_file = Path(output_path).with_suffix('.png')
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Setup plot styling
+        FIGSIZE, SIZE = (10, 6), 12
+        plt.rcParams.update({
+            'font.size': SIZE,
+            'axes.titlesize': 'medium',
+            'axes.labelsize': 'medium',
+            'xtick.labelsize': 'small',
+            'ytick.labelsize': 'small',
+            'legend.fontsize': 'medium',
+            'axes.linewidth': 0.1
+        })
+
+        fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
+
+        # Plot a line for each group size
+        for group_size in sorted(self.config.group_sizes):
+            group_data = results_df[results_df['group_size'] == group_size]
+
+            # Sort by aggressive ratio for smooth lines
+            group_data = group_data.sort_values('aggressive_ratio')
+
+            ax.plot(group_data['aggressive_ratio'] * 100,  # Convert to percentage
+                    group_data['avg_social_welfare'],
+                    label=f'n={group_size}',
+                    lw=1.5,
+                    marker='o',
+                    markersize=4)
+
+        ax.set_xlabel('Percentage of Aggressive Players (%)')
+        ax.set_ylabel('Average Social Welfare')
+        ax.set_xlim(0, 100)
+
+        ax.set_ylim(game_desciption.min_social_welfare(), game_desciption.max_social_welfare())
+
+        ax.legend(bbox_to_anchor=(1, 1), loc='upper right', frameon=False)
+        ax.grid(True, alpha=0.3)
+
+        # Save plot
+        fig.savefig(output_file, format='png', bbox_inches='tight', dpi=300)
+        plt.close(fig)
+
+        self.logger.info(f"Social welfare diagram saved: {output_file}")

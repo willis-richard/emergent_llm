@@ -19,6 +19,12 @@ class PublicGoodsDescription(GameDescription):
         if not (1 < self.k < self.n_players):
             raise ValueError(f"k must be between 1 and {self.n_players}, got {self.k}")
 
+    def max_social_welfare(self) -> float:
+        return self.k * self.n_rounds
+
+    def min_social_welfare(self) -> float:
+        return self.n_rounds
+
 
 class PublicGoodsGame(BaseGame):
     """

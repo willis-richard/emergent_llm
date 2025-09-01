@@ -238,6 +238,16 @@ def clean_generated_code(response: str) -> str:
     code = re.sub(r'^```.*$', '', code, flags=re.MULTILINE)
     code = code.strip()
 
+    # Remove forbidden import statements that are already available in the environment
+    forbidden_imports = [
+        r'^import\s+math\s*$',             # import math
+        r'^import\s+random\s*$',           # import random
+        r'^import\s+numpy\s+as\s+np\s*$',  # import numpy as np
+    ]
+
+    for pattern in forbidden_imports:
+        code = re.sub(pattern, '', code, flags=re.MULTILINE)
+
     # Fix quoted type hints - remove quotes around PlayerHistory in type annotations
     # Handle both double and single quotes
     code = re.sub(r'\b(:\s*(?:None\s*\|\s*)?)["\']PlayerHistory["\']', r'\1PlayerHistory', code)
