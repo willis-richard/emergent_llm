@@ -4,9 +4,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import math
 import numpy as np
 import pandas as pd
-from emergent_llm.common.attitudes import Attitude
+from emergent_llm.common import Attitude, GameDescription
 from emergent_llm.players import BasePlayer
 from emergent_llm.tournament.base_tournament import BaseTournament, MatchResult, BaseTournamentConfig
 
@@ -169,7 +170,7 @@ class MixtureTournament(BaseTournament):
 
         return pd.DataFrame(rows)
 
-    def create_schelling_diagram(self, output_path: str):
+    def create_schelling_diagram(self, game_desciption: GameDescription, output_path: str):
         """Create Schelling diagram for this tournament."""
         # Ensure output directory exists
         output_file = Path(output_path).with_suffix('.png')
@@ -212,12 +213,11 @@ class MixtureTournament(BaseTournament):
         ax.set_ylabel('Average reward')
         ax.set_xlim(0, group_size)
 
-        # Set y-limits based on data range with some padding
-        # valid_scores = [s for s in coop_scores + agg_scores if not np.isnan(s)]
-        # if valid_scores:
-        #     y_min = min(valid_scores) * 0.95
-        #     y_max = max(valid_scores) * 1.05
-        #     ax.set_ylim(y_min, y_max)
+        ax.set_ylim(math.floor(game_desciption.min_payoff()),
+                    math.ceil(game_desciption.max_payoff()))
+
+        plt.axhline(y=game_desciption.min_social_welfare(), color='grey', alpha=0.3, linestyle='-')
+        plt.axhline(y=game_desciption.max_social_welfare(), color='grey', alpha=0.3, linestyle='-')
 
         ax.legend(bbox_to_anchor=(0, 1), loc='upper left', ncol=2, frameon=False, columnspacing=0.5)
 

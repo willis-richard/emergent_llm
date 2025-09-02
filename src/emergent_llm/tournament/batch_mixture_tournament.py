@@ -2,6 +2,7 @@
 import logging
 from dataclasses import dataclass
 from typing import Callable
+import math
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -82,7 +83,7 @@ class BatchMixtureTournament:
 
             # Generate Schelling diagram for this group size
             output_path = f'{self.config.results_dir}/schelling/n_{group_size}'
-            mixture_tournament.create_schelling_diagram(output_path)
+            mixture_tournament.create_schelling_diagram(game_description, output_path)
 
         # Combine all results and create summary table
         combined_results = pd.concat(self.all_results, ignore_index=True)
@@ -185,10 +186,13 @@ class BatchMixtureTournament:
         ax.set_ylabel('Average Social Welfare')
         ax.set_xlim(0, 100)
 
-        ax.set_ylim(game_desciption.min_social_welfare(), game_desciption.max_social_welfare())
+        ax.set_ylim(math.floor(game_desciption.min_payoff()),
+                    math.ceil(game_desciption.max_payoff()))
+
+        plt.axhline(y=game_desciption.min_social_welfare(), color='grey', alpha=0.3, linestyle='-')
+        plt.axhline(y=game_desciption.max_social_welfare(), color='grey', alpha=0.3, linestyle='-')
 
         ax.legend(bbox_to_anchor=(1, 1), loc='upper right', frameon=False)
-        ax.grid(True, alpha=0.3)
 
         # Save plot
         fig.savefig(output_file, format='png', bbox_inches='tight', dpi=300)

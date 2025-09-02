@@ -25,6 +25,12 @@ class PublicGoodsDescription(GameDescription):
     def min_social_welfare(self) -> float:
         return self.n_rounds
 
+    def max_payoff(self) -> float:
+        return (1 + self.k) * self.n_rounds - self.min_payoff()
+
+    def min_payoff(self) -> float:
+        return self.n_rounds * self.k / self.n_players
+
 
 class PublicGoodsGame(BaseGame):
     """

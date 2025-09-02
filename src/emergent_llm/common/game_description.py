@@ -47,13 +47,25 @@ class GameDescription(ABC):
 
 
     @abstractmethod
-    def max_social_welfare() -> float:
+    def max_social_welfare(self) -> float:
         """
         Return the highest possible social welfare (per player)
         """
 
     @abstractmethod
-    def min_social_welfare() -> float:
+    def min_social_welfare(self) -> float:
         """
         Return the lowest possible social welfare (per player)
+        """
+
+    @abstractmethod
+    def max_payoff(self) -> float:
+        """
+        Return the highest possible individual payoff in the game
+        """
+
+    @abstractmethod
+    def min_payoff(self) -> float:
+        """
+        Return the highest possible individual payoff in the game
         """
