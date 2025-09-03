@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 import math
 import numpy as np
 import pandas as pd
@@ -28,6 +29,10 @@ class MixtureStats:
     @property
     def aggressive_ratio(self) -> float:
         return self.n_aggressive / self.group_size
+
+    @property
+    def cooperative_ratio(self) -> float:
+        return self.n_cooperative / self.group_size
 
     @property
     def avg_cooperative_score(self) -> float:
@@ -158,6 +163,7 @@ class MixtureTournament(BaseTournament):
             rows.append({
                 'group_size': stats.group_size,
                 'aggressive_ratio': stats.aggressive_ratio,
+                'cooperative_ratio': stats.cooperative_ratio,
                 'n_cooperative': stats.n_cooperative,
                 'n_aggressive': stats.n_aggressive,
                 'avg_cooperative_score': stats.avg_cooperative_score,
@@ -204,14 +210,15 @@ class MixtureTournament(BaseTournament):
 
         # Plot cooperative and aggressive scores
         ax.plot(n_cooperators, coop_scores,
-                label='Cooperative', lw=0.75, marker='o', markersize=4)
+                label='Cooperative', lw=0.75, marker='o', markersize=4, clip_on=False)
         ax.plot(n_cooperators, agg_scores,
-                label='Aggressive', lw=0.75, marker='s', markersize=4)
+                label='Aggressive', lw=0.75, marker='s', markersize=4, clip_on=False)
 
         group_size = self.config.game_description.n_players
         ax.set_xlabel('Number of cooperators')
         ax.set_ylabel('Average reward')
-        ax.set_xlim(0, group_size)
+        ax.set_xlim(0, group_size - 1)
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=7, integer=True))
 
         ax.set_ylim(math.floor(game_desciption.min_payoff()),
                     math.ceil(game_desciption.max_payoff()))

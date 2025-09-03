@@ -1,8 +1,7 @@
 from emergent_llm.common.actions import Action
 from emergent_llm.common.attitudes import Attitude
 from emergent_llm.common.game_description import GameDescription
-from emergent_llm.games.public_goods import PublicGoodsDescription
-from emergent_llm.games.collective_risk import CollectiveRiskDescription
+from emergent_llm.games import CollectiveRiskDescription, CommonPoolDescription, PublicGoodsDescription
 
 def format_game_description(game_description_class: type[GameDescription]) -> str:
     """Format game description for prompts."""
@@ -86,6 +85,63 @@ EXAMPLE CALCULATIONS (n=6, m=3, k=2):
 
 TOTAL GAME PAYOFF:
 Total payoff for player i over r rounds = Σ(t=1 to r) π_i,t"""
+
+    if game_description_class == CommonPoolDescription:
+        return """GAME SPECIFICATION: Common Pool Resource Game
+PARAMETERS:
+- n: number of players (integer, n ≥ 2)
+- r: number of rounds (integer, r > 1)
+- capacity: maximum sustainable stock level (float, capacity ≥ 2n)
+
+GAME STRUCTURE:
+- Type: Simultaneous-move, repeated game with dynamic state
+- Rounds: r identical rounds
+- Players: n players, indexed i ∈ {1, 2, ..., n}
+- State: Common pool stock (initially = capacity)
+
+ACTIONS PER ROUND:
+Each player i has action set A_i = {C, D} where:
+- C (Cooperate): Consume stock/(2n) from common pool
+- D (Defect): Consume stock/n from common pool
+
+PAYOFF CALCULATION:
+For player i in a single round with current stock S:
+π_i = S/(2n) if player i plays C
+π_i = S/n if player i plays D
+
+STOCK DYNAMICS:
+After all players consume:
+1. Total consumption = Σ(i=1 to n) consumption_i
+2. Stock after consumption = S - total_consumption
+3. Stock growth = 2 × S_remaining × (1 - S_remaining/capacity)
+4. New stock = min(S_remaining + growth, capacity)
+
+EXAMPLE CALCULATIONS (n=4, capacity=100, initial stock=100):
+1. All players play C:
+   - Each gets: 100/8 = 12.5
+   - Total consumption: 4 × 12.5 = 50
+   - Stock after consumption: 100 - 50 = 50
+   - Growth: 2 × 50 × (1 - 50/100) = 50
+   - New stock: min(50 + 50, 100) = 100
+
+2. All players play D:
+   - Each gets: 100/4 = 25
+   - Total consumption: 4 × 25 = 100
+   - Stock after consumption: 100 - 100 = 0
+   - Growth: 2 × 0 × (1 - 0/100) = 0
+   - New stock: min(0 + 0, 100) = 0
+
+3. 2 players play C, 2 play D:
+   - Cooperators get: 100/8 = 12.5 each
+   - Defectors get: 100/4 = 25 each
+   - Total consumption: 2×12.5 + 2×25 = 75
+   - Stock after consumption: 100 - 75 = 25
+   - Growth: 2 × 25 × (1 - 25/100) = 37.5
+   - New stock: min(25 + 37.5, 100) = 62.5
+
+TOTAL GAME PAYOFF:
+Total payoff for player i over r rounds = Σ(t=1 to r) π_i,t
+Note: Payoffs depend on both current actions and accumulated stock depletion from previous rounds."""
 
     assert False, "GameDescription not recognised"
 

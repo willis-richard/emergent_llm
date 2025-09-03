@@ -19,8 +19,7 @@ import openai
 from emergent_llm.common.actions import C, D
 from emergent_llm.common.attitudes import AGGRESSIVE, COOPERATIVE, Attitude
 from emergent_llm.common.game_description import GameDescription
-from emergent_llm.games.collective_risk import CollectiveRiskDescription
-from emergent_llm.games.public_goods import PublicGoodsDescription
+from emergent_llm.games import CollectiveRiskDescription, CommonPoolDescription, PublicGoodsDescription
 from emergent_llm.generation.prompts import (create_code_user_prompt,
                                              create_strategy_user_prompt)
 from emergent_llm.players.base_player import BaseStrategy
@@ -355,7 +354,7 @@ def test_generated_strategy(class_code: str, game_description_class: type[GameDe
         # Write necessary imports and the class
         f.write("""
 from emergent_llm.players.base_player import BaseStrategy
-from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription
+from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription, CommonPoolDescription
 from emergent_llm.common.actions import Action, C, D
 from emergent_llm.common.history import PlayerHistory
 import numpy as np
@@ -385,13 +384,17 @@ import random
 
         # Determine game type and create test games
         if game_description_class == PublicGoodsDescription:
-            from emergent_llm.games.public_goods import PublicGoodsGame
+            from emergent_llm.games import PublicGoodsGame
             game_class = PublicGoodsGame
             game_description = PublicGoodsDescription(n_players=6, n_rounds=20, k=2.0)
         elif game_description_class == CollectiveRiskDescription:
-            from emergent_llm.games.collective_risk import CollectiveRiskGame
+            from emergent_llm.games import CollectiveRiskGame
             game_class = CollectiveRiskGame
             game_description = CollectiveRiskDescription(n_players=6, n_rounds=20, m=3, k=2.0)
+        elif game_description_class == CommonPoolDescription:
+            from emergent_llm.games import CommonPoolGame
+            game_class = CommonPoolGame
+            game_description = CommonPoolDescription(n_players=6, n_rounds=20, capacity=36)
         else:
             raise ValueError(f"Unknown game description type: {game_description_class}")
 
@@ -601,7 +604,7 @@ Generated with:
 """
 
 from emergent_llm.players.base_player import BaseStrategy
-from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription
+from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription, CommonPoolDescription
 from emergent_llm.common.actions import Action, C, D
 from emergent_llm.common.history import PlayerHistory
 import numpy as np
@@ -682,6 +685,8 @@ def create_game_description_class(args: argparse.Namespace) -> type[GameDescript
         return PublicGoodsDescription
     elif args.game == "collective_risk":
         return CollectiveRiskDescription
+    elif args.game == "common_pool":
+        return CommonPoolDescription
     else:
         raise ValueError(f"Unknown game: {args.game}")
 
@@ -701,13 +706,13 @@ def parse_arguments() -> argparse.Namespace:
     desc_parser.add_argument("--llm_provider", choices=["openai", "anthropic"], required=True)
     desc_parser.add_argument("--model_name", type=str, required=True)
     desc_parser.add_argument("--n", type=int, required=True, help="Number of strategies per attitude")
-    desc_parser.add_argument("--game", choices=["public_goods", "collective_risk"], required=True)
+    desc_parser.add_argument("--game", choices=["public_goods", "collective_risk", "common_pool"], required=True)
 
     # Phase 2: Implementation generation
     impl_parser = subparsers.add_parser('implementations', help='Generate code implementations')
     impl_parser.add_argument("--llm_provider", choices=["openai", "anthropic"], required=True)
     impl_parser.add_argument("--model_name", type=str, required=True)
-    impl_parser.add_argument("--game", choices=["public_goods", "collective_risk"], required=True)
+    impl_parser.add_argument("--game", choices=["public_goods", "collective_risk", "common_pool"], required=True)
     impl_parser.add_argument("--max_retries", type=int, default=3)
 
     return parser.parse_args()

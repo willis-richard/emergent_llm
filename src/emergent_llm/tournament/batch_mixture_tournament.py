@@ -122,7 +122,7 @@ class BatchMixtureTournament:
         # Create pivot table with aggressive ratios as rows and group sizes as columns
         pivot_df = results_df.pivot_table(
             values='avg_social_welfare',
-            index='aggressive_ratio',
+            index='cooperative_ratio',
             columns='group_size',
             fill_value=np.nan
         )
@@ -173,16 +173,16 @@ class BatchMixtureTournament:
             group_data = results_df[results_df['group_size'] == group_size]
 
             # Sort by aggressive ratio for smooth lines
-            group_data = group_data.sort_values('aggressive_ratio')
+            group_data = group_data.sort_values('cooperative_ratio')
 
-            ax.plot(group_data['aggressive_ratio'] * 100,  # Convert to percentage
+            ax.plot(group_data['cooperative_ratio'] * 100,  # Convert to percentage
                     group_data['avg_social_welfare'],
                     label=f'n={group_size}',
                     lw=1.5,
                     marker='o',
                     markersize=4)
 
-        ax.set_xlabel('Percentage of Aggressive Players (%)')
+        ax.set_xlabel('Percentage of Cooperative Prompts (%)')
         ax.set_ylabel('Average Social Welfare')
         ax.set_xlim(0, 100)
 

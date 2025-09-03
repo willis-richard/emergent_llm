@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from numpy.typing import NDArray
 import numpy as np
 
-from emergent_llm.common.actions import Action, C, D
 from emergent_llm.common.game_description import GameDescription
 from emergent_llm.games.base_game import BaseGame
 from emergent_llm.players.base_player import BasePlayer
@@ -17,13 +16,29 @@ class CommonPoolDescription(GameDescription):
 
     def __post_init__(self):
         super().__post_init__()
-        if not (1 < self.capacity < self.n_players):
+        if not (self.capacity >= 2 * self.n_players):
             raise ValueError(f"capacity must be greater than {2*self.n_players}, got {self.capacity}")
 
+    def max_social_welfare(self) -> float:
+        """All-C every round, except All-D in the last"""
+        return 0.5 * (self.capacity / self.n_players) * (self.n_rounds + 1)
 
-class PublicGoodsGame(BaseGame):
+    def min_social_welfare(self) -> float:
+        """All-D in the first round"""
+        return self.capacity / self.n_players
+
+    def max_payoff(self) -> float:
+        """This one is difficult to compute: estimate as All-C for all opponents, All-D for player"""
+        # 0.8 fudge factor to account for falling stock
+        return (self.capacity / self.n_players) * self.n_rounds * 0.8
+
+    def min_payoff(self) -> float:
+        """All-D in the first round"""
+        return self.capacity / self.n_players
+
+class CommonPoolGame(BaseGame):
     """
-    Common pool resource with growth rate of 2 * x * (1 - x/capacity)
+    Common pool resource with growth rate of 2 * x * (1 - x / capacity)
 
     Rules:
     - Defect consumes stock/n
@@ -37,12 +52,13 @@ class PublicGoodsGame(BaseGame):
 
     def _calculate_payoffs(self, actions: NDArray[np.bool_]) -> NDArray[np.float64]:
         """Calculate payoffs for a single round."""
-        share = self.stock / self.description.n_players
+        share = 0.5 * self.stock / self.description.n_players
 
         payoffs = share + share * (~actions).astype(np.float64)
 
         self.stock -= np.sum(payoffs)
         self.stock += 2 * self.stock * (1 - self.stock / self.description.capacity)
+        self.stock = min(self.stock, self.description.capacity)
 
         return payoffs
 

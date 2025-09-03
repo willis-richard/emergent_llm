@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from numpy.typing import NDArray
 import numpy as np
 
-from emergent_llm.common.actions import Action, C, D
 from emergent_llm.common.game_description import GameDescription
 from emergent_llm.games.base_game import BaseGame
 from emergent_llm.players.base_player import BasePlayer

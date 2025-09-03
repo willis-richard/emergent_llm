@@ -2,9 +2,10 @@
 from .base_game import BaseGame, GameResult
 from .public_goods import PublicGoodsGame, PublicGoodsDescription
 from .collective_risk import CollectiveRiskGame, CollectiveRiskDescription
+from .common_pool import CommonPoolGame, CommonPoolDescription
 
 __all__ = [
     'BaseGame', 'GameResult',
-    'PublicGoodsGame', 'CollectiveRiskGame',
-    'PublicGoodsDescription', 'CollectiveRiskDescription'
+    'PublicGoodsGame', 'CollectiveRiskGame', 'CommonPoolGame',
+    'PublicGoodsDescription', 'CollectiveRiskDescription', 'CommonPoolDescription'
 ]
