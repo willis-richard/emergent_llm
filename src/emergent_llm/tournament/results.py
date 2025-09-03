@@ -1,4 +1,11 @@
 """Tournament results dataclasses."""
+import math
+import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
+from pathlib import Path
+import pandas as pd
+import numpy as np
+
 from dataclasses import dataclass, field
 import pandas as pd
 import numpy as np
@@ -87,7 +94,7 @@ class MixtureResult:
         return float(np.mean(all_scores)) if all_scores else np.nan
 
 
-@dataclass
+@dataclass(frozen=True)
 class FairTournamentResults:
     """Results from a fair tournament."""
     player_stats: dict[str, PlayerStats]
@@ -152,31 +159,35 @@ class FairTournamentResults:
             json.dump(data, f, indent=2)
 
 
-@dataclass
+@dataclass(frozen=True)
 class MixtureTournamentResults:
     """Results from a mixture tournament."""
     mixture_results: list[MixtureResult]
     game_description: GameDescription
     repetitions: int
+    _results_df: pd.DataFrame = field(default=None, init=False, repr=False)
 
-    def to_dataframe(self) -> pd.DataFrame:
-        """Convert to pandas DataFrame."""
-        data = []
-        for result in self.mixture_results:
-            data.append({
-                'group_size': result.group_size,
-                'aggressive_ratio': result.aggressive_ratio,
-                'cooperative_ratio': result.cooperative_ratio,
-                'n_cooperative': result.n_cooperative,
-                'n_aggressive': result.n_aggressive,
-                'avg_cooperative_score': result.avg_cooperative_score,
-                'avg_aggressive_score': result.avg_aggressive_score,
-                'avg_social_welfare': result.avg_social_welfare,
-                'matches_played': result.matches_played,
-                'total_cooperative_scores': len(result.cooperative_scores),
-                'total_aggressive_scores': len(result.aggressive_scores)
-            })
-        return pd.DataFrame(data)
+    @property
+    def results_df(self) -> pd.DataFrame:
+        """Convert to pandas DataFrame on demand (consistent with FairTournamentResults)."""
+        if self._results_df is None:
+            rows = []
+            for result in self.mixture_results:
+                rows.append({
+                    'group_size': result.group_size,
+                    'aggressive_ratio': result.aggressive_ratio,
+                    'cooperative_ratio': result.cooperative_ratio,
+                    'n_cooperative': result.n_cooperative,
+                    'n_aggressive': result.n_aggressive,
+                    'avg_cooperative_score': result.avg_cooperative_score,
+                    'avg_aggressive_score': result.avg_aggressive_score,
+                    'avg_social_welfare': result.avg_social_welfare,
+                    'matches_played': result.matches_played,
+                    'total_cooperative_scores': len(result.cooperative_scores),
+                    'total_aggressive_scores': len(result.aggressive_scores)
+                })
+            self._results_df = pd.DataFrame(rows)
+        return self._results_df
 
     def save(self, filepath: str) -> None:
         """Save results to JSON file."""
@@ -201,6 +212,67 @@ class MixtureTournamentResults:
         Path(filepath).parent.mkdir(parents=True, exist_ok=True)
         with open(filepath, 'w') as f:
             json.dump(data, f, indent=2)
+
+    def create_schelling_diagram(self, output_path: str):
+        """Create Schelling diagram for this tournament results."""
+        import matplotlib.pyplot as plt
+        from matplotlib.ticker import MaxNLocator
+        import math
+        from pathlib import Path
+
+        # Ensure output directory exists
+        output_file = Path(output_path).with_suffix('.png')
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Sort stats by number of cooperators
+        sorted_results = sorted(self.mixture_results, key=lambda x: x.n_cooperative)
+
+        # Setup plot styling
+        FIGSIZE, SIZE = (10, 4), 12
+        plt.rcParams.update({
+            'font.size': SIZE,
+            'axes.titlesize': 'medium',
+            'axes.labelsize': 'medium',
+            'xtick.labelsize': 'small',
+            'ytick.labelsize': 'small',
+            'legend.fontsize': 'medium',
+            'axes.linewidth': 0.1
+        })
+
+        fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
+
+        # Extract data for plotting
+        n_cooperators = [result.n_cooperative for result in sorted_results]
+        coop_scores = [result.avg_cooperative_score for result in sorted_results]
+        agg_scores = [result.avg_aggressive_score for result in sorted_results]
+
+        # Shift cooperative scores to show payoffs as if there was one fewer cooperator
+        # This matches the original Schelling diagram logic
+        coop_scores = np.roll(coop_scores, -1)
+
+        # Plot cooperative and aggressive scores
+        ax.plot(n_cooperators, coop_scores,
+                label='Cooperative', lw=0.75, marker='o', markersize=4, clip_on=False)
+        ax.plot(n_cooperators, agg_scores,
+                label='Aggressive', lw=0.75, marker='s', markersize=4, clip_on=False)
+
+        group_size = self.game_description.n_players
+        ax.set_xlabel('Number of cooperators')
+        ax.set_ylabel('Average reward')
+        ax.set_xlim(0, group_size - 1)
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=7, integer=True))
+
+        ax.set_ylim(math.floor(self.game_description.min_payoff()),
+                    math.ceil(self.game_description.max_payoff()))
+
+        plt.axhline(y=self.game_description.min_social_welfare(), color='grey', alpha=0.3, linestyle='-')
+        plt.axhline(y=self.game_description.max_social_welfare(), color='grey', alpha=0.3, linestyle='-')
+
+        ax.legend(bbox_to_anchor=(0, 1), loc='upper left', ncol=2, frameon=False, columnspacing=0.5)
+
+        # Save plot
+        fig.savefig(output_file, format='png', bbox_inches='tight')
+        plt.close(fig)
 
 
 @dataclass

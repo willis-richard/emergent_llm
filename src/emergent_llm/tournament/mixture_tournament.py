@@ -11,30 +11,25 @@ import pandas as pd
 from emergent_llm.common import Attitude, GameDescription
 from emergent_llm.players import BasePlayer
 from emergent_llm.tournament.base_tournament import BaseTournament, BaseTournamentConfig
-from emergent_llm.tournament.results import MatchResult, MixtureResult
+from emergent_llm.tournament.results import MatchResult, MixtureResult, MixtureTournamentResults
 
 
 class MixtureTournament(BaseTournament):
     """Tournament testing different mixtures of cooperative vs aggressive players for a single group size."""
 
-    def __init__(self,
-                 cooperative_players: list[BasePlayer],
-                 aggressive_players: list[BasePlayer],
-                 config: BaseTournamentConfig):
+    def __init__(self, cooperative_players, aggressive_players, config: BaseTournamentConfig):
         """
         Initialize mixture tournament.
 
         Args:
             cooperative_players: List of cooperative players
             aggressive_players: List of aggressive players
-            game_class: Game class to use
-            game_description: Game description
             config: Tournament configuration
         """
         super().__init__(config)
-
         self.cooperative_players = cooperative_players
         self.aggressive_players = aggressive_players
+
 
         group_size = config.game_description.n_players
 
@@ -44,10 +39,9 @@ class MixtureTournament(BaseTournament):
         if len(aggressive_players) < group_size:
             raise ValueError(f"Need at least {group_size} aggressive players, got {len(aggressive_players)}")
 
-        # Stats storage - organized by (n_cooperative, n_aggressive)
-        self.mixture_stats: dict[tuple, MixtureResults] = {}
+        self.mixture_stats: dict[tuple, MixtureResult] = {}
 
-    def run_tournament(self) -> pd.DataFrame:
+    def run_tournament(self) -> MixtureTournamentResults:
         """Run tournament across all mixture ratios for this group size."""
         group_size = self.config.game_description.n_players
         self.logger.info(f"Running mixture tournament for group size {group_size}")
@@ -58,8 +52,8 @@ class MixtureTournament(BaseTournament):
             mixture_key = (n_cooperative, n_aggressive)
 
             # Initialize stats for this mixture
-            self.mixture_stats[mixture_key] = MixtureResults(
-                group_size,
+            self.mixture_stats[mixture_key] = MixtureResult(
+                group_size=group_size,
                 n_cooperative=n_cooperative,
                 n_aggressive=n_aggressive,
                 cooperative_scores=[],
@@ -67,10 +61,13 @@ class MixtureTournament(BaseTournament):
                 matches_played=0
             )
 
-            # Run matches for this mixture
             self._run_mixture(mixture_key)
 
-        return self.create_results_dataframe()
+    return MixtureTournamentResults(
+        mixture_results=list(self.mixture_stats.values()),
+        game_description=self.config.game_description,
+        repetitions=self.config.repetitions
+    )
 
     def _run_mixture(self, mixture_key: tuple[int, int]):
         """Run multiple matches for a specific mixture"""
@@ -119,29 +116,6 @@ class MixtureTournament(BaseTournament):
                     self.logger.warning(f"Player {player.name} has unknown attitude: {player.attitude}")
             else:
                 self.logger.warning(f"Player {player.name} has no attitude attribute")
-
-        stats.matches_played += 1
-
-    def create_results_dataframe(self) -> pd.DataFrame:
-        """Create DataFrame from collected mixture statistics."""
-        rows = []
-
-        for stats in self.mixture_stats.values():
-            rows.append({
-                'group_size': stats.group_size,
-                'aggressive_ratio': stats.aggressive_ratio,
-                'cooperative_ratio': stats.cooperative_ratio,
-                'n_cooperative': stats.n_cooperative,
-                'n_aggressive': stats.n_aggressive,
-                'avg_cooperative_score': stats.avg_cooperative_score,
-                'avg_aggressive_score': stats.avg_aggressive_score,
-                'avg_social_welfare': stats.avg_social_welfare,
-                'matches_played': stats.matches_played,
-                'total_cooperative_scores': len(stats.cooperative_scores),
-                'total_aggressive_scores': len(stats.aggressive_scores)
-            })
-
-        return pd.DataFrame(rows)
 
     def create_schelling_diagram(self, game_desciption: GameDescription, output_path: str):
         """Create Schelling diagram for this tournament."""
