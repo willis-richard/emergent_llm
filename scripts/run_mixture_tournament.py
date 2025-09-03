@@ -18,8 +18,8 @@ from emergent_llm.players.base_player import BaseStrategy
 from emergent_llm.common import GameDescription
 from emergent_llm.players import LLMPlayer, BasePlayer
 from emergent_llm.common import Attitude
-from emergent_llm.games.public_goods import PublicGoodsGame, PublicGoodsDescription
-from emergent_llm.games.collective_risk import CollectiveRiskGame, CollectiveRiskDescription
+from emergent_llm.games import (PublicGoodsGame, PublicGoodsDescription, CollectiveRiskGame,
+                                CollectiveRiskDescription, CommonPoolGame, CommonPoolDescription)
 
 
 def load_strategies_from_file(file_path: str):
@@ -58,6 +58,8 @@ def get_game_class(game_type: str):
         return PublicGoodsGame
     elif game_type == "collective_risk":
         return CollectiveRiskGame
+    elif game_type == "common_pool":
+        return CommonPoolGame
     else:
         raise ValueError(f"Unknown game type: {game_type}")
 
@@ -68,7 +70,7 @@ def parse_arguments():
 
     parser.add_argument("--strategies", type=str, required=True,
                        help="Path to Python file containing strategy classes")
-    parser.add_argument("--game", choices=["public_goods", "collective_risk"],
+    parser.add_argument("--game", choices=["public_goods", "collective_risk", "common_pool"],
                        default="public_goods", help="Game type")
     parser.add_argument("--matches", type=int, default=100,
                        help="Number of matches per mixture ratio")
@@ -147,6 +149,12 @@ def main():
                 n_rounds=20,
                 m=group_size // 2,
                 k=2
+            )
+        elif args.game == "common_pool":
+            return CommonPoolDescription(
+                n_players=group_size,
+                n_rounds=20,
+                capacity=group_size * 4
             )
         else:
             raise ValueError(f"Unknown game type: {args.game}")

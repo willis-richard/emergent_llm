@@ -28,9 +28,8 @@ class CommonPoolDescription(GameDescription):
         return self.capacity / self.n_players
 
     def max_payoff(self) -> float:
-        """This one is difficult to compute: estimate as All-C for all opponents, All-D for player"""
-        # 0.8 fudge factor to account for falling stock
-        return (self.capacity / self.n_players) * self.n_rounds * 0.8
+        """This one is difficult to compute: estimate as All-C for all opponents, All-D for player, perfect stock somehow"""
+        return (self.capacity / self.n_players) * self.n_rounds
 
     def min_payoff(self) -> float:
         """All-D in the first round"""
