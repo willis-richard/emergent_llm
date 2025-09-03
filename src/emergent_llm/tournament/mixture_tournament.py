@@ -10,42 +10,8 @@ import numpy as np
 import pandas as pd
 from emergent_llm.common import Attitude, GameDescription
 from emergent_llm.players import BasePlayer
-from emergent_llm.tournament.base_tournament import BaseTournament, MatchResult, BaseTournamentConfig
-
-
-@dataclass
-class MixtureStats:
-    """Statistics for a specific mixture configuration."""
-    n_cooperative: int
-    n_aggressive: int
-    cooperative_scores: list[float]
-    aggressive_scores: list[float]
-    matches_played: int
-
-    @property
-    def group_size(self) -> int:
-        return self.n_cooperative + self.n_aggressive
-
-    @property
-    def aggressive_ratio(self) -> float:
-        return self.n_aggressive / self.group_size
-
-    @property
-    def cooperative_ratio(self) -> float:
-        return self.n_cooperative / self.group_size
-
-    @property
-    def avg_cooperative_score(self) -> float:
-        return float(np.mean(self.cooperative_scores)) if self.cooperative_scores else np.nan
-
-    @property
-    def avg_aggressive_score(self) -> float:
-        return float(np.mean(self.aggressive_scores)) if self.aggressive_scores else np.nan
-
-    @property
-    def avg_social_welfare(self) -> float:
-        all_scores = self.cooperative_scores + self.aggressive_scores
-        return float(np.mean(all_scores)) if all_scores else np.nan
+from emergent_llm.tournament.base_tournament import BaseTournament, BaseTournamentConfig
+from emergent_llm.tournament.results import MatchResult, MixtureResult
 
 
 class MixtureTournament(BaseTournament):
@@ -79,7 +45,7 @@ class MixtureTournament(BaseTournament):
             raise ValueError(f"Need at least {group_size} aggressive players, got {len(aggressive_players)}")
 
         # Stats storage - organized by (n_cooperative, n_aggressive)
-        self.mixture_stats: dict[tuple, MixtureStats] = {}
+        self.mixture_stats: dict[tuple, MixtureResults] = {}
 
     def run_tournament(self) -> pd.DataFrame:
         """Run tournament across all mixture ratios for this group size."""
@@ -92,7 +58,8 @@ class MixtureTournament(BaseTournament):
             mixture_key = (n_cooperative, n_aggressive)
 
             # Initialize stats for this mixture
-            self.mixture_stats[mixture_key] = MixtureStats(
+            self.mixture_stats[mixture_key] = MixtureResults(
+                group_size,
                 n_cooperative=n_cooperative,
                 n_aggressive=n_aggressive,
                 cooperative_scores=[],
