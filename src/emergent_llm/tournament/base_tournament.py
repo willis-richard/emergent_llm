@@ -40,7 +40,6 @@ class BaseTournament(ABC):
             players=[p.name for p in players],
             payoffs=list(game_result.total_payoffs),
             cooperations=list(game_result.total_cooperations),
-            timestamp=datetime.now()
         )
 
         # Store match result
@@ -51,9 +50,4 @@ class BaseTournament(ABC):
     @abstractmethod
     def run_tournament(self) -> pd.DataFrame:
         """Run the tournament and return results."""
-        pass
-
-    @abstractmethod
-    def create_results_dataframe(self) -> pd.DataFrame:
-        """Output dataframe of results."""
         pass

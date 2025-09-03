@@ -17,7 +17,7 @@ from emergent_llm.tournament.results import MatchResult, MixtureResult, MixtureT
 class MixtureTournament(BaseTournament):
     """Tournament testing different mixtures of cooperative vs aggressive players for a single group size."""
 
-    def __init__(self, cooperative_players, aggressive_players, config: BaseTournamentConfig):
+    def __init__(self, cooperative_players: list[BasePlayer], aggressive_players: list[BasePlayer], config: BaseTournamentConfig):
         """
         Initialize mixture tournament.
 
@@ -27,8 +27,8 @@ class MixtureTournament(BaseTournament):
             config: Tournament configuration
         """
         super().__init__(config)
-        self.cooperative_players = cooperative_players
-        self.aggressive_players = aggressive_players
+        self.cooperative_players: list[BasePlayer] = cooperative_players
+        self.aggressive_players: list[BasePlayer] = aggressive_players
 
 
         group_size = config.game_description.n_players
@@ -63,11 +63,11 @@ class MixtureTournament(BaseTournament):
 
             self._run_mixture(mixture_key)
 
-    return MixtureTournamentResults(
-        mixture_results=list(self.mixture_stats.values()),
-        game_description=self.config.game_description,
-        repetitions=self.config.repetitions
-    )
+        return MixtureTournamentResults(
+            mixture_results=list(self.mixture_stats.values()),
+            game_description=self.config.game_description,
+            repetitions=self.config.repetitions
+        )
 
     def _run_mixture(self, mixture_key: tuple[int, int]):
         """Run multiple matches for a specific mixture"""

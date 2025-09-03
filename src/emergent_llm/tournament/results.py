@@ -102,6 +102,15 @@ class FairTournamentResults:
     repetitions: int
     _results_df: pd.DataFrame = field(default=None, init=False, repr=False)
 
+    def __post_init__(self):
+        """Validate results consistency."""
+        if not self.player_stats:
+            raise ValueError("Cannot create results with no player stats")
+
+        games_played = [stats.games_played for stats in self.player_stats.values()]
+        if len(set(games_played)) > 1:
+            raise ValueError(f"Inconsistent games played across players: {games_played}")
+
     @property
     def results_df(self) -> pd.DataFrame:
         """Convert player stats to DataFrame on demand."""
