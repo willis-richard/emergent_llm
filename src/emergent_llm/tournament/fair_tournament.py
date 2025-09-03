@@ -6,9 +6,6 @@ from emergent_llm.tournament.results import FairTournamentResults, PlayerStats
 from emergent_llm.players import BasePlayer
 
 
-
-
-
 class FairTournament(BaseTournament):
     """Fair tournament where all players play equal number of games."""
 
@@ -32,23 +29,8 @@ class FairTournament(BaseTournament):
         for repetition in range(self.config.repetitions):
             self._run_repetition(repetition)
 
-        # Create results dataframe directly
-        rows = []
-        for stats in self.player_stats.values():
-            rows.append({
-                'player_name': stats.player_name,
-                'player_repr': stats.player_repr,
-                'games_played': stats.games_played,
-                'mean_payoff': stats.mean_payoff,
-                'total_payoff': stats.total_payoff,
-                'total_cooperations': stats.total_cooperations,
-                'mean_cooperations': stats.mean_cooperations,
-            })
-
-        results_df = pd.DataFrame(rows).sort_values('mean_payoff', ascending=False)
-
         return FairTournamentResults(
-            results_df=results_df,
+            player_stats=self.player_stats,
             game_description=self.config.game_description,
             repetitions=self.config.repetitions
         )

@@ -8,16 +8,7 @@ import numpy as np
 from emergent_llm.games import BaseGame, GameResult
 from emergent_llm.common import GameDescription
 from emergent_llm.players import BasePlayer
-
-
-@dataclass
-class MatchResult:
-    """Results from a single match."""
-    match_id: str
-    players: list[str]  # Player names
-    payoffs: list[float]
-    cooperations: list[int]
-    timestamp: datetime
+from emergent_llm.tournament.results import MatchResult
 
 
 @dataclass

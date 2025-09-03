@@ -45,6 +45,11 @@ class PlayerStats:
     def total_cooperations(self) -> int:
         return sum(self.cooperations)
 
+    def add_game_result(self, payoff: float, cooperations: int) -> None:
+        """Add results from a single game."""
+        self.payoffs.append(payoff)
+        self.cooperations.append(cooperations)
+
 
 @dataclass
 class MixtureResult:
@@ -85,14 +90,57 @@ class MixtureResult:
 @dataclass
 class FairTournamentResults:
     """Results from a fair tournament."""
-    results_df: pd.DataFrame
+    player_stats: dict[str, PlayerStats]
     game_description: GameDescription
     repetitions: int
+    _results_df: pd.DataFrame = field(default=None, init=False, repr=False)
+
+    @property
+    def results_df(self) -> pd.DataFrame:
+        """Convert player stats to DataFrame on demand."""
+        if self._results_df is None:
+            rows = []
+            for stats in self.player_stats.values():
+                rows.append({
+                    'player_name': stats.player_name,
+                    'player_repr': stats.player_repr,
+                    'games_played': stats.games_played,
+                    'mean_payoff': stats.mean_payoff,
+                    'total_payoff': stats.total_payoff,
+                    'total_cooperations': stats.total_cooperations,
+                    'mean_cooperations': stats.mean_cooperations,
+                })
+            self._results_df = pd.DataFrame(rows).sort_values('mean_payoff', ascending=False)
+        return self._results_df
+
+    def top_performers(self, n: int = 10) -> pd.DataFrame:
+        """Get top n performers by mean payoff."""
+        return self.results_df.head(n)
+
+    def payoff_distribution(self) -> dict:
+        """Get distribution statistics of mean payoffs."""
+        payoffs = [stats.mean_payoff for stats in self.player_stats.values()]
+        return {
+            'mean': np.mean(payoffs),
+            'std': np.std(payoffs),
+            'min': np.min(payoffs),
+            'max': np.max(payoffs)
+        }
 
     def save(self, filepath: str) -> None:
         """Save results to JSON file."""
+        # Convert PlayerStats to serializable format
+        player_stats_data = {}
+        for name, stats in self.player_stats.items():
+            player_stats_data[name] = {
+                'player_name': stats.player_name,
+                'player_repr': stats.player_repr,
+                'payoffs': stats.payoffs,
+                'cooperations': stats.cooperations
+            }
+
         data = {
-            'results_df': self.results_df.to_dict('records'),
+            'player_stats': player_stats_data,
             'game_description': self.game_description.to_dict(),
             'game_description_type': self.game_description.__class__.__name__,
             'repetitions': self.repetitions,
@@ -209,9 +257,18 @@ def load_results(filepath: str):
     result_type = data['result_type']
 
     if result_type == 'FairTournamentResults':
-        results_df = pd.DataFrame(data['results_df'])
+        # Reconstruct PlayerStats objects
+        player_stats = {}
+        for name, stats_data in data['player_stats'].items():
+            player_stats[name] = PlayerStats(
+                player_name=stats_data['player_name'],
+                player_repr=stats_data['player_repr'],
+                payoffs=stats_data['payoffs'],
+                cooperations=stats_data['cooperations']
+            )
+
         return FairTournamentResults(
-            results_df=results_df,
+            player_stats=player_stats,
             game_description=game_description,
             repetitions=data['repetitions'],
         )
