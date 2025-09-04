@@ -8,10 +8,6 @@ class GameDescription(ABC):
     n_players: int
     n_rounds: int
 
-    def to_dict(self) -> dict:
-        """Convert GameDescription to dictionary for serialisation."""
-        return asdict(self)
-
     def __post_init__(self):
         """Validate common parameters."""
         if self.n_players <= 0:

@@ -1,7 +1,7 @@
 """Tournament results dataclasses."""
 import json
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
 import matplotlib
@@ -150,21 +150,14 @@ class FairTournamentResults:
 
     def save(self, filepath: str) -> None:
         """Save results to JSON file."""
-        # Convert PlayerStats to serializable format
-        player_stats_data = {}
-        for name, stats in self.player_stats.items():
-            player_stats_data[name] = {
-                'player_name': stats.player_name,
-                'player_repr': stats.player_repr,
-                'payoffs': stats.payoffs,
-                'cooperations': stats.cooperations
-            }
-
         data = {
-            'player_stats': player_stats_data,
-            'game_description': self.game_description.to_dict(),
-            'game_description_type': self.game_description.__class__.__name__,
-            'repetitions': self.repetitions,
+            'config': {
+                'game_class_type': self.config.game_class.__name__,
+                'game_description': asdict(self.config.game_description),
+                'repetitions': self.config.repetitions
+            },
+            'player_ids': self.player_ids,
+            'match_results': [asdict(mr) for mr in self.match_results],
             'result_type': 'FairTournamentResults'
         }
 
