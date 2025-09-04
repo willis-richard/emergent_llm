@@ -45,6 +45,14 @@ class LLMPlayer(BasePlayer):
         self.strategy_function = self.strategy_class(self.game_description)
         self.error_count = 0
 
+    def id(self) -> tuple[str, str, str]:
+        """Return (name, attitude, fully_qualified_strategy_name)"""
+        return (
+            self.name,
+            self.attitude.value,
+            f"{self.strategy_class.__module__}.{self.strategy_class.__name__}"
+        )
+
     def __call__(self, history: None | PlayerHistory) -> Action:
         """Execute the strategy function with limited error handling."""
         try:
@@ -79,17 +87,12 @@ class LLMPlayer(BasePlayer):
 
     def __repr__(self):
         """String representation of the player."""
-        return f"{self.name}[{self.__class__.__name__}({self.attitude}, {self.strategy_class.__name__})]"
+        return f"{self.name}[{self.__class__.__name__}({self.attitude}, {self.strategy_class.__module__}.{self.strategy_class.__name__})]"
 
     def __del__(self):
         """Clean up strategy function reference."""
         if hasattr(self, 'strategy_function'):
             del self.strategy_function
-
-    @property
-    def strategy_name(self) -> str:
-        """Get the strategy class name."""
-        return self.strategy_class.__name__
 
 
 class SimplePlayer(BasePlayer):

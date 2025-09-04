@@ -1,7 +1,7 @@
 """Tournament classes for social dilemma experiments."""
-from .results import (MatchResult, PlayerStats, MixtureResult, FairTournamentResults,
+from .results import (PlayerStats, MixtureResult, FairTournamentResults,
                       MixtureTournamentResults, BatchTournamentResults)
-from .base_tournament import BaseTournament, BaseTournamentConfig
+from .base_tournament import MatchResult, BaseTournament, BaseTournamentConfig
 from .fair_tournament import FairTournament
 from .mixture_tournament import MixtureTournament
 from .batch_mixture_tournament import BatchMixtureTournament, BatchMixtureTournamentConfig

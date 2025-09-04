@@ -1,13 +1,13 @@
 """Base game class for social dilemma experiments."""
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Sequence
 
 import numpy as np
 import pandas as pd
-from numpy.typing import NDArray
-
 from emergent_llm.common import Action, GameDescription, GameHistory
 from emergent_llm.players.base_player import BasePlayer
+from numpy.typing import NDArray
 
 
 @dataclass
@@ -64,7 +64,7 @@ class GameResult:
 class BaseGame(ABC):
     """Abstract base class for social dilemma games."""
 
-    def __init__(self, players: list[BasePlayer],
+    def __init__(self, players: Sequence[BasePlayer],
                  description: GameDescription):
         """Initialize game with players and description."""
         if len(players) != description.n_players:

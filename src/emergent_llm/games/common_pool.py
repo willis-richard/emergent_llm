@@ -1,5 +1,6 @@
 """Common Poll Resource implementation."""
 from dataclasses import dataclass
+from typing import Sequence
 
 from numpy.typing import NDArray
 import numpy as np
@@ -45,7 +46,7 @@ class CommonPoolGame(BaseGame):
     - Remaining stock grows by growth rate
     """
 
-    def __init__(self, players: list[BasePlayer], description: CommonPoolDescription):
+    def __init__(self, players: Sequence[BasePlayer], description: CommonPoolDescription):
         super().__init__(players, description)
         self.stock = self.description.capacity
 

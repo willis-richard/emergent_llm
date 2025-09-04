@@ -7,8 +7,16 @@ import numpy as np
 
 from emergent_llm.games import BaseGame, GameResult
 from emergent_llm.common import GameDescription
-from emergent_llm.players import BasePlayer
-from emergent_llm.tournament.results import MatchResult
+from emergent_llm.players import LLMPlayer
+
+
+@dataclass
+class MatchResult:
+    """Results from a single match."""
+    match_id: str
+    player_ids: list[tuple[str, str, str]]
+    payoffs: list[float]
+    cooperations: list[int]
 
 
 @dataclass
@@ -28,7 +36,7 @@ class BaseTournament(ABC):
         # Results storage
         self.match_results: list[MatchResult] = []
 
-    def _run_match(self, players: list[BasePlayer], match_id: str) -> MatchResult:
+    def _run_match(self, players: list[LLMPlayer], match_id: str) -> MatchResult:
         """Run a single match and record results."""
         # Create and run game
         game = self.config.game_class(players, self.config.game_description)
@@ -37,7 +45,7 @@ class BaseTournament(ABC):
         # Create match result
         match_result = MatchResult(
             match_id=match_id,
-            players=[p.name for p in players],
+            player_ids=[p.id() for p in players],
             payoffs=list(game_result.total_payoffs),
             cooperations=list(game_result.total_cooperations),
         )
@@ -48,6 +56,6 @@ class BaseTournament(ABC):
         return match_result
 
     @abstractmethod
-    def run_tournament(self) -> pd.DataFrame:
+    def run_tournament(self):
         """Run the tournament and return results."""
         pass

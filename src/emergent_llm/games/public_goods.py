@@ -1,5 +1,6 @@
 """Public Goods Game implementation."""
 from dataclasses import dataclass
+from typing import Sequence
 
 from numpy.typing import NDArray
 import numpy as np
@@ -42,7 +43,7 @@ class PublicGoodsGame(BaseGame):
     - If player defects while others cooperate, they get 1 + (cooperators * k/n)
     """
 
-    def __init__(self, players: list[BasePlayer], description: PublicGoodsDescription):
+    def __init__(self, players: Sequence[BasePlayer], description: PublicGoodsDescription):
         """Initialize Public Goods Game with typed description."""
         super().__init__(players, description)
 

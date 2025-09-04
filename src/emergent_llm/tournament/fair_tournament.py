@@ -3,13 +3,13 @@ import pandas as pd
 
 from emergent_llm.tournament.base_tournament import BaseTournament, BaseTournamentConfig
 from emergent_llm.tournament.results import FairTournamentResults, PlayerStats, MatchResult
-from emergent_llm.players import BasePlayer
+from emergent_llm.players import LLMPlayer
 
 
 class FairTournament(BaseTournament):
     """Fair tournament where all players play equal number of games."""
 
-    def __init__(self, players: list[BasePlayer], config: BaseTournamentConfig):
+    def __init__(self, players: list[LLMPlayer], config: BaseTournamentConfig):
         super().__init__(config)
 
         # Validate population size
@@ -20,8 +20,6 @@ class FairTournament(BaseTournament):
             )
 
         self.players = players
-        self.player_stats: dict[str, PlayerStats] = {}
-        self.match_results: list[MatchResult] = []
 
     def run_tournament(self) -> FairTournamentResults:
         """Run complete tournament and return results."""
@@ -31,10 +29,9 @@ class FairTournament(BaseTournament):
             self._run_repetition(repetition)
 
         return FairTournamentResults(
-            match_results=self.match_results,
-            player_stats=self.player_stats,
-            game_description=self.config.game_description,
-            repetitions=self.config.repetitions
+            config=self.config,
+            player_ids=[p.id() for p in self.players],
+            match_results=self.match_results
         )
 
     def _run_repetition(self, repetition: int):
@@ -51,23 +48,4 @@ class FairTournament(BaseTournament):
             match_players = shuffled_players[start_idx:end_idx]
 
             match_id = f"rep{repetition:02d}_match{match_num:04d}"
-            match_result = self._run_match(match_players, match_id)
-
-            # Update player statistics
-            self._update_player_stats(match_players, match_result)
-
-    def _update_player_stats(self, players: list[BasePlayer], match_result):
-        """Update player statistics with results from a match."""
-        for player, payoff, cooperations in zip(
-            players, match_result.payoffs, match_result.cooperations
-        ):
-            if player.name not in self.player_stats:
-                self.player_stats[player.name] = PlayerStats(
-                    player_name=player.name,
-                    player_repr=repr(player),
-                    player_attitude=player.attitude.value
-                )
-
-            stats = self.player_stats[player.name]
-            stats.payoffs.append(payoff)
-            stats.cooperations.append(cooperations)
+            self._run_match(match_players, match_id)

@@ -1,5 +1,6 @@
 """Collective Risk Dilemma implementation."""
 from dataclasses import dataclass
+from typing import Sequence
 
 from numpy.typing import NDArray
 import numpy as np
@@ -45,7 +46,7 @@ class CollectiveRiskGame(BaseGame):
     - If fewer than m players cooperate, everyone gets 0
     """
 
-    def __init__(self, players: list[BasePlayer], description: CollectiveRiskDescription):
+    def __init__(self, players: Sequence[BasePlayer], description: CollectiveRiskDescription):
         """Initialize Collective Risk Game with typed description."""
         super().__init__(players, description)
 
