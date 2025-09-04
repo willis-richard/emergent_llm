@@ -64,6 +64,7 @@ class MixtureTournament(BaseTournament):
             self._run_mixture(mixture_key)
 
         return MixtureTournamentResults(
+            match_results=self.match_results,
             mixture_results=list(self.mixture_stats.values()),
             game_description=self.config.game_description,
             repetitions=self.config.repetitions
@@ -116,61 +117,3 @@ class MixtureTournament(BaseTournament):
                     self.logger.warning(f"Player {player.name} has unknown attitude: {player.attitude}")
             else:
                 self.logger.warning(f"Player {player.name} has no attitude attribute")
-
-    def create_schelling_diagram(self, game_desciption: GameDescription, output_path: str):
-        """Create Schelling diagram for this tournament."""
-        # Ensure output directory exists
-        output_file = Path(output_path).with_suffix('.png')
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-
-        # Sort stats by number of cooperators
-        sorted_stats = sorted(self.mixture_stats.values(), key=lambda x: x.n_cooperative)
-
-        # Setup plot styling
-        FIGSIZE, SIZE = (10, 4), 12
-        plt.rcParams.update({
-            'font.size': SIZE,
-            'axes.titlesize': 'medium',
-            'axes.labelsize': 'medium',
-            'xtick.labelsize': 'small',
-            'ytick.labelsize': 'small',
-            'legend.fontsize': 'medium',
-            'axes.linewidth': 0.1
-        })
-
-        fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
-
-        # Extract data for plotting
-        n_cooperators = [stats.n_cooperative for stats in sorted_stats]
-        coop_scores = [stats.avg_cooperative_score for stats in sorted_stats]
-        agg_scores = [stats.avg_aggressive_score for stats in sorted_stats]
-
-        # Shift cooperative scores to show payoffs as if there was one fewer cooperator
-        # This matches the original Schelling diagram logic
-        coop_scores = np.roll(coop_scores, -1)
-
-        # Plot cooperative and aggressive scores
-        ax.plot(n_cooperators, coop_scores,
-                label='Cooperative', lw=0.75, marker='o', markersize=4, clip_on=False)
-        ax.plot(n_cooperators, agg_scores,
-                label='Aggressive', lw=0.75, marker='s', markersize=4, clip_on=False)
-
-        group_size = self.config.game_description.n_players
-        ax.set_xlabel('Number of cooperators')
-        ax.set_ylabel('Average reward')
-        ax.set_xlim(0, group_size - 1)
-        ax.xaxis.set_major_locator(MaxNLocator(nbins=7, integer=True))
-
-        ax.set_ylim(math.floor(game_desciption.min_payoff()),
-                    math.ceil(game_desciption.max_payoff()))
-
-        plt.axhline(y=game_desciption.min_social_welfare(), color='grey', alpha=0.3, linestyle='-')
-        plt.axhline(y=game_desciption.max_social_welfare(), color='grey', alpha=0.3, linestyle='-')
-
-        ax.legend(bbox_to_anchor=(0, 1), loc='upper left', ncol=2, frameon=False, columnspacing=0.5)
-
-        # Save plot
-        fig.savefig(output_file, format='png', bbox_inches='tight')
-        plt.close(fig)
-
-        self.logger.info(f"Schelling diagram saved: {output_file}")

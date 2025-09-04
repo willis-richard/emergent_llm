@@ -2,7 +2,7 @@ import random
 import pandas as pd
 
 from emergent_llm.tournament.base_tournament import BaseTournament, BaseTournamentConfig
-from emergent_llm.tournament.results import FairTournamentResults, PlayerStats
+from emergent_llm.tournament.results import FairTournamentResults, PlayerStats, MatchResult
 from emergent_llm.players import BasePlayer
 
 
@@ -21,6 +21,7 @@ class FairTournament(BaseTournament):
 
         self.players = players
         self.player_stats: dict[str, PlayerStats] = {}
+        self.match_results: list[MatchResult] = []
 
     def run_tournament(self) -> FairTournamentResults:
         """Run complete tournament and return results."""
@@ -30,6 +31,7 @@ class FairTournament(BaseTournament):
             self._run_repetition(repetition)
 
         return FairTournamentResults(
+            match_results=self.match_results,
             player_stats=self.player_stats,
             game_description=self.config.game_description,
             repetitions=self.config.repetitions
@@ -62,7 +64,8 @@ class FairTournament(BaseTournament):
             if player.name not in self.player_stats:
                 self.player_stats[player.name] = PlayerStats(
                     player_name=player.name,
-                    player_repr=repr(player)
+                    player_repr=repr(player),
+                    player_attitude=player.attitude.value
                 )
 
             stats = self.player_stats[player.name]

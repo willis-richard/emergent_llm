@@ -1,18 +1,17 @@
 """Tournament results dataclasses."""
-import math
-import matplotlib.pyplot as plt
-from matplotlib.ticker import MaxNLocator
-from pathlib import Path
-import pandas as pd
-import numpy as np
-
-from dataclasses import dataclass, field
-import pandas as pd
-import numpy as np
-from pathlib import Path
 import json
+import math
+from dataclasses import dataclass, field
+from pathlib import Path
 
-from emergent_llm.common import GameDescription
+import matplotlib
+
+matplotlib.use('Agg')  # Set backend before importing pyplot
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from emergent_llm.common import Attitude, GameDescription
+from matplotlib.ticker import MaxNLocator
 
 
 @dataclass
@@ -29,6 +28,7 @@ class PlayerStats:
     """Statistics for a single player across all games."""
     player_name: str
     player_repr: str
+    player_attitude: Attitude
     payoffs: list[float] = field(default_factory=list)
     cooperations: list[int] = field(default_factory=list)
 
@@ -97,6 +97,7 @@ class MixtureResult:
 @dataclass(frozen=True)
 class FairTournamentResults:
     """Results from a fair tournament."""
+    match_results: list[MatchResult]
     player_stats: dict[str, PlayerStats]
     game_description: GameDescription
     repetitions: int
@@ -104,6 +105,9 @@ class FairTournamentResults:
 
     def __post_init__(self):
         """Validate results consistency."""
+        if not self.match_results:
+            raise ValueError("Cannot create results with no match results")
+
         if not self.player_stats:
             raise ValueError("Cannot create results with no player stats")
 
@@ -111,37 +115,37 @@ class FairTournamentResults:
         if len(set(games_played)) > 1:
             raise ValueError(f"Inconsistent games played across players: {games_played}")
 
+        rows = []
+        for stats in self.player_stats.values():
+            rows.append({
+                'player_name': stats.player_name,
+                'player_repr': stats.player_repr,
+                'player_attitude': stats.player_attitude,
+                'games_played': stats.games_played,
+                'mean_payoff': stats.mean_payoff,
+                'total_payoff': stats.total_payoff,
+                'total_cooperations': stats.total_cooperations,
+                'mean_cooperations': stats.mean_cooperations,
+            })
+        results_df = pd.DataFrame(rows).sort_values('mean_payoff', ascending=False)
+        object.__setattr__(self, '_results_df', results_df)
+
     @property
     def results_df(self) -> pd.DataFrame:
-        """Convert player stats to DataFrame on demand."""
-        if self._results_df is None:
-            rows = []
-            for stats in self.player_stats.values():
-                rows.append({
-                    'player_name': stats.player_name,
-                    'player_repr': stats.player_repr,
-                    'games_played': stats.games_played,
-                    'mean_payoff': stats.mean_payoff,
-                    'total_payoff': stats.total_payoff,
-                    'total_cooperations': stats.total_cooperations,
-                    'mean_cooperations': stats.mean_cooperations,
-                })
-            self._results_df = pd.DataFrame(rows).sort_values('mean_payoff', ascending=False)
         return self._results_df
 
-    def top_performers(self, n: int = 10) -> pd.DataFrame:
-        """Get top n performers by mean payoff."""
-        return self.results_df.head(n)
+    def __str__(self) -> str:
+        type_summary = self.results_df.groupby('player_attitude')['total_payoff'].agg(['mean', 'std', 'count'])
+        output = str(type_summary)
 
-    def payoff_distribution(self) -> dict:
-        """Get distribution statistics of mean payoffs."""
-        payoffs = [stats.mean_payoff for stats in self.player_stats.values()]
-        return {
-            'mean': np.mean(payoffs),
-            'std': np.std(payoffs),
-            'min': np.min(payoffs),
-            'max': np.max(payoffs)
-        }
+        output += "\n\nGames played per player:"
+        games_per_player = self.results_df.groupby('player_name').size()
+        output += f"\nMin: {games_per_player.min()}, Max: {games_per_player.max()}"
+        output += f"\nAll players played same number of games: {games_per_player.nunique() == 1}"
+
+        output += f"\n\nTotal matches: {len(self.match_results)}"
+
+        return output
 
     def save(self, filepath: str) -> None:
         """Save results to JSON file."""
@@ -171,32 +175,48 @@ class FairTournamentResults:
 @dataclass(frozen=True)
 class MixtureTournamentResults:
     """Results from a mixture tournament."""
+    match_results: list[MatchResult]
     mixture_results: list[MixtureResult]
     game_description: GameDescription
     repetitions: int
     _results_df: pd.DataFrame = field(default=None, init=False, repr=False)
 
+    def __post_init__(self):
+        """Validate results consistency."""
+        if not self.match_results:
+            raise ValueError("Cannot create results with no match results")
+
+        if not self.mixture_results:
+            raise ValueError("Cannot create results with no mixture results")
+
+        matches_played = [m.matches_played for m in self.mixture_results]
+        if len(set(matches_played)) > 1:
+            raise ValueError(f"Inconsistent games played across players: {matches_played}")
+
+        rows = []
+        for result in self.mixture_results:
+            rows.append({
+                'group_size': result.group_size,
+                'aggressive_ratio': result.aggressive_ratio,
+                'cooperative_ratio': result.cooperative_ratio,
+                'n_cooperative': result.n_cooperative,
+                'n_aggressive': result.n_aggressive,
+                'avg_cooperative_score': result.avg_cooperative_score,
+                'avg_aggressive_score': result.avg_aggressive_score,
+                'avg_social_welfare': result.avg_social_welfare,
+                'matches_played': result.matches_played,
+                'total_cooperative_scores': len(result.cooperative_scores),
+                'total_aggressive_scores': len(result.aggressive_scores)
+            })
+        results_df = pd.DataFrame(rows)
+        object.__setattr__(self, '_results_df', results_df)
+
     @property
     def results_df(self) -> pd.DataFrame:
-        """Convert to pandas DataFrame on demand (consistent with FairTournamentResults)."""
-        if self._results_df is None:
-            rows = []
-            for result in self.mixture_results:
-                rows.append({
-                    'group_size': result.group_size,
-                    'aggressive_ratio': result.aggressive_ratio,
-                    'cooperative_ratio': result.cooperative_ratio,
-                    'n_cooperative': result.n_cooperative,
-                    'n_aggressive': result.n_aggressive,
-                    'avg_cooperative_score': result.avg_cooperative_score,
-                    'avg_aggressive_score': result.avg_aggressive_score,
-                    'avg_social_welfare': result.avg_social_welfare,
-                    'matches_played': result.matches_played,
-                    'total_cooperative_scores': len(result.cooperative_scores),
-                    'total_aggressive_scores': len(result.aggressive_scores)
-                })
-            self._results_df = pd.DataFrame(rows)
         return self._results_df
+
+    def __str__(self) -> str:
+        return "TODO"
 
     def save(self, filepath: str) -> None:
         """Save results to JSON file."""
@@ -224,10 +244,6 @@ class MixtureTournamentResults:
 
     def create_schelling_diagram(self, output_path: str):
         """Create Schelling diagram for this tournament results."""
-        import matplotlib.pyplot as plt
-        from matplotlib.ticker import MaxNLocator
-        import math
-        from pathlib import Path
 
         # Ensure output directory exists
         output_file = Path(output_path).with_suffix('.png')
@@ -256,7 +272,6 @@ class MixtureTournamentResults:
         agg_scores = [result.avg_aggressive_score for result in sorted_results]
 
         # Shift cooperative scores to show payoffs as if there was one fewer cooperator
-        # This matches the original Schelling diagram logic
         coop_scores = np.roll(coop_scores, -1)
 
         # Plot cooperative and aggressive scores
@@ -318,9 +333,9 @@ class BatchTournamentResults:
 
 def load_results(filepath: str):
     """Load tournament results from JSON file."""
-    from emergent_llm.games import (
-        PublicGoodsDescription, CollectiveRiskDescription, CommonPoolDescription
-    )
+    from emergent_llm.games import (CollectiveRiskDescription,
+                                    CommonPoolDescription,
+                                    PublicGoodsDescription)
 
     game_class_map = {
         'PublicGoodsDescription': PublicGoodsDescription,
