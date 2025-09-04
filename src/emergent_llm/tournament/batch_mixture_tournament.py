@@ -17,7 +17,6 @@ from emergent_llm.tournament.base_tournament import BaseTournamentConfig
 @dataclass
 class BatchMixtureTournamentConfig:
     """Configuration for multi-group tournament."""
-    game_class: type[BaseGame]
     group_sizes: list[int]
     repetitions: int
     results_dir: str
@@ -63,7 +62,6 @@ class BatchMixtureTournament:
 
             # Create mixture tournament config for this group size
             mixture_config = BaseTournamentConfig(
-                game_class=self.config.game_class,
                 game_description=game_description,
                 repetitions=self.config.repetitions
             )

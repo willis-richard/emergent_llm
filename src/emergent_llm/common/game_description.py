@@ -15,9 +15,6 @@ class GameDescription(ABC):
         if self.n_rounds <= 0:
             raise ValueError("n_rounds must be positive")
 
-    def __repr__(self):
-        return str(self.to_dict())
-
     @classmethod
     def print_definition(cls) -> str:
         """Print the definition, for use in the prompts"""
@@ -34,7 +31,7 @@ class GameDescription(ABC):
         """Return a string showing how to construct this game description."""
         class_name = self.__class__.__name__
         params = []
-        for field_name, field_value in self.to_dict().items():
+        for field_name, field_value in asdict(self).items():
             if isinstance(field_value, str):
                 params.append(f"{field_name}='{field_value}'")
             else:

@@ -5,7 +5,10 @@ import logging
 import pandas as pd
 import numpy as np
 
-from emergent_llm.games import BaseGame, GameResult
+from emergent_llm.games import (BaseGame, GameResult,
+                                PublicGoodsDescription, PublicGoodsGame,
+                                CollectiveRiskDescription, CollectiveRiskGame,
+                                CommonPoolDescription, CommonPoolGame)
 from emergent_llm.common import GameDescription
 from emergent_llm.players import LLMPlayer
 
@@ -21,9 +24,20 @@ class MatchResult:
 
 @dataclass
 class BaseTournamentConfig:
-    game_class: type[BaseGame]
     game_description: GameDescription
     repetitions: int = 1
+
+    def get_game_class(self) -> type[BaseGame]:
+        """Get appropriate game class from description type."""
+        if isinstance(self.game_description, PublicGoodsDescription):
+            return PublicGoodsGame
+        elif isinstance(self.game_description, CollectiveRiskDescription):
+            return CollectiveRiskGame
+        elif isinstance(self.game_description, CommonPoolDescription):
+            return CommonPoolGame
+        else:
+            raise ValueError(f"No game class found for description type: {type(self.game_description)}")
+
 
 
 class BaseTournament(ABC):
@@ -39,7 +53,8 @@ class BaseTournament(ABC):
     def _run_match(self, players: list[LLMPlayer], match_id: str) -> MatchResult:
         """Run a single match and record results."""
         # Create and run game
-        game = self.config.game_class(players, self.config.game_description)
+        game_class = self.config.get_game_class()
+        game = game_class(players, self.config.game_description)
         game_result = game.play_game()
 
         # Create match result

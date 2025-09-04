@@ -16,7 +16,6 @@ from emergent_llm.tournament.base_tournament import BaseTournamentConfig
 @dataclass
 class BatchFairTournamentConfig:
     """Configuration for multi-group fair tournament."""
-    game_class: type[BaseGame]
     group_sizes: list[int]
     repetitions: int
     results_dir: str
@@ -65,7 +64,6 @@ class BatchFairTournament:
 
             # Create tournament config for this group size
             tournament_config = BaseTournamentConfig(
-                game_class=self.config.game_class,
                 game_description=game_description,
                 repetitions=self.config.repetitions
             )

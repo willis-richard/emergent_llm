@@ -26,20 +26,6 @@ logging.basicConfig(
     ]
 )
 
-# def create_test_population():
-#     """Create a test population where size is divisible by n_players."""
-#     players = []
-
-#     # 18 cooperative players
-#     for i in range(18):
-#         players.append(SimplePlayer(f"coop_{i}", lambda: C))
-
-#     # 18 aggressive players
-#     for i in range(18):
-#         players.append(SimplePlayer(f"aggr_{i}", lambda: D))
-
-#     return players
-
 def create_test_population(game_description):
     """Create LLM players for testing."""
     cooperative_players = []
@@ -71,14 +57,14 @@ def create_test_population(game_description):
 
     return cooperative_players, aggressive_players
 
-def run_fair_tournament(game_type, game_description):
+def run_fair_tournament(game_description):
     """Run tournament with Public Goods Game."""
     # Create game description
 
     # Create population (36 players = 6 matches)
     c_p, a_p = create_test_population(game_description)
 
-    config = BaseTournamentConfig(game_type, game_description, repetitions=2)
+    config = BaseTournamentConfig(game_description, repetitions=2)
 
     # Create and run tournament
     tournament = FairTournament(
@@ -88,14 +74,14 @@ def run_fair_tournament(game_type, game_description):
 
     return tournament.run_tournament()
 
-def run_mixture_tournament(game_type, game_description):
+def run_mixture_tournament(game_description):
     """Run tournament with Public Goods Game."""
     # Create game description
 
     # Create population (36 players = 6 matches)
     c_p, a_p = create_test_population(game_description)
 
-    config = BaseTournamentConfig(game_type, game_description, repetitions=2)
+    config = BaseTournamentConfig(game_description, repetitions=2)
 
     # Create and run tournament
     tournament = MixtureTournament(
@@ -108,14 +94,12 @@ def run_mixture_tournament(game_type, game_description):
 
 def main():
 
-    pgg_type = PublicGoodsGame
     pgg_description = PublicGoodsDescription(
         n_players=6,
         n_rounds=20,
         k=2.0
     )
 
-    crd_type = CollectiveRiskGame
     crd_description = CollectiveRiskDescription(
         n_players=6,
         n_rounds=20,
@@ -125,28 +109,28 @@ def main():
 
     """Run fair tournament."""
     print("Running Public Goods Tournament...")
-    pgg_results = run_fair_tournament(pgg_type, pgg_description)
+    pgg_results = run_fair_tournament(pgg_description)
 
     # Analysis
     print("\n=== PUBLIC GOODS GAME RESULTS ===")
     print(pgg_results)
 
     print("\nRunning Collective Risk Tournament...")
-    crd_results = run_fair_tournament(crd_type, crd_description)
+    crd_results = run_fair_tournament(crd_description)
 
     print("\n=== COLLECTIVE RISK DILEMMA RESULTS ===")
     print(crd_results)
 
     """Run mixture tournament."""
     print("Running Public Goods Tournament...")
-    pgg_results = run_mixture_tournament(pgg_type, pgg_description)
+    pgg_results = run_mixture_tournament(pgg_description)
 
     # Analysis
     print("\n=== PUBLIC GOODS GAME RESULTS ===")
     print(pgg_results)
 
     print("\nRunning Collective Risk Tournament...")
-    crd_results = run_mixture_tournament(crd_type, crd_description)
+    crd_results = run_mixture_tournament(crd_description)
 
     print("\n=== COLLECTIVE RISK DILEMMA RESULTS ===")
     print(crd_results)
