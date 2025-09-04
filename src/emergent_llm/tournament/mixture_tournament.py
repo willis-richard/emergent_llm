@@ -68,7 +68,7 @@ class MixtureTournament(BaseTournament):
             cooperative_player_ids=[p.id() for p in self.cooperative_players],
             aggressive_player_ids=[p.id() for p in self.aggressive_players],
             match_results=self.match_results,
-            mixture_stats=self.mixture_stats
+            mixture_results=self.mixture_stats.values()
         )
 
     def _run_mixture(self, mixture_key: tuple[int, int]):

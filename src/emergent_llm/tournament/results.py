@@ -13,6 +13,9 @@ import pandas as pd
 from emergent_llm.common import Attitude, GameDescription
 from matplotlib.ticker import MaxNLocator
 from emergent_llm.tournament.base_tournament import BaseTournamentConfig, MatchResult
+from emergent_llm.games import (CollectiveRiskDescription,
+                                CommonPoolDescription,
+                                PublicGoodsDescription)
 
 
 @dataclass
@@ -152,7 +155,7 @@ class FairTournamentResults:
         """Save results to JSON file."""
         data = {
             'config': {
-                'game_class_type': self.config.game_class.__name__,
+                'game_description_type': self.config.game_description.__class__.__name__,
                 'game_description': asdict(self.config.game_description),
                 'repetitions': self.config.repetitions
             },
@@ -209,9 +212,20 @@ class MixtureTournamentResults:
     def __str__(self) -> str:
         return "TODO"
 
-
     def save(self, filepath: str) -> None:
-        """TODO"""
+        """Save results to JSON file."""
+        data = {
+            'config': {
+                'game_description_type': self.config.game_description.__class__.__name__,
+                'game_description': asdict(self.config.game_description),
+                'repetitions': self.config.repetitions
+            },
+            'cooperative_player_ids': self.cooperative_player_ids,
+            'aggressive_player_ids': self.aggressive_player_ids,
+            'match_results': [asdict(mr) for mr in self.match_results],
+            'mixture_results': [asdict(v) for v in self.mixture_results],
+            'result_type': 'MixtureTournamentResults'
+        }
 
         Path(filepath).parent.mkdir(parents=True, exist_ok=True)
         with open(filepath, 'w') as f:
@@ -255,17 +269,18 @@ class MixtureTournamentResults:
         ax.plot(n_cooperators, agg_scores,
                 label='Aggressive', lw=0.75, marker='s', markersize=4, clip_on=False)
 
-        group_size = self.game_description.n_players
+        game_description = self.config.game_description
+        group_size = game_description.n_players
         ax.set_xlabel('Number of cooperators')
         ax.set_ylabel('Average reward')
         ax.set_xlim(0, group_size - 1)
         ax.xaxis.set_major_locator(MaxNLocator(nbins=7, integer=True))
 
-        ax.set_ylim(math.floor(self.game_description.min_payoff()),
-                    math.ceil(self.game_description.max_payoff()))
+        ax.set_ylim(math.floor(game_description.min_payoff()),
+                    math.ceil(game_description.max_payoff()))
 
-        plt.axhline(y=self.game_description.min_social_welfare(), color='grey', alpha=0.3, linestyle='-')
-        plt.axhline(y=self.game_description.max_social_welfare(), color='grey', alpha=0.3, linestyle='-')
+        plt.axhline(y=game_description.min_social_welfare(), color='grey', alpha=0.3, linestyle='-')
+        plt.axhline(y=game_description.max_social_welfare(), color='grey', alpha=0.3, linestyle='-')
 
         ax.legend(bbox_to_anchor=(0, 1), loc='upper left', ncol=2, frameon=False, columnspacing=0.5)
 
@@ -308,9 +323,6 @@ class BatchTournamentResults:
 
 def load_results(filepath: str):
     """Load tournament results from JSON file."""
-    from emergent_llm.games import (CollectiveRiskDescription,
-                                    CommonPoolDescription,
-                                    PublicGoodsDescription)
 
     game_class_map = {
         'PublicGoodsDescription': PublicGoodsDescription,
@@ -322,43 +334,47 @@ def load_results(filepath: str):
         data = json.load(f)
 
     # Reconstruct game description
-    game_cls = game_class_map[data['game_description_type']]
-    game_description = game_cls(**data['game_description'])
+    game_cls = game_class_map[data['config']['game_description_type']]
+    game_description = game_cls(**data['config']['game_description'])
+
+    # Reconstruct config
+    config = BaseTournamentConfig(
+        game_description=game_description,
+        repetitions=data['config']['repetitions']
+    )
+
+    # Reconstruct match results (convert player_ids back to tuples)
+    match_results = []
+    for mr_data in data['match_results']:
+        mr_data['player_ids'] = [tuple(pid) for pid in mr_data['player_ids']]
+        match_results.append(MatchResult(**mr_data))
 
     result_type = data['result_type']
 
     if result_type == 'FairTournamentResults':
-        # Reconstruct PlayerStats objects
-        player_stats = {}
-        for name, stats_data in data['player_stats'].items():
-            player_stats[name] = PlayerStats(
-                player_name=stats_data['player_name'],
-                player_repr=stats_data['player_repr'],
-                payoffs=stats_data['payoffs'],
-                cooperations=stats_data['cooperations']
-            )
+        # Convert player_ids back to tuples
+        player_ids = [tuple(pid) for pid in data['player_ids']]
 
         return FairTournamentResults(
-            player_stats=player_stats,
-            game_description=game_description,
-            repetitions=data['repetitions'],
+            config=config,
+            player_ids=player_ids,
+            match_results=match_results
         )
 
     elif result_type == 'MixtureTournamentResults':
-        mixture_results = [MixtureResult(**mr) for mr in data['mixture_results']]
-        return MixtureTournamentResults(
-            mixture_results=mixture_results,
-            game_description=game_description,
-            repetitions=data['repetitions'],
-        )
+        # Convert player_ids back to tuples
+        cooperative_player_ids = [tuple(pid) for pid in data['cooperative_player_ids']]
+        aggressive_player_ids = [tuple(pid) for pid in data['aggressive_player_ids']]
 
-    elif result_type == 'BatchTournamentResults':
-        all_results = [pd.DataFrame(df_data) for df_data in data['all_results']]
-        return BatchTournamentResults(
-            all_results=all_results,
-            group_sizes=data['group_sizes'],
-            repetitions=data['repetitions'],
-            game_description_generator=data['game_description_generator'],
+        # Reconstruct mixture results
+        mixture_results = [MixtureResult(**mr) for mr in data['mixture_results']]
+
+        return MixtureTournamentResults(
+            config=config,
+            cooperative_player_ids=cooperative_player_ids,
+            aggressive_player_ids=aggressive_player_ids,
+            match_results=match_results,
+            mixture_results=mixture_results
         )
 
     else:
