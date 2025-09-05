@@ -1,9 +1,7 @@
 """Player classes for social dilemma experiments."""
 from abc import ABC, abstractmethod
 
-from emergent_llm.common.actions import Action
-from emergent_llm.common.history import PlayerHistory
-from emergent_llm.common.game_description import GameDescription
+from emergent_llm.common import Action, PlayerId, PlayerHistory, GameDescription
 
 
 class BaseStrategy(ABC):
@@ -22,7 +20,7 @@ class BasePlayer(ABC):
     """Abstract base class for players in social dilemma games."""
 
     def __init__(self, name: str):
-        self.name = name
+        self.id = PlayerId(name, None, None)
 
     @abstractmethod
     def reset(self):
@@ -44,4 +42,4 @@ class BasePlayer(ABC):
 
     def __repr__(self):
         """String representation of the player."""
-        return f"{self.name}[{self.__class__.__name__}]"
+        return f"{self.id.name}[{self.__class__.__name__}]"

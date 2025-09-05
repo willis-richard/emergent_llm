@@ -9,7 +9,7 @@ from emergent_llm.games import (BaseGame, GameResult,
                                 PublicGoodsDescription, PublicGoodsGame,
                                 CollectiveRiskDescription, CollectiveRiskGame,
                                 CommonPoolDescription, CommonPoolGame)
-from emergent_llm.common import GameDescription
+from emergent_llm.common import GameDescription, PlayerId
 from emergent_llm.players import LLMPlayer
 
 
@@ -17,9 +17,9 @@ from emergent_llm.players import LLMPlayer
 class MatchResult:
     """Results from a single match."""
     match_id: str
-    player_ids: list[tuple[str, str, str]]
-    payoffs: list[float]
-    cooperations: list[int]
+    player_ids: list[PlayerId]
+    total_payoffs: list[float]
+    total_cooperations: list[int]
 
 
 @dataclass
@@ -60,9 +60,9 @@ class BaseTournament(ABC):
         # Create match result
         match_result = MatchResult(
             match_id=match_id,
-            player_ids=[p.id() for p in players],
-            payoffs=list(game_result.total_payoffs),
-            cooperations=list(game_result.total_cooperations),
+            player_ids=[p.id for p in players],
+            total_payoffs=list(game_result.total_payoffs),
+            total_cooperations=list(game_result.total_cooperations),
         )
 
         # Store match result

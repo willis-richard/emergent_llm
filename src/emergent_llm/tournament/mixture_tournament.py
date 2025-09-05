@@ -39,8 +39,6 @@ class MixtureTournament(BaseTournament):
         if len(aggressive_players) < group_size:
             raise ValueError(f"Need at least {group_size} aggressive players, got {len(aggressive_players)}")
 
-        self.mixture_stats: dict[tuple, MixtureResult] = {}
-
     def run_tournament(self) -> MixtureTournamentResults:
         """Run tournament across all mixture ratios for this group size."""
         group_size = self.config.game_description.n_players
@@ -51,24 +49,13 @@ class MixtureTournament(BaseTournament):
             n_cooperative = group_size - n_aggressive
             mixture_key = (n_cooperative, n_aggressive)
 
-            # Initialise stats for this mixture
-            self.mixture_stats[mixture_key] = MixtureResult(
-                group_size=group_size,
-                n_cooperative=n_cooperative,
-                n_aggressive=n_aggressive,
-                cooperative_scores=[],
-                aggressive_scores=[],
-                matches_played=0
-            )
-
             self._run_mixture(mixture_key)
 
         return MixtureTournamentResults(
             config=self.config,
-            cooperative_player_ids=[p.id() for p in self.cooperative_players],
-            aggressive_player_ids=[p.id() for p in self.aggressive_players],
-            match_results=self.match_results,
-            mixture_results=self.mixture_stats.values()
+            cooperative_player_ids=[p.id for p in self.cooperative_players],
+            aggressive_player_ids=[p.id for p in self.aggressive_players],
+            match_results=self.match_results
         )
 
     def _run_mixture(self, mixture_key: tuple[int, int]):
@@ -83,9 +70,6 @@ class MixtureTournament(BaseTournament):
 
             # Run the match using base class method
             match_result = self._run_match(match_players, match_id)
-
-            # Record mixture-specific stats
-            self._record_match_stats(mixture_key, match_players, match_result)
 
     def _create_match_players(self, mixture_key: tuple[int, int]) -> list[LLMPlayer]:
         """Create players for a single match by sampling from available strategies."""
@@ -102,16 +86,3 @@ class MixtureTournament(BaseTournament):
         # Shuffle to randomize positions
         random.shuffle(players)
         return players
-
-    def _record_match_stats(self, mixture_key: tuple, players: list[LLMPlayer], match_result: MatchResult):
-        """Record statistics for a completed match."""
-        stats = self.mixture_stats[mixture_key]
-
-        # Record payoffs by player type
-        for player, payoff in zip(players, match_result.payoffs):
-            if player.attitude == Attitude.COOPERATIVE:
-                stats.cooperative_scores.append(payoff)
-            elif player.attitude == Attitude.AGGRESSIVE:
-                stats.aggressive_scores.append(payoff)
-            else:
-                self.logger.warning(f"Player {player.name} has unknown attitude: {player.attitude}")

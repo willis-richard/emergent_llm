@@ -2,10 +2,7 @@
 import logging
 from typing import Callable
 
-from emergent_llm.common.actions import Action
-from emergent_llm.common.attitudes import Attitude
-from emergent_llm.common.history import PlayerHistory
-from emergent_llm.common.game_description import GameDescription
+from emergent_llm.common import Action, PlayerId, PlayerHistory, GameDescription, Attitude
 from emergent_llm.players.base_player import BasePlayer, BaseStrategy
 
 
@@ -27,7 +24,7 @@ class LLMPlayer(BasePlayer):
             max_errors: Number of tolerated errors
         """
         super().__init__(name)
-        self.attitude: Attitude = attitude
+        self.id = PlayerId(name, attitude, f"{strategy_class.__module__}.{strategy_class.__name__}")
         self.game_description: GameDescription = game_description
         self.strategy_class: type[BaseStrategy] = strategy_class
 
@@ -44,14 +41,6 @@ class LLMPlayer(BasePlayer):
         """Reset for a new game."""
         self.strategy_function = self.strategy_class(self.game_description)
         self.error_count = 0
-
-    def id(self) -> tuple[str, str, str]:
-        """Return (name, attitude, fully_qualified_strategy_name)"""
-        return (
-            self.name,
-            self.attitude.value,
-            f"{self.strategy_class.__module__}.{self.strategy_class.__name__}"
-        )
 
     def __call__(self, history: None | PlayerHistory) -> Action:
         """Execute the strategy function with limited error handling."""
@@ -80,14 +69,14 @@ class LLMPlayer(BasePlayer):
                 raise
 
             # Return fallback action based on attitude
-            if self.attitude == Attitude.COOPERATIVE:
+            if self.id.attitude == Attitude.COOPERATIVE:
                 return Action.C
             else:
                 return Action.D
 
     def __repr__(self):
         """String representation of the player."""
-        return f"{self.name}[{self.__class__.__name__}({self.attitude}, {self.strategy_class.__module__}.{self.strategy_class.__name__})]"
+        return f"{self.id.name}[{self.__class__.__name__}({self.id.attitude}, {self.id.strategy})]"
 
     def __del__(self):
         """Clean up strategy function reference."""

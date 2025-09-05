@@ -30,7 +30,7 @@ class FairTournament(BaseTournament):
 
         return FairTournamentResults(
             config=self.config,
-            player_ids=[p.id() for p in self.players],
+            player_ids=[p.id for p in self.players],
             match_results=self.match_results
         )
 

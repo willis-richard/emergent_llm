@@ -10,7 +10,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from emergent_llm.common import Attitude, GameDescription
+from emergent_llm.common import Attitude, GameDescription, PlayerId
 from matplotlib.ticker import MaxNLocator
 from emergent_llm.tournament.base_tournament import BaseTournamentConfig, MatchResult
 from emergent_llm.games import (CollectiveRiskDescription,
@@ -104,10 +104,12 @@ class FairTournamentResults:
         # Aggregate all match results into player statistics
         stats: dict[tuple[str, str, str], PlayerStats] = {}
         for mr in self.match_results:
-            for pid, payoff, cooperations in zip(mr.player_ids, mr.payoffs, mr.cooperations):
+            for pid, total_payoffs, total_cooperations in zip(mr.player_ids,
+                                                              mr.total_payoffs,
+                                                              mr.total_cooperations):
                 if pid not in stats:
                     stats[pid] = PlayerStats(player_id=pid)
-                stats[pid].add_game_result(payoff, cooperations)
+                stats[pid].add_game_result(total_payoffs, total_cooperations)
 
         games_played = [s.games_played for s in stats.values()]
         if len(set(games_played)) > 1:
@@ -118,9 +120,9 @@ class FairTournamentResults:
         rows = []
         for stats in self.player_stats.values():
             rows.append({
-                'player_name': stats.player_id[0],
-                'player_attitude': stats.player_id[1],
-                'player_strategy': stats.player_id[2],
+                'player_name': stats.player_id.name,
+                'player_attitude': stats.player_id.attitude.value,
+                'player_strategy': stats.player_id.strategy,
                 'games_played': stats.games_played,
                 'mean_payoff': stats.mean_payoff,
                 'total_payoff': stats.total_payoff,
@@ -176,13 +178,49 @@ class MixtureTournamentResults:
     cooperative_player_ids: list[tuple[str, str, str]]
     aggressive_player_ids: list[tuple[str, str, str]]
     match_results: list[MatchResult]
-    mixture_results: list[MixtureResult]
+    _mixture_results: list[MixtureResult] = field(default=None, init=False, repr=False)
     _results_df: pd.DataFrame = field(default=None, init=False, repr=False)
 
     def __post_init__(self):
         """Validate results consistency."""
         if not self.match_results:
             raise ValueError("Cannot create results with no match results")
+
+        # Group matches by mixture composition and compute stats
+        mixture_stats: dict[tuple[int, int], MixtureResult] = {}
+
+        for match_result in self.match_results:
+            # Count attitudes in this match
+            n_cooperative = sum(1 for pid in match_result.player_ids
+                            if pid.attitude == Attitude.COOPERATIVE)
+            n_aggressive = sum(1 for pid in match_result.player_ids
+                            if pid.attitude == Attitude.AGGRESSIVE)
+
+            mixture_key = (n_cooperative, n_aggressive)
+            group_size = n_cooperative + n_aggressive
+
+            # Initialize mixture result if needed
+            if mixture_key not in mixture_stats:
+                mixture_stats[mixture_key] = MixtureResult(
+                    group_size=group_size,
+                    n_cooperative=n_cooperative,
+                    n_aggressive=n_aggressive,
+                    cooperative_scores=[],
+                    aggressive_scores=[],
+                    matches_played=0
+                )
+
+            # Accumulate scores by attitude
+            stats = mixture_stats[mixture_key]
+            for player_id, total_payoff in zip(match_result.player_ids, match_result.total_payoffs):
+                if player_id.attitude == Attitude.COOPERATIVE:
+                    stats.cooperative_scores.append(total_payoff)
+                elif player_id.attitude == Attitude.AGGRESSIVE:
+                    stats.aggressive_scores.append(total_payoff)
+
+            stats.matches_played += 1
+
+        object.__setattr__(self, '_mixture_results', list(mixture_stats.values()))
 
         matches_played = [m.matches_played for m in self.mixture_results]
         if len(set(matches_played)) > 1:
@@ -206,11 +244,15 @@ class MixtureTournamentResults:
         object.__setattr__(self, '_results_df', results_df)
 
     @property
+    def mixture_results(self) -> list[MixtureResult]:
+        return self._mixture_results
+
+    @property
     def results_df(self) -> pd.DataFrame:
         return self._results_df
 
     def __str__(self) -> str:
-        return "TODO"
+        return str(self.results_df)
 
     def save(self, filepath: str) -> None:
         """Save results to JSON file."""

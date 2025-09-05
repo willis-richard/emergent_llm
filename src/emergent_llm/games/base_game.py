@@ -13,7 +13,7 @@ from numpy.typing import NDArray
 @dataclass
 class GameResult:
     """Results from a single game."""
-    player_ids: list[str]  # Player names/IDs
+    player_names: list[str]  # Player names
     total_payoffs: list[float]  # Total scores by player
     total_cooperations: list[int]  # Number of cooperate actions by player
     cooperations_by_round: list[int]  # Number of cooperate actions in each round
@@ -32,7 +32,7 @@ class GameResult:
 
         # Player list with their actual names and strategies
         lines.append("PLAYERS:")
-        for i, player_name in enumerate(self.player_ids):
+        for i, player_name in enumerate(self.player_names):
             lines.append(f"  {i}: {player_name}")
         lines.append("")
 
@@ -115,7 +115,7 @@ class BaseGame(ABC):
         assert self.history is not None
 
         return GameResult(
-            player_ids=[p.name for p in self.players],
+            player_names=[p.id.name for p in self.players],
             total_payoffs=self.history.total_payoffs(),
             total_cooperations=self.history.total_cooperations(),
             cooperations_by_round=self.history.cooperations_by_round(),
