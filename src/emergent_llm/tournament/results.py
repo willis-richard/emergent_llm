@@ -161,7 +161,7 @@ class FairTournamentResults:
                 'game_description': asdict(self.config.game_description),
                 'repetitions': self.config.repetitions
             },
-            'player_ids': self.player_ids,
+            'player_ids': [pid.serialise() for pid in self.player_ids],
             'match_results': [asdict(mr) for mr in self.match_results],
             'result_type': 'FairTournamentResults'
         }
@@ -262,10 +262,9 @@ class MixtureTournamentResults:
                 'game_description': asdict(self.config.game_description),
                 'repetitions': self.config.repetitions
             },
-            'cooperative_player_ids': self.cooperative_player_ids,
-            'aggressive_player_ids': self.aggressive_player_ids,
+            'cooperative_player_ids': [pid.serialise() for pid in self.cooperative_player_ids],
+            'aggressive_player_ids': [pid.serialise() for pid in self.aggressive_player_ids],
             'match_results': [asdict(mr) for mr in self.match_results],
-            'mixture_results': [asdict(v) for v in self.mixture_results],
             'result_type': 'MixtureTournamentResults'
         }
 
@@ -385,17 +384,17 @@ def load_results(filepath: str):
         repetitions=data['config']['repetitions']
     )
 
-    # Reconstruct match results (convert player_ids back to tuples)
+    # Reconstruct match results - convert player_ids back to PlayerId objects
     match_results = []
     for mr_data in data['match_results']:
-        mr_data['player_ids'] = [tuple(pid) for pid in mr_data['player_ids']]
+        mr_data['player_ids'] = [PlayerId.deserialise(pid_data) for pid_data in mr_data['player_ids']]
         match_results.append(MatchResult(**mr_data))
 
     result_type = data['result_type']
 
     if result_type == 'FairTournamentResults':
-        # Convert player_ids back to tuples
-        player_ids = [tuple(pid) for pid in data['player_ids']]
+        # Convert player_ids back to PlayerId objects
+        player_ids = [PlayerId.deserialise(pid_data) for pid_data in data['player_ids']]
 
         return FairTournamentResults(
             config=config,
@@ -404,9 +403,9 @@ def load_results(filepath: str):
         )
 
     elif result_type == 'MixtureTournamentResults':
-        # Convert player_ids back to tuples
-        cooperative_player_ids = [tuple(pid) for pid in data['cooperative_player_ids']]
-        aggressive_player_ids = [tuple(pid) for pid in data['aggressive_player_ids']]
+        # Convert player_ids back to PlayerId objects
+        cooperative_player_ids = [PlayerId.deserialise(pid_data) for pid_data in data['cooperative_player_ids']]
+        aggressive_player_ids = [PlayerId.deserialise(pid_data) for pid_data in data['aggressive_player_ids']]
 
         # Reconstruct mixture results
         mixture_results = [MixtureResult(**mr) for mr in data['mixture_results']]
