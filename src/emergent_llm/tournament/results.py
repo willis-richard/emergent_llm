@@ -21,7 +21,7 @@ from emergent_llm.games import (CollectiveRiskDescription,
 @dataclass
 class PlayerStats:
     """Statistics for a single player across all games."""
-    player_id: tuple[str, str, str]
+    player_id: PlayerId
     payoffs: list[float] = field(default_factory=list)
     cooperations: list[int] = field(default_factory=list)
 
@@ -91,7 +91,7 @@ class MixtureResult:
 class FairTournamentResults:
     """Results from a fair tournament."""
     config: BaseTournamentConfig
-    player_ids: list[tuple[str, str, str]]
+    player_ids: list[PlayerId]
     match_results: list[MatchResult]
     _player_stats: dict[str, PlayerStats] = field(default=None, init=False, repr=False)
     _results_df: pd.DataFrame = field(default=None, init=False, repr=False)
@@ -175,7 +175,7 @@ class FairTournamentResults:
 class MixtureTournamentResults:
     """Results from a mixture tournament."""
     config: BaseTournamentConfig
-    cooperative_player_ids: list[tuple[str, str, str]]
+    cooperative_player_ids: list[PlayerId]
     aggressive_player_ids: list[tuple[str, str, str]]
     match_results: list[MatchResult]
     _mixture_results: list[MixtureResult] = field(default=None, init=False, repr=False)
@@ -407,15 +407,11 @@ def load_results(filepath: str):
         cooperative_player_ids = [PlayerId.deserialise(pid_data) for pid_data in data['cooperative_player_ids']]
         aggressive_player_ids = [PlayerId.deserialise(pid_data) for pid_data in data['aggressive_player_ids']]
 
-        # Reconstruct mixture results
-        mixture_results = [MixtureResult(**mr) for mr in data['mixture_results']]
-
         return MixtureTournamentResults(
             config=config,
             cooperative_player_ids=cooperative_player_ids,
             aggressive_player_ids=aggressive_player_ids,
             match_results=match_results,
-            mixture_results=mixture_results
         )
 
     else:
