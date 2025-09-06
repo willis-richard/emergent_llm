@@ -538,16 +538,22 @@ class BatchMixtureTournamentResults:
         return self._summary_df
 
     def __str__(self) -> str:
-        """Summary of batch tournament results."""
-        summary_lines = [
-            f"Batch Mixture Tournament Results",
-            f"Group sizes: {self.config.group_sizes}",
-            f"Repetitions per mixture: {self.config.repetitions}",
-            f"Total matches: {sum(len(mr.match_results) for mr in self.mixture_results)}",
-            "\nSocial Welfare Summary (Rows: Cooperative ratio, Columns: Group size):",
-            self.summary_df.to_string(float_format='%.3f')
-        ]
-        return "\n".join(summary_lines)
+        """Create summary table with social welfare across group sizes and ratios."""
+        # Create pivot table with aggressive ratios as rows and group sizes as columns
+        pivot_df = self.combined_df.pivot_table(
+            values='avg_social_welfare',
+            index='cooperative_ratio',
+            columns='group_size',
+            fill_value=np.nan
+        )
+
+        # Format as percentages for the index
+        pivot_df.index = [f"{ratio:.0%}" for ratio in pivot_df.index]
+
+        outputs = "=== SOCIAL WELFARE SUMMARY TABLE ==="
+        outputs += "\nRows: Aggressive player ratio, Columns: Group size"
+        outputs += pivot_df.to_string(float_format='%.3f')
+        return outputs
 
     def serialise(self) -> dict:
         """Serialize to dictionary for JSON storage."""
@@ -589,7 +595,7 @@ class BatchMixtureTournamentResults:
 
     def create_schelling_diagrams(self, output_dir: str):
         """Create Schelling diagrams for all group sizes."""
-        for group_size, mixture_result in self.mixture_results:
+        for group_size, mixture_result in self.mixture_results.items():
             output_path = Path(output_dir) / f"schelling_n_{group_size}.png"
             mixture_result.create_schelling_diagram(str(output_path))
 

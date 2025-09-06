@@ -71,14 +71,6 @@ class BatchMixtureTournament:
             result = mixture_tournament.run_tournament()
             self.all_results[group_size] = result
 
-            output_file = Path(self.config.results_dir) / "group_results" / f"group_size_{group_size}.csv"
-            result.save(output_file)
-            self.logger.info(f"Group {group_size} results saved: {output_file}")
-
-        # Combine all results and create summary table
-        combined_results = pd.concat(self.all_results.values(), ignore_index=True)
-        self._create_summary_table(combined_results)
-
         return BatchMixtureTournamentResults(self.config, self.all_results)
 
     def create_players_from_strategies(self, game_description: GameDescription) -> tuple[list[LLMPlayer], list[LLMPlayer]]:
@@ -101,86 +93,3 @@ class BatchMixtureTournament:
             aggressive_players.append(player)
 
         return cooperative_players, aggressive_players
-
-    def _create_summary_table(self, results_df: pd.DataFrame):
-        """Create summary table with social welfare across group sizes and ratios."""
-        # Create pivot table with aggressive ratios as rows and group sizes as columns
-        pivot_df = results_df.pivot_table(
-            values='avg_social_welfare',
-            index='cooperative_ratio',
-            columns='group_size',
-            fill_value=np.nan
-        )
-
-        # Format as percentages for the index
-        pivot_df.index = [f"{ratio:.0%}" for ratio in pivot_df.index]
-
-        # Save to CSV using the main output prefix
-        output_file = f'{self.config.results_dir}/summary_table.csv'
-        pivot_df.to_csv(output_file)
-
-        self.logger.info(f"Summary table saved: {output_file}")
-
-        # Also print to console
-        print("\n=== SOCIAL WELFARE SUMMARY TABLE ===")
-        print("Rows: Aggressive player ratio, Columns: Group size")
-        print(pivot_df.to_string(float_format='%.3f'))
-
-        # Print some debug info
-        print(f"\nMatches played per mixture: {self.config.repetitions}")
-        print(f"Group sizes tested: {self.config.group_sizes}")
-
-    def _create_social_welfare_diagram(self, game_desciption: GameDescription,
-                                       results_df: pd.DataFrame, output_path: str):
-        """Create social welfare vs aggressive ratio diagram with lines for each group size."""
-        import matplotlib.pyplot as plt
-
-        # Ensure output directory exists
-        output_file = Path(output_path).with_suffix('.png')
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-
-        # Setup plot styling
-        FIGSIZE, SIZE = (10, 6), 12
-        plt.rcParams.update({
-            'font.size': SIZE,
-            'axes.titlesize': 'medium',
-            'axes.labelsize': 'medium',
-            'xtick.labelsize': 'small',
-            'ytick.labelsize': 'small',
-            'legend.fontsize': 'medium',
-            'axes.linewidth': 0.1
-        })
-
-        fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
-
-        # Plot a line for each group size
-        for group_size in sorted(self.config.group_sizes):
-            group_data = results_df[results_df['group_size'] == group_size]
-
-            # Sort by aggressive ratio for smooth lines
-            group_data = group_data.sort_values('cooperative_ratio')
-
-            ax.plot(group_data['cooperative_ratio'] * 100,  # Convert to percentage
-                    group_data['avg_social_welfare'],
-                    label=f'n={group_size}',
-                    lw=1.5,
-                    marker='o',
-                    markersize=4)
-
-        ax.set_xlabel('Percentage of Cooperative Prompts (%)')
-        ax.set_ylabel('Average Social Welfare')
-        ax.set_xlim(0, 100)
-
-        ax.set_ylim(math.floor(game_desciption.min_payoff()),
-                    math.ceil(game_desciption.max_payoff()))
-
-        plt.axhline(y=game_desciption.min_social_welfare(), color='grey', alpha=0.3, linestyle='-')
-        plt.axhline(y=game_desciption.max_social_welfare(), color='grey', alpha=0.3, linestyle='-')
-
-        ax.legend(bbox_to_anchor=(1, 1), loc='upper right', frameon=False)
-
-        # Save plot
-        fig.savefig(output_file, format='png', bbox_inches='tight', dpi=300)
-        plt.close(fig)
-
-        self.logger.info(f"Social welfare diagram saved: {output_file}")

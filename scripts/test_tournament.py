@@ -27,15 +27,19 @@ logging.basicConfig(
     ]
 )
 
+def cooperative_strategy(history):
+    return lambda x: C
+
+def aggressive_strategy(history):
+    return lambda x: D
+
+
 def create_test_population(game_description):
     """Create LLM players for testing."""
     cooperative_players = []
 
     # 18 LLM cooperative players
     for i in range(18):
-        def cooperative_strategy(history):
-            return lambda x: C
-
         cooperative_players.append(LLMPlayer(
             name=f"llm_coop_{i}",
             attitude=COOPERATIVE,
@@ -46,9 +50,6 @@ def create_test_population(game_description):
     aggressive_players = []
     # 18 LLM aggressive players
     for i in range(18):
-        def aggressive_strategy(history):
-            return lambda x: D
-
         aggressive_players.append(LLMPlayer(
             name=f"llm_aggr_{i}",
             attitude=AGGRESSIVE,
@@ -60,8 +61,6 @@ def create_test_population(game_description):
 
 def run_fair_tournament(game_description):
     """Run tournament with Public Goods Game."""
-    # Create game description
-
     # Create population (36 players = 6 matches)
     c_p, a_p = create_test_population(game_description)
 
@@ -77,8 +76,6 @@ def run_fair_tournament(game_description):
 
 def run_mixture_tournament(game_description):
     """Run tournament with Public Goods Game."""
-    # Create game description
-
     # Create population (36 players = 6 matches)
     c_p, a_p = create_test_population(game_description)
 
@@ -88,6 +85,42 @@ def run_mixture_tournament(game_description):
     tournament = MixtureTournament(
         cooperative_players=c_p,
         aggressive_players=a_p,
+        config=config
+    )
+
+    return tournament.run_tournament()
+
+def run_batch_fair_tournament(generator_name):
+    """Run tournament with Public Goods Game."""
+    config = BatchTournamentConfig(
+        group_sizes=[2,4],
+        repetitions=1,
+        results_dir="./test/batch/",
+        generator_name=generator_name
+    )
+
+    # Create and run tournament
+    tournament = BatchFairTournament(
+        cooperative_strategies=[cooperative_strategy]*16,
+        aggressive_strategies=[aggressive_strategy]*16,
+        config=config
+    )
+
+    return tournament.run_tournament()
+
+def run_batch_mixture_tournament(generator_name):
+    """Run tournament with Public Goods Game."""
+    config = BatchTournamentConfig(
+        group_sizes=[2,4],
+        repetitions=1,
+        results_dir="./test/batch/",
+        generator_name=generator_name
+    )
+
+    # Create and run tournament
+    tournament = BatchMixtureTournament(
+        cooperative_strategies=[cooperative_strategy]*16,
+        aggressive_strategies=[aggressive_strategy]*16,
         config=config
     )
 
@@ -155,6 +188,15 @@ def main():
     print(check)
 
     crd_results.create_schelling_diagram("./test/crd_schelling.png")
+
+    print("\n=== BATCH FAIR CPR ===")
+    b_cpr_results = run_batch_fair_tournament("common_pool_default")
+    print(b_cpr_results)
+
+    print("\n=== BATCH MIXTURE CPR ===")
+    b_cpr_results = run_batch_mixture_tournament("common_pool_default")
+    print(b_cpr_results)
+
 
 if __name__ == "__main__":
     main()
