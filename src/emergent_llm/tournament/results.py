@@ -121,7 +121,7 @@ class FairTournamentResults:
             raise ValueError("Cannot create results with no match results")
 
         # Aggregate all match results into player statistics
-        stats: dict[tuple[str, str, str], PlayerStats] = {}
+        stats: dict[PlayerId, PlayerStats] = {}
         for mr in self.match_results:
             for pid, total_payoffs, total_cooperations in zip(mr.player_ids,
                                                               mr.total_payoffs,
@@ -310,6 +310,28 @@ class MixtureTournamentResults:
         Path(filepath).parent.mkdir(parents=True, exist_ok=True)
         with open(filepath, 'w') as f:
             json.dump(data, f, indent=2)
+
+    @classmethod
+    def load(cls, filepath: str) -> 'MixtureTournamentResults':
+        """Load MixtureTournamentResults from JSON file."""
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+
+        if data['result_type'] != 'MixtureTournamentResults':
+            raise ValueError(f"Expected MixtureTournamentResults, got {data['result_type']}")
+
+        # Use the class methods we created
+        config = BaseTournamentConfig.from_dict(data['config'])
+        cooperative_player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['cooperative_player_ids']]
+        aggressive_player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['aggressive_player_ids']]
+        match_results = [MatchResult.from_dict(mr_data) for mr_data in data['match_results']]
+
+        return cls(
+            config=config,
+            cooperative_player_ids=cooperative_player_ids,
+            aggressive_player_ids=aggressive_player_ids,
+            match_results=match_results
+        )
 
     def create_schelling_diagram(self, output_path: str):
         """Create Schelling diagram for this tournament results."""

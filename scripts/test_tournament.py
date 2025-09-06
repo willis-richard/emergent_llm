@@ -113,20 +113,23 @@ def main():
     print("Running Public Goods Tournament...")
     pgg_results = run_fair_tournament(pgg_description)
 
-    # Analysis
     print("\n=== PUBLIC GOODS GAME RESULTS ===")
     print(pgg_results)
 
-    pgg_results.save("./test/pgg_results.json")
-    check = FairTournamentResults.load("./test/pgg_results.json")
+    pgg_results.save("./test/fair_pgg_results.json")
+    check = FairTournamentResults.load("./test/fair_pgg_results.json")
     print(check)
-    assert False
 
     print("\nRunning Collective Risk Tournament...")
     crd_results = run_fair_tournament(crd_description)
 
     print("\n=== COLLECTIVE RISK DILEMMA RESULTS ===")
     print(crd_results)
+
+    crd_results.save("./test/fair_crd_results.json")
+    check = FairTournamentResults.load("./test/fair_crd_results.json")
+    print(check)
+
 
     """Run mixture tournament."""
     print("Running Public Goods Tournament...")
@@ -136,13 +139,23 @@ def main():
     print("\n=== PUBLIC GOODS GAME RESULTS ===")
     print(pgg_results)
 
+    pgg_results.save("./test/mixture_pgg_results.json")
+    check = MixtureTournamentResults.load("./test/mixture_pgg_results.json")
+    print(check)
+
+    check.create_schelling_diagram("./test/pgg_schelling.png")
+
     print("\nRunning Collective Risk Tournament...")
     crd_results = run_mixture_tournament(crd_description)
 
     print("\n=== COLLECTIVE RISK DILEMMA RESULTS ===")
     print(crd_results)
 
-    crd_results.create_schelling_diagram("/tmp/delete")
+    crd_results.save("./test/mixture_crd_results.json")
+    check = MixtureTournamentResults.load("./test/mixture_crd_results.json")
+    print(check)
+
+    crd_results.create_schelling_diagram("./test/crd_schelling.png")
 
 if __name__ == "__main__":
     main()
