@@ -24,6 +24,23 @@ class BaseTournamentConfig:
         else:
             raise ValueError(f"No game class found for description type: {type(self.game_description)}")
 
+    @classmethod
+    def from_dict(cls, config_data: dict) -> 'BaseTournamentConfig':
+        """Load BaseTournamentConfig from dictionary data."""
+        game_class_map = {
+            'PublicGoodsDescription': PublicGoodsDescription,
+            'CollectiveRiskDescription': CollectiveRiskDescription,
+            'CommonPoolDescription': CommonPoolDescription,
+        }
+
+        game_cls = game_class_map[config_data['game_description_type']]
+        game_description = game_cls(**config_data['game_description'])
+
+        return cls(
+            game_description=game_description,
+            repetitions=config_data['repetitions']
+        )
+
 
 @dataclass
 class BatchTournamentConfig:

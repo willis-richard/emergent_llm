@@ -12,3 +12,12 @@ class PlayerId:
         if self.attitude is None:
             return self.name
         return f"{self.name}[{self.attitude.value}, {self.strategy}]"
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'PlayerId':
+        """Load PlayerId from dictionary data."""
+        return cls(
+            name=data['name'],
+            attitude=Attitude(data['attitude']) if data['attitude'] else None,
+            strategy=data['strategy']
+        )

@@ -26,6 +26,16 @@ class MatchResult:
     total_payoffs: list[float]
     total_cooperations: list[int]
 
+    @classmethod
+    def from_dict(cls, data: dict) -> 'MatchResult':
+        """Load MatchResult from dictionary data."""
+        return cls(
+            match_id=data['match_id'],
+            player_ids=[PlayerId.from_dict(pid_data) for pid_data in data['player_ids']],
+            total_payoffs=data['total_payoffs'],
+            total_cooperations=data['total_cooperations']
+        )
+
 
 @dataclass
 class PlayerStats:
@@ -188,52 +198,10 @@ class FairTournamentResults:
         if data['result_type'] != 'FairTournamentResults':
             raise ValueError(f"Expected FairTournamentResults, got {data['result_type']}")
 
-        # Reconstruct game description
-        game_class_map = {
-            'PublicGoodsDescription': PublicGoodsDescription,
-            'CollectiveRiskDescription': CollectiveRiskDescription,
-            'CommonPoolDescription': CommonPoolDescription,
-        }
-
-        game_cls = game_class_map[data['config']['game_description_type']]
-        game_description = game_cls(**data['config']['game_description'])
-
-        # Reconstruct config
-        config = BaseTournamentConfig(
-            game_description=game_description,
-            repetitions=data['config']['repetitions']
-        )
-
-        # Reconstruct player_ids
-        player_ids = []
-        for pid_data in data['player_ids']:
-            player_id = PlayerId(
-                name=pid_data['name'],
-                attitude=Attitude(pid_data['attitude']) if pid_data['attitude'] else None,
-                strategy=pid_data['strategy']
-            )
-            player_ids.append(player_id)
-
-        # Reconstruct match results
-        match_results = []
-        for mr_data in data['match_results']:
-            # Reconstruct player_ids for this match
-            match_player_ids = []
-            for pid_data in mr_data['player_ids']:
-                player_id = PlayerId(
-                    name=pid_data['name'],
-                    attitude=Attitude(pid_data['attitude']) if pid_data['attitude'] else None,
-                    strategy=pid_data['strategy']
-                )
-                match_player_ids.append(player_id)
-
-            match_result = MatchResult(
-                match_id=mr_data['match_id'],
-                player_ids=match_player_ids,
-                total_payoffs=mr_data['total_payoffs'],
-                total_cooperations=mr_data['total_cooperations']
-            )
-            match_results.append(match_result)
+        # Use the new class methods for everything
+        config = BaseTournamentConfig.from_dict(data['config'])
+        player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['player_ids']]
+        match_results = [MatchResult.from_dict(mr_data) for mr_data in data['match_results']]
 
         return cls(
             config=config,
