@@ -63,10 +63,6 @@ class BatchFairTournament:
             result = fair_tournament.run_tournament()
             self.results[group_size] = result
 
-            output_file = Path(self.config.results_dir) / "group_results" / f"group_size_{group_size}.csv"
-            result.save(output_file)
-            self.logger.info(f"Group {group_size} results saved: {output_file}")
-
         return BatchFairTournamentResults(self.config, self.results)
 
     def create_players_from_strategies(self, game_description: GameDescription) -> list[LLMPlayer]:

@@ -9,7 +9,8 @@ from emergent_llm.tournament import (BatchFairTournament, BatchMixtureTournament
                                      BatchTournamentConfig,
                                      BaseTournament, BaseTournamentConfig,
                                      FairTournament, MixtureTournament,
-                                     FairTournamentResults, MixtureTournamentResults)
+                                     FairTournamentResults, MixtureTournamentResults,
+                                     BatchFairTournamentResults, BatchMixtureTournamentResults)
 from emergent_llm.games.public_goods import PublicGoodsGame
 from emergent_llm.games.collective_risk import CollectiveRiskGame
 from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription
@@ -95,7 +96,7 @@ def run_batch_fair_tournament(generator_name):
     config = BatchTournamentConfig(
         group_sizes=[2,4],
         repetitions=1,
-        results_dir="./test/batch/",
+        results_dir="./test",
         generator_name=generator_name
     )
 
@@ -113,7 +114,7 @@ def run_batch_mixture_tournament(generator_name):
     config = BatchTournamentConfig(
         group_sizes=[2,4],
         repetitions=1,
-        results_dir="./test/batch/",
+        results_dir="./test",
         generator_name=generator_name
     )
 
@@ -193,9 +194,19 @@ def main():
     b_cpr_results = run_batch_fair_tournament("common_pool_default")
     print(b_cpr_results)
 
+    b_cpr_results.save()
+    check = BatchFairTournamentResults.load("./test/batch_fair/results.json")
+    print(check)
+
     print("\n=== BATCH MIXTURE CPR ===")
     b_cpr_results = run_batch_mixture_tournament("common_pool_default")
     print(b_cpr_results)
+
+    b_cpr_results.save()
+    check = BatchMixtureTournamentResults.load("./test/batch_mixture/results.json")
+    print(check)
+    b_cpr_results.create_schelling_diagrams()
+    b_cpr_results.create_social_welfare_diagram()
 
 
 if __name__ == "__main__":

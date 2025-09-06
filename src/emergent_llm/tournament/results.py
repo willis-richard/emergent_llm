@@ -456,9 +456,10 @@ class BatchFairTournamentResults:
             'result_type': 'BatchFairTournamentResults'
         }
 
-    def save(self, filepath: str) -> None:
+    def save(self) -> None:
         """Save results to JSON file."""
-        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+        filepath = Path(self.config.results_dir) / "batch_fair/results.json"
+        filepath.parent.mkdir(parents=True, exist_ok=True)
         with open(filepath, 'w') as f:
             json.dump(self.serialise(), f, indent=2)
 
@@ -564,8 +565,10 @@ class BatchMixtureTournamentResults:
             'result_type': 'BatchMixtureTournamentResults'
         }
 
-    def save(self, filepath: str) -> None:
+    def save(self) -> None:
         """Save results to JSON file."""
+        filepath = Path(self.config.results_dir) / "batch_mixture/results.json"
+        filepath.parent.mkdir(parents=True, exist_ok=True)
         Path(filepath).parent.mkdir(parents=True, exist_ok=True)
         with open(filepath, 'w') as f:
             json.dump(self.serialise(), f, indent=2)
@@ -593,17 +596,19 @@ class BatchMixtureTournamentResults:
 
         return cls.from_dict(data)
 
-    def create_schelling_diagrams(self, output_dir: str):
+    def create_schelling_diagrams(self):
         """Create Schelling diagrams for all group sizes."""
+        filepath = Path(self.config.results_dir) / "batch_mixture"
+        filepath.parent.mkdir(parents=True, exist_ok=True)
         for group_size, mixture_result in self.mixture_results.items():
-            output_path = Path(output_dir) / f"schelling_n_{group_size}.png"
+            output_path = filepath / f"schelling_n_{group_size}.png"
             mixture_result.create_schelling_diagram(str(output_path))
 
-    def create_social_welfare_diagram(self, output_path: str):
+    def create_social_welfare_diagram(self):
         """Create social welfare vs cooperative ratio diagram with lines for each group size."""
 
         # Ensure output directory exists
-        output_file = Path(output_path).with_suffix('.png')
+        output_file = Path(self.config.results_dir) / "batch_mixture" / "social_welfare.png"
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Setup plot styling
@@ -633,7 +638,7 @@ class BatchMixtureTournamentResults:
                     markersize=4)
 
         # Get game description from first mixture result
-        game_description = self.mixture_results[0].config.game_description
+        game_description = self.mixture_results[self.config.group_sizes[-1]].config.game_description
 
         ax.set_xlabel('Percentage of Cooperative Prompts (%)')
         ax.set_ylabel('Average Social Welfare')
