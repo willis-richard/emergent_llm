@@ -1,15 +1,18 @@
 """Tournament classes for social dilemma experiments."""
-from .results import (PlayerStats, MixtureResult, FairTournamentResults,
-                      MixtureTournamentResults, BatchTournamentResults)
-from .base_tournament import MatchResult, BaseTournament, BaseTournamentConfig
+from .base_tournament import BaseTournament
+from .batch_fair_tournament import BatchFairTournament
+from .batch_mixture_tournament import BatchMixtureTournament
+from .configs import BaseTournamentConfig, BatchTournamentConfig
 from .fair_tournament import FairTournament
 from .mixture_tournament import MixtureTournament
-from .batch_mixture_tournament import BatchMixtureTournament, BatchMixtureTournamentConfig
-from .batch_fair_tournament import BatchFairTournament, BatchFairTournamentConfig
+from .results import (BatchFairTournamentResults,
+                      BatchMixtureTournamentResults, FairTournamentResults,
+                      MatchResult, MixtureResult, MixtureTournamentResults,
+                      PlayerStats, load_results)
 
 __all__ = ['MatchResult', 'PlayerStats', 'MixtureResult', 'FairTournamentResults',
-           'MixtureTournamentResults', 'BatchTournamentResults',
+           'MixtureTournamentResults', 'BatchFairTournamentResults', 'BatchMixtureTournamentResults',
            'BaseTournament', 'BaseTournamentConfig',
            'FairTournament', 'MixtureTournament',
-           'BatchMixtureTournament', 'BatchMixtureTournamentConfig',
-           'BatchFairTournament', 'BatchFairTournamentConfig']
+           'BatchMixtureTournament', 'BatchTournamentConfig',
+           'BatchFairTournament', 'load_results']

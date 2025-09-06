@@ -1,9 +1,9 @@
 import random
-import pandas as pd
 
-from emergent_llm.tournament.base_tournament import BaseTournament, BaseTournamentConfig
-from emergent_llm.tournament.results import FairTournamentResults, PlayerStats, MatchResult
 from emergent_llm.players import LLMPlayer
+from emergent_llm.tournament.base_tournament import BaseTournament
+from emergent_llm.tournament.configs import BaseTournamentConfig
+from emergent_llm.tournament.results import FairTournamentResults
 
 
 class FairTournament(BaseTournament):

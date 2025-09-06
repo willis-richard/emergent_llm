@@ -73,11 +73,11 @@ class GameHistory:
         vec_fn = np.vectorize(fn)
         return vec_fn(self.actions)
 
-    def total_payoffs(self):
-        return self.payoffs.sum(axis=0)
+    def total_payoffs(self) -> list[float]:
+        return self.payoffs.sum(axis=0).tolist()
 
-    def total_cooperations(self):
-        return self.actions.sum(axis=0)
+    def total_cooperations(self) -> list[bool]:
+        return self.actions.sum(axis=0).tolist()
 
-    def cooperations_by_round(self):
-        return self.actions.sum(axis=1)
+    def cooperations_by_round(self) -> list[bool]:
+        return self.actions.sum(axis=1).tolist()

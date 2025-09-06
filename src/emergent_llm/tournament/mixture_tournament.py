@@ -1,17 +1,10 @@
 """Mixture tournament for a single group size."""
 import random
-from dataclasses import dataclass
-from pathlib import Path
 
-import matplotlib.pyplot as plt
-from matplotlib.ticker import MaxNLocator
-import math
-import numpy as np
-import pandas as pd
-from emergent_llm.common import Attitude, GameDescription
 from emergent_llm.players import LLMPlayer
-from emergent_llm.tournament.base_tournament import BaseTournament, BaseTournamentConfig
-from emergent_llm.tournament.results import MatchResult, MixtureResult, MixtureTournamentResults
+from emergent_llm.tournament.base_tournament import BaseTournament
+from emergent_llm.tournament.configs import BaseTournamentConfig
+from emergent_llm.tournament.results import MixtureTournamentResults
 
 
 class MixtureTournament(BaseTournament):

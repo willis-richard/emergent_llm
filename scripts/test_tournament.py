@@ -5,10 +5,12 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
-from emergent_llm.tournament import (BatchFairTournament, BatchFairTournamentConfig,
-                                     BatchMixtureTournament, BatchMixtureTournamentConfig,
+from emergent_llm.tournament import (BatchFairTournament, BatchMixtureTournament,
+                                     BatchTournamentConfig,
                                      BaseTournament, BaseTournamentConfig,
-                                     FairTournament, MixtureTournament)
+                                     FairTournament, MixtureTournament,
+                                     FairTournamentResults, MixtureTournamentResults,
+                                     load_results)
 from emergent_llm.games.public_goods import PublicGoodsGame
 from emergent_llm.games.collective_risk import CollectiveRiskGame
 from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription
@@ -114,6 +116,11 @@ def main():
     # Analysis
     print("\n=== PUBLIC GOODS GAME RESULTS ===")
     print(pgg_results)
+
+    pgg_results.save("./test/pgg_results.json")
+    check = FairTournamentResults.load("./test/pgg_results.json")
+    print(check)
+    assert False
 
     print("\nRunning Collective Risk Tournament...")
     crd_results = run_fair_tournament(crd_description)

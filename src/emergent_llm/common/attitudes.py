@@ -1,8 +1,8 @@
 """Attitudes for LLM players in social dilemma experiments."""
-from enum import Enum
+from enum import StrEnum
 
 
-class Attitude(Enum):
+class Attitude(StrEnum):
     """Player attitudes for strategy generation."""
     COOPERATIVE = "cooperative"
     AGGRESSIVE = "aggressive"

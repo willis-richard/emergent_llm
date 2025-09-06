@@ -10,17 +10,10 @@ from pathlib import Path
 from emergent_llm.games.base_game import BaseGame
 from emergent_llm.common import GameDescription, Attitude
 from emergent_llm.players import BasePlayer, LLMPlayer, BaseStrategy
+from emergent_llm.tournament.configs import BatchTournamentConfig
 from emergent_llm.tournament.mixture_tournament import MixtureTournament
 from emergent_llm.tournament.base_tournament import BaseTournamentConfig
-
-
-@dataclass
-class BatchMixtureTournamentConfig:
-    """Configuration for multi-group tournament."""
-    group_sizes: list[int]
-    repetitions: int
-    results_dir: str
-    game_description_generator: Callable[[int], GameDescription]  # Just takes group_size, returns GameDescription
+from emergent_llm.tournament.results import MixtureTournamentResults, BatchMixtureTournamentResults
 
 
 class BatchMixtureTournament:
@@ -29,7 +22,7 @@ class BatchMixtureTournament:
     def __init__(self,
                  cooperative_strategies: list[type[BaseStrategy]],
                  aggressive_strategies: list[type[BaseStrategy]],
-                 config: BatchMixtureTournamentConfig):
+                 config: BatchTournamentConfig):
 
         self.cooperative_strategies = cooperative_strategies
         self.aggressive_strategies = aggressive_strategies
@@ -49,10 +42,9 @@ class BatchMixtureTournament:
             raise ValueError(f"Need at least {max_group_size} aggressive players for largest group size, "
                            f"got {len(aggressive_strategies)}")
 
-        # Storage for all results
-        self.all_results: list[pd.DataFrame] = []
+        self.all_results: dict[int, MixtureTournamentResults] = {}
 
-    def run_tournament(self) -> pd.DataFrame:
+    def run_tournament(self) -> BatchMixtureTournamentResults:
         """Run tournaments across all group sizes."""
         for group_size in self.config.group_sizes:
             self.logger.info(f"Running tournament for group size {group_size}")
@@ -76,23 +68,18 @@ class BatchMixtureTournament:
                 config=mixture_config
             )
 
-            results_df = mixture_tournament.run_tournament()
-            self.all_results.append(results_df)
+            result = mixture_tournament.run_tournament()
+            self.all_results[group_size] = result
 
-            # Generate Schelling diagram for this group size
-            output_path = f'{self.config.results_dir}/schelling/n_{group_size}'
-            mixture_tournament.create_schelling_diagram(game_description, output_path)
+            output_file = Path(self.config.results_dir) / "group_results" / f"group_size_{group_size}.csv"
+            result.save(output_file)
+            self.logger.info(f"Group {group_size} results saved: {output_file}")
 
         # Combine all results and create summary table
-        combined_results = pd.concat(self.all_results, ignore_index=True)
+        combined_results = pd.concat(self.all_results.values(), ignore_index=True)
         self._create_summary_table(combined_results)
 
-        self._create_social_welfare_diagram(
-            game_description,
-            combined_results,
-            f'{self.config.results_dir}/social_welfare_diagram')
-
-        return combined_results
+        return BatchMixtureTournamentResults(self.config, self.all_results)
 
     def create_players_from_strategies(self, game_description: GameDescription) -> tuple[list[LLMPlayer], list[LLMPlayer]]:
         """Create player instances from strategy classes."""

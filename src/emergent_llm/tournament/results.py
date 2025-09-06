@@ -12,10 +12,19 @@ import numpy as np
 import pandas as pd
 from emergent_llm.common import Attitude, GameDescription, PlayerId
 from matplotlib.ticker import MaxNLocator
-from emergent_llm.tournament.base_tournament import BaseTournamentConfig, MatchResult
+from emergent_llm.tournament.configs import BaseTournamentConfig, BatchTournamentConfig
 from emergent_llm.games import (CollectiveRiskDescription,
                                 CommonPoolDescription,
                                 PublicGoodsDescription)
+
+
+@dataclass
+class MatchResult:
+    """Results from a single match."""
+    match_id: str
+    player_ids: list[PlayerId]
+    total_payoffs: list[float]
+    total_cooperations: list[int]
 
 
 @dataclass
@@ -161,7 +170,7 @@ class FairTournamentResults:
                 'game_description': asdict(self.config.game_description),
                 'repetitions': self.config.repetitions
             },
-            'player_ids': [pid.serialise() for pid in self.player_ids],
+            'player_ids': [asdict(pid) for pid in self.player_ids],
             'match_results': [asdict(mr) for mr in self.match_results],
             'result_type': 'FairTournamentResults'
         }
@@ -170,13 +179,75 @@ class FairTournamentResults:
         with open(filepath, 'w') as f:
             json.dump(data, f, indent=2)
 
+    @classmethod
+    def load(cls, filepath: str) -> 'FairTournamentResults':
+        """Load FairTournamentResults from JSON file."""
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+
+        if data['result_type'] != 'FairTournamentResults':
+            raise ValueError(f"Expected FairTournamentResults, got {data['result_type']}")
+
+        # Reconstruct game description
+        game_class_map = {
+            'PublicGoodsDescription': PublicGoodsDescription,
+            'CollectiveRiskDescription': CollectiveRiskDescription,
+            'CommonPoolDescription': CommonPoolDescription,
+        }
+
+        game_cls = game_class_map[data['config']['game_description_type']]
+        game_description = game_cls(**data['config']['game_description'])
+
+        # Reconstruct config
+        config = BaseTournamentConfig(
+            game_description=game_description,
+            repetitions=data['config']['repetitions']
+        )
+
+        # Reconstruct player_ids
+        player_ids = []
+        for pid_data in data['player_ids']:
+            player_id = PlayerId(
+                name=pid_data['name'],
+                attitude=Attitude(pid_data['attitude']) if pid_data['attitude'] else None,
+                strategy=pid_data['strategy']
+            )
+            player_ids.append(player_id)
+
+        # Reconstruct match results
+        match_results = []
+        for mr_data in data['match_results']:
+            # Reconstruct player_ids for this match
+            match_player_ids = []
+            for pid_data in mr_data['player_ids']:
+                player_id = PlayerId(
+                    name=pid_data['name'],
+                    attitude=Attitude(pid_data['attitude']) if pid_data['attitude'] else None,
+                    strategy=pid_data['strategy']
+                )
+                match_player_ids.append(player_id)
+
+            match_result = MatchResult(
+                match_id=mr_data['match_id'],
+                player_ids=match_player_ids,
+                total_payoffs=mr_data['total_payoffs'],
+                total_cooperations=mr_data['total_cooperations']
+            )
+            match_results.append(match_result)
+
+        return cls(
+            config=config,
+            player_ids=player_ids,
+            match_results=match_results
+        )
+
 
 @dataclass(frozen=True)
 class MixtureTournamentResults:
     """Results from a mixture tournament."""
     config: BaseTournamentConfig
     cooperative_player_ids: list[PlayerId]
-    aggressive_player_ids: list[tuple[str, str, str]]
+    aggressive_player_ids: list[PlayerId]
     match_results: list[MatchResult]
     _mixture_results: list[MixtureResult] = field(default=None, init=False, repr=False)
     _results_df: pd.DataFrame = field(default=None, init=False, repr=False)
@@ -262,8 +333,8 @@ class MixtureTournamentResults:
                 'game_description': asdict(self.config.game_description),
                 'repetitions': self.config.repetitions
             },
-            'cooperative_player_ids': [pid.serialise() for pid in self.cooperative_player_ids],
-            'aggressive_player_ids': [pid.serialise() for pid in self.aggressive_player_ids],
+            'cooperative_player_ids': [asdict(pid) for pid in self.cooperative_player_ids],
+            'aggressive_player_ids': [asdict(pid) for pid in self.aggressive_player_ids],
             'match_results': [asdict(mr) for mr in self.match_results],
             'result_type': 'MixtureTournamentResults'
         }
@@ -330,36 +401,210 @@ class MixtureTournamentResults:
         plt.close(fig)
 
 
-@dataclass
-class BatchTournamentResults:
-    """Results from a batch tournament across multiple group sizes."""
-    all_results: list[pd.DataFrame]  # One per group size
-    group_sizes: list[int]
-    repetitions: int
-    game_description_generator: str  # Just store the description, not the callable
+@dataclass(frozen=True)
+class BatchFairTournamentResults:
+    """Results from a batch fair tournament across multiple group sizes."""
+    config: BatchTournamentConfig
+    fair_results: dict[int, FairTournamentResults]
+    _combined_df: pd.DataFrame = field(default=None, init=False, repr=False)
 
-    def to_combined_dataframe(self) -> pd.DataFrame:
-        """Combine all results into single DataFrame."""
-        combined = []
-        for i, df in enumerate(self.all_results):
-            df_copy = df.copy()
-            df_copy['group_size'] = self.group_sizes[i]
-            combined.append(df_copy)
-        return pd.concat(combined, ignore_index=True)
+    def __post_init__(self):
+        """Compute combined results from individual tournament results."""
+        if not self.fair_results:
+            raise ValueError("Cannot create results with no fair tournament results")
+
+        if len(self.fair_results) != len(self.config.group_sizes):
+            raise ValueError(
+                f"Number of results ({len(self.fair_results)}) must match "
+                f"number of group sizes ({len(self.config.group_sizes)})"
+            )
+
+        # Combine all results into single DataFrame
+        combined_rows = []
+        for group_size, fair_result in self.fair_results:
+            df = fair_result.results_df.copy()
+            df['group_size'] = group_size
+            combined_rows.append(df)
+
+        combined_df = pd.concat(combined_rows, ignore_index=True)
+        object.__setattr__(self, '_combined_df', combined_df)
+
+    @property
+    def combined_df(self) -> pd.DataFrame:
+        """Combined results DataFrame with group size information."""
+        return self._combined_df
+
+    def __str__(self) -> str:
+        """Summary of batch tournament results."""
+        summary_lines = [
+            f"Batch Fair Tournament Results",
+            f"Group sizes: {self.config.group_sizes}",
+            f"Repetitions per group: {self.config.repetitions}",
+            f"Total matches: {len(self.combined_df)}",
+        ]
+
+        # Group performance by attitude and group size
+        if 'player_attitude' in self.combined_df.columns:
+            attitude_summary = self.combined_df.groupby(['group_size', 'player_attitude'])['mean_payoff'].agg(['mean', 'std', 'count'])
+            summary_lines.extend([
+                "\nPerformance by group size and attitude:",
+                str(attitude_summary)
+            ])
+
+        return "\n".join(summary_lines)
 
     def save(self, filepath: str) -> None:
-        """Save results to JSON file."""
+        """Save batch results to JSON file."""
         data = {
-            'all_results': [df.to_dict('records') for df in self.all_results],
-            'group_sizes': self.group_sizes,
-            'repetitions': self.repetitions,
-            'game_description_generator': self.game_description_generator,
-            'result_type': 'BatchTournamentResults'
+            'config': {
+                'group_sizes': self.config.group_sizes,
+                'repetitions': self.config.repetitions,
+                'results_dir': self.config.results_dir,
+                'population_multiplier': self.config.population_multiplier,
+            },
+            'fair_results': [asdict(result) for result in self.fair_results],
+            'result_type': 'BatchFairTournamentResults'
         }
 
         Path(filepath).parent.mkdir(parents=True, exist_ok=True)
         with open(filepath, 'w') as f:
             json.dump(data, f, indent=2)
+
+
+@dataclass(frozen=True)
+class BatchMixtureTournamentResults:
+    """Results from a batch mixture tournament across multiple group sizes."""
+    config: BatchTournamentConfig
+    mixture_results: dict[tuple[int, int], MixtureTournamentResults]
+    _combined_df: pd.DataFrame = field(default=None, init=False, repr=False)
+    _summary_df: pd.DataFrame = field(default=None, init=False, repr=False)
+
+    def __post_init__(self):
+        """Compute combined results from individual tournament results."""
+        if not self.mixture_results:
+            raise ValueError("Cannot create results with no mixture tournament results")
+
+        if len(self.mixture_results) != len(self.config.group_sizes):
+            raise ValueError(
+                f"Number of results ({len(self.mixture_results)}) must match "
+                f"number of group sizes ({len(self.config.group_sizes)})"
+            )
+
+        # Combine all results into single DataFrame
+        combined_rows = []
+        for group_size, fair_result in self.mixture_results:
+            df = fair_result.results_df.copy()
+            df['group_size'] = group_size
+            combined_rows.append(df)
+
+        combined_df = pd.concat(combined_rows, ignore_index=True)
+        object.__setattr__(self, '_combined_df', combined_df)
+
+        # Create summary pivot table
+        summary_df = combined_df.pivot_table(
+            values='avg_social_welfare',
+            index='cooperative_ratio',
+            columns='group_size',
+            fill_value=np.nan
+        )
+        # Format index as percentages
+        summary_df.index = [f"{ratio:.0%}" for ratio in summary_df.index]
+        object.__setattr__(self, '_summary_df', summary_df)
+
+    @property
+    def combined_df(self) -> pd.DataFrame:
+        """Combined results DataFrame with group size information."""
+        return self._combined_df
+
+    @property
+    def summary_df(self) -> pd.DataFrame:
+        """Summary table with social welfare across group sizes and ratios."""
+        return self._summary_df
+
+    def __str__(self) -> str:
+        """Summary of batch tournament results."""
+        summary_lines = [
+            f"Batch Mixture Tournament Results",
+            f"Group sizes: {self.config.group_sizes}",
+            f"Repetitions per mixture: {self.config.repetitions}",
+            f"Total matches: {sum(len(mr.match_results) for mr in self.mixture_results)}",
+            "\nSocial Welfare Summary (Rows: Cooperative ratio, Columns: Group size):",
+            self.summary_df.to_string(float_format='%.3f')
+        ]
+        return "\n".join(summary_lines)
+
+    def save(self, filepath: str) -> None:
+        """Save batch results to JSON file."""
+        data = {
+            'config': {
+                'group_sizes': self.config.group_sizes,
+                'repetitions': self.config.repetitions,
+                'results_dir': self.config.results_dir,
+            },
+            'mixture_results': [asdict(result) for result in self.mixture_results],
+            'result_type': 'BatchMixtureTournamentResults'
+        }
+
+        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+        with open(filepath, 'w') as f:
+            json.dump(data, f, indent=2)
+
+    def create_schelling_diagrams(self, output_dir: str):
+        """Create Schelling diagrams for all group sizes."""
+        for group_size, mixture_result in self.mixture_results:
+            output_path = Path(output_dir) / f"schelling_n_{group_size}.png"
+            mixture_result.create_schelling_diagram(str(output_path))
+
+    def create_social_welfare_diagram(self, output_path: str):
+        """Create social welfare vs cooperative ratio diagram with lines for each group size."""
+
+        # Ensure output directory exists
+        output_file = Path(output_path).with_suffix('.png')
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Setup plot styling
+        FIGSIZE, SIZE = (10, 6), 12
+        plt.rcParams.update({
+            'font.size': SIZE,
+            'axes.titlesize': 'medium',
+            'axes.labelsize': 'medium',
+            'xtick.labelsize': 'small',
+            'ytick.labelsize': 'small',
+            'legend.fontsize': 'medium',
+            'axes.linewidth': 0.1
+        })
+
+        fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
+
+        # Plot a line for each group size
+        for group_size in sorted(self.config.group_sizes):
+            group_data = self.combined_df[self.combined_df['group_size'] == group_size]
+            group_data = group_data.sort_values('cooperative_ratio')
+
+            ax.plot(group_data['cooperative_ratio'] * 100,  # Convert to percentage
+                    group_data['avg_social_welfare'],
+                    label=f'n={group_size}',
+                    lw=1.5,
+                    marker='o',
+                    markersize=4)
+
+        # Get game description from first mixture result
+        game_description = self.mixture_results[0].config.game_description
+
+        ax.set_xlabel('Percentage of Cooperative Prompts (%)')
+        ax.set_ylabel('Average Social Welfare')
+        ax.set_xlim(0, 100)
+        ax.set_ylim(math.floor(game_description.min_payoff()),
+                    math.ceil(game_description.max_payoff()))
+
+        plt.axhline(y=game_description.min_social_welfare(), color='grey', alpha=0.3, linestyle='-')
+        plt.axhline(y=game_description.max_social_welfare(), color='grey', alpha=0.3, linestyle='-')
+
+        ax.legend(bbox_to_anchor=(1, 1), loc='upper right', frameon=False)
+
+        # Save plot
+        fig.savefig(output_file, format='png', bbox_inches='tight', dpi=300)
+        plt.close(fig)
 
 
 def load_results(filepath: str):
@@ -410,8 +655,7 @@ def load_results(filepath: str):
         return MixtureTournamentResults(
             config=config,
             cooperative_player_ids=cooperative_player_ids,
-            aggressive_player_ids=aggressive_player_ids,
-            match_results=match_results,
+
         )
 
     else:

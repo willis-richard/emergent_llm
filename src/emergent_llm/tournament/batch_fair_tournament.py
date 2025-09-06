@@ -1,26 +1,15 @@
 """Multi-group fair tournament for testing strategy generalization across group sizes."""
 import logging
-from dataclasses import dataclass
-from typing import Callable
-import pandas as pd
 from pathlib import Path
-from tqdm import tqdm
 
-from emergent_llm.games.base_game import BaseGame
-from emergent_llm.common import GameDescription, Attitude
-from emergent_llm.players import BasePlayer, LLMPlayer, BaseStrategy
+from emergent_llm.common import Attitude, GameDescription
+from emergent_llm.players import BaseStrategy, LLMPlayer
+from emergent_llm.tournament.configs import (BaseTournamentConfig,
+                                             BatchTournamentConfig)
 from emergent_llm.tournament.fair_tournament import FairTournament
-from emergent_llm.tournament.base_tournament import BaseTournamentConfig
-
-
-@dataclass
-class BatchFairTournamentConfig:
-    """Configuration for multi-group fair tournament."""
-    group_sizes: list[int]
-    repetitions: int
-    results_dir: str
-    game_description_generator: Callable[[int], GameDescription]
-    population_multiplier: int = 4  # Population = max_group_size * this
+from emergent_llm.tournament.results import (BatchFairTournamentResults,
+                                             FairTournamentResults)
+from tqdm import tqdm
 
 
 class BatchFairTournament:
@@ -29,7 +18,7 @@ class BatchFairTournament:
     def __init__(self,
                  cooperative_strategies: list[type[BaseStrategy]],
                  aggressive_strategies: list[type[BaseStrategy]],
-                 config: BatchFairTournamentConfig):
+                 config: BatchTournamentConfig):
 
         self.cooperative_strategies = cooperative_strategies
         self.aggressive_strategies = aggressive_strategies
@@ -42,19 +31,18 @@ class BatchFairTournament:
 
         # Validate we have enough strategies for largest group size with population multiplier
         max_group_size = max(config.group_sizes)
-        required_population = max_group_size * config.population_multiplier
+        required_population = max_group_size * 4
 
         if n_strategies < required_population:
             raise ValueError(
-                f"Need at least {required_population} strategies for largest group size "
-                f"({max_group_size}) with population multiplier ({config.population_multiplier}), "
-                f"got {n_strategies}"
+                f"Suggest you have at least {required_population} strategies for largest group size "
+                f"({max_group_size}), got {n_strategies}"
             )
 
         # Storage for all results
-        self.all_results: list[pd.DataFrame] = []
+        self.results: dict[int, FairTournamentResults] = {}
 
-    def run_tournament(self) -> pd.DataFrame:
+    def run_tournament(self) -> BatchFairTournamentResults:
         """Run fair tournaments across all group sizes."""
         for group_size in tqdm(self.config.group_sizes, desc="Group sizes"):
             self.logger.info(f"Running fair tournament for group size {group_size}")
@@ -72,21 +60,16 @@ class BatchFairTournament:
 
             # Run fair tournament for this group size
             fair_tournament = FairTournament(players, tournament_config)
-            results_df = fair_tournament.run_tournament()
+            result = fair_tournament.run_tournament()
+            self.results[group_size] = result
 
-            # Add group size information
-            results_df['group_size'] = group_size
-            self.all_results.append(results_df)
+            output_file = Path(self.config.results_dir) / "group_results" / f"group_size_{group_size}.csv"
+            result.save(output_file)
+            self.logger.info(f"Group {group_size} results saved: {output_file}")
 
-            # Save individual results
-            self._save_group_results(results_df, group_size)
+        return BatchFairTournamentResults(self.config, self.results)
 
-        # Combine all results and create analysis
-        combined_results = pd.concat(self.all_results, ignore_index=True)
-
-        return combined_results
-
-    def create_players_from_strategies(self, game_description: GameDescription) -> list[BasePlayer]:
+    def create_players_from_strategies(self, game_description: GameDescription) -> list[LLMPlayer]:
         """Create player instances from strategy classes."""
         players = []
 
@@ -105,13 +88,3 @@ class BatchFairTournament:
             players.append(player)
 
         return players
-
-    def _save_group_results(self, results_df: pd.DataFrame, group_size: int):
-        """Save results for a specific group size."""
-        output_dir = Path(self.config.results_dir) / "group_results"
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        output_file = output_dir / f"group_size_{group_size}.csv"
-        results_df.to_csv(output_file, index=False)
-
-        self.logger.info(f"Group {group_size} results saved: {output_file}")
