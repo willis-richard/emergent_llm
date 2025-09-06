@@ -170,9 +170,9 @@ class FairTournamentResults:
 
         return output
 
-    def save(self, filepath: str) -> None:
-        """Save results to JSON file."""
-        data = {
+    def serialise(self) -> dict:
+        """Serialize to dictionary for JSON storage."""
+        return {
             'config': {
                 'game_description_type': self.config.game_description.__class__.__name__,
                 'game_description': asdict(self.config.game_description),
@@ -183,9 +183,24 @@ class FairTournamentResults:
             'result_type': 'FairTournamentResults'
         }
 
+    def save(self, filepath: str) -> None:
+        """Save results to JSON file."""
         Path(filepath).parent.mkdir(parents=True, exist_ok=True)
         with open(filepath, 'w') as f:
-            json.dump(data, f, indent=2)
+            json.dump(self.serialise(), f, indent=2)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'FairTournamentResults':
+        """Load FairTournamentResults from dictionary data."""
+        config = BaseTournamentConfig.from_dict(data['config'])
+        player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['player_ids']]
+        match_results = [MatchResult.from_dict(mr_data) for mr_data in data['match_results']]
+
+        return cls(
+            config=config,
+            player_ids=player_ids,
+            match_results=match_results
+        )
 
     @classmethod
     def load(cls, filepath: str) -> 'FairTournamentResults':
@@ -196,32 +211,7 @@ class FairTournamentResults:
         if data['result_type'] != 'FairTournamentResults':
             raise ValueError(f"Expected FairTournamentResults, got {data['result_type']}")
 
-        # Use the new class methods for everything
-        config = BaseTournamentConfig.from_dict(data['config'])
-        player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['player_ids']]
-        match_results = [MatchResult.from_dict(mr_data) for mr_data in data['match_results']]
-
-        return cls(
-            config=config,
-            player_ids=player_ids,
-            match_results=match_results
-        )
-
-    @classmethod
-    def from_dict(cls, data: dict) -> 'FairTournamentResults':
-        """Load FairTournamentResults from dictionary data."""
-        if data.get('result_type') != 'FairTournamentResults':
-            raise ValueError(f"Expected FairTournamentResults, got {data.get('result_type')}")
-
-        config = BaseTournamentConfig.from_dict(data['config'])
-        player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['player_ids']]
-        match_results = [MatchResult.from_dict(mr_data) for mr_data in data['match_results']]
-
-        return cls(
-            config=config,
-            player_ids=player_ids,
-            match_results=match_results
-        )
+        return cls.from_dict(data)
 
 
 @dataclass(frozen=True)
@@ -307,9 +297,9 @@ class MixtureTournamentResults:
     def __str__(self) -> str:
         return str(self.results_df)
 
-    def save(self, filepath: str) -> None:
-        """Save results to JSON file."""
-        data = {
+    def serialise(self) -> dict:
+        """Serialize to dictionary for JSON storage."""
+        return {
             'config': {
                 'game_description_type': self.config.game_description.__class__.__name__,
                 'game_description': asdict(self.config.game_description),
@@ -321,9 +311,27 @@ class MixtureTournamentResults:
             'result_type': 'MixtureTournamentResults'
         }
 
+    def save(self, filepath: str) -> None:
+        """Save results to JSON file."""
         Path(filepath).parent.mkdir(parents=True, exist_ok=True)
         with open(filepath, 'w') as f:
-            json.dump(data, f, indent=2)
+            json.dump(self.serialise(), f, indent=2)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'MixtureTournamentResults':
+        """Load MixtureTournamentResults from dictionary data."""
+
+        config = BaseTournamentConfig.from_dict(data['config'])
+        cooperative_player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['cooperative_player_ids']]
+        aggressive_player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['aggressive_player_ids']]
+        match_results = [MatchResult.from_dict(mr_data) for mr_data in data['match_results']]
+
+        return cls(
+            config=config,
+            cooperative_player_ids=cooperative_player_ids,
+            aggressive_player_ids=aggressive_player_ids,
+            match_results=match_results
+        )
 
     @classmethod
     def load(cls, filepath: str) -> 'MixtureTournamentResults':
@@ -334,36 +342,8 @@ class MixtureTournamentResults:
         if data['result_type'] != 'MixtureTournamentResults':
             raise ValueError(f"Expected MixtureTournamentResults, got {data['result_type']}")
 
-        # Use the class methods we created
-        config = BaseTournamentConfig.from_dict(data['config'])
-        cooperative_player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['cooperative_player_ids']]
-        aggressive_player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['aggressive_player_ids']]
-        match_results = [MatchResult.from_dict(mr_data) for mr_data in data['match_results']]
+        return cls.from_dict(data)
 
-        return cls(
-            config=config,
-            cooperative_player_ids=cooperative_player_ids,
-            aggressive_player_ids=aggressive_player_ids,
-            match_results=match_results
-        )
-
-    @classmethod
-    def from_dict(cls, data: dict) -> 'MixtureTournamentResults':
-        """Load MixtureTournamentResults from dictionary data."""
-        if data.get('result_type') != 'MixtureTournamentResults':
-            raise ValueError(f"Expected MixtureTournamentResults, got {data.get('result_type')}")
-
-        config = BaseTournamentConfig.from_dict(data['config'])
-        cooperative_player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['cooperative_player_ids']]
-        aggressive_player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['aggressive_player_ids']]
-        match_results = [MatchResult.from_dict(mr_data) for mr_data in data['match_results']]
-
-        return cls(
-            config=config,
-            cooperative_player_ids=cooperative_player_ids,
-            aggressive_player_ids=aggressive_player_ids,
-            match_results=match_results
-        )
 
     def create_schelling_diagram(self, output_path: str):
         """Create Schelling diagram for this tournament results."""

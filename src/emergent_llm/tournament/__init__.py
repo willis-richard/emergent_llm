@@ -8,11 +8,11 @@ from .mixture_tournament import MixtureTournament
 from .results import (BatchFairTournamentResults,
                       BatchMixtureTournamentResults, FairTournamentResults,
                       MatchResult, MixtureResult, MixtureTournamentResults,
-                      PlayerStats, load_results)
+                      PlayerStats)
 
 __all__ = ['MatchResult', 'PlayerStats', 'MixtureResult', 'FairTournamentResults',
            'MixtureTournamentResults', 'BatchFairTournamentResults', 'BatchMixtureTournamentResults',
            'BaseTournament', 'BaseTournamentConfig',
            'FairTournament', 'MixtureTournament',
            'BatchMixtureTournament', 'BatchTournamentConfig',
-           'BatchFairTournament', 'load_results']
+           'BatchFairTournament']
