@@ -173,11 +173,7 @@ class FairTournamentResults:
     def serialise(self) -> dict:
         """Serialize to dictionary for JSON storage."""
         return {
-            'config': {
-                'game_description_type': self.config.game_description.__class__.__name__,
-                'game_description': asdict(self.config.game_description),
-                'repetitions': self.config.repetitions
-            },
+            'config': self.config.serialise(),
             'player_ids': [asdict(pid) for pid in self.player_ids],
             'match_results': [asdict(mr) for mr in self.match_results],
             'result_type': 'FairTournamentResults'
@@ -300,11 +296,7 @@ class MixtureTournamentResults:
     def serialise(self) -> dict:
         """Serialize to dictionary for JSON storage."""
         return {
-            'config': {
-                'game_description_type': self.config.game_description.__class__.__name__,
-                'game_description': asdict(self.config.game_description),
-                'repetitions': self.config.repetitions
-            },
+            'config': self.config.serialise(),
             'cooperative_player_ids': [asdict(pid) for pid in self.cooperative_player_ids],
             'aggressive_player_ids': [asdict(pid) for pid in self.aggressive_player_ids],
             'match_results': [asdict(mr) for mr in self.match_results],
@@ -423,7 +415,7 @@ class BatchFairTournamentResults:
 
         # Combine all results into single DataFrame
         combined_rows = []
-        for group_size, fair_result in self.fair_results:
+        for group_size, fair_result in self.fair_results.items():
             df = fair_result.results_df.copy()
             df['group_size'] = group_size
             combined_rows.append(df)
@@ -455,6 +447,44 @@ class BatchFairTournamentResults:
 
         return "\n".join(summary_lines)
 
+    def serialise(self) -> dict:
+        """Serialize to dictionary for JSON storage."""
+        return {
+            'config': asdict(self.config),
+            'fair_results': {str(group_size): result.serialise()
+                            for group_size, result in self.fair_results.items()},
+            'result_type': 'BatchFairTournamentResults'
+        }
+
+    def save(self, filepath: str) -> None:
+        """Save results to JSON file."""
+        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+        with open(filepath, 'w') as f:
+            json.dump(self.serialise(), f, indent=2)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'BatchFairTournamentResults':
+        """Load BatchFairTournamentResults from dictionary data."""
+        config = BatchTournamentConfig(**data['config'])
+        fair_results = {int(group_size): FairTournamentResults.from_dict(result_data)
+                        for group_size, result_data in data['fair_results'].items()}
+
+        return cls(
+            config=config,
+            fair_results=fair_results
+        )
+
+    @classmethod
+    def load(cls, filepath: str) -> 'BatchFairTournamentResults':
+        """Load BatchFairTournamentResults from JSON file."""
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+
+        if data['result_type'] != 'BatchFairTournamentResults':
+            raise ValueError(f"Expected BatchFairTournamentResults, got {data['result_type']}")
+
+        return cls.from_dict(data)
+
 
 
 @dataclass(frozen=True)
@@ -478,7 +508,7 @@ class BatchMixtureTournamentResults:
 
         # Combine all results into single DataFrame
         combined_rows = []
-        for group_size, fair_result in self.mixture_results:
+        for group_size, fair_result in self.mixture_results.items():
             df = fair_result.results_df.copy()
             df['group_size'] = group_size
             combined_rows.append(df)
@@ -518,6 +548,44 @@ class BatchMixtureTournamentResults:
             self.summary_df.to_string(float_format='%.3f')
         ]
         return "\n".join(summary_lines)
+
+    def serialise(self) -> dict:
+        """Serialize to dictionary for JSON storage."""
+        return {
+            'config': asdict(self.config),
+            'mixture_results': {str(group_size): result.serialise()
+                            for group_size, result in self.mixture_results.items()},
+            'result_type': 'BatchMixtureTournamentResults'
+        }
+
+    def save(self, filepath: str) -> None:
+        """Save results to JSON file."""
+        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+        with open(filepath, 'w') as f:
+            json.dump(self.serialise(), f, indent=2)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'BatchMixtureTournamentResults':
+        """Load BatchMixtureTournamentResults from dictionary data."""
+        config = BatchTournamentConfig(**data['config'])
+        mixture_results = {int(group_size): MixtureTournamentResults.from_dict(result_data)
+                        for group_size, result_data in data['mixture_results'].items()}
+
+        return cls(
+            config=config,
+            mixture_results=mixture_results
+        )
+
+    @classmethod
+    def load(cls, filepath: str) -> 'BatchMixtureTournamentResults':
+        """Load BatchMixtureTournamentResults from JSON file."""
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+
+        if data['result_type'] != 'BatchMixtureTournamentResults':
+            raise ValueError(f"Expected BatchMixtureTournamentResults, got {data['result_type']}")
+
+        return cls.from_dict(data)
 
     def create_schelling_diagrams(self, output_dir: str):
         """Create Schelling diagrams for all group sizes."""
