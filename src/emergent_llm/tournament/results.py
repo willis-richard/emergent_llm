@@ -455,21 +455,6 @@ class BatchFairTournamentResults:
 
         return "\n".join(summary_lines)
 
-    def save(self, filepath: str) -> None:
-        """Save batch results to JSON file."""
-        data = {
-            'config': {
-                'group_sizes': self.config.group_sizes,
-                'repetitions': self.config.repetitions,
-                'results_dir': self.config.results_dir,
-            },
-            'fair_results': [asdict(result) for result in self.fair_results],
-            'result_type': 'BatchFairTournamentResults'
-        }
-
-        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
-        with open(filepath, 'w') as f:
-            json.dump(data, f, indent=2)
 
 
 @dataclass(frozen=True)
@@ -533,82 +518,6 @@ class BatchMixtureTournamentResults:
             self.summary_df.to_string(float_format='%.3f')
         ]
         return "\n".join(summary_lines)
-
-    def save(self, filepath: str) -> None:
-        """Save batch results to JSON file."""
-        data = {
-            'config': {
-                'group_sizes': self.config.group_sizes,
-                'repetitions': self.config.repetitions,
-                'results_dir': self.config.results_dir,
-            },
-            'mixture_results': [asdict(result) for result in self.mixture_results],
-            'result_type': 'BatchMixtureTournamentResults'
-        }
-
-        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
-        with open(filepath, 'w') as f:
-            json.dump(data, f, indent=2)
-
-    def save(self, filepath: str) -> None:
-        """Save batch results to JSON file."""
-        # Serialize individual results directly
-        mixture_results_data = {}
-        for group_size, result in self.mixture_results.items():
-            # Get the data that would be saved by the individual result
-            mixture_results_data[group_size] = {
-                'config': {
-                    'game_description_type': result.config.game_description.__class__.__name__,
-                    'game_description': asdict(result.config.game_description),
-                    'repetitions': result.config.repetitions
-                },
-                'cooperative_player_ids': [asdict(pid) for pid in result.cooperative_player_ids],
-                'aggressive_player_ids': [asdict(pid) for pid in result.aggressive_player_ids],
-                'match_results': [asdict(mr) for mr in result.match_results],
-                'result_type': 'MixtureTournamentResults'
-            }
-
-        data = {
-            'config': {
-                'group_sizes': self.config.group_sizes,
-                'repetitions': self.config.repetitions,
-                'results_dir': self.config.results_dir,
-            },
-            'mixture_results_data': mixture_results_data,
-            'result_type': 'BatchMixtureTournamentResults'
-        }
-
-        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
-        with open(filepath, 'w') as f:
-            json.dump(data, f, indent=2)
-
-    @classmethod
-    def load(cls, filepath: str) -> 'BatchMixtureTournamentResults':
-        """Load BatchMixtureTournamentResults from JSON file."""
-        with open(filepath, 'r') as f:
-            data = json.load(f)
-
-        if data['result_type'] != 'BatchMixtureTournamentResults':
-            raise ValueError(f"Expected BatchMixtureTournamentResults, got {data['result_type']}")
-
-        # Reconstruct individual mixture results using from_dict
-        mixture_results = {}
-        for group_size_str, result_data in data['mixture_results_data'].items():
-            group_size = int(group_size_str)
-            mixture_results[group_size] = MixtureTournamentResults.from_dict(result_data)
-
-        # Create placeholder config (game_description_generator can't be serialized)
-        config = BatchTournamentConfig(
-            group_sizes=data['config']['group_sizes'],
-            repetitions=data['config']['repetitions'],
-            results_dir=data['config']['results_dir'],
-            game_description_generator=lambda x: None  # Placeholder
-        )
-
-        return cls(
-            config=config,
-            mixture_results=mixture_results
-        )
 
     def create_schelling_diagrams(self, output_dir: str):
         """Create Schelling diagrams for all group sizes."""
