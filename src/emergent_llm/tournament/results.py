@@ -1,7 +1,7 @@
 """Tournament results dataclasses."""
 import json
 import math
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import matplotlib
@@ -10,12 +10,10 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from emergent_llm.common import Attitude, GameDescription, PlayerId
+from emergent_llm.common import Attitude, PlayerId
+from emergent_llm.tournament.configs import (BaseTournamentConfig,
+                                             BatchTournamentConfig)
 from matplotlib.ticker import MaxNLocator
-from emergent_llm.tournament.configs import BaseTournamentConfig, BatchTournamentConfig
-from emergent_llm.games import (CollectiveRiskDescription,
-                                CommonPoolDescription,
-                                PublicGoodsDescription)
 
 
 @dataclass
@@ -209,6 +207,22 @@ class FairTournamentResults:
             match_results=match_results
         )
 
+    @classmethod
+    def from_dict(cls, data: dict) -> 'FairTournamentResults':
+        """Load FairTournamentResults from dictionary data."""
+        if data.get('result_type') != 'FairTournamentResults':
+            raise ValueError(f"Expected FairTournamentResults, got {data.get('result_type')}")
+
+        config = BaseTournamentConfig.from_dict(data['config'])
+        player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['player_ids']]
+        match_results = [MatchResult.from_dict(mr_data) for mr_data in data['match_results']]
+
+        return cls(
+            config=config,
+            player_ids=player_ids,
+            match_results=match_results
+        )
+
 
 @dataclass(frozen=True)
 class MixtureTournamentResults:
@@ -321,6 +335,24 @@ class MixtureTournamentResults:
             raise ValueError(f"Expected MixtureTournamentResults, got {data['result_type']}")
 
         # Use the class methods we created
+        config = BaseTournamentConfig.from_dict(data['config'])
+        cooperative_player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['cooperative_player_ids']]
+        aggressive_player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['aggressive_player_ids']]
+        match_results = [MatchResult.from_dict(mr_data) for mr_data in data['match_results']]
+
+        return cls(
+            config=config,
+            cooperative_player_ids=cooperative_player_ids,
+            aggressive_player_ids=aggressive_player_ids,
+            match_results=match_results
+        )
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'MixtureTournamentResults':
+        """Load MixtureTournamentResults from dictionary data."""
+        if data.get('result_type') != 'MixtureTournamentResults':
+            raise ValueError(f"Expected MixtureTournamentResults, got {data.get('result_type')}")
+
         config = BaseTournamentConfig.from_dict(data['config'])
         cooperative_player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['cooperative_player_ids']]
         aggressive_player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['aggressive_player_ids']]
@@ -450,7 +482,6 @@ class BatchFairTournamentResults:
                 'group_sizes': self.config.group_sizes,
                 'repetitions': self.config.repetitions,
                 'results_dir': self.config.results_dir,
-                'population_multiplier': self.config.population_multiplier,
             },
             'fair_results': [asdict(result) for result in self.fair_results],
             'result_type': 'BatchFairTournamentResults'
@@ -465,7 +496,7 @@ class BatchFairTournamentResults:
 class BatchMixtureTournamentResults:
     """Results from a batch mixture tournament across multiple group sizes."""
     config: BatchTournamentConfig
-    mixture_results: dict[tuple[int, int], MixtureTournamentResults]
+    mixture_results: dict[int, MixtureTournamentResults]
     _combined_df: pd.DataFrame = field(default=None, init=False, repr=False)
     _summary_df: pd.DataFrame = field(default=None, init=False, repr=False)
 
@@ -539,6 +570,66 @@ class BatchMixtureTournamentResults:
         with open(filepath, 'w') as f:
             json.dump(data, f, indent=2)
 
+    def save(self, filepath: str) -> None:
+        """Save batch results to JSON file."""
+        # Serialize individual results directly
+        mixture_results_data = {}
+        for group_size, result in self.mixture_results.items():
+            # Get the data that would be saved by the individual result
+            mixture_results_data[group_size] = {
+                'config': {
+                    'game_description_type': result.config.game_description.__class__.__name__,
+                    'game_description': asdict(result.config.game_description),
+                    'repetitions': result.config.repetitions
+                },
+                'cooperative_player_ids': [asdict(pid) for pid in result.cooperative_player_ids],
+                'aggressive_player_ids': [asdict(pid) for pid in result.aggressive_player_ids],
+                'match_results': [asdict(mr) for mr in result.match_results],
+                'result_type': 'MixtureTournamentResults'
+            }
+
+        data = {
+            'config': {
+                'group_sizes': self.config.group_sizes,
+                'repetitions': self.config.repetitions,
+                'results_dir': self.config.results_dir,
+            },
+            'mixture_results_data': mixture_results_data,
+            'result_type': 'BatchMixtureTournamentResults'
+        }
+
+        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+        with open(filepath, 'w') as f:
+            json.dump(data, f, indent=2)
+
+    @classmethod
+    def load(cls, filepath: str) -> 'BatchMixtureTournamentResults':
+        """Load BatchMixtureTournamentResults from JSON file."""
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+
+        if data['result_type'] != 'BatchMixtureTournamentResults':
+            raise ValueError(f"Expected BatchMixtureTournamentResults, got {data['result_type']}")
+
+        # Reconstruct individual mixture results using from_dict
+        mixture_results = {}
+        for group_size_str, result_data in data['mixture_results_data'].items():
+            group_size = int(group_size_str)
+            mixture_results[group_size] = MixtureTournamentResults.from_dict(result_data)
+
+        # Create placeholder config (game_description_generator can't be serialized)
+        config = BatchTournamentConfig(
+            group_sizes=data['config']['group_sizes'],
+            repetitions=data['config']['repetitions'],
+            results_dir=data['config']['results_dir'],
+            game_description_generator=lambda x: None  # Placeholder
+        )
+
+        return cls(
+            config=config,
+            mixture_results=mixture_results
+        )
+
     def create_schelling_diagrams(self, output_dir: str):
         """Create Schelling diagrams for all group sizes."""
         for group_size, mixture_result in self.mixture_results:
@@ -595,58 +686,3 @@ class BatchMixtureTournamentResults:
         # Save plot
         fig.savefig(output_file, format='png', bbox_inches='tight', dpi=300)
         plt.close(fig)
-
-
-def load_results(filepath: str):
-    """Load tournament results from JSON file."""
-
-    game_class_map = {
-        'PublicGoodsDescription': PublicGoodsDescription,
-        'CollectiveRiskDescription': CollectiveRiskDescription,
-        'CommonPoolDescription': CommonPoolDescription,
-    }
-
-    with open(filepath, 'r') as f:
-        data = json.load(f)
-
-    # Reconstruct game description
-    game_cls = game_class_map[data['config']['game_description_type']]
-    game_description = game_cls(**data['config']['game_description'])
-
-    # Reconstruct config
-    config = BaseTournamentConfig(
-        game_description=game_description,
-        repetitions=data['config']['repetitions']
-    )
-
-    # Reconstruct match results - convert player_ids back to PlayerId objects
-    match_results = []
-    for mr_data in data['match_results']:
-        mr_data['player_ids'] = [PlayerId.deserialise(pid_data) for pid_data in mr_data['player_ids']]
-        match_results.append(MatchResult(**mr_data))
-
-    result_type = data['result_type']
-
-    if result_type == 'FairTournamentResults':
-        # Convert player_ids back to PlayerId objects
-        player_ids = [PlayerId.deserialise(pid_data) for pid_data in data['player_ids']]
-
-        return FairTournamentResults(
-            config=config,
-            player_ids=player_ids,
-            match_results=match_results
-        )
-
-    elif result_type == 'MixtureTournamentResults':
-        # Convert player_ids back to PlayerId objects
-        cooperative_player_ids = [PlayerId.deserialise(pid_data) for pid_data in data['cooperative_player_ids']]
-        aggressive_player_ids = [PlayerId.deserialise(pid_data) for pid_data in data['aggressive_player_ids']]
-
-        return MixtureTournamentResults(
-            config=config,
-            cooperative_player_ids=cooperative_player_ids,
-
-        )
-
-    else:
-        raise ValueError(f"Unknown result type: {result_type}")

@@ -29,7 +29,7 @@ class BatchFairTournament:
         n_strategies = len(cooperative_strategies) + len(aggressive_strategies)
         self.logger.info(f"Initialised batch fair tournament with {n_strategies} strategies")
 
-        # Validate we have enough strategies for largest group size with population multiplier
+        # Validate we have enough strategies for the largest group size to have diversity
         max_group_size = max(config.group_sizes)
         required_population = max_group_size * 4
 

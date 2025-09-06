@@ -9,8 +9,7 @@ from emergent_llm.tournament import (BatchFairTournament, BatchMixtureTournament
                                      BatchTournamentConfig,
                                      BaseTournament, BaseTournamentConfig,
                                      FairTournament, MixtureTournament,
-                                     FairTournamentResults, MixtureTournamentResults,
-                                     load_results)
+                                     FairTournamentResults, MixtureTournamentResults)
 from emergent_llm.games.public_goods import PublicGoodsGame
 from emergent_llm.games.collective_risk import CollectiveRiskGame
 from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription
