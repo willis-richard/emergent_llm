@@ -94,7 +94,7 @@ def run_mixture_tournament(game_description):
 def run_batch_fair_tournament(generator_name):
     """Run tournament with Public Goods Game."""
     config = BatchTournamentConfig(
-        group_sizes=[2,4],
+        group_sizes=[2,4,8],
         repetitions=1,
         results_dir="./test",
         generator_name=generator_name
@@ -112,7 +112,7 @@ def run_batch_fair_tournament(generator_name):
 def run_batch_mixture_tournament(generator_name):
     """Run tournament with Public Goods Game."""
     config = BatchTournamentConfig(
-        group_sizes=[2,4],
+        group_sizes=[2,4,8],
         repetitions=1,
         results_dir="./test",
         generator_name=generator_name

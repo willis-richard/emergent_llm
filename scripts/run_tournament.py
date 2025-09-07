@@ -12,9 +12,8 @@ from pathlib import Path
 src_path = Path(__file__).parent.parent / "src"
 sys.path.insert(0, str(src_path))
 
-from emergent_llm.tournament import (BatchFairTournament, BatchFairTournamentConfig,
-                                     BatchMixtureTournament, BatchMixtureTournamentConfig,
-                                     BaseTournament, BaseTournamentConfig, FairTournament)
+from emergent_llm.tournament import (BatchFairTournament, BatchTournamentConfig,
+                                     BatchMixtureTournament)
 from emergent_llm.players.base_player import BaseStrategy
 from emergent_llm.common import GameDescription
 from emergent_llm.players import LLMPlayer, BasePlayer
@@ -83,12 +82,12 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def setup_results_directory(strategies_path: str, game_type: str) -> tuple[Path, Path, Path]:
+def setup_results_directory(strategies_path: str, game_type: str) -> tuple[Path, Path]:
     """
     Setup results directory structure based on strategies file and game type.
 
     Returns:
-        tuple: (results_dir, schelling_dir, logs_dir)
+        tuple: (results_dir, logs_dir)
     """
     # Extract filename without extension from strategies path
     assert Path(strategies_path).suffix == ".py", "strategies file must end in '.py'"
@@ -96,15 +95,13 @@ def setup_results_directory(strategies_path: str, game_type: str) -> tuple[Path,
 
     # Create results directory structure
     results_base = Path("results") / game_type / strategies_filename
-    schelling_dir = results_base / "schelling"
     logs_dir = results_base / "logs"
 
     # Create all directories
     results_base.mkdir(parents=True, exist_ok=True)
-    schelling_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
 
-    return results_base, schelling_dir, logs_dir
+    return results_base, logs_dir
 
 
 def main():
@@ -112,7 +109,7 @@ def main():
     args = parse_arguments()
 
     # Setup directory structure
-    results_dir, schelling_dir, logs_dir = setup_results_directory(args.strategies, args.game)
+    results_dir, logs_dir = setup_results_directory(args.strategies, args.game)
 
     # Setup logging to file
     log_file = logs_dir / "tournament.log"
@@ -136,62 +133,26 @@ def main():
     if not cooperative_classes or not aggressive_classes:
         raise ValueError("Need both cooperative and aggressive strategy classes")
 
-    # Create game description generator function
-    def game_description_generator(group_size: int) -> GameDescription:
-        if args.game == "public_goods":
-            return PublicGoodsDescription(
-                n_players=group_size,
-                n_rounds=20,
-                k=2
-            )
-        elif args.game == "collective_risk":
-            return CollectiveRiskDescription(
-                n_players=group_size,
-                n_rounds=20,
-                m=group_size // 2,
-                k=2
-            )
-        elif args.game == "common_pool":
-            return CommonPoolDescription(
-                n_players=group_size,
-                n_rounds=20,
-                capacity=group_size * 4
-            )
-        else:
-            raise ValueError(f"Unknown game type: {args.game}")
-
     # Show parameter scaling
     print(f"Game type: {args.game}")
     print(f"Group sizes: {args.group_sizes}")
     print(f"Matches per mixture: {args.matches}")
     print(f"Results will be saved to: {results_dir}")
 
-    # BatchMixtureTournament
-    # config = BatchMixtureTournamentConfig(
-    #     game_class=get_game_class(args.game),
-    #     group_sizes=args.group_sizes,
-    #     repetitions=args.matches,
-    #     results_dir=results_dir,
-    #     game_description_generator=game_description_generator
-    # )
-
-    # # Create and run tournament
-    # tournament = BatchMixtureTournament(
-    #     cooperative_strategies=cooperative_classes,
-    #     aggressive_strategies=aggressive_classes,
-    #     config=config
+    config = BatchTournamentConfig(
+        group_sizes=args.group_sizes,
+        repetitions=args.matches,
+        results_dir=str(results_dir),
+        generator_name=args.game + "_default"
     )
 
-    # BatchFairTournament
-    # config = BatchFairTournamentConfig(
-    #     game_class=get_game_class(args.game),
-    #     group_sizes=args.group_sizes,
-    #     repetitions=args.matches,
-    #     results_dir=results_dir,
-    #     game_description_generator=game_description_generator
-    # )
+    # Create and run tournament
+    tournament = BatchMixtureTournament(
+        cooperative_strategies=cooperative_classes,
+        aggressive_strategies=aggressive_classes,
+        config=config
+    )
 
-    # # Create and run tournament
     # tournament = BatchFairTournament(
     #     cooperative_strategies=cooperative_classes,
     #     aggressive_strategies=aggressive_classes,
@@ -199,10 +160,10 @@ def main():
     # )
 
     print("\nRunning tournament...")
-    results_df = tournament.run_tournament()
-
-    # Save detailed results
-    results_df.to_csv(f"{results_dir}/detailed_results.csv", index=False)
+    results = tournament.run_tournament()
+    results.save()
+    results.create_schelling_diagrams()
+    results.create_social_welfare_diagram()
 
 
 if __name__ == "__main__":

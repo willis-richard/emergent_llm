@@ -13,7 +13,7 @@ import pandas as pd
 from emergent_llm.common import Attitude, PlayerId
 from emergent_llm.tournament.configs import (BaseTournamentConfig,
                                              BatchTournamentConfig)
-from matplotlib.ticker import MaxNLocator
+from matplotlib.ticker import MaxNLocator, MultipleLocator
 
 
 @dataclass
@@ -348,7 +348,9 @@ class MixtureTournamentResults:
         sorted_results = sorted(self.mixture_results, key=lambda x: x.n_cooperative)
 
         # Setup plot styling
-        FIGSIZE, SIZE = (10, 4), 12
+        # FIGSIZE, SIZE, FORMAT = (2.5, 0.9), 8, 'svg'  # for 2 column paper
+        # FIGSIZE, SIZE, FORMAT = (5, 1.2), 8, 'svg'  # for 1 column slide
+        FIGSIZE, SIZE, FORMAT = (2.2, 0.8), 7, 'jpg'  # for 2 column slide
         plt.rcParams.update({
             'font.size': SIZE,
             'axes.titlesize': 'medium',
@@ -356,6 +358,8 @@ class MixtureTournamentResults:
             'xtick.labelsize': 'small',
             'ytick.labelsize': 'small',
             'legend.fontsize': 'medium',
+            'lines.markersize': SIZE / 4,
+            'legend.handlelength': SIZE / 6,
             'axes.linewidth': 0.1
         })
 
@@ -371,27 +375,29 @@ class MixtureTournamentResults:
 
         # Plot cooperative and aggressive scores
         ax.plot(n_cooperators, coop_scores,
-                label='Cooperative', lw=0.75, marker='o', markersize=4, clip_on=False)
+                label='Cooperative', lw=0.75, marker='o', clip_on=False)
         ax.plot(n_cooperators, agg_scores,
-                label='Aggressive', lw=0.75, marker='s', markersize=4, clip_on=False)
+                label='Aggressive', lw=0.75, marker='s', clip_on=False)
 
         game_description = self.config.game_description
         group_size = game_description.n_players
         ax.set_xlabel('Number of cooperators')
-        ax.set_ylabel('Average reward')
+        ax.set_ylabel('Mean reward')
         ax.set_xlim(0, group_size - 1)
         ax.xaxis.set_major_locator(MaxNLocator(nbins=7, integer=True))
 
         ax.set_ylim(math.floor(game_description.min_payoff()),
-                    math.ceil(game_description.max_payoff()))
+                    (math.ceil(game_description.max_payoff() / 10 + 1) * 10 ))
+        ax.yaxis.set_major_locator(MultipleLocator(self.config.game_description.n_rounds // 1))
 
         plt.axhline(y=game_description.min_social_welfare(), color='grey', alpha=0.3, linestyle='-')
         plt.axhline(y=game_description.max_social_welfare(), color='grey', alpha=0.3, linestyle='-')
+        plt.axhline(y=game_description.max_payoff(), color='grey', alpha=0.3, linestyle='-')
 
-        ax.legend(bbox_to_anchor=(0, 1), loc='upper left', ncol=2, frameon=False, columnspacing=0.5)
+        ax.legend(bbox_to_anchor=(0, 1.4), loc='upper left', ncol=2, frameon=False, columnspacing=0.5)
 
         # Save plot
-        fig.savefig(output_file, format='png', bbox_inches='tight')
+        fig.savefig(output_file, format=FORMAT, bbox_inches='tight')
         plt.close(fig)
 
 
@@ -612,7 +618,9 @@ class BatchMixtureTournamentResults:
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Setup plot styling
-        FIGSIZE, SIZE = (10, 6), 12
+        # FIGSIZE, SIZE, FORMAT = (2.5, 0.9), 8, 'svg'  # for 2 column paper
+        # FIGSIZE, SIZE, FORMAT = (5, 1.2), 8, 'svg'  # for 1 column slide
+        FIGSIZE, SIZE, FORMAT = (2.2, 0.8), 7, 'jpg'  # for 2 column slide
         plt.rcParams.update({
             'font.size': SIZE,
             'axes.titlesize': 'medium',
@@ -620,6 +628,8 @@ class BatchMixtureTournamentResults:
             'xtick.labelsize': 'small',
             'ytick.labelsize': 'small',
             'legend.fontsize': 'medium',
+            'lines.markersize': SIZE / 4,
+            'legend.handlelength': SIZE / 6,
             'axes.linewidth': 0.1
         })
 
@@ -634,22 +644,23 @@ class BatchMixtureTournamentResults:
                     group_data['avg_social_welfare'],
                     label=f'n={group_size}',
                     lw=1.5,
-                    marker='o',
-                    markersize=4)
+                    marker='o')
 
         # Get game description from first mixture result
         game_description = self.mixture_results[self.config.group_sizes[-1]].config.game_description
 
-        ax.set_xlabel('Percentage of Cooperative Prompts (%)')
-        ax.set_ylabel('Average Social Welfare')
+        ax.set_xlabel('Proportion of Cooperative Prompts (%)')
+        ax.set_ylabel('Mean Reward')
         ax.set_xlim(0, 100)
         ax.set_ylim(math.floor(game_description.min_payoff()),
-                    math.ceil(game_description.max_payoff()))
+                    (math.ceil(game_description.max_payoff() / 10 + 1) * 10 ))
+        ax.yaxis.set_major_locator(MultipleLocator(game_description.n_rounds // 1))
 
         plt.axhline(y=game_description.min_social_welfare(), color='grey', alpha=0.3, linestyle='-')
         plt.axhline(y=game_description.max_social_welfare(), color='grey', alpha=0.3, linestyle='-')
+        plt.axhline(y=game_description.max_payoff(), color='grey', alpha=0.3, linestyle='-')
 
-        ax.legend(bbox_to_anchor=(1, 1), loc='upper right', frameon=False)
+        ax.legend(bbox_to_anchor=(0, 1.4), loc='upper left', ncol=len(self.config.group_sizes), frameon=False, columnspacing=0.5)
 
         # Save plot
         fig.savefig(output_file, format='png', bbox_inches='tight', dpi=300)
