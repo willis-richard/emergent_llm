@@ -340,17 +340,13 @@ class MixtureTournamentResults:
     def create_schelling_diagram(self, output_path: str):
         """Create Schelling diagram for this tournament results."""
 
-        # Ensure output directory exists
-        output_file = Path(output_path).with_suffix('.png')
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-
         # Sort stats by number of cooperators
         sorted_results = sorted(self.mixture_results, key=lambda x: x.n_cooperative)
 
         # Setup plot styling
         # FIGSIZE, SIZE, FORMAT = (2.5, 0.9), 8, 'svg'  # for 2 column paper
         # FIGSIZE, SIZE, FORMAT = (5, 1.2), 8, 'svg'  # for 1 column slide
-        FIGSIZE, SIZE, FORMAT = (2.2, 0.8), 7, 'jpg'  # for 2 column slide
+        FIGSIZE, SIZE, FORMAT = (2.2, 0.8), 7, 'svg'  # for 2 column slide
         plt.rcParams.update({
             'font.size': SIZE,
             'axes.titlesize': 'medium',
@@ -395,6 +391,11 @@ class MixtureTournamentResults:
         plt.axhline(y=game_description.max_payoff(), color='grey', alpha=0.3, linestyle='-')
 
         ax.legend(bbox_to_anchor=(0, 1.4), loc='upper left', ncol=2, frameon=False, columnspacing=0.5)
+
+
+        # Ensure output directory exists
+        output_file = Path(output_path).with_suffix(f'.{FORMAT}')
+        output_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Save plot
         fig.savefig(output_file, format=FORMAT, bbox_inches='tight')
@@ -613,14 +614,10 @@ class BatchMixtureTournamentResults:
     def create_social_welfare_diagram(self):
         """Create social welfare vs cooperative ratio diagram with lines for each group size."""
 
-        # Ensure output directory exists
-        output_file = Path(self.config.results_dir) / "batch_mixture" / "social_welfare.png"
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-
         # Setup plot styling
         # FIGSIZE, SIZE, FORMAT = (2.5, 0.9), 8, 'svg'  # for 2 column paper
         # FIGSIZE, SIZE, FORMAT = (5, 1.2), 8, 'svg'  # for 1 column slide
-        FIGSIZE, SIZE, FORMAT = (2.2, 0.8), 7, 'jpg'  # for 2 column slide
+        FIGSIZE, SIZE, FORMAT = (2.2, 0.8), 7, 'svg'  # for 2 column slide
         plt.rcParams.update({
             'font.size': SIZE,
             'axes.titlesize': 'medium',
@@ -662,6 +659,11 @@ class BatchMixtureTournamentResults:
 
         ax.legend(bbox_to_anchor=(0, 1.4), loc='upper left', ncol=len(self.config.group_sizes), frameon=False, columnspacing=0.5)
 
+
+        # Ensure output directory exists
+        output_file = Path(self.config.results_dir) / "batch_mixture" / f"social_welfare.{FORMAT}"
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
         # Save plot
-        fig.savefig(output_file, format='png', bbox_inches='tight', dpi=300)
+        fig.savefig(output_file, format=FORMAT, bbox_inches='tight')
         plt.close(fig)
