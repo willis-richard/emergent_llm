@@ -184,7 +184,7 @@ def create_code_user_prompt(strategy_description: str, game_description_class: t
 **Requirements:**
 - Must be a single class inheriting from BaseStrategy
 - Return only the class definition, wrapped in a python block, no additional output
-- Must implement __init__(self, game_description) and __call__(self, history)
+- Must implement __init__(self, game_description) and __call__(self, state, history)
 - Handle first round (history=None) appropriately
 - Only use basic python, and math, random and np libraries, which are imported for you
 
@@ -213,13 +213,14 @@ class Strategy(BaseStrategy):
         # Initialize any state variables here
         self.game_description = game_description
 
-    def __call__(self, state: , history: None | PlayerHistory) -> Action:
+    def __call__(self, state: {game_description_class.game_state_type().__name__}, history: None | PlayerHistory) -> Action:
         if history is None:
             # First (zeroth) round logic
             return Action.C  # or Action.D
 
         # Subsequent rounds logic using history
         return Action.C  # or Action.D
+```
 
 **File header your code will be appended to**
 
@@ -260,7 +261,7 @@ class PlayerHistory:
 # - True/1 means COOPERATE (Action.C)
 # - False/0 means DEFECT (Action.D)
 # - Arrays are 0-indexed: first round data is at index 0
-# - opponent_actions[0, 0] is opponent 1's action in round 1
+# - opponent_actions[0, 0] is opponent 1's action in round 0
 #
 # Example - count opponent cooperators in the most recent round:
-# cooperators = sum(history.opponent_actions[history.round_number - 1])"""
+# cooperators = sum(history.opponent_actions[-1, :])"""
