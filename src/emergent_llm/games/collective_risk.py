@@ -26,7 +26,7 @@ class CollectiveRiskDescription(GameDescription):
 
     @classmethod
     def game_type(cls) -> type[CollectiveRiskGame]:
-        return type[CollectiveRiskGame]
+        return CollectiveRiskGame
 
     def max_social_welfare(self) -> float:
         return (self.k + (self.n_players - self.m) / self.n_players) * self.n_rounds

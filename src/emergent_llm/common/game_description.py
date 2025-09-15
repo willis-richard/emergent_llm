@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, asdict, fields
 from abc import ABC, abstractmethod
 
@@ -61,7 +63,7 @@ class GameDescription(ABC):
         """
         Return the game state class for use with this description
         """
-        return type[GameState]
+        return GameState
 
     @classmethod
     @abstractmethod

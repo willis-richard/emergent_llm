@@ -23,7 +23,7 @@ class PublicGoodsDescription(GameDescription):
 
     @classmethod
     def game_type(cls) -> type[PublicGoodsGame]:
-        return type[PublicGoodsGame]
+        return PublicGoodsGame
 
     def max_social_welfare(self) -> float:
         return self.k * self.n_rounds

@@ -1,31 +1,13 @@
 """Base game class for social dilemma experiments."""
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from typing import Sequence
 
 import numpy as np
 import pandas as pd
-from emergent_llm.common import Action, GameDescription, GameHistory
+from emergent_llm.common import Action, GameDescription, GameHistory, GameState
 from emergent_llm.players.base_player import BasePlayer
 from numpy.typing import NDArray
-
-
-@dataclass
-class GameState:
-    """Base state information available to all games."""
-    round_number: int  # Current round number (0-indexed)
-
-    @classmethod
-    def print_definition(cls) -> str:
-        """Print the definition, for use in the prompts"""
-        definition = "@dataclass\n"
-        definition += f"class {cls.__name__}:\n"
-
-        for field in fields(cls):
-            type_name = field.type.__name__ if hasattr(field.type, '__name__') else str(field.type)
-            definition += f"    {field.name}: {type_name}\n"
-
-        return definition
 
 
 @dataclass

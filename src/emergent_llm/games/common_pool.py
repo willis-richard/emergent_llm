@@ -28,11 +28,11 @@ class CommonPoolDescription(GameDescription):
 
     @classmethod
     def game_state_type(cls) -> type[CommonPoolState]:
-        return type[CommonPoolState]
+        return CommonPoolState
 
     @classmethod
     def game_type(cls) -> type[CommonPoolGame]:
-        return type[CommonPoolGame]
+        return CommonPoolGame
 
     def max_social_welfare(self) -> float:
         """All-C every round, except All-D in the last"""

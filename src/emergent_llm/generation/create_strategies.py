@@ -327,8 +327,8 @@ def validate_strategy_code(code: str):
                 # Validate __call__ method
                 elif node.name == '__call__':
                     args = [arg.arg for arg in node.args.args]
-                    if args != ['self', 'history']:
-                        raise ValueError("__call__ must have signature (self, history)")
+                    if args != ['self', 'state', 'history']:
+                        raise ValueError("__call__ must have signature (self, state, history)")
 
         # Check required methods exist
         missing_methods = required_methods - found_methods
@@ -356,10 +356,9 @@ def test_generated_strategy(class_code: str, game_description_class: type[GameDe
     with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
         # Write necessary imports and the class
         f.write("""
-from emergent_llm.players.base_player import BaseStrategy
-from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription, CommonPoolDescription
-from emergent_llm.common.actions import Action, C, D
-from emergent_llm.common.history import PlayerHistory
+from emergent_llm.players import BaseStrategy
+from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription, CommonPoolDescription, CommonPoolState
+from emergent_llm.common import Action, C, D, PlayerHistory, GameState
 import numpy as np
 from numpy.typing import NDArray
 import math
@@ -622,10 +621,9 @@ Generated with:
 - Game: {game_description_class.__name__}
 """
 
-from emergent_llm.players.base_player import BaseStrategy
-from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription, CommonPoolDescription
-from emergent_llm.common.actions import Action, C, D
-from emergent_llm.common.history import PlayerHistory
+from emergent_llm.players import BaseStrategy
+from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription, CommonPoolDescription, CommonPoolState
+from emergent_llm.common import Action, C, D, PlayerHistory, GameState
 import numpy as np
 from numpy.typing import NDArray
 import math

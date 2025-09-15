@@ -2,7 +2,7 @@
 import logging
 from typing import Callable
 
-from emergent_llm.common import Action, PlayerId, PlayerHistory, GameDescription, Attitude
+from emergent_llm.common import Action, PlayerId, PlayerHistory, GameDescription, Attitude, GameState
 from emergent_llm.players.base_player import BasePlayer, BaseStrategy
 
 
@@ -42,10 +42,10 @@ class LLMPlayer(BasePlayer):
         self.strategy_function = self.strategy_class(self.game_description)
         self.error_count = 0
 
-    def __call__(self, history: None | PlayerHistory) -> Action:
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
         """Execute the strategy function with limited error handling."""
         try:
-            action = self.strategy_function(history)
+            action = self.strategy_function(state, history)
 
             # Validate the returned action
             if not isinstance(action, Action):
@@ -102,6 +102,6 @@ class SimplePlayer(BasePlayer):
     def reset(self):
         pass
 
-    def __call__(self, history: None | PlayerHistory) -> Action:
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
         """Execute the strategy function (ignoring game context)."""
         return self.strategy_function()
