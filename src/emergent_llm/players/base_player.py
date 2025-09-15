@@ -1,7 +1,8 @@
 """Player classes for social dilemma experiments."""
 from abc import ABC, abstractmethod
 
-from emergent_llm.common import Action, PlayerId, PlayerHistory, GameDescription
+from emergent_llm.common import (Action, GameDescription, GameState,
+                                 PlayerHistory, PlayerId)
 
 
 class BaseStrategy(ABC):
@@ -12,7 +13,7 @@ class BaseStrategy(ABC):
         """For initialising member variables. Names need to be unique"""
 
     @abstractmethod
-    def __call__(self, history: None | PlayerHistory) -> Action:
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
         """For computing the action"""
 
 
@@ -29,11 +30,12 @@ class BasePlayer(ABC):
         """
 
     @abstractmethod
-    def __call__(self, history: None | PlayerHistory) -> Action:
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
         """
         Player's strategy function.
 
         Args:
+            state: dataclass of game specific state, e.g. capacity for CommonPool
             history: Player-specific view of game history
 
         Returns:

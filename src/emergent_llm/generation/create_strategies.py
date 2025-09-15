@@ -9,20 +9,23 @@ import importlib.util
 import inspect
 import logging
 import os
-import time
-from pathlib import Path
-from dataclasses import dataclass
 import re
+import time
+from dataclasses import dataclass
+from pathlib import Path
 
 import anthropic
+import ollama
 import openai
 from emergent_llm.common.actions import C, D
 from emergent_llm.common.attitudes import AGGRESSIVE, COOPERATIVE, Attitude
 from emergent_llm.common.game_description import GameDescription
-from emergent_llm.games import CollectiveRiskDescription, CommonPoolDescription, PublicGoodsDescription
+from emergent_llm.games import (CollectiveRiskDescription,
+                                CommonPoolDescription, PublicGoodsDescription)
 from emergent_llm.generation.prompts import (create_code_user_prompt,
                                              create_strategy_user_prompt)
 from emergent_llm.players.base_player import BaseStrategy
+from google import genai
 
 
 def setup_logging(log_file: Path) -> logging.Logger:
@@ -49,7 +52,7 @@ def setup_logging(log_file: Path) -> logging.Logger:
 
 @dataclass
 class LLMConfig:
-    client: openai.OpenAI | anthropic.Anthropic
+    client: openai.OpenAI | anthropic.Anthropic | ollama.Client | genai.Client
     model_name: str
     max_retries: int = 3
 
@@ -344,8 +347,8 @@ def validate_strategy_code(code: str):
 def test_generated_strategy(class_code: str, game_description_class: type[GameDescription]):
     """Test the generated strategy by actually running it in games."""
     import tempfile
-    import numpy as np
 
+    import numpy as np
     from emergent_llm.common.attitudes import Attitude
     from emergent_llm.players import LLMPlayer, SimplePlayer
 
@@ -487,6 +490,22 @@ def get_llm_response(config: LLMConfig,
                         f"Consider increasing max_tokens. Stop reason: {response.stop_reason}"
                     )
                 return response.content[0].text
+
+            elif isinstance(config.client, ollama.Client):
+                full_prompt = f"System: {system_prompt}\n\nUser: {user_prompt}"
+                response = config.client.chat(
+                    model=config.model_name,
+                    messages=[{"role": "user", "content": full_prompt}]
+                )
+                return response['message']['content']
+
+            elif isinstance(config.client, genai.Client):
+                response = config.client.models.generate_content(
+                    model=config.model_name,
+                    contents=f"System: {system_prompt}\n\nUser: {user_prompt}",
+                )
+                return response.text
+
             else:
                 raise ValueError(f"Unknown client type: {type(config.client)}")
         except (openai.InternalServerError, anthropic.InternalServerError):
@@ -703,14 +722,14 @@ def parse_arguments() -> argparse.Namespace:
 
     # Phase 1: Description generation
     desc_parser = subparsers.add_parser('descriptions', help='Generate strategy descriptions')
-    desc_parser.add_argument("--llm_provider", choices=["openai", "anthropic"], required=True)
+    desc_parser.add_argument("--llm_provider", choices=["openai", "anthropic", "ollama", "google"], required=True)
     desc_parser.add_argument("--model_name", type=str, required=True)
     desc_parser.add_argument("--n", type=int, required=True, help="Number of strategies per attitude")
     desc_parser.add_argument("--game", choices=["public_goods", "collective_risk", "common_pool"], required=True)
 
     # Phase 2: Implementation generation
     impl_parser = subparsers.add_parser('implementations', help='Generate code implementations')
-    impl_parser.add_argument("--llm_provider", choices=["openai", "anthropic"], required=True)
+    impl_parser.add_argument("--llm_provider", choices=["openai", "anthropic", "ollama", "google"], required=True)
     impl_parser.add_argument("--model_name", type=str, required=True)
     impl_parser.add_argument("--game", choices=["public_goods", "collective_risk", "common_pool"], required=True)
     impl_parser.add_argument("--max_retries", type=int, default=3)
@@ -741,6 +760,11 @@ def main():
         client = openai.OpenAI(api_key=os.environ["OPENAI_API_KEY"])
     elif args.llm_provider == "anthropic":
         client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    elif args.llm_provider == "ollama":
+        client = ollama.Client(host=os.environ["OLLAMA_HOST"])
+    elif args.llm_provider == "google":
+        client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+
     else:
         raise ValueError(f"Unknown client {args.llm_provider}")
 

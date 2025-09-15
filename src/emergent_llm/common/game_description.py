@@ -3,6 +3,24 @@ from abc import ABC, abstractmethod
 
 
 @dataclass
+class GameState:
+    """Base state information available to all games."""
+    round_number: int  # Current round number (0-indexed)
+
+    @classmethod
+    def print_definition(cls) -> str:
+        """Print the definition, for use in the prompts"""
+        definition = "@dataclass\n"
+        definition += f"class {cls.__name__}:\n"
+
+        for field in fields(cls):
+            type_name = field.type.__name__ if hasattr(field.type, '__name__') else str(field.type)
+            definition += f"    {field.name}: {type_name}\n"
+
+        return definition
+
+
+@dataclass
 class GameDescription(ABC):
     """Base class for all game descriptions."""
     n_players: int
@@ -38,6 +56,19 @@ class GameDescription(ABC):
                 params.append(f"{field_name}={field_value}")
         return f"{class_name}({', '.join(params)})"
 
+    @classmethod
+    def game_state_type(cls) -> type[GameState]:
+        """
+        Return the game state class for use with this description
+        """
+        return type[GameState]
+
+    @classmethod
+    @abstractmethod
+    def game_type(cls) -> 'type[BaseGame]':
+        """
+        Return the game class for use with this description
+        """
 
     @abstractmethod
     def max_social_welfare(self) -> float:

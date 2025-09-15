@@ -1,13 +1,14 @@
 """Public Goods Game implementation."""
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Sequence
 
-from numpy.typing import NDArray
 import numpy as np
-
-from emergent_llm.common.game_description import GameDescription
+from emergent_llm.common import GameDescription
 from emergent_llm.games.base_game import BaseGame
-from emergent_llm.players.base_player import BasePlayer
+from emergent_llm.players import BasePlayer
+from numpy.typing import NDArray
 
 
 @dataclass
@@ -19,6 +20,10 @@ class PublicGoodsDescription(GameDescription):
         super().__post_init__()
         if not (1 < self.k < self.n_players):
             raise ValueError(f"k must be between 1 and {self.n_players}, got {self.k}")
+
+    @classmethod
+    def game_type(cls) -> type[PublicGoodsGame]:
+        return type[PublicGoodsGame]
 
     def max_social_welfare(self) -> float:
         return self.k * self.n_rounds

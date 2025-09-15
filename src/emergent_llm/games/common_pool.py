@@ -1,13 +1,19 @@
 """Common Poll Resource implementation."""
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Sequence
 
-from numpy.typing import NDArray
 import numpy as np
-
-from emergent_llm.common.game_description import GameDescription
+from emergent_llm.common import GameDescription, GameState
 from emergent_llm.games.base_game import BaseGame
-from emergent_llm.players.base_player import BasePlayer
+from emergent_llm.players import BasePlayer
+from numpy.typing import NDArray
+
+
+@dataclass
+class CommonPoolState(GameState):
+    current_stock: float
 
 
 @dataclass
@@ -19,6 +25,14 @@ class CommonPoolDescription(GameDescription):
         super().__post_init__()
         if not (self.capacity >= 2 * self.n_players):
             raise ValueError(f"capacity must be greater than {2*self.n_players}, got {self.capacity}")
+
+    @classmethod
+    def game_state_type(cls) -> type[CommonPoolState]:
+        return type[CommonPoolState]
+
+    @classmethod
+    def game_type(cls) -> type[CommonPoolGame]:
+        return type[CommonPoolGame]
 
     def max_social_welfare(self) -> float:
         """All-C every round, except All-D in the last"""
@@ -61,6 +75,9 @@ class CommonPoolGame(BaseGame):
         self.stock = min(self.stock, self.description.capacity)
 
         return payoffs
+
+    def get_state(self):
+        return CommonPoolState(self.current_round, current_stock=self.stock)
 
     def reset(self):
         """Reset game to initial state."""

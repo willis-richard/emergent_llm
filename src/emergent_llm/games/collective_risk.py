@@ -1,13 +1,14 @@
 """Collective Risk Dilemma implementation."""
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Sequence
 
-from numpy.typing import NDArray
 import numpy as np
-
-from emergent_llm.common.game_description import GameDescription
+from emergent_llm.common import GameDescription
 from emergent_llm.games.base_game import BaseGame
-from emergent_llm.players.base_player import BasePlayer
+from emergent_llm.players import BasePlayer
+from numpy.typing import NDArray
 
 
 @dataclass
@@ -22,6 +23,10 @@ class CollectiveRiskDescription(GameDescription):
             raise ValueError(f"m must be between 1 and {self.n_players}, got {self.m}")
         if self.k <= 0:
             raise ValueError(f"k must be positive, got {self.k}")
+
+    @classmethod
+    def game_type(cls) -> type[CollectiveRiskGame]:
+        return type[CollectiveRiskGame]
 
     def max_social_welfare(self) -> float:
         return (self.k + (self.n_players - self.m) / self.n_players) * self.n_rounds

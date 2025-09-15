@@ -93,6 +93,9 @@ PARAMETERS:
 - r: number of rounds (integer, r > 1)
 - capacity: maximum sustainable stock level (float, capacity ≥ 2n)
 
+STATE:
+- stock: current stock level (float, 0 ≤ stock ≤ 2n)
+
 GAME STRUCTURE:
 - Type: Simultaneous-move, repeated game with dynamic state
 - Rounds: r identical rounds
@@ -210,7 +213,7 @@ class Strategy(BaseStrategy):
         # Initialize any state variables here
         self.game_description = game_description
 
-    def __call__(self, history: None | PlayerHistory) -> Action:
+    def __call__(self, state: , history: None | PlayerHistory) -> Action:
         if history is None:
             # First (zeroth) round logic
             return Action.C  # or Action.D
@@ -224,7 +227,6 @@ class Strategy(BaseStrategy):
 
 
 def get_interface_description(game_description_class: type[GameDescription]) -> str:
-    """Get description of the PlayerHistory interface."""
     return f"""from dataclasses import dataclass
 from enum import Enum
 import math
@@ -237,6 +239,9 @@ import random
 
 
 {game_description_class.print_definition()}
+
+
+{game_description_class.game_state_type().print_definition()}
 
 
 @dataclass
@@ -254,7 +259,7 @@ class PlayerHistory:
 # BOOLEAN ENCODING:
 # - True/1 means COOPERATE (Action.C)
 # - False/0 means DEFECT (Action.D)
-# - Arrays are 0-indexed: round 1 data is at index 0
+# - Arrays are 0-indexed: first round data is at index 0
 # - opponent_actions[0, 0] is opponent 1's action in round 1
 #
 # Example - count opponent cooperators in the most recent round:

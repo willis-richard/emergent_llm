@@ -1,6 +1,6 @@
 """Base game class for social dilemma experiments."""
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Sequence
 
 import numpy as np
@@ -8,6 +8,24 @@ import pandas as pd
 from emergent_llm.common import Action, GameDescription, GameHistory
 from emergent_llm.players.base_player import BasePlayer
 from numpy.typing import NDArray
+
+
+@dataclass
+class GameState:
+    """Base state information available to all games."""
+    round_number: int  # Current round number (0-indexed)
+
+    @classmethod
+    def print_definition(cls) -> str:
+        """Print the definition, for use in the prompts"""
+        definition = "@dataclass\n"
+        definition += f"class {cls.__name__}:\n"
+
+        for field in fields(cls):
+            type_name = field.type.__name__ if hasattr(field.type, '__name__') else str(field.type)
+            definition += f"    {field.name}: {type_name}\n"
+
+        return definition
 
 
 @dataclass
@@ -73,7 +91,7 @@ class BaseGame(ABC):
                 f"description.n_players ({description.n_players})"
             )
 
-        self.players: list[BasePlayer] = players
+        self.players: Sequence[BasePlayer] = players
         self.description: GameDescription = description
 
         # Initialize game state
@@ -84,10 +102,12 @@ class BaseGame(ABC):
     def _calculate_payoffs(self, actions: NDArray[np.bool_]) -> NDArray[np.float64]:
         """Calculate payoffs for a single round given actions."""
 
-    def _play_round(self, players: list[BasePlayer]):
+    def _play_round(self, players: Sequence[BasePlayer]):
         """Play a single round of the game."""
-        action_enums = [player(None) if self.history is None
-                        else player(self.history.for_player(i))
+        state = self.get_state()
+
+        action_enums = [player(state=state, history=None) if self.history is None
+                        else player(state=state, history=self.history.for_player(i))
                         for i, player in enumerate(players)]
 
         actions = Action.to_bool_array(action_enums)
@@ -122,6 +142,9 @@ class BaseGame(ABC):
             history=self.history,
             description=self.description
         )
+
+    def get_state(self) -> GameState:
+        return GameState(self.current_round)
 
     def reset(self):
         """Reset game to initial state."""

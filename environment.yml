@@ -16,6 +16,9 @@ dependencies:
   - tqdm
   - pyyaml
   - python-dotenv
+  - ollama
+  - ollama-python
+  - google-genai
 
   # dev packages
   - autoflake
