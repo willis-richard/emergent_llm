@@ -346,7 +346,7 @@ class MixtureTournamentResults:
         # Setup plot styling
         # FIGSIZE, SIZE, FORMAT = (2.5, 0.9), 8, 'svg'  # for 2 column paper
         # FIGSIZE, SIZE, FORMAT = (5, 1.2), 8, 'svg'  # for 1 column slide
-        FIGSIZE, SIZE, FORMAT = (2.2, 0.8), 7, 'svg'  # for 2 column slide
+        FIGSIZE, SIZE, FORMAT = (2.2, 0.8), 7, 'png'  # for 2 column slide
         plt.rcParams.update({
             'font.size': SIZE,
             'axes.titlesize': 'medium',
@@ -617,7 +617,7 @@ class BatchMixtureTournamentResults:
         # Setup plot styling
         # FIGSIZE, SIZE, FORMAT = (2.5, 0.9), 8, 'svg'  # for 2 column paper
         # FIGSIZE, SIZE, FORMAT = (5, 1.2), 8, 'svg'  # for 1 column slide
-        FIGSIZE, SIZE, FORMAT = (2.2, 0.8), 7, 'svg'  # for 2 column slide
+        FIGSIZE, SIZE, FORMAT = (2.2, 0.8), 7, 'png'  # for 2 column slide
         plt.rcParams.update({
             'font.size': SIZE,
             'axes.titlesize': 'medium',
@@ -667,3 +667,4 @@ class BatchMixtureTournamentResults:
         # Save plot
         fig.savefig(output_file, format=FORMAT, bbox_inches='tight')
         plt.close(fig)
+

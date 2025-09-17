@@ -26,6 +26,7 @@ from emergent_llm.generation.prompts import (create_code_user_prompt,
                                              create_strategy_user_prompt)
 from emergent_llm.players.base_player import BaseStrategy
 from google import genai
+from google.genai import errors as genai_errors
 
 
 def setup_logging(log_file: Path) -> logging.Logger:
@@ -421,7 +422,7 @@ import random
                 self.round = (self.round + 1) % self.period
                 return D if self.round == 0 else C
 
-        for n_players in [game_description.n_players, 4, 8]:
+        for n_players in [4, 32]:
             game_description.n_players = n_players
             # Test against different opponent types
             test_mixtures = [
@@ -464,9 +465,19 @@ def get_llm_response(config: LLMConfig,
                      system_prompt: str,
                      user_prompt: str) -> str:
     """Get response from LLM client."""
+    def handle_retry(attempt, max_retries, error):
+        """Helper function to handle retry logic consistently"""
+        if attempt < max_retries - 1:
+            wait_time = 2 ** attempt
+            logging.warning(f"Attempt {attempt + 1} failed: {error}. Retrying in {wait_time}s...")
+            time.sleep(wait_time)
+            return True
+        logging.error(f"All {max_retries} attempts failed. Final error: {error}")
+        return False
+
     for attempt in range(config.max_retries):
-        try:
-            if isinstance(config.client, openai.OpenAI):
+        if isinstance(config.client, openai.OpenAI):
+            try:
                 response = config.client.chat.completions.create(
                     model=config.model_name,
                     messages=[
@@ -475,8 +486,14 @@ def get_llm_response(config: LLMConfig,
                     ],
                 )
                 return response.choices[0].message.content
+            except (openai.InternalServerError, openai.RateLimitError,
+                    openai.APITimeoutError, openai.APIConnectionError) as e:
+                if not handle_retry(attempt, config.max_retries, e):
+                    raise
+                continue
 
-            elif isinstance(config.client, anthropic.Anthropic):
+        elif isinstance(config.client, anthropic.Anthropic):
+            try:
                 response = config.client.messages.create(
                     model=config.model_name,
                     system=system_prompt,
@@ -489,29 +506,44 @@ def get_llm_response(config: LLMConfig,
                         f"Consider increasing max_tokens. Stop reason: {response.stop_reason}"
                     )
                 return response.content[0].text
+            except (anthropic.InternalServerError, anthropic.RateLimitError,
+                    anthropic.APITimeoutError, anthropic.APIConnectionError) as e:
+                if not handle_retry(attempt, config.max_retries, e):
+                    raise
+                continue
 
-            elif isinstance(config.client, ollama.Client):
-                full_prompt = f"System: {system_prompt}\n\nUser: {user_prompt}"
+        elif isinstance(config.client, ollama.Client):
+            try:
                 response = config.client.chat(
                     model=config.model_name,
-                    messages=[{"role": "user", "content": full_prompt}]
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ]
                 )
                 return response['message']['content']
+            except ollama.ResponseError as e:
+                if e.status_code == 404:
+                    logging.error(f"Ollama model '{config.model_name}' not found. Use 'ollama pull {config.model_name}' to download it.")
+                raise
 
-            elif isinstance(config.client, genai.Client):
+        elif isinstance(config.client, genai.Client):
+            full_prompt = f"System: {system_prompt}\n\nUser: {user_prompt}"
+            try:
                 response = config.client.models.generate_content(
                     model=config.model_name,
-                    contents=f"System: {system_prompt}\n\nUser: {user_prompt}",
+                    contents=full_prompt,
                 )
                 return response.text
-
-            else:
-                raise ValueError(f"Unknown client type: {type(config.client)}")
-        except (openai.InternalServerError, anthropic.InternalServerError):
-            if attempt < 2:
-                time.sleep(2 ** attempt)  # Exponential backoff
+            except genai_errors.APIError as e:
+                if not handle_retry(attempt, config.max_retries, e):
+                    raise
                 continue
-            raise
+
+        else:
+            raise ValueError(f"Unknown client type: {type(config.client)}")
+
+    raise RuntimeError(f"All {config.max_retries} attempts failed")
 
 
 def write_strategy_class(description: str, code: str, attitude: Attitude, n: int) -> str:
