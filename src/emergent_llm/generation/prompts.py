@@ -194,6 +194,7 @@ def create_code_user_prompt(strategy_description: str, game_description_class: t
 The following constructs are forbidden:
 - Import statements
 - Global/nonlocal variable declarations
+- del operator
 - File operations
 - System calls or subprocess execution
 - Raising exceptions

@@ -9,6 +9,7 @@ import importlib.util
 import inspect
 import logging
 import os
+import random
 import re
 import time
 from dataclasses import dataclass
@@ -274,8 +275,9 @@ def validate_strategy_code(code: str):
             ast.For, ast.While, ast.Pass, ast.Break, ast.Continue,
             ast.Assign, ast.AugAssign, ast.AnnAssign,
             ast.Gt, ast.Lt, ast.GtE, ast.LtE, ast.Eq, ast.NotEq,
-            ast.In, ast.NotIn, ast.Is, ast.IsNot, ast.Compare, ast.USub,
+            ast.In, ast.NotIn, ast.Is, ast.IsNot, ast.Compare,
             ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Pow, ast.Mod,
+            ast.UAdd, ast.USub, ast.MatMult,
             ast.Try, ast.ExceptHandler,
         )
         # yapf: enable
@@ -430,7 +432,7 @@ import random
                  for i in range(game_description.n_players - 1)],
                 [SimplePlayer(f"defector_{i}", lambda: D)
                  for i in range(game_description.n_players - 1)],
-                [SimplePlayer(f"random_{i}", lambda: np.random.choice([C, D]))
+                [SimplePlayer(f"random_{i}", lambda: random.choice([C, D]))
                  for i in range(game_description.n_players - 1)],
                 # Mostly cooperative (90% C, 10% D)
                 [SimplePlayer(f"mostly_coop_{i}", lambda: C if np.random.random() < 0.9 else D)
