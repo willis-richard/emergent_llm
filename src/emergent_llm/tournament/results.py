@@ -337,7 +337,7 @@ class MixtureTournamentResults:
         return cls.from_dict(data)
 
 
-    def create_schelling_diagram(self, output_path: str):
+    def create_schelling_diagram(self, output_dir: Path):
         """Create Schelling diagram for this tournament results."""
 
         # Sort stats by number of cooperators
@@ -346,7 +346,7 @@ class MixtureTournamentResults:
         # Setup plot styling
         # FIGSIZE, SIZE, FORMAT = (2.5, 0.9), 8, 'svg'  # for 2 column paper
         # FIGSIZE, SIZE, FORMAT = (5, 1.2), 8, 'svg'  # for 1 column slide
-        FIGSIZE, SIZE, FORMAT = (2.2, 0.8), 7, 'png'  # for 2 column slide
+        FIGSIZE, SIZE, FORMAT = (2.2, 0.8), 7, 'svg'  # for 2 column slide
         plt.rcParams.update({
             'font.size': SIZE,
             'axes.titlesize': 'medium',
@@ -394,7 +394,7 @@ class MixtureTournamentResults:
 
 
         # Ensure output directory exists
-        output_file = Path(output_path).with_suffix(f'.{FORMAT}')
+        output_file = output_dir / f"schelling_n_{group_size}.{FORMAT}"
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Save plot
@@ -605,11 +605,9 @@ class BatchMixtureTournamentResults:
 
     def create_schelling_diagrams(self):
         """Create Schelling diagrams for all group sizes."""
-        filepath = Path(self.config.results_dir) / "batch_mixture"
-        filepath.parent.mkdir(parents=True, exist_ok=True)
+        output_dir = Path(self.config.results_dir) / "batch_mixture"
         for group_size, mixture_result in self.mixture_results.items():
-            output_path = filepath / f"schelling_n_{group_size}.png"
-            mixture_result.create_schelling_diagram(str(output_path))
+            mixture_result.create_schelling_diagram(output_dir)
 
     def create_social_welfare_diagram(self):
         """Create social welfare vs cooperative ratio diagram with lines for each group size."""
@@ -617,7 +615,7 @@ class BatchMixtureTournamentResults:
         # Setup plot styling
         # FIGSIZE, SIZE, FORMAT = (2.5, 0.9), 8, 'svg'  # for 2 column paper
         # FIGSIZE, SIZE, FORMAT = (5, 1.2), 8, 'svg'  # for 1 column slide
-        FIGSIZE, SIZE, FORMAT = (2.2, 0.8), 7, 'png'  # for 2 column slide
+        FIGSIZE, SIZE, FORMAT = (2.2, 0.8), 7, 'svg'  # for 2 column slide
         plt.rcParams.update({
             'font.size': SIZE,
             'axes.titlesize': 'medium',
@@ -667,4 +665,3 @@ class BatchMixtureTournamentResults:
         # Save plot
         fig.savefig(output_file, format=FORMAT, bbox_inches='tight')
         plt.close(fig)
-

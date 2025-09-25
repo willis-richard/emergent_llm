@@ -21,10 +21,37 @@ This project investigates the emergent behavior of LLM-driven autonomous agents 
 - Python 3.11
 - Conda or Miniconda
 
-### Using Conda (Recommended)
+### Steps
 
 1. Clone the repository:
 ```bash
 git clone https://github.com/willis-richard/emergent_llm.git
 cd emergent_llm
 ```
+
+2. Install
+```bash
+conda env update -f environment.yml
+conda activate emergent_llm
+```
+
+3. Update PYTHONPATH:
+```bash
+export PYTHONPATH="${PYTHONPATH}:$(pwd)/src"
+```
+
+## Results
+
+The generated strategies are in [strategies](./strategies). To generate new ones use:
+
+```bash
+python3 src/emergent_llm/generation/create_strategies.py --llm_provider <provider> --model_name <model_name> --n 16 --game <game>
+```
+
+Results can be generated with:
+
+```bash
+python scripts/run_tournament.py --strategies strategies/<game>/e<provider>_<model>.py --game <game>  --matches 200 --group-sizes 4 16 64 --verbose
+```
+
+The output directory is ./results.
