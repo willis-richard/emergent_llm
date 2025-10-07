@@ -13,6 +13,7 @@ import pandas as pd
 from emergent_llm.common import Attitude, PlayerId
 from emergent_llm.tournament.configs import (BaseTournamentConfig,
                                              BatchTournamentConfig)
+from emergent_llm.tournament.mixture_tournament import MixtureKey
 from matplotlib.ticker import MaxNLocator, MultipleLocator
 
 
@@ -235,7 +236,7 @@ class MixtureTournamentResults:
             n_aggressive = sum(1 for pid in match_result.player_ids
                             if pid.attitude == Attitude.AGGRESSIVE)
 
-            mixture_key = (n_cooperative, n_aggressive)
+            mixture_key = MixtureKey(n_cooperative, n_aggressive)
             group_size = n_cooperative + n_aggressive
 
             # Initialize mixture result if needed

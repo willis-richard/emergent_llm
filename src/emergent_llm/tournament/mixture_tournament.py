@@ -7,6 +7,15 @@ from emergent_llm.tournament.configs import BaseTournamentConfig
 from emergent_llm.tournament.results import MixtureTournamentResults
 
 
+from dataclasses import dataclass, asdict, fields
+
+
+@dataclass
+class MixtureKey:
+    n_cooperative: int
+    n_aggressive: int
+
+
 class MixtureTournament(BaseTournament):
     """Tournament testing different mixtures of cooperative vs aggressive players for a single group size."""
 
@@ -40,7 +49,7 @@ class MixtureTournament(BaseTournament):
         # Test all possible mixtures
         for n_aggressive in range(group_size + 1):
             n_cooperative = group_size - n_aggressive
-            mixture_key = (n_cooperative, n_aggressive)
+            mixture_key = MixtureKey(n_cooperative, n_aggressive)
 
             self._run_mixture(mixture_key)
 
@@ -51,7 +60,7 @@ class MixtureTournament(BaseTournament):
             match_results=self.match_results
         )
 
-    def _run_mixture(self, mixture_key: tuple[int, int]):
+    def _run_mixture(self, mixture_key: MixtureKey):
         """Run multiple matches for a specific mixture"""
 
         self.logger.info(f"Testing mixture: {mixture_key}")
@@ -64,17 +73,17 @@ class MixtureTournament(BaseTournament):
             # Run the match using base class method
             match_result = self._run_match(match_players, match_id)
 
-    def _create_match_players(self, mixture_key: tuple[int, int]) -> list[LLMPlayer]:
+    def _create_match_players(self, mixture_key: MixtureKey) -> list[LLMPlayer]:
         """Create players for a single match by sampling from available strategies."""
         players = []
 
         # Sample cooperative players
-        if mixture_key[0] > 0:
-            players.extend(random.sample(self.cooperative_players, mixture_key[0]))
+        if mixture_key.n_cooperative > 0:
+            players.extend(random.sample(self.cooperative_players, mixture_key.n_cooperative))
 
         # Sample aggressive players
-        if mixture_key[1] > 0:
-            players.extend(random.sample(self.aggressive_players, mixture_key[1]))
+        if mixture_key.n_aggressive > 0:
+            players.extend(random.sample(self.aggressive_players, mixture_key.n_aggressive))
 
         # Shuffle to randomize positions
         random.shuffle(players)
