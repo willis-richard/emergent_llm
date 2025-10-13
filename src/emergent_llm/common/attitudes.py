@@ -13,6 +13,10 @@ class Attitude(StrEnum):
     def __repr__(self):
         return f"Attitude.{self.name}"
 
+    def flip(self):
+        return COOPERATIVE if self.value == AGGRESSIVE else AGGRESSIVE
+
+
 
 # Export for convenience
 COOPERATIVE = Attitude.COOPERATIVE
