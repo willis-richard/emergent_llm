@@ -21,5 +21,3 @@ class Attitude(StrEnum):
 # Export for convenience
 COOPERATIVE = Attitude.COOPERATIVE
 AGGRESSIVE = Attitude.AGGRESSIVE
-
-__all__ = ['Attitude', 'COOPERATIVE', 'AGGRESSIVE']

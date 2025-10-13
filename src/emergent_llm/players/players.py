@@ -2,19 +2,20 @@
 import logging
 from typing import Callable
 
-from emergent_llm.common import Action, PlayerId, PlayerHistory, GameDescription, Attitude, GameState
+from emergent_llm.common import (Action, Attitude, GameDescription, GameState,
+                                 Gene, PlayerHistory, PlayerId)
 from emergent_llm.players.base_player import BasePlayer, BaseStrategy
 
 
 class LLMPlayer(BasePlayer):
     """Player that uses an LLM-generated strategy."""
 
-    def __init__(self, name: str, attitude: Attitude,
+    def __init__(self, name: str, gene: Gene,
                  game_description: GameDescription,
                  strategy_class: type[BaseStrategy],
                  max_errors: int=2):
         """
-        Initialize LLM player with generated strategy.
+        Initialise LLM player with generated strategy.
 
         Args:
             name: Player name
@@ -24,7 +25,8 @@ class LLMPlayer(BasePlayer):
             max_errors: Number of tolerated errors
         """
         super().__init__(name)
-        self.id = PlayerId(name, attitude, f"{strategy_class.__module__}.{strategy_class.__name__}")
+        self.gene = gene
+        self.id = PlayerId(name, gene, f"{strategy_class.__module__}.{strategy_class.__name__}")
         self.game_description: GameDescription = game_description
         self.strategy_class: type[BaseStrategy] = strategy_class
 
@@ -69,14 +71,11 @@ class LLMPlayer(BasePlayer):
                 raise
 
             # Return fallback action based on attitude
-            if self.id.attitude == Attitude.COOPERATIVE:
-                return Action.C
-            else:
-                return Action.D
+            return Action.C if self.id.attitude == Attitude.COOPERATIVE else Action.D
 
     def __repr__(self):
         """String representation of the player."""
-        return f"{self.id.name}[{self.__class__.__name__}({self.id.attitude}, {self.id.strategy})]"
+        return f"{self.__class__.__name__}({self.id})]"
 
     def __del__(self):
         """Clean up strategy function reference."""

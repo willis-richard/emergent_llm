@@ -10,9 +10,10 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from emergent_llm.common import Attitude, PlayerId
+from emergent_llm.common import Attitude, Gene, PlayerId
 from emergent_llm.tournament.configs import (BaseTournamentConfig,
-                                             BatchTournamentConfig)
+                                             BatchTournamentConfig,
+                                             CulturalEvolutionConfig)
 from emergent_llm.tournament.mixture_tournament import MixtureKey
 from matplotlib.ticker import MaxNLocator, MultipleLocator
 
@@ -666,3 +667,24 @@ class BatchMixtureTournamentResults:
         # Save plot
         fig.savefig(output_file, format=FORMAT, bbox_inches='tight')
         plt.close(fig)
+
+
+@dataclass
+class CulturalEvolutionResults:
+    """Results from cultural evolution tournament."""
+    config: CulturalEvolutionConfig
+    final_generation: int
+    final_gene_frequencies: dict[Gene, float]
+    gene_frequency_history: list[dict[Gene, float]]
+    generation_results: list[FairTournamentResults]
+
+    def __str__(self) -> str:
+        lines = [
+            f"Cultural Evolution Results",
+            f"Final generation: {self.final_generation}",
+            f"Final gene frequencies:"
+        ]
+        for gene, freq in sorted(self.final_gene_frequencies.items(),
+                                 key=lambda x: x[1], reverse=True):
+            lines.append(f"  {gene}: {freq:.2%}")
+        return "\n".join(lines)

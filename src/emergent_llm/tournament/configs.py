@@ -1,7 +1,7 @@
 from dataclasses import dataclass, asdict
 from typing import Callable
 
-from emergent_llm.common import GameDescription
+from emergent_llm.common import Gene, GameDescription
 from emergent_llm.games import (BaseGame, CollectiveRiskDescription,
                                 CollectiveRiskGame, CommonPoolDescription,
                                 CommonPoolGame, PublicGoodsDescription,
@@ -87,3 +87,47 @@ STANDARD_GENERATORS: dict[str, Callable[[int], GameDescription]] = {
         n_players=n, n_rounds=20, capacity=n*4
     ),
 }
+
+
+@dataclass
+class CulturalEvolutionConfig:
+    """Configuration for cultural evolution tournament."""
+    game_description: GameDescription
+    population_size: int
+    genes: list[Gene]  # Available genes to start with
+    top_k: int  # Number of survivors each generation
+    mutation_rate: float  # Probability of mutation during reproduction
+    threshold_pct: float  # Terminate when any gene reaches this % (0-1)
+    max_generations: int
+    repetitions_per_generation: int  # How many games each player plays per generation
+
+    def __post_init__(self):
+        """Validate configuration parameters."""
+        if self.population_size <= 0:
+            raise ValueError("population_size must be positive")
+
+        if self.population_size % self.game_description.n_players != 0:
+            raise ValueError(
+                f"population_size ({self.population_size}) must be divisible by "
+                f"n_players ({self.game_description.n_players})"
+            )
+
+        if not (0 < self.top_k < self.population_size):
+            raise ValueError(
+                f"top_k ({self.top_k}) must be between 0 and population_size ({self.population_size})"
+            )
+
+        if not (0 <= self.mutation_rate <= 1):
+            raise ValueError(f"mutation_rate must be between 0 and 1, got {self.mutation_rate}")
+
+        if not (0 < self.threshold_pct <= 1):
+            raise ValueError(f"threshold_pct must be between 0 and 1, got {self.threshold_pct}")
+
+        if self.max_generations <= 0:
+            raise ValueError("max_generations must be positive")
+
+        if self.repetitions_per_generation <= 0:
+            raise ValueError("repetitions_per_generation must be positive")
+
+        if not self.genes:
+            raise ValueError("genes list cannot be empty")
