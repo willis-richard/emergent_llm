@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from emergent_llm.common import Attitude, Gene, PlayerId
+from emergent_llm.games import (CollectiveRiskDescription,
+                                CommonPoolDescription, PublicGoodsDescription)
 from emergent_llm.tournament.configs import (BaseTournamentConfig,
                                              BatchTournamentConfig,
                                              CulturalEvolutionConfig)
@@ -688,3 +690,121 @@ class CulturalEvolutionResults:
                                  key=lambda x: x[1], reverse=True):
             lines.append(f"  {gene}: {freq:.2%}")
         return "\n".join(lines)
+
+    def serialise(self) -> dict:
+        """Serialise to dictionary for JSON storage."""
+        return {
+            'config': asdict(self.config),
+            'final_generation': self.final_generation,
+            'final_gene_frequencies': {
+                str(gene): freq for gene, freq in self.final_gene_frequencies.items()
+            },
+            'gene_frequency_history': [
+                {str(gene): freq for gene, freq in gen_freqs.items()}
+                for gen_freqs in self.gene_frequency_history
+            ],
+            'generation_results': [result.serialise() for result in self.generation_results],
+            'result_type': 'CulturalEvolutionResults'
+        }
+
+    def save(self, filepath: str) -> None:
+        """Save results to JSON file."""
+        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+        with open(filepath, 'w') as f:
+            json.dump(self.serialise(), f, indent=2)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'CulturalEvolutionResults':
+        """Load CulturalEvolutionResults from dictionary data."""
+        # Reconstruct config
+        config_data = data['config']
+        # Need to reconstruct genes list
+        genes = [Gene(g['provider_model'], Attitude(g['attitude']))
+                 for g in config_data['genes']]
+
+        game_class_map = {
+            'PublicGoodsDescription': PublicGoodsDescription,
+            'CollectiveRiskDescription': CollectiveRiskDescription,
+            'CommonPoolDescription': CommonPoolDescription,
+        }
+        game_cls = game_class_map[config_data['game_description']['__class__']]
+        game_description = game_cls(**{k: v for k, v in config_data['game_description'].items()
+                                       if k != '__class__'})
+
+        config = CulturalEvolutionConfig(
+            game_description=game_description,
+            population_size=config_data['population_size'],
+            genes=genes,
+            top_k=config_data['top_k'],
+            mutation_rate=config_data['mutation_rate'],
+            threshold_pct=config_data['threshold_pct'],
+            max_generations=config_data['max_generations'],
+            repetitions_per_generation=config_data['repetitions_per_generation']
+        )
+
+        # Parse gene frequency dictionaries
+        def parse_gene_dict(d):
+            result = {}
+            for gene_str, freq in d.items():
+                # Parse "provider_model[attitude]" format
+                match = re.match(r'(.+)\[(\w+)\]', gene_str)
+                if match:
+                    provider_model, attitude_str = match.groups()
+                    gene = Gene(provider_model, Attitude(attitude_str))
+                    result[gene] = freq
+            return result
+
+        final_gene_frequencies = parse_gene_dict(data['final_gene_frequencies'])
+        gene_frequency_history = [parse_gene_dict(d) for d in data['gene_frequency_history']]
+
+        # Reconstruct generation results
+        generation_results = [FairTournamentResults.from_dict(result_data)
+                             for result_data in data['generation_results']]
+
+        return cls(
+            config=config,
+            final_generation=data['final_generation'],
+            final_gene_frequencies=final_gene_frequencies,
+            gene_frequency_history=gene_frequency_history,
+            generation_results=generation_results
+        )
+
+    @classmethod
+    def load(cls, filepath: str) -> 'CulturalEvolutionResults':
+        """Load CulturalEvolutionResults from JSON file."""
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+
+        if data['result_type'] != 'CulturalEvolutionResults':
+            raise ValueError(f"Expected CulturalEvolutionResults, got {data['result_type']}")
+
+        return cls.from_dict(data)
+
+    def plot_gene_frequencies(self, output_path: str):
+        """Plot gene frequency evolution over generations."""
+        import matplotlib.pyplot as plt
+
+        # Collect all unique genes
+        all_genes = set()
+        for gen_freqs in self.gene_frequency_history:
+            all_genes.update(gen_freqs.keys())
+
+        # Create frequency matrix: generations x genes
+        generations = list(range(len(self.gene_frequency_history)))
+
+        plt.figure(figsize=(10, 6))
+
+        for gene in all_genes:
+            frequencies = [gen_freqs.get(gene, 0.0) for gen_freqs in self.gene_frequency_history]
+            plt.plot(generations, frequencies, marker='o', label=str(gene))
+
+        plt.xlabel('Generation')
+        plt.ylabel('Gene Frequency')
+        plt.title('Gene Frequency Evolution')
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(output_path)
+        plt.close()

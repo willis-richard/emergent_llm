@@ -2,9 +2,10 @@
 import logging
 import random
 
+import numpy as np
 from emergent_llm.common import Gene
 from emergent_llm.generation.strategy_registry import StrategyRegistry
-from emergent_llm.players import LLMPlayer
+from emergent_llm.players import LLMPlayer, BaseStrategy
 from emergent_llm.tournament.fair_tournament import FairTournament
 from emergent_llm.tournament.configs import BaseTournamentConfig, CulturalEvolutionConfig
 from emergent_llm.tournament.results import CulturalEvolutionResults
@@ -17,7 +18,7 @@ class CulturalEvolutionTournament:
                  config: CulturalEvolutionConfig,
                  strategy_registry: StrategyRegistry):
         """
-        Initialize cultural evolution tournament.
+        Initialise cultural evolution tournament.
 
         Args:
             config: Tournament configuration
@@ -30,11 +31,13 @@ class CulturalEvolutionTournament:
         # Validate genes have strategies
         self.registry.validate_genes(config.genes)
 
-        # Initialize population with uniform distribution over genes
-        self.population: list[Gene] = []
+        # Population is list of (Gene, strategy_class) tuples
+        # Initialise with uniform distribution over genes
+        self.population: list[tuple[Gene, type[BaseStrategy]]] = []
         for i in range(config.population_size):
             gene = config.genes[i % len(config.genes)]
-            self.population.append(gene)
+            strategy_class = self.registry.sample_strategy(gene)
+            self.population.append((gene, strategy_class))
         random.shuffle(self.population)
 
         # Track history
@@ -77,7 +80,7 @@ class CulturalEvolutionTournament:
 
     def _run_generation(self):
         """Run one generation: compete, select, reproduce."""
-        # Create players from current population
+        # Create players from current population (using existing strategies)
         players = self._create_players()
 
         # Run fair tournament
@@ -89,35 +92,26 @@ class CulturalEvolutionTournament:
         results = tournament.run_tournament()
         self.generation_results.append(results)
 
-        # Calculate fitness (mean payoff)
-        fitnesses = [(player.gene, stats.mean_payoff)
-                     for player, stats in zip(players, results.player_stats.values())]
+        # Calculate fitness array (mean payoff)
+        fitnesses = np.array([stats.mean_payoff for stats in results.player_stats.values()])
 
-        # Sort by fitness
-        fitnesses.sort(key=lambda x: x[1], reverse=True)
+        # Get indices sorted by fitness (descending)
+        sorted_indices = np.argsort(fitnesses)[::-1]
 
-        # Selection: keep top K
-        survivors = [gene for gene, _ in fitnesses[:self.config.top_k]]
+        # Selection: keep top K individuals
+        survivor_indices = sorted_indices[:self.config.top_k]
+        survivors = [self.population[i] for i in survivor_indices]
 
-        # Reproduction: fill remaining slots
-        fitness_values = [f for _, f in fitnesses]
-        new_population = survivors.copy()
+        # Reproduction: vectorized offspring generation
+        n_offspring = self.config.population_size - self.config.top_k
+        offspring = self._create_offspring(fitnesses, n_offspring)
 
-        while len(new_population) < self.config.population_size:
-            # Fitness-proportional selection
-            parent_gene = self._select_parent(fitnesses, fitness_values)
-
-            # Mutation
-            child_gene = self._mutate(parent_gene)
-            new_population.append(child_gene)
-
-        self.population = new_population
+        self.population = survivors + offspring
 
     def _create_players(self) -> list[LLMPlayer]:
-        """Create player instances from current gene population."""
+        """Create player instances from current population."""
         players = []
-        for i, gene in enumerate(self.population):
-            strategy_class = self.registry.sample_strategy(gene)
+        for i, (gene, strategy_class) in enumerate(self.population):
             player = LLMPlayer(
                 name=f"player_{i}",
                 gene=gene,
@@ -127,30 +121,41 @@ class CulturalEvolutionTournament:
             players.append(player)
         return players
 
-    def _select_parent(self, fitnesses: list[tuple[Gene, float]],
-                       fitness_values: list[float]) -> Gene:
-        """Select parent using fitness-proportional selection."""
-        # Handle negative fitnesses by shifting
-        min_fitness = min(fitness_values)
-        if min_fitness < 0:
-            shifted_fitnesses = [f - min_fitness + 1 for f in fitness_values]
-        else:
-            shifted_fitnesses = fitness_values
+    def _create_offspring(self,
+                         fitnesses: np.ndarray,
+                         n_offspring: int) -> list[tuple[Gene, type[BaseStrategy]]]:
+        """
+        Create offspring via fitness-proportional selection and mutation.
 
-        # Weighted random choice
-        total_fitness = sum(shifted_fitnesses)
-        if total_fitness == 0:
-            # All equal fitness - uniform selection
-            return random.choice([gene for gene, _ in fitnesses])
+        Args:
+            fitnesses: Array of fitness values (aligned with self.population by index)
+            n_offspring: Number of offspring to create
 
-        r = random.uniform(0, total_fitness)
-        cumulative = 0
-        for (gene, _), shifted_fitness in zip(fitnesses, shifted_fitnesses):
-            cumulative += shifted_fitness
-            if r <= cumulative:
-                return gene
+        Returns:
+            List of (gene, strategy_class) tuples for offspring
+        """
+        # Fitness-proportional probabilities
+        # Games must have at least one player having positive payoffs, and no negative payoffs
+        # so there are no division by zero or negative issues
+        probabilities = fitnesses / fitnesses.sum()
 
-        return fitnesses[-1][0]  # Fallback
+        # Sample parents (with replacement)
+        parent_indices = np.random.choice(len(self.population), size=n_offspring, p=probabilities)
+
+        # Create offspring
+        offspring = []
+        for idx in parent_indices:
+            parent_gene, _ = self.population[idx]
+
+            # Mutation
+            child_gene = self._mutate(parent_gene)
+
+            # Sample new strategy for child
+            child_strategy = self.registry.sample_strategy(child_gene)
+
+            offspring.append((child_gene, child_strategy))
+
+        return offspring
 
     def _mutate(self, gene: Gene) -> Gene:
         """Apply mutation to gene."""
@@ -165,14 +170,14 @@ class CulturalEvolutionTournament:
             other_models = available_models - {gene.provider_model}
             new_provider = random.choice(list(other_models))
             return Gene(new_provider, gene.attitude)
-        else:
-            # Mutate attitude
-            return Gene(gene.provider_model, gene.attitude.flip())
+
+        # Mutate attitude
+        return Gene(gene.provider_model, gene.attitude.flip())
 
     def _calculate_gene_frequencies(self) -> dict[Gene, float]:
         """Calculate current gene frequencies."""
-        counts = {}
-        for gene in self.population:
+        counts: dict[Gene, float] = {}
+        for gene, _ in self.population:
             counts[gene] = counts.get(gene, 0) + 1
 
         return {gene: count / len(self.population)
