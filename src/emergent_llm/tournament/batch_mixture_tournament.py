@@ -8,7 +8,7 @@ import numpy as np
 from pathlib import Path
 
 from emergent_llm.games.base_game import BaseGame
-from emergent_llm.common import GameDescription, Attitude
+from emergent_llm.common import GameDescription, Attitude, Gene
 from emergent_llm.players import BasePlayer, LLMPlayer, BaseStrategy
 from emergent_llm.tournament.configs import BatchTournamentConfig
 from emergent_llm.tournament.mixture_tournament import MixtureTournament
@@ -20,8 +20,8 @@ class BatchMixtureTournament:
     """Tournament that runs mixture tournaments across multiple group sizes."""
 
     def __init__(self,
-                 cooperative_strategies: list[type[BaseStrategy]],
-                 aggressive_strategies: list[type[BaseStrategy]],
+                 cooperative_strategies: list[tuple[Gene, type[BaseStrategy]]],
+                 aggressive_strategies: list[tuple[Gene, type[BaseStrategy]]],
                  config: BatchTournamentConfig):
 
         self.cooperative_strategies = cooperative_strategies
@@ -78,18 +78,22 @@ class BatchMixtureTournament:
         cooperative_players = []
         aggressive_players = []
 
-        for i, strategy_class in enumerate(self.cooperative_strategies):
-            player = LLMPlayer(f"coop_{strategy_class.__name__}",
-                            Attitude.COOPERATIVE,
-                            game_description,  # Just for initialization
-                            strategy_class)
+        for i, (gene, strategy_class) in enumerate(self.cooperative_strategies):
+            player = LLMPlayer(
+                name=f"{gene.attitude}_{i}",
+                gene=gene,
+                game_description=game_description,
+                strategy_class=strategy_class
+            )
             cooperative_players.append(player)
 
-        for i, strategy_class in enumerate(self.aggressive_strategies):
-            player = LLMPlayer(f"agg_{strategy_class.__name__}",
-                            Attitude.AGGRESSIVE,
-                            game_description,  # Just for initialization
-                            strategy_class)
+        for i, (gene, strategy_class) in enumerate(self.aggressive_strategies):
+            player = LLMPlayer(
+                name=f"{gene.attitude}_{i}",
+                gene=gene,
+                game_description=game_description,
+                strategy_class=strategy_class
+            )
             aggressive_players.append(player)
 
         return cooperative_players, aggressive_players

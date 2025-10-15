@@ -18,14 +18,13 @@ from pathlib import Path
 import anthropic
 import ollama
 import openai
-from emergent_llm.common.actions import C, D
-from emergent_llm.common.attitudes import AGGRESSIVE, COOPERATIVE, Attitude
-from emergent_llm.common.game_description import GameDescription
+from emergent_llm.common import (AGGRESSIVE, COOPERATIVE, Attitude, C, D,
+                                 GameDescription, Gene)
 from emergent_llm.games import (CollectiveRiskDescription,
                                 CommonPoolDescription, PublicGoodsDescription)
 from emergent_llm.generation.prompts import (create_code_user_prompt,
                                              create_strategy_user_prompt)
-from emergent_llm.players.base_player import BaseStrategy
+from emergent_llm.players import BaseStrategy
 from google import genai
 from google.genai import errors as genai_errors
 
@@ -352,7 +351,6 @@ def test_generated_strategy(class_code: str, game_description_class: type[GameDe
     import tempfile
 
     import numpy as np
-    from emergent_llm.common.attitudes import Attitude
     from emergent_llm.players import LLMPlayer, SimplePlayer
 
     # Create a temporary module to load the strategy
@@ -404,7 +402,7 @@ import random
             raise ValueError(f"Unknown game description type: {game_description_class}")
 
         # Create test player
-        player = LLMPlayer("test_player", Attitude.COOPERATIVE, game_description, strategy_class, max_errors=0)
+        player = LLMPlayer("test_player", Gene(None, None), game_description, strategy_class, max_errors=0)
 
         class GradualDefector:
             def __init__(self, threshold=10):

@@ -2,7 +2,7 @@
 import logging
 from pathlib import Path
 
-from emergent_llm.common import Attitude, GameDescription
+from emergent_llm.common import Attitude, GameDescription, Gene, COOPERATIVE
 from emergent_llm.players import BaseStrategy, LLMPlayer
 from emergent_llm.tournament.configs import (BaseTournamentConfig,
                                              BatchTournamentConfig)
@@ -16,27 +16,24 @@ class BatchFairTournament:
     """Tournament that tests strategy generalization across multiple group sizes."""
 
     def __init__(self,
-                 cooperative_strategies: list[type[BaseStrategy]],
-                 aggressive_strategies: list[type[BaseStrategy]],
+                 strategies: list[tuple[Gene, type[BaseStrategy]]],
                  config: BatchTournamentConfig):
 
-        self.cooperative_strategies = cooperative_strategies
-        self.aggressive_strategies = aggressive_strategies
+        self.strategies = strategies
         self.config = config
 
         # Setup logging
         self.logger = logging.getLogger(__name__)
-        n_strategies = len(cooperative_strategies) + len(aggressive_strategies)
-        self.logger.info(f"Initialised batch fair tournament with {n_strategies} strategies")
+        self.logger.info(f"Initialised batch fair tournament with {len(strategies)} strategies")
 
         # Validate we have enough strategies for the largest group size to have diversity
         max_group_size = max(config.group_sizes)
         required_population = max_group_size * 4
 
-        if n_strategies < required_population:
+        if len(strategies) < required_population:
             raise ValueError(
                 f"Suggest you have at least {required_population} strategies for largest group size "
-                f"({max_group_size}), got {n_strategies}"
+                f"({max_group_size}), got {len(strategies)}"
             )
 
         # Storage for all results
@@ -69,18 +66,13 @@ class BatchFairTournament:
         """Create player instances from strategy classes."""
         players = []
 
-        for i, strategy_class in enumerate(self.cooperative_strategies):
-            player = LLMPlayer(f"coop_{strategy_class.__name__}",
-                            Attitude.COOPERATIVE,
-                            game_description,  # Just for initialization
-                            strategy_class)
-            players.append(player)
-
-        for i, strategy_class in enumerate(self.aggressive_strategies):
-            player = LLMPlayer(f"agg_{strategy_class.__name__}",
-                            Attitude.AGGRESSIVE,
-                            game_description,  # Just for initialization
-                            strategy_class)
+        for i, (gene, strategy_class) in enumerate(self.strategies):
+            player = LLMPlayer(
+                name=f"player_{i}",
+                gene=gene,
+                game_description=game_description,
+                strategy_class=strategy_class
+            )
             players.append(player)
 
         return players

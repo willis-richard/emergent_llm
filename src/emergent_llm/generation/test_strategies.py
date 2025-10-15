@@ -8,12 +8,10 @@ import time
 import unittest
 
 import numpy as np
-from emergent_llm.common.actions import Action, C, D
-from emergent_llm.common.attitudes import Attitude
-from emergent_llm.players import BaseStrategy
+from emergent_llm.common import C, D, Gene
 from emergent_llm.games import (CollectiveRiskDescription, CollectiveRiskGame,
                                 PublicGoodsDescription, PublicGoodsGame)
-from emergent_llm.players import LLMPlayer, SimplePlayer
+from emergent_llm.players import BaseStrategy, LLMPlayer, SimplePlayer
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -81,7 +79,7 @@ def create_test(strategy_class: type, game_name: str, log: bool = False):
             raise ValueError(f"Unknown game type: {game_type}")
 
         player = LLMPlayer(f"{strategy_class.__name__}",
-                           Attitude.AGGRESSIVE,
+                           Gene(None, None),
                            game_description,
                            strategy_class)
 

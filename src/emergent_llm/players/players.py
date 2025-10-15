@@ -75,7 +75,7 @@ class LLMPlayer(BasePlayer):
 
     def __repr__(self):
         """String representation of the player."""
-        return f"{self.__class__.__name__}({self.id})]"
+        return f"{self.__class__.__name__}({self.id})"
 
     def __del__(self):
         """Clean up strategy function reference."""
