@@ -5,7 +5,7 @@ import random
 import numpy as np
 from emergent_llm.common import Gene
 from emergent_llm.generation.strategy_registry import StrategyRegistry
-from emergent_llm.players import LLMPlayer, BaseStrategy
+from emergent_llm.players import LLMPlayer, BaseStrategy, StrategySpec
 from emergent_llm.tournament.fair_tournament import FairTournament
 from emergent_llm.tournament.configs import BaseTournamentConfig, CulturalEvolutionConfig
 from emergent_llm.tournament.results import CulturalEvolutionResults
@@ -31,13 +31,12 @@ class CulturalEvolutionTournament:
         # Validate genes have strategies
         self.registry.validate_genes(config.genes)
 
-        # Population is list of (Gene, strategy_class) tuples
         # Initialise with uniform distribution over genes
-        self.population: list[tuple[Gene, type[BaseStrategy]]] = []
+        self.population: list[StrategySpec] = []
         for i in range(config.population_size):
             gene = config.genes[i % len(config.genes)]
-            strategy_class = self.registry.sample_strategy(gene)
-            self.population.append((gene, strategy_class))
+            spec = self.registry.sample_spec(gene)
+            self.population.append(spec)
         random.shuffle(self.population)
 
         # Track history
@@ -81,7 +80,8 @@ class CulturalEvolutionTournament:
     def _run_generation(self):
         """Run one generation: compete, select, reproduce."""
         # Create players from current population (using existing strategies)
-        players = self._create_players()
+        players = [spec.create_player(f"player_{i}", self.config.game_description)
+                   for i, spec in enumerate(self.population)]
 
         # Run fair tournament
         fair_config = BaseTournamentConfig(
@@ -108,22 +108,9 @@ class CulturalEvolutionTournament:
 
         self.population = survivors + offspring
 
-    def _create_players(self) -> list[LLMPlayer]:
-        """Create player instances from current population."""
-        players = []
-        for i, (gene, strategy_class) in enumerate(self.population):
-            player = LLMPlayer(
-                name=f"player_{i}",
-                gene=gene,
-                game_description=self.config.game_description,
-                strategy_class=strategy_class
-            )
-            players.append(player)
-        return players
-
     def _create_offspring(self,
                          fitnesses: np.ndarray,
-                         n_offspring: int) -> list[tuple[Gene, type[BaseStrategy]]]:
+                         n_offspring: int) -> list[StrategySpec]:
         """
         Create offspring via fitness-proportional selection and mutation.
 
@@ -132,7 +119,7 @@ class CulturalEvolutionTournament:
             n_offspring: Number of offspring to create
 
         Returns:
-            List of (gene, strategy_class) tuples for offspring
+            List of StrategySpec for offspring
         """
         # Fitness-proportional probabilities
         # Games must have at least one player having positive payoffs, and no negative payoffs
@@ -143,7 +130,7 @@ class CulturalEvolutionTournament:
         parent_indices = np.random.choice(len(self.population), size=n_offspring, p=probabilities)
 
         # Create offspring
-        offspring = []
+        offspring: list[StrategySpec] = []
         for idx in parent_indices:
             parent_gene, _ = self.population[idx]
 
@@ -151,9 +138,9 @@ class CulturalEvolutionTournament:
             child_gene = self._mutate(parent_gene)
 
             # Sample new strategy for child
-            child_strategy = self.registry.sample_strategy(child_gene)
+            child_spec = self.registry.sample_spec(child_gene)
 
-            offspring.append((child_gene, child_strategy))
+            offspring.append(child_spec)
 
         return offspring
 
@@ -177,8 +164,8 @@ class CulturalEvolutionTournament:
     def _calculate_gene_frequencies(self) -> dict[Gene, float]:
         """Calculate current gene frequencies."""
         counts: dict[Gene, float] = {}
-        for gene, _ in self.population:
-            counts[gene] = counts.get(gene, 0) + 1
+        for individual in self.population:
+            counts[individual.gene] = counts.get(individual.gene, 0) + 1
 
         return {gene: count / len(self.population)
                 for gene, count in counts.items()}

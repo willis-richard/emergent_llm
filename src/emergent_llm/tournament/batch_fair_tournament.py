@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 
 from emergent_llm.common import Attitude, GameDescription, Gene, COOPERATIVE
-from emergent_llm.players import BaseStrategy, LLMPlayer
+from emergent_llm.players import BaseStrategy, LLMPlayer, StrategySpec
 from emergent_llm.tournament.configs import (BaseTournamentConfig,
                                              BatchTournamentConfig)
 from emergent_llm.tournament.fair_tournament import FairTournament
@@ -16,7 +16,7 @@ class BatchFairTournament:
     """Tournament that tests strategy generalization across multiple group sizes."""
 
     def __init__(self,
-                 strategies: list[tuple[Gene, type[BaseStrategy]]],
+                 strategies: list[StrategySpec],
                  config: BatchTournamentConfig):
 
         self.strategies = strategies
@@ -53,7 +53,8 @@ class BatchFairTournament:
                 repetitions=self.config.repetitions
             )
 
-            players = self.create_players_from_strategies(game_description)
+            players = [spec.create_player(f"player_{i}", game_description)
+                       for i, spec in enumerate(self.strategies)]
 
             # Run fair tournament for this group size
             fair_tournament = FairTournament(players, tournament_config)
@@ -61,18 +62,3 @@ class BatchFairTournament:
             self.results[group_size] = result
 
         return BatchFairTournamentResults(self.config, self.results)
-
-    def create_players_from_strategies(self, game_description: GameDescription) -> list[LLMPlayer]:
-        """Create player instances from strategy classes."""
-        players = []
-
-        for i, (gene, strategy_class) in enumerate(self.strategies):
-            player = LLMPlayer(
-                name=f"player_{i}",
-                gene=gene,
-                game_description=game_description,
-                strategy_class=strategy_class
-            )
-            players.append(player)
-
-        return players

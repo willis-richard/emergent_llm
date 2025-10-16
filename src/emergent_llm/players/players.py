@@ -1,5 +1,6 @@
 """Player classes for social dilemma experiments."""
 import logging
+from dataclasses import dataclass
 from typing import Callable
 
 from emergent_llm.common import (Action, Attitude, GameDescription, GameState,
@@ -104,3 +105,22 @@ class SimplePlayer(BasePlayer):
     def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
         """Execute the strategy function (ignoring game context)."""
         return self.strategy_function()
+
+
+@dataclass(frozen=True)
+class StrategySpec:
+    """Associates a strategy class with its generating gene."""
+    gene: Gene
+    strategy_class: type[BaseStrategy]
+
+    def create_player(self, name: str, game_description: GameDescription) -> LLMPlayer:
+        """Convenience method to create a player from this spec."""
+        return LLMPlayer(
+            name=name,
+            gene=self.gene,
+            game_description=game_description,
+            strategy_class=self.strategy_class
+        )
+
+    def __str__(self) -> str:
+        return f"{self.gene}:{self.strategy_class.__name__}"

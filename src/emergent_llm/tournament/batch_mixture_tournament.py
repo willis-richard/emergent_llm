@@ -9,7 +9,7 @@ from pathlib import Path
 
 from emergent_llm.games.base_game import BaseGame
 from emergent_llm.common import GameDescription, Attitude, Gene
-from emergent_llm.players import BasePlayer, LLMPlayer, BaseStrategy
+from emergent_llm.players import BasePlayer, LLMPlayer, BaseStrategy, StrategySpec
 from emergent_llm.tournament.configs import BatchTournamentConfig
 from emergent_llm.tournament.mixture_tournament import MixtureTournament
 from emergent_llm.tournament.base_tournament import BaseTournamentConfig
@@ -20,8 +20,8 @@ class BatchMixtureTournament:
     """Tournament that runs mixture tournaments across multiple group sizes."""
 
     def __init__(self,
-                 cooperative_strategies: list[tuple[Gene, type[BaseStrategy]]],
-                 aggressive_strategies: list[tuple[Gene, type[BaseStrategy]]],
+                 cooperative_strategies: list[StrategySpec],
+                 aggressive_strategies: list[StrategySpec],
                  config: BatchTournamentConfig):
 
         self.cooperative_strategies = cooperative_strategies
@@ -58,8 +58,10 @@ class BatchMixtureTournament:
                 repetitions=self.config.repetitions
             )
 
-            # Create players
-            cooperative_players, aggressive_players = self.create_players_from_strategies(game_description)
+            cooperative_players = [spec.create_player(f"{spec.gene.attitude}_{i}", game_description)
+                                   for i, spec in enumerate(self.cooperative_strategies)]
+            aggressive_players  = [spec.create_player(f"{spec.gene.attitude}_{i}", game_description)
+                                   for i, spec in enumerate(self.aggressive_strategies)]
 
             # Run mixture tournament for this group size
             mixture_tournament = MixtureTournament(
@@ -72,28 +74,3 @@ class BatchMixtureTournament:
             self.all_results[group_size] = result
 
         return BatchMixtureTournamentResults(self.config, self.all_results)
-
-    def create_players_from_strategies(self, game_description: GameDescription) -> tuple[list[LLMPlayer], list[LLMPlayer]]:
-        """Create player instances from strategy classes."""
-        cooperative_players = []
-        aggressive_players = []
-
-        for i, (gene, strategy_class) in enumerate(self.cooperative_strategies):
-            player = LLMPlayer(
-                name=f"{gene.attitude}_{i}",
-                gene=gene,
-                game_description=game_description,
-                strategy_class=strategy_class
-            )
-            cooperative_players.append(player)
-
-        for i, (gene, strategy_class) in enumerate(self.aggressive_strategies):
-            player = LLMPlayer(
-                name=f"{gene.attitude}_{i}",
-                gene=gene,
-                game_description=game_description,
-                strategy_class=strategy_class
-            )
-            aggressive_players.append(player)
-
-        return cooperative_players, aggressive_players
