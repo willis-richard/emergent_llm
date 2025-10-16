@@ -3,17 +3,11 @@ import random
 
 from emergent_llm.players import LLMPlayer
 from emergent_llm.tournament.base_tournament import BaseTournament
-from emergent_llm.tournament.configs import BaseTournamentConfig
+from emergent_llm.tournament.configs import BaseTournamentConfig, MixtureKey
 from emergent_llm.tournament.results import MixtureTournamentResults
 
 
 from dataclasses import dataclass, asdict, fields
-
-
-@dataclass
-class MixtureKey:
-    n_cooperative: int
-    n_aggressive: int
 
 
 class MixtureTournament(BaseTournament):

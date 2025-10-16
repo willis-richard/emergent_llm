@@ -15,8 +15,8 @@ from emergent_llm.games import (CollectiveRiskDescription,
                                 CommonPoolDescription, PublicGoodsDescription)
 from emergent_llm.tournament.configs import (BaseTournamentConfig,
                                              BatchTournamentConfig,
-                                             CulturalEvolutionConfig)
-from emergent_llm.tournament.mixture_tournament import MixtureKey
+                                             CulturalEvolutionConfig,
+                                             MixtureKey)
 from matplotlib.ticker import MaxNLocator, MultipleLocator
 
 
@@ -398,7 +398,7 @@ class MixtureTournamentResults:
 
 
         # Ensure output directory exists
-        output_file = output_dir / f"schelling_n_{group_size}.{FORMAT}"
+        output_file = Path(output_dir) / f"schelling_n_{group_size}.{FORMAT}"
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Save plot

@@ -8,6 +8,12 @@ from emergent_llm.games import (BaseGame, CollectiveRiskDescription,
                                 PublicGoodsGame)
 
 
+@dataclass(frozen=True)
+class MixtureKey:
+    n_cooperative: int
+    n_aggressive: int
+
+
 @dataclass
 class BaseTournamentConfig:
     game_description: GameDescription

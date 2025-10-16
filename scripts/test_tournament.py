@@ -15,8 +15,7 @@ from emergent_llm.games.public_goods import PublicGoodsGame
 from emergent_llm.games.collective_risk import CollectiveRiskGame
 from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription
 from emergent_llm.players import SimplePlayer, LLMPlayer
-from emergent_llm.common.actions import C, D
-from emergent_llm.common.attitudes import COOPERATIVE, AGGRESSIVE
+from emergent_llm.common import C, D, Gene, COOPERATIVE, AGGRESSIVE
 
 # Setup logging
 logging.basicConfig(
@@ -28,11 +27,11 @@ logging.basicConfig(
     ]
 )
 
-def cooperative_strategy(history):
-    return lambda x: C
+def cooperative_strategy(history, state=None):
+    return lambda x, y=None: C
 
-def aggressive_strategy(history):
-    return lambda x: D
+def aggressive_strategy(history, state=None):
+    return lambda x, y=None: D
 
 
 def create_test_population(game_description):
@@ -43,7 +42,7 @@ def create_test_population(game_description):
     for i in range(18):
         cooperative_players.append(LLMPlayer(
             name=f"llm_coop_{i}",
-            attitude=COOPERATIVE,
+            gene=Gene("", COOPERATIVE),
             game_description=game_description,
             strategy_class=cooperative_strategy,
         ))
@@ -53,7 +52,7 @@ def create_test_population(game_description):
     for i in range(18):
         aggressive_players.append(LLMPlayer(
             name=f"llm_aggr_{i}",
-            attitude=AGGRESSIVE,
+            gene=Gene("", AGGRESSIVE),
             game_description=game_description,
             strategy_class=aggressive_strategy,
         ))
@@ -100,10 +99,12 @@ def run_batch_fair_tournament(generator_name):
         generator_name=generator_name
     )
 
+    strategies = [cooperative_strategy] * 16 + [aggressive_strategy] * 16
+    genes = [Gene("", COOPERATIVE)] * 16+ [Gene("", AGGRESSIVE)] * 16
+
     # Create and run tournament
     tournament = BatchFairTournament(
-        cooperative_strategies=[cooperative_strategy]*16,
-        aggressive_strategies=[aggressive_strategy]*16,
+        strategies=[(g, s) for g, s in zip(genes, strategies)],
         config=config
     )
 
@@ -120,8 +121,8 @@ def run_batch_mixture_tournament(generator_name):
 
     # Create and run tournament
     tournament = BatchMixtureTournament(
-        cooperative_strategies=[cooperative_strategy]*16,
-        aggressive_strategies=[aggressive_strategy]*16,
+        cooperative_strategies=[(Gene("", COOPERATIVE), cooperative_strategy)]*16,
+        aggressive_strategies=[(Gene("", AGGRESSIVE), aggressive_strategy)]*16,
         config=config
     )
 

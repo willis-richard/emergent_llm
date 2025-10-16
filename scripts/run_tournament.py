@@ -12,14 +12,11 @@ from pathlib import Path
 src_path = Path(__file__).parent.parent / "src"
 sys.path.insert(0, str(src_path))
 
-from emergent_llm.tournament import (BatchFairTournament, BatchTournamentConfig,
-                                     BatchMixtureTournament)
-from emergent_llm.players.base_player import BaseStrategy
-from emergent_llm.common import GameDescription
-from emergent_llm.players import LLMPlayer, BasePlayer
-from emergent_llm.common import Attitude
-from emergent_llm.games import (PublicGoodsGame, PublicGoodsDescription, CollectiveRiskGame,
-                                CollectiveRiskDescription, CommonPoolGame, CommonPoolDescription)
+from emergent_llm.games import (CollectiveRiskGame, CommonPoolGame,
+                                PublicGoodsGame)
+from emergent_llm.players import BaseStrategy
+from emergent_llm.tournament import (BatchMixtureTournament,
+                                     BatchTournamentConfig)
 
 
 def load_strategies_from_file(file_path: str):
@@ -152,12 +149,6 @@ def main():
         aggressive_strategies=aggressive_classes,
         config=config
     )
-
-    # tournament = BatchFairTournament(
-    #     cooperative_strategies=cooperative_classes,
-    #     aggressive_strategies=aggressive_classes,
-    #     config=config
-    # )
 
     print("\nRunning tournament...")
     results = tournament.run_tournament()
