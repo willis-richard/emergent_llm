@@ -1,13 +1,16 @@
 """Cultural evolution tournament with genetic drift and selection."""
 import logging
 import random
+from collections import Counter
+from math import ceil
 
 import numpy as np
 from emergent_llm.common import Gene
 from emergent_llm.generation.strategy_registry import StrategyRegistry
-from emergent_llm.players import LLMPlayer, BaseStrategy, StrategySpec
+from emergent_llm.players import BaseStrategy, LLMPlayer, StrategySpec
+from emergent_llm.tournament.configs import (BaseTournamentConfig,
+                                             CulturalEvolutionConfig)
 from emergent_llm.tournament.fair_tournament import FairTournament
-from emergent_llm.tournament.configs import BaseTournamentConfig, CulturalEvolutionConfig
 from emergent_llm.tournament.results import CulturalEvolutionResults
 
 
@@ -28,18 +31,18 @@ class CulturalEvolutionTournament:
         self.registry = strategy_registry
         self.logger = logging.getLogger(__name__)
 
-        # Validate genes have strategies
-        self.registry.validate_genes(config.genes)
+        self.genes = self.registry.available_genes()
 
         # Initialise with uniform distribution over genes
-        self.population: list[StrategySpec] = []
-        for i in range(config.population_size):
-            gene = config.genes[i % len(config.genes)]
-            spec = self.registry.sample_spec(gene)
-            self.population.append(spec)
+        self.population: [self.registry.sample_spec(gene)
+                          for gene in self.genes
+                          for _ in range(ceil(config.population_size / len(self.genes)))]
         random.shuffle(self.population)
+        self.population = self.population[:config.population_size]
 
-        # Track history
+        self.reset()
+
+    def reset(self):
         self.generation = 0
         self.gene_frequencies: list[dict[Gene, float]] = []
         self.generation_results: list = []
@@ -95,14 +98,11 @@ class CulturalEvolutionTournament:
         # Calculate fitness array (mean payoff)
         fitnesses = np.array([stats.mean_payoff for stats in results.player_stats.values()])
 
-        # Get indices sorted by fitness (descending)
-        sorted_indices = np.argsort(fitnesses)[::-1]
-
-        # Selection: keep top K individuals
-        survivor_indices = sorted_indices[:self.config.top_k]
+        # Selection: keep top K by argsort (already efficient)
+        survivor_indices = np.argsort(fitnesses)[-self.config.top_k:]
         survivors = [self.population[i] for i in survivor_indices]
 
-        # Reproduction: vectorized offspring generation
+        # Reproduction
         n_offspring = self.config.population_size - self.config.top_k
         offspring = self._create_offspring(fitnesses, n_offspring)
 
@@ -132,7 +132,7 @@ class CulturalEvolutionTournament:
         # Create offspring
         offspring: list[StrategySpec] = []
         for idx in parent_indices:
-            parent_gene, _ = self.population[idx]
+            parent_gene = self.population[idx].gene
 
             # Mutation
             child_gene = self._mutate(parent_gene)
@@ -163,12 +163,9 @@ class CulturalEvolutionTournament:
 
     def _calculate_gene_frequencies(self) -> dict[Gene, float]:
         """Calculate current gene frequencies."""
-        counts: dict[Gene, float] = {}
-        for individual in self.population:
-            counts[individual.gene] = counts.get(individual.gene, 0) + 1
-
-        return {gene: count / len(self.population)
-                for gene, count in counts.items()}
+        gene_counts = Counter(spec.gene for spec in self.population)
+        total = len(self.population)
+        return {gene: count / total for gene, count in gene_counts.items()}
 
     def _check_threshold(self, frequencies: dict[Gene, float]) -> bool:
         """Check if any gene has reached threshold."""

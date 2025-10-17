@@ -114,6 +114,11 @@ class StrategyRegistry:
         """Get set of all genes with loaded strategies."""
         return set(self.strategies.keys())
 
+    @property
+    def available_provider_models(self) -> set[str]:
+        """Get set of all provider models with loaded strategies."""
+        return set(gene.provider_model for gene in self.available_genes)
+
     def count_strategies(self, gene: Gene) -> int:
         """Count number of strategies available for a gene."""
         return len(self.strategies.get(gene, []))

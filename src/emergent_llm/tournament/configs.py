@@ -100,7 +100,6 @@ class CulturalEvolutionConfig:
     """Configuration for cultural evolution tournament."""
     game_description: GameDescription
     population_size: int
-    genes: list[Gene]  # Available genes to start with
     top_k: int  # Number of survivors each generation
     mutation_rate: float  # Probability of mutation during reproduction
     threshold_pct: float  # Terminate when any gene reaches this % (0-1)
@@ -134,6 +133,3 @@ class CulturalEvolutionConfig:
 
         if self.repetitions_per_generation <= 0:
             raise ValueError("repetitions_per_generation must be positive")
-
-        if not self.genes:
-            raise ValueError("genes list cannot be empty")
