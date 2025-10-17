@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 
 from emergent_llm.common import Gene, Attitude, COOPERATIVE, AGGRESSIVE
-from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription, CommonPoolDescription
+from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription, CommonPoolDescription, STANDARD_GENERATORS
 from emergent_llm.generation.strategy_registry import StrategyRegistry
 from emergent_llm.tournament.configs import CulturalEvolutionConfig
 from emergent_llm.tournament.cultural_evolution import CulturalEvolutionTournament
@@ -33,8 +33,6 @@ def parse_args():
                        help='Game type')
     parser.add_argument('--strategies_dir', type=str, default='strategies',
                        help='Base directory containing strategy files')
-    parser.add_argument('--provider_models', type=str, nargs='+', required=True,
-                       help='Provider model names (e.g., anthropic_claude-sonnet-4)')
 
     # Game parameters
     parser.add_argument('--n_players', type=int, default=12,
@@ -49,11 +47,11 @@ def parse_args():
                        help='Number of survivors per generation')
     parser.add_argument('--mutation_rate', type=float, default=0.1,
                        help='Probability of mutation')
-    parser.add_argument('--threshold_pct', type=float, default=0.9,
+    parser.add_argument('--threshold_pct', type=float, default=0.8,
                        help='Termination threshold (0-1)')
     parser.add_argument('--max_generations', type=int, default=100,
                        help='Maximum number of generations')
-    parser.add_argument('--repetitions', type=int, default=1,
+    parser.add_argument('--repetitions', type=int, default=5,
                        help='Games per player per generation')
 
     # Output
@@ -103,7 +101,6 @@ def main():
 
     logger.info("Starting cultural evolution experiment")
     logger.info(f"Game: {args.game}")
-    logger.info(f"Provider models: {args.provider_models}")
 
     # Load strategies
     logger.info("Loading strategies...")
@@ -112,23 +109,14 @@ def main():
         game_name=args.game
     )
 
-    # Create genes (all combinations of provider_model x attitude)
-    genes = []
-    for provider_model in args.provider_models:
-        genes.append(Gene(provider_model, COOPERATIVE))
-        genes.append(Gene(provider_model, AGGRESSIVE))
-
-    logger.info(f"Created {len(genes)} genes: {genes}")
-
     # Create game description
-    game_description = create_game_description(args)
+    game_description = STANDARD_GENERATORS[f"{args.game}_default"](args.n_players, args.n_rounds)
     logger.info(f"Game description: {game_description}")
 
     # Create tournament config
     config = CulturalEvolutionConfig(
         game_description=game_description,
         population_size=args.population_size,
-        genes=genes,
         top_k=args.top_k,
         mutation_rate=args.mutation_rate,
         threshold_pct=args.threshold_pct,

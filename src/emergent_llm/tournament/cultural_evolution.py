@@ -31,12 +31,12 @@ class CulturalEvolutionTournament:
         self.registry = strategy_registry
         self.logger = logging.getLogger(__name__)
 
-        self.genes = self.registry.available_genes()
+        genes = self.registry.available_genes
 
         # Initialise with uniform distribution over genes
-        self.population: [self.registry.sample_spec(gene)
-                          for gene in self.genes
-                          for _ in range(ceil(config.population_size / len(self.genes)))]
+        self.population = [self.registry.sample_spec(gene)
+                           for gene in genes
+                           for _ in range(ceil(config.population_size / len(genes)))]
         random.shuffle(self.population)
         self.population = self.population[:config.population_size]
 

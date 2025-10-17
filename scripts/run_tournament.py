@@ -13,23 +13,11 @@ src_path = Path(__file__).parent.parent / "src"
 sys.path.insert(0, str(src_path))
 
 from emergent_llm.games import (CollectiveRiskGame, CommonPoolGame,
-                                PublicGoodsGame)
+                                PublicGoodsGame, get_game_class)
 from emergent_llm.players import BaseStrategy
 from emergent_llm.tournament import (BatchMixtureTournament,
                                      BatchTournamentConfig)
 from emergent_llm.generation import StrategyRegistry
-
-
-def get_game_class(game_type: str):
-    """Get game class based on type."""
-    if game_type == "public_goods":
-        return PublicGoodsGame
-    elif game_type == "collective_risk":
-        return CollectiveRiskGame
-    elif game_type == "common_pool":
-        return CommonPoolGame
-    else:
-        raise ValueError(f"Unknown game type: {game_type}")
 
 
 def parse_arguments():

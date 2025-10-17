@@ -5,7 +5,7 @@ from emergent_llm.common import Gene, GameDescription
 from emergent_llm.games import (BaseGame, CollectiveRiskDescription,
                                 CollectiveRiskGame, CommonPoolDescription,
                                 CommonPoolGame, PublicGoodsDescription,
-                                PublicGoodsGame)
+                                PublicGoodsGame, STANDARD_GENERATORS)
 
 
 @dataclass(frozen=True)
@@ -80,19 +80,6 @@ class BatchTournamentConfig:
         """Load BatchTournamentConfig from dictionary data."""
         return cls(**data)  # Simple since all fields are basic types
 
-
-
-STANDARD_GENERATORS: dict[str, Callable[[int], GameDescription]] = {
-    'public_goods_default': lambda n: PublicGoodsDescription(
-        n_players=n, n_rounds=20, k=2.0
-    ),
-    'collective_risk_default': lambda n: CollectiveRiskDescription(
-        n_players=n, n_rounds=20, m=max(2, n//2), k=2.0
-    ),
-    'common_pool_default': lambda n: CommonPoolDescription(
-        n_players=n, n_rounds=20, capacity=n*4
-    ),
-}
 
 
 @dataclass
