@@ -14,7 +14,7 @@ from emergent_llm.tournament import (BatchFairTournament, BatchMixtureTournament
 from emergent_llm.games.public_goods import PublicGoodsGame
 from emergent_llm.games.collective_risk import CollectiveRiskGame
 from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription
-from emergent_llm.players import SimplePlayer, LLMPlayer
+from emergent_llm.players import SimplePlayer, LLMPlayer, StrategySpec
 from emergent_llm.common import C, D, Gene, COOPERATIVE, AGGRESSIVE
 
 # Setup logging
@@ -104,7 +104,7 @@ def run_batch_fair_tournament(generator_name):
 
     # Create and run tournament
     tournament = BatchFairTournament(
-        strategies=[(g, s) for g, s in zip(genes, strategies)],
+        strategies=[StrategySpec(g, s) for g, s in zip(genes, strategies)],
         config=config
     )
 
@@ -121,8 +121,8 @@ def run_batch_mixture_tournament(generator_name):
 
     # Create and run tournament
     tournament = BatchMixtureTournament(
-        cooperative_strategies=[(Gene("", COOPERATIVE), cooperative_strategy)]*16,
-        aggressive_strategies=[(Gene("", AGGRESSIVE), aggressive_strategy)]*16,
+        cooperative_strategies=[StrategySpec(Gene("", COOPERATIVE), cooperative_strategy)]*16,
+        aggressive_strategies=[StrategySpec(Gene("", AGGRESSIVE), aggressive_strategy)]*16,
         config=config
     )
 

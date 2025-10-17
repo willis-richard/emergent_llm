@@ -402,7 +402,7 @@ import random
             raise ValueError(f"Unknown game description type: {game_description_class}")
 
         # Create test player
-        player = LLMPlayer("test_player", Gene(None, None), game_description, strategy_class, max_errors=0)
+        player = LLMPlayer("test_player", Gene("dummy", COOPERATIVE), game_description, strategy_class, max_errors=0)
 
         class GradualDefector:
             def __init__(self, threshold=10):
@@ -694,11 +694,11 @@ import random
 
 
 def create_single_strategy_implementation(config: LLMConfig,
-                                        attitude: Attitude, n: int,
-                                        description: str,
-                                        game_description_class: type[GameDescription],
-                                        logger: logging.Logger,
-                                        max_retries: int = 3) -> str:
+                                          attitude: Attitude, n: int,
+                                          description: str,
+                                          game_description_class: type[GameDescription],
+                                          logger: logging.Logger,
+                                          max_retries: int = 3) -> str:
     """Create a single strategy implementation from description."""
 
     # Code generation with retry logic

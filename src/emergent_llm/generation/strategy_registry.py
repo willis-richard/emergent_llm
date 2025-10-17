@@ -76,6 +76,7 @@ class StrategyRegistry:
 
         Convenience method for batch tournaments that load one file.
         """
+        filepath = Path(filepath)
         if not filepath.exists():
             raise ValueError(f"Strategy file not found: {filepath}")
 

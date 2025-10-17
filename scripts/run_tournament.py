@@ -17,36 +17,7 @@ from emergent_llm.games import (CollectiveRiskGame, CommonPoolGame,
 from emergent_llm.players import BaseStrategy
 from emergent_llm.tournament import (BatchMixtureTournament,
                                      BatchTournamentConfig)
-
-
-def load_strategies_from_file(file_path: str):
-    """Load strategy classes and create player instances."""
-    if not file_path.endswith(".py"):
-        file_path += ".py"
-
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Strategy file not found: {file_path}")
-
-    # Load the module
-    spec = importlib.util.spec_from_file_location("strategies", file_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    # Extract strategy classes
-    cooperative_strategy_classes = []
-    aggressive_strategy_classes = []
-
-    for name, cls in inspect.getmembers(module):
-        if (inspect.isclass(cls) and
-            issubclass(cls, BaseStrategy) and
-            cls != BaseStrategy):
-
-            if "COOPERATIVE" in name:
-                cooperative_strategy_classes.append(cls)
-            elif "AGGRESSIVE" in name:
-                aggressive_strategy_classes.append(cls)
-
-    return cooperative_strategy_classes, aggressive_strategy_classes
+from emergent_llm.generation import StrategyRegistry
 
 
 def get_game_class(game_type: str):
@@ -122,12 +93,12 @@ def main():
 
     # Load strategy classes
     print(f"Loading strategies from {args.strategies}...")
-    cooperative_classes, aggressive_classes = load_strategies_from_file(args.strategies)
+    cooperative_specs, aggressive_specs = StrategyRegistry.load_file(args.strategies)
 
-    print(f"Found {len(cooperative_classes)} cooperative strategy classes")
-    print(f"Found {len(aggressive_classes)} aggressive strategy classes")
+    print(f"Found {len(cooperative_specs)} cooperative strategy classes")
+    print(f"Found {len(aggressive_specs)} aggressive strategy classes")
 
-    if not cooperative_classes or not aggressive_classes:
+    if not cooperative_specs or not aggressive_specs:
         raise ValueError("Need both cooperative and aggressive strategy classes")
 
     # Show parameter scaling
@@ -145,8 +116,8 @@ def main():
 
     # Create and run tournament
     tournament = BatchMixtureTournament(
-        cooperative_strategies=cooperative_classes,
-        aggressive_strategies=aggressive_classes,
+        cooperative_specs=cooperative_specs,
+        aggressive_specs=aggressive_specs,
         config=config
     )
 

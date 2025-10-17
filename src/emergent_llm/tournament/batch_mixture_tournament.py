@@ -20,27 +20,27 @@ class BatchMixtureTournament:
     """Tournament that runs mixture tournaments across multiple group sizes."""
 
     def __init__(self,
-                 cooperative_strategies: list[StrategySpec],
-                 aggressive_strategies: list[StrategySpec],
+                 cooperative_specs: list[StrategySpec],
+                 aggressive_specs: list[StrategySpec],
                  config: BatchTournamentConfig):
 
-        self.cooperative_strategies = cooperative_strategies
-        self.aggressive_strategies = aggressive_strategies
+        self.cooperative_specs = cooperative_specs
+        self.aggressive_specs = aggressive_specs
         self.config = config
 
         # Setup logging
         self.logger = logging.getLogger(__name__)
-        self.logger.info(f"Initialised multi-group tournament with {len(cooperative_strategies)} cooperative "
-                        f"and {len(aggressive_strategies)} aggressive strategies")
+        self.logger.info(f"Initialised multi-group tournament with {len(cooperative_specs)} cooperative "
+                        f"and {len(aggressive_specs)} aggressive strategies")
 
         # Validate we have enough strategies for largest group size
         max_group_size = max(config.group_sizes)
-        if len(cooperative_strategies) < max_group_size:
+        if len(cooperative_specs) < max_group_size:
             raise ValueError(f"Need at least {max_group_size} cooperative players for largest group size, "
-                           f"got {len(cooperative_strategies)}")
-        if len(aggressive_strategies) < max_group_size:
+                           f"got {len(cooperative_specs)}")
+        if len(aggressive_specs) < max_group_size:
             raise ValueError(f"Need at least {max_group_size} aggressive players for largest group size, "
-                           f"got {len(aggressive_strategies)}")
+                           f"got {len(aggressive_specs)}")
 
         self.all_results: dict[int, MixtureTournamentResults] = {}
 
@@ -59,9 +59,9 @@ class BatchMixtureTournament:
             )
 
             cooperative_players = [spec.create_player(f"{spec.gene.attitude}_{i}", game_description)
-                                   for i, spec in enumerate(self.cooperative_strategies)]
+                                   for i, spec in enumerate(self.cooperative_specs)]
             aggressive_players  = [spec.create_player(f"{spec.gene.attitude}_{i}", game_description)
-                                   for i, spec in enumerate(self.aggressive_strategies)]
+                                   for i, spec in enumerate(self.aggressive_specs)]
 
             # Run mixture tournament for this group size
             mixture_tournament = MixtureTournament(
