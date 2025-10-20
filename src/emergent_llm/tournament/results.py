@@ -781,13 +781,13 @@ class CulturalEvolutionResults:
         return cls.from_dict(data)
 
     def plots(self, output_dir: str | Path):
-        Path(output_dir).parent.mkdir(parents=True, exist_ok=True)
+        output_dir = Path(output_dir)
+        output_dir.parent.mkdir(parents=True, exist_ok=True)
         self.plot_gene_frequencies(output_dir)
         self.plot_evolution_metrics(output_dir)
 
     def plot_gene_frequencies(self, output_dir: str | Path):
         """Plot gene frequency evolution over generations."""
-        import matplotlib.pyplot as plt
 
         # Collect all unique genes
         all_genes = set()
@@ -810,7 +810,8 @@ class CulturalEvolutionResults:
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
 
-        Path(output_dir).parent.mkdir(parents=True, exist_ok=True)
+        output_dir = Path(output_dir)
+        output_dir.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(output_dir / "gene_frequencies.png")
         plt.close()
 
@@ -832,17 +833,6 @@ class CulturalEvolutionResults:
             coop_props.append(coop_prop)
             agg_props.append(1 - coop_prop)
 
-        # Average cooperation from generation results
-        avg_cooperations = []
-        for gen_result in self.generation_results:
-            total_rounds = self.config.game_description.n_rounds
-            avg_coop = np.mean([
-                stats.mean_cooperations / total_rounds
-                for stats in gen_result.player_stats.values()
-            ])
-            avg_cooperations.append(avg_coop)
-
-        # Plot 1: Attitude proportions
         fig, ax = plt.subplots(figsize=(8, 5))
         ax.plot(generations, coop_props, label='Cooperative', marker='o')
         ax.plot(generations, agg_props, label='Aggressive', marker='s')
@@ -854,7 +844,16 @@ class CulturalEvolutionResults:
         fig.savefig(output_dir / 'attitude_evolution.png', bbox_inches='tight')
         plt.close()
 
-        # Plot 2: Average cooperation rate
+        # Average cooperation from generation results
+        avg_cooperations = []
+        for gen_result in self.generation_results:
+            total_rounds = self.config.game_description.n_rounds
+            avg_coop = np.mean([
+                stats.mean_cooperations / total_rounds
+                for stats in gen_result.player_stats.values()
+            ])
+            avg_cooperations.append(avg_coop)
+
         if avg_cooperations:
             fig, ax = plt.subplots(figsize=(8, 5))
             ax.plot(range(len(avg_cooperations)), avg_cooperations, marker='o', color='green')

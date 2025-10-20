@@ -16,7 +16,7 @@ def setup_logging(log_file: Path):
 
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[
             logging.FileHandler(log_file),
             logging.StreamHandler()
@@ -26,57 +26,57 @@ def setup_logging(log_file: Path):
 
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description='Run cultural evolution tournament')
+    parser = argparse.ArgumentParser(description="Run cultural evolution tournament")
 
-    parser.add_argument('--game', type=str, required=True,
-                       choices=['public_goods', 'collective_risk', 'common_pool'],
-                       help='Game type')
-    parser.add_argument('--strategies_dir', type=str, default='strategies',
-                       help='Base directory containing strategy files')
+    parser.add_argument("--game", type=str, required=True,
+                       choices=["public_goods", "collective_risk", "common_pool"],
+                       help="Game type")
+    parser.add_argument("--strategies_dir", type=str, default="strategies",
+                       help="Base directory containing strategy files")
 
     # Game parameters
-    parser.add_argument('--n_players', type=int, default=12,
-                       help='Number of players per game')
-    parser.add_argument('--n_rounds', type=int, default=20,
-                       help='Number of rounds per game')
+    parser.add_argument("--n_players", type=int, default=12,
+                       help="Number of players per game")
+    parser.add_argument("--n_rounds", type=int, default=20,
+                       help="Number of rounds per game")
 
     # Evolution parameters
-    parser.add_argument('--population_size', type=int, default=48,
-                       help='Total population size')
-    parser.add_argument('--top_k', type=int, default=12,
-                       help='Number of survivors per generation')
-    parser.add_argument('--mutation_rate', type=float, default=0.1,
-                       help='Probability of mutation')
-    parser.add_argument('--threshold_pct', type=float, default=0.8,
-                       help='Termination threshold (0-1)')
-    parser.add_argument('--max_generations', type=int, default=100,
-                       help='Maximum number of generations')
-    parser.add_argument('--repetitions', type=int, default=5,
-                       help='Games per player per generation')
+    parser.add_argument("--population_size", type=int, default=48,
+                       help="Total population size")
+    parser.add_argument("--top_k", type=int, default=12,
+                       help="Number of survivors per generation")
+    parser.add_argument("--mutation_rate", type=float, default=0.1,
+                       help="Probability of mutation")
+    parser.add_argument("--threshold_pct", type=float, default=0.8,
+                       help="Termination threshold (0-1)")
+    parser.add_argument("--max_generations", type=int, default=100,
+                       help="Maximum number of generations")
+    parser.add_argument("--repetitions", type=int, default=5,
+                       help="Games per player per generation")
 
     # Output
-    parser.add_argument('--output_dir', type=str, default='results/cultural_evolution',
-                       help='Output directory for results')
+    parser.add_argument("--output_dir", type=str, default="results/cultural_evolution",
+                       help="Output directory for results")
 
     return parser.parse_args()
 
 
 def create_game_description(args):
     """Create game description from arguments."""
-    if args.game == 'public_goods':
+    if args.game == "public_goods":
         return PublicGoodsDescription(
             n_players=args.n_players,
             n_rounds=args.n_rounds,
             k=2.0
         )
-    elif args.game == 'collective_risk':
+    elif args.game == "collective_risk":
         return CollectiveRiskDescription(
             n_players=args.n_players,
             n_rounds=args.n_rounds,
             m=max(2, args.n_players // 2),
             k=2.0
         )
-    elif args.game == 'common_pool':
+    elif args.game == "common_pool":
         return CommonPoolDescription(
             n_players=args.n_players,
             n_rounds=args.n_rounds,
@@ -91,11 +91,11 @@ def main():
     args = parse_args()
 
     # Setup output directory
-    output_dir = Path(args.output_dir)
+    output_dir = Path(args.output_dir) / args.game
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Setup logging
-    log_file = output_dir / 'cultural_evolution.log'
+    log_file = output_dir / "logs" / "cultural_evolution.log"
     setup_logging(log_file)
     logger = logging.getLogger(__name__)
 
@@ -131,15 +131,12 @@ def main():
 
     # Save results
     logger.info("Saving results...")
-    results_file = output_dir / 'results.json'
+    results_file = output_dir / "results.json"
     results.save(str(results_file))
-    logger.info(f"Results saved to {results_file}")
 
     # Plot gene frequencies
     logger.info("Creating plots...")
-    plot_file = output_dir / 'gene_frequencies.png'
-    results.plot_gene_frequencies(str(plot_file))
-    logger.info(f"Plot saved to {plot_file}")
+    results.plots(output_dir)
 
     # Print summary
     print("\n" + "="*60)
@@ -149,5 +146,5 @@ def main():
     logger.info("Experiment complete")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
