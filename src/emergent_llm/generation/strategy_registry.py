@@ -9,13 +9,23 @@ from emergent_llm.players import BaseStrategy, StrategySpec
 
 
 class StrategyRegistry:
-    """Registry of StrategySpecs (gene + strategy class pairs)."""
-
-    def __init__(self, strategies_dir: Path, game_name: str):
+    def __init__(self,
+                 strategies_dir: Path,
+                 game_name: str,
+                 provider_models: list[str] | None = None):
+        """
+        Args:
+            strategies_dir: Base directory containing strategy files
+            game_name: Name of game subdirectory
+            provider_models: Optional list of "provider_model" strings to filter by.
+                             If None, loads all strategies.
+                             Format: ["anthropic_claude-sonnet-4", ...]
+        """
         self.game_dir = strategies_dir / game_name
         if not self.game_dir.exists():
             raise ValueError(f"Game directory not found: {self.game_dir}")
 
+        self.provider_models_filter = set(provider_models) if provider_models else None
         # Store StrategySpecs directly, keyed by Gene
         self.strategies: dict[Gene, list[StrategySpec]] = {}
         self._load_all_strategies()
@@ -24,6 +34,10 @@ class StrategyRegistry:
         """Load all strategy files in the game directory."""
         for strategy_file in self.game_dir.glob("*.py"):
             if "description" in strategy_file.name or strategy_file.name.startswith("__"):
+                continue
+
+            # Filter by provider_model if specified
+            if self.provider_models_filter is not None and strategy_file.stem not in self.provider_models_filter:
                 continue
 
             specs = self._load_specs_from_file(strategy_file)

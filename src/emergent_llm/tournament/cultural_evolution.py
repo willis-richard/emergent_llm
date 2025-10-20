@@ -57,7 +57,8 @@ class CulturalEvolutionTournament:
             # Record gene frequencies
             frequencies = self._calculate_gene_frequencies()
             self.gene_frequencies.append(frequencies)
-            self.logger.info(f"Gene frequencies: {frequencies}")
+            freq_str = ", ".join(f"{gene}: {freq:.2%}" for gene, freq in frequencies.items())
+            self.logger.info(f"Gene frequencies: {freq_str}")
 
             # Check termination
             if self._check_threshold(frequencies):
@@ -162,10 +163,15 @@ class CulturalEvolutionTournament:
         return Gene(gene.provider_model, gene.attitude.flip())
 
     def _calculate_gene_frequencies(self) -> dict[Gene, float]:
-        """Calculate current gene frequencies."""
+        """Calculate current gene frequencies in descending order."""
         gene_counts = Counter(spec.gene for spec in self.population)
         total = len(self.population)
-        return {gene: count / total for gene, count in gene_counts.items()}
+        # Return as sorted dict
+        return dict(sorted(
+            ((gene, count / total) for gene, count in gene_counts.items()),
+            key=lambda x: x[1],
+            reverse=True
+        ))
 
     def _check_threshold(self, frequencies: dict[Gene, float]) -> bool:
         """Check if any gene has reached threshold."""
