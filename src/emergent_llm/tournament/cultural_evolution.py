@@ -40,6 +40,8 @@ class CulturalEvolutionTournament:
         random.shuffle(self.population)
         self.population = self.population[:config.population_size]
 
+        self.logger.debug(f"Population\n" + "\n".join(map(str, self.population)))
+
         self.reset()
 
     def reset(self):
@@ -86,6 +88,7 @@ class CulturalEvolutionTournament:
         # Create players from current population (using existing strategies)
         players = [spec.create_player(f"player_{i}", self.config.game_description)
                    for i, spec in enumerate(self.population)]
+        self.logger.debug(f"Players created:\n" + "\n".join(map(str, players)))
 
         # Run fair tournament
         fair_config = BaseTournamentConfig(
@@ -95,17 +98,22 @@ class CulturalEvolutionTournament:
         tournament = FairTournament(players, fair_config)
         results = tournament.run_tournament()
         self.generation_results.append(results)
+        self.logger.debug(results.results_df)
 
         # Calculate fitness array (mean payoff)
-        fitnesses = np.array([stats.mean_payoff for stats in results.player_stats.values()])
+        player_scores = results.results_df.set_index('player_name')['mean_payoff'].to_dict()
+        fitnesses = np.array([player_scores[p.id.name] for p in players])
+        self.logger.debug(f"Fitnesses: {fitnesses}")
 
         # Selection: keep top K by argsort (already efficient)
         survivor_indices = np.argsort(fitnesses)[-self.config.top_k:]
         survivors = [self.population[i] for i in survivor_indices]
+        self.logger.debug(f"Survivors:\n" +"\n".join(map(str, survivors)))
 
         # Reproduction
         n_offspring = self.config.population_size - self.config.top_k
         offspring = self._create_offspring(fitnesses, n_offspring)
+        self.logger.debug(f"Offspring:\n" +"\n".join(map(str, offspring)))
 
         self.population = survivors + offspring
 
@@ -126,9 +134,11 @@ class CulturalEvolutionTournament:
         # Games must have at least one player having positive payoffs, and no negative payoffs
         # so there are no division by zero or negative issues
         probabilities = fitnesses / fitnesses.sum()
+        self.logger.debug(f"Probabilities: {probabilities}")
 
         # Sample parents (with replacement)
         parent_indices = np.random.choice(len(self.population), size=n_offspring, p=probabilities)
+        self.logger.debug(f"Parent indices: {parent_indices}")
 
         # Create offspring
         offspring: list[StrategySpec] = []

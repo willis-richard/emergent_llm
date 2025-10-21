@@ -10,12 +10,12 @@ from emergent_llm.tournament.configs import CulturalEvolutionConfig
 from emergent_llm.tournament.cultural_evolution import CulturalEvolutionTournament
 
 
-def setup_logging(log_file: Path):
+def setup_logging(log_file: Path, loglevel=logging.INFO):
     """Setup logging configuration."""
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
     logging.basicConfig(
-        level=logging.INFO,
+        level=loglevel,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[
             logging.FileHandler(log_file),
@@ -33,21 +33,23 @@ def parse_args():
                        help="Game type")
     parser.add_argument("--strategies_dir", type=str, default="strategies",
                        help="Base directory containing strategy files")
+    parser.add_argument("--provider_models", nargs='*', default=None,
+                       help="List of provider_models to use, filter out all others in the dir")
 
     # Game parameters
-    parser.add_argument("--n_players", type=int, default=12,
+    parser.add_argument("--n_players", type=int, default=16,
                        help="Number of players per game")
     parser.add_argument("--n_rounds", type=int, default=20,
                        help="Number of rounds per game")
 
     # Evolution parameters
-    parser.add_argument("--population_size", type=int, default=48,
+    parser.add_argument("--population_size", type=int, default=128,
                        help="Total population size")
-    parser.add_argument("--top_k", type=int, default=12,
+    parser.add_argument("--top_k", type=int, default=16,
                        help="Number of survivors per generation")
     parser.add_argument("--mutation_rate", type=float, default=0.1,
                        help="Probability of mutation")
-    parser.add_argument("--threshold_pct", type=float, default=0.8,
+    parser.add_argument("--threshold_pct", type=float, default=0.75,
                        help="Termination threshold (0-1)")
     parser.add_argument("--max_generations", type=int, default=100,
                        help="Maximum number of generations")
@@ -57,6 +59,12 @@ def parse_args():
     # Output
     parser.add_argument("--output_dir", type=str, default="results/cultural_evolution",
                        help="Output directory for results")
+    parser.add_argument(
+        '-d', '--debug',
+        help="Print lots of debugging statements",
+        action="store_const", dest="loglevel", const=logging.DEBUG,
+        default=logging.INFO,
+    )
 
     return parser.parse_args()
 
@@ -96,17 +104,21 @@ def main():
 
     # Setup logging
     log_file = output_dir / "logs" / "cultural_evolution.log"
-    setup_logging(log_file)
+    setup_logging(log_file, args.loglevel)
     logger = logging.getLogger(__name__)
 
     logger.info("Starting cultural evolution experiment")
     logger.info(f"Game: {args.game}")
 
+    print(f"{args.provider_models}, {type(args.provider_models)}")
+    assert False
+
     # Load strategies
     logger.info("Loading strategies...")
     registry = StrategyRegistry(
         strategies_dir=Path(args.strategies_dir),
-        game_name=args.game
+        game_name=args.game,
+        provider_models=args.provider_models
     )
 
     # Create game description
@@ -144,6 +156,9 @@ def main():
     print("="*60)
 
     logger.info("Experiment complete")
+
+    for fair in results.generation_results:
+        print(fair)
 
 
 if __name__ == "__main__":

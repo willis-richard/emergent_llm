@@ -33,6 +33,7 @@ class BaseTournament(ABC):
 
         # Store match result
         self.match_results.append(match_result)
+        self.logger.debug(f"{match_result}")
 
         return match_result
 

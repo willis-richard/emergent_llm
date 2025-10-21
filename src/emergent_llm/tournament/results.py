@@ -151,6 +151,7 @@ class FairTournamentResults:
                 'mean_cooperations': stats.mean_cooperations,
             })
         results_df = pd.DataFrame(rows).sort_values('mean_payoff', ascending=False)
+        results_df.sort_index(inplace=True)
         object.__setattr__(self, '_results_df', results_df)
 
     @property
@@ -689,7 +690,7 @@ class CulturalEvolutionResults:
         for gene, freq in sorted(self.final_gene_frequencies.items(),
                                  key=lambda x: x[1], reverse=True):
             lines.append(f"  {gene}: {freq:.2%}")
-        return "\n".join(lines)
+            return "\n".join(lines)
 
     def serialise(self) -> dict:
         """Serialise to dictionary for JSON storage."""
@@ -734,7 +735,6 @@ class CulturalEvolutionResults:
         config = CulturalEvolutionConfig(
             game_description=game_description,
             population_size=config_data['population_size'],
-            genes=genes,
             top_k=config_data['top_k'],
             mutation_rate=config_data['mutation_rate'],
             threshold_pct=config_data['threshold_pct'],
