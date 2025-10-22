@@ -10,45 +10,38 @@ PROVIDER_MODELS=(
 
 # for game in "${GAMES[@]}"; do
 #     for pm in "${PROVIDER_MODELS[@]}"; do
-#         set -- $pm
-#         provider=$1
-#         model=$2
+#         read provider model <<< "$pm"
 
 #         python src/emergent_llm/generation/create_strategies.py descriptions \
-#             --llm_provider "$provider" \
-#             --model_name "$model" \
-#             --game "$game" \
-#             --n 128 &
+    #             --llm_provider "$provider" \
+    #             --model_name "$model" \
+    #             --game "$game" \
+    #             --n 128 &
 #     done
 #     wait
 # done
 
 # for game in "${GAMES[@]}"; do
 #     for pm in "${PROVIDER_MODELS[@]}"; do
-#         set -- $pm
-#         provider=$1
-#         model=$2
+#         read provider model <<< "$pm"
 
 #         python src/emergent_llm/generation/create_strategies.py implementations \
-#                --llm_provider "$provider" \
-#                --model_name "$model" \
-#                --game "$game" &
+    #                --llm_provider "$provider" \
+    #                --model_name "$model" \
+    #                --game "$game" &
 #     done
 #     wait
 # done
 
 for game in "${GAMES[@]}"; do
     for pm in "${PROVIDER_MODELS[@]}"; do
-        set -- $pm
-        provider=$1
-        model=$2
+        read provider model <<< "$pm"
 
         python scripts/run_tournament.py \
-               --strategies strategies/$game/$provider_$model.py \
+               --strategies strategies/$game/${provider}_${model}.py \
                --game $game \
                --matches 200 \
-               --group-sizes 4 16 64 \
-               --verbose &
+               --group-sizes 4 16 64 &
     done
     wait
 done
