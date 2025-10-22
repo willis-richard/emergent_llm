@@ -110,9 +110,6 @@ def main():
     logger.info("Starting cultural evolution experiment")
     logger.info(f"Game: {args.game}")
 
-    print(f"{args.provider_models}, {type(args.provider_models)}")
-    assert False
-
     # Load strategies
     logger.info("Loading strategies...")
     registry = StrategyRegistry(

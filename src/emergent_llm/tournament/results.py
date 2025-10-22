@@ -811,7 +811,7 @@ class CulturalEvolutionResults:
         plt.tight_layout()
 
         output_dir = Path(output_dir)
-        output_dir.parent.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
         plt.savefig(output_dir / "gene_frequencies.png")
         plt.close()
 
@@ -864,3 +864,262 @@ class CulturalEvolutionResults:
             ax.grid(True, alpha=0.3)
             fig.savefig(output_dir / 'cooperation_evolution.png', bbox_inches='tight')
             plt.close()
+
+@dataclass
+class MultiRunCulturalEvolutionResults:
+    """Results from multiple parallel cultural evolution runs."""
+    runs: list[CulturalEvolutionResults]
+
+    def __str__(self) -> str:
+        lines = [
+            f"Multi-Run Cultural Evolution Results",
+            f"Number of runs: {len(self.runs)}",
+            f"Generations per run: min={min(r.final_generation for r in self.runs)}, "
+            f"max={max(r.final_generation for r in self.runs)}, "
+            f"mean={np.mean([r.final_generation for r in self.runs]):.1f}",
+        ]
+        return "\n".join(lines)
+
+    def analyze_termination(self) -> pd.DataFrame:
+        """Create summary table of termination conditions across all runs."""
+        rows = []
+        for run_idx, run in enumerate(self.runs):
+            # Get dominant gene (highest frequency)
+            dominant_gene = max(run.final_gene_frequencies.items(), key=lambda x: x[1])
+            gene, frequency = dominant_gene
+
+            rows.append({
+                'run': run_idx,
+                'generations': run.final_generation,
+                'dominant_gene': str(gene),
+                'provider_model': gene.provider_model,
+                'attitude': gene.attitude.value,
+                'final_frequency': frequency,
+                'threshold_met': frequency >= run.config.threshold_pct,
+            })
+
+        df = pd.DataFrame(rows)
+
+        # Add summary statistics
+        print("\n=== TERMINATION SUMMARY ===")
+        print(f"\nRuns reaching threshold: {df['threshold_met'].sum()}/{len(df)}")
+        print(f"\nDominant attitude distribution:")
+        print(df['attitude'].value_counts())
+        print(f"\nDominant provider_model distribution:")
+        print(df['provider_model'].value_counts())
+        print(f"\nAverage final frequency: {df['final_frequency'].mean():.2%}")
+        print(f"\nAverage generations: {df['generations'].mean():.1f}")
+
+        return df
+
+    def plots(self, output_dir: str | Path):
+        """Create all plots including individual runs and aggregates."""
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Plot individual runs
+        individual_dir = output_dir / "individual_runs"
+        individual_dir.mkdir(exist_ok=True)
+        for idx, run in enumerate(self.runs):
+            run_dir = individual_dir / f"run_{idx:03d}"
+            run.plots(run_dir)
+
+        # Plot aggregates
+        self.plot_aggregate_cooperation(output_dir)
+        self.plot_aggregate_attitudes(output_dir)
+        self.plot_aggregate_gene_frequencies(output_dir)
+
+    def plot_aggregate_cooperation(self, output_dir: Path):
+        """Plot average cooperation rate across all runs with individual runs in background."""
+        max_generations = max(len(run.generation_results) for run in self.runs)
+
+        # Collect cooperation rates for each run
+        all_coop_rates = []
+        for run in self.runs:
+            total_rounds = run.config.game_description.n_rounds
+            coop_rates = []
+            for gen_result in run.generation_results:
+                avg_coop = np.mean([
+                    stats.mean_cooperations / total_rounds
+                    for stats in gen_result.player_stats.values()
+                ])
+                coop_rates.append(avg_coop)
+            all_coop_rates.append(coop_rates)
+
+        # Pad shorter runs with NaN
+        padded_rates = []
+        for rates in all_coop_rates:
+            padded = rates + [np.nan] * (max_generations - len(rates))
+            padded_rates.append(padded)
+
+        rates_array = np.array(padded_rates)
+
+        # Calculate statistics
+        mean_rates = np.nanmean(rates_array, axis=0)
+        std_rates = np.nanstd(rates_array, axis=0)
+        generations = list(range(max_generations))
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        # Plot individual runs in light gray
+        for rates in all_coop_rates:
+            ax.plot(range(len(rates)), rates, color='gray', alpha=0.2, linewidth=0.5)
+
+        # Plot mean with confidence interval
+        ax.plot(generations, mean_rates, color='green', linewidth=2, label='Mean', marker='o')
+        ax.fill_between(generations,
+                        mean_rates - std_rates,
+                        mean_rates + std_rates,
+                        color='green', alpha=0.2, label='±1 std')
+
+        ax.set_xlabel('Generation')
+        ax.set_ylabel('Average Cooperation Rate')
+        ax.set_title(f'Cooperation Rate Evolution (n={len(self.runs)} runs)')
+        ax.set_ylim(0, 1)
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+        fig.savefig(output_dir / 'aggregate_cooperation.png', bbox_inches='tight', dpi=150)
+        plt.close()
+
+    def plot_aggregate_attitudes(self, output_dir: Path):
+        """Plot attitude proportions averaged across all runs."""
+        max_generations = max(len(run.gene_frequency_history) for run in self.runs)
+
+        # Collect attitude proportions for each run
+        all_coop_props = []
+        all_agg_props = []
+
+        for run in self.runs:
+            coop_props = []
+            agg_props = []
+
+            for gen_freqs in run.gene_frequency_history:
+                coop_prop = sum(freq for gene, freq in gen_freqs.items()
+                               if gene.attitude == Attitude.COOPERATIVE)
+                coop_props.append(coop_prop)
+                agg_props.append(1 - coop_prop)
+
+            # Pad shorter runs
+            coop_props += [np.nan] * (max_generations - len(coop_props))
+            agg_props += [np.nan] * (max_generations - len(agg_props))
+
+            all_coop_props.append(coop_props)
+            all_agg_props.append(agg_props)
+
+        coop_array = np.array(all_coop_props)
+        agg_array = np.array(all_agg_props)
+
+        mean_coop = np.nanmean(coop_array, axis=0)
+        std_coop = np.nanstd(coop_array, axis=0)
+        mean_agg = np.nanmean(agg_array, axis=0)
+        std_agg = np.nanstd(agg_array, axis=0)
+
+        generations = list(range(max_generations))
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        # Plot individual runs in background
+        for coop_props in all_coop_props:
+            valid_gens = [i for i, v in enumerate(coop_props) if not np.isnan(v)]
+            valid_props = [coop_props[i] for i in valid_gens]
+            ax.plot(valid_gens, valid_props, color='blue', alpha=0.1, linewidth=0.5)
+
+        for agg_props in all_agg_props:
+            valid_gens = [i for i, v in enumerate(agg_props) if not np.isnan(v)]
+            valid_props = [agg_props[i] for i in valid_gens]
+            ax.plot(valid_gens, valid_props, color='red', alpha=0.1, linewidth=0.5)
+
+        # Plot means
+        ax.plot(generations, mean_coop, color='blue', linewidth=2, label='Cooperative (mean)', marker='o')
+        ax.fill_between(generations, mean_coop - std_coop, mean_coop + std_coop,
+                        color='blue', alpha=0.2)
+
+        ax.plot(generations, mean_agg, color='red', linewidth=2, label='Aggressive (mean)', marker='s')
+        ax.fill_between(generations, mean_agg - std_agg, mean_agg + std_agg,
+                        color='red', alpha=0.2)
+
+        ax.set_xlabel('Generation')
+        ax.set_ylabel('Proportion')
+        ax.set_title(f'Attitude Distribution Evolution (n={len(self.runs)} runs)')
+        ax.set_ylim(0, 1)
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+        fig.savefig(output_dir / 'aggregate_attitudes.png', bbox_inches='tight', dpi=150)
+        plt.close()
+
+    def plot_aggregate_gene_frequencies(self, output_dir: Path):
+        """Plot gene frequencies averaged across all runs."""
+        # Collect all unique genes
+        all_genes = set()
+        for run in self.runs:
+            for gen_freqs in run.gene_frequency_history:
+                all_genes.update(gen_freqs.keys())
+
+        max_generations = max(len(run.gene_frequency_history) for run in self.runs)
+
+        fig, ax = plt.subplots(figsize=(12, 7))
+
+        for gene in sorted(all_genes, key=str):
+            # Collect frequency trajectories for this gene across all runs
+            gene_trajectories = []
+            for run in self.runs:
+                frequencies = [gen_freqs.get(gene, 0.0) for gen_freqs in run.gene_frequency_history]
+                # Pad with NaN
+                frequencies += [np.nan] * (max_generations - len(frequencies))
+                gene_trajectories.append(frequencies)
+
+            trajectories_array = np.array(gene_trajectories)
+            mean_freq = np.nanmean(trajectories_array, axis=0)
+            std_freq = np.nanstd(trajectories_array, axis=0)
+
+            generations = list(range(max_generations))
+
+            # Only plot if gene appears in at least one run significantly
+            if np.nanmax(mean_freq) > 0.01:
+                ax.plot(generations, mean_freq, marker='o', label=str(gene), linewidth=2)
+                ax.fill_between(generations,
+                               np.maximum(mean_freq - std_freq, 0),
+                               np.minimum(mean_freq + std_freq, 1),
+                               alpha=0.1)
+
+        ax.set_xlabel('Generation')
+        ax.set_ylabel('Gene Frequency')
+        ax.set_title(f'Gene Frequency Evolution (n={len(self.runs)} runs, mean ± std)')
+        ax.set_ylim(0, 1)
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        ax.grid(True, alpha=0.3)
+
+        fig.savefig(output_dir / 'aggregate_gene_frequencies.png', bbox_inches='tight', dpi=150)
+        plt.close()
+
+    def serialise(self) -> dict:
+        """Serialize to dictionary for JSON storage."""
+        return {
+            'runs': [run.serialise() for run in self.runs],
+            'result_type': 'MultiRunCulturalEvolutionResults'
+        }
+
+    def save(self, filepath: str) -> None:
+        """Save results to JSON file."""
+        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+        with open(filepath, 'w') as f:
+            json.dump(self.serialise(), f, indent=2)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'MultiRunCulturalEvolutionResults':
+        """Load MultiRunCulturalEvolutionResults from dictionary data."""
+        runs = [CulturalEvolutionResults.from_dict(run_data) for run_data in data['runs']]
+        return cls(runs=runs)
+
+    @classmethod
+    def load(cls, filepath: str) -> 'MultiRunCulturalEvolutionResults':
+        """Load MultiRunCulturalEvolutionResults from JSON file."""
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+
+        if data['result_type'] != 'MultiRunCulturalEvolutionResults':
+            raise ValueError(f"Expected MultiRunCulturalEvolutionResults, got {data['result_type']}")
+
+        return cls.from_dict(data)
