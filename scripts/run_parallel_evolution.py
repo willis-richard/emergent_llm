@@ -96,8 +96,8 @@ def parse_args():
     # Parallel execution parameters
     parser.add_argument("--n_runs", type=int, default=10,
                        help="Number of independent runs")
-    parser.add_argument("--n_threads", type=int, default=4,
-                       help="Number of parallel threads")
+    parser.add_argument("--n_processes", type=int, default=4,
+                       help="Number of parallel processes")
 
     # Output
     parser.add_argument("--output_dir", type=str, default="results/cultural_evolution",
@@ -127,7 +127,7 @@ def main():
 
     logger.info("Starting parallel cultural evolution experiment")
     logger.info(f"Game: {args.game}")
-    logger.info(f"Runs: {args.n_runs}, Threads: {args.n_threads}")
+    logger.info(f"Runs: {args.n_runs}, Processes: {args.n_processes}")
 
     # Create game description
     game_description = STANDARD_GENERATORS[f"{args.game}_default"](args.n_players, args.n_rounds)
@@ -157,7 +157,7 @@ def main():
         provider_models=args.provider_models
     )
 
-    with ProcessPoolExecutor(max_workers=args.n_threads) as executor:
+    with ProcessPoolExecutor(max_workers=args.n_processes) as executor:
         # Submit all jobs
         futures = {executor.submit(run_func, run_id): run_id
                   for run_id in range(args.n_runs)}
