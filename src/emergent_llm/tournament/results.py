@@ -20,6 +20,12 @@ from emergent_llm.tournament.configs import (BaseTournamentConfig,
 from matplotlib.ticker import MaxNLocator, MultipleLocator
 
 
+# Setup plot styling
+# FIGSIZE, SIZE, FORMAT = (2.5, 0.9), 8, 'svg'  # for 2 column paper
+# FIGSIZE, SIZE, FORMAT = (5, 1.2), 8, 'svg'  # for 1 column slide
+FIGSIZE, SIZE, FORMAT = (2.2, 0.8), 7, 'svg'  # for 2 column slide
+
+
 @dataclass
 class MatchResult:
     """Results from a single match."""
@@ -84,7 +90,7 @@ class MixtureResult:
 
     def __post_init__(self):
         if not (self.n_cooperative + self.n_aggressive == self.group_size):
-            raise ValueError(f"Number of cooperative ({self.n_cooperative}) plus aggressive ({self.n_aggressive}) players must equal group size ({self.group_size})")
+            raise ValueError(f"Number of collective ({self.n_cooperative}) plus aggressive ({self.n_aggressive}) players must equal group size ({self.group_size})")
 
     @property
     def aggressive_ratio(self) -> float:
@@ -348,10 +354,6 @@ class MixtureTournamentResults:
         # Sort stats by number of cooperators
         sorted_results = sorted(self.mixture_results, key=lambda x: x.n_cooperative)
 
-        # Setup plot styling
-        # FIGSIZE, SIZE, FORMAT = (2.5, 0.9), 8, 'svg'  # for 2 column paper
-        # FIGSIZE, SIZE, FORMAT = (5, 1.2), 8, 'svg'  # for 1 column slide
-        FIGSIZE, SIZE, FORMAT = (2.2, 0.8), 7, 'svg'  # for 2 column slide
         plt.rcParams.update({
             'font.size': SIZE,
             'axes.titlesize': 'medium',
@@ -382,7 +384,7 @@ class MixtureTournamentResults:
 
         game_description = self.config.game_description
         group_size = game_description.n_players
-        ax.set_xlabel('Number of cooperators')
+        ax.set_xlabel('Number of collective co-players')
         ax.set_ylabel('Mean reward')
         ax.set_xlim(0, group_size - 1)
         ax.xaxis.set_major_locator(MaxNLocator(nbins=7, integer=True))
@@ -617,10 +619,6 @@ class BatchMixtureTournamentResults:
     def create_social_welfare_diagram(self):
         """Create social welfare vs cooperative ratio diagram with lines for each group size."""
 
-        # Setup plot styling
-        # FIGSIZE, SIZE, FORMAT = (2.5, 0.9), 8, 'svg'  # for 2 column paper
-        # FIGSIZE, SIZE, FORMAT = (5, 1.2), 8, 'svg'  # for 1 column slide
-        FIGSIZE, SIZE, FORMAT = (2.2, 0.8), 7, 'svg'  # for 2 column slide
         plt.rcParams.update({
             'font.size': SIZE,
             'axes.titlesize': 'medium',
@@ -649,8 +647,8 @@ class BatchMixtureTournamentResults:
         # Get game description from first mixture result
         game_description = self.mixture_results[self.config.group_sizes[-1]].config.game_description
 
-        ax.set_xlabel('Proportion of Cooperative Prompts (%)')
-        ax.set_ylabel('Mean Reward')
+        ax.set_xlabel('Proportion of collective prompts (%)')
+        ax.set_ylabel('Mean reward')
         ax.set_xlim(0, 100)
         ax.set_ylim(math.floor(game_description.min_payoff()),
                     (math.ceil(game_description.max_payoff() / 10 + 1) * 10 ))
@@ -812,7 +810,7 @@ class CulturalEvolutionResults:
 
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        plt.savefig(output_dir / "gene_frequencies.png")
+        fig.savefig(output_dir / f"gene_frequencies.{FORMAT}", format=FORMAT, bbox_inches='tight')
         plt.close()
 
     def plot_evolution_metrics(self, output_dir: str | Path):
@@ -841,7 +839,7 @@ class CulturalEvolutionResults:
         ax.set_title('Attitude Distribution Over Generations')
         ax.legend()
         ax.grid(True, alpha=0.3)
-        fig.savefig(output_dir / 'attitude_evolution.png', bbox_inches='tight')
+        fig.savefig(output_dir / f"attitude_evolution.{FORMAT}", format=FORMAT, bbox_inches='tight')
         plt.close()
 
         # Average cooperation from generation results
@@ -862,7 +860,7 @@ class CulturalEvolutionResults:
             ax.set_title('Cooperation Rate Over Generations')
             ax.set_ylim(0, 1)
             ax.grid(True, alpha=0.3)
-            fig.savefig(output_dir / 'cooperation_evolution.png', bbox_inches='tight')
+            fig.savefig(output_dir / f"cooperation_evolution.{FORMAT}", format=FORMAT, bbox_inches='tight')
             plt.close()
 
 @dataclass
@@ -979,7 +977,7 @@ class MultiRunCulturalEvolutionResults:
         ax.legend()
         ax.grid(True, alpha=0.3)
 
-        fig.savefig(output_dir / 'aggregate_cooperation.png', bbox_inches='tight', dpi=150)
+        fig.savefig(output_dir / f"aggregate_cooperation.{FORMAT}", format=FORMAT, bbox_inches='tight')
         plt.close()
 
     def plot_aggregate_attitudes(self, output_dir: Path):
@@ -1046,7 +1044,7 @@ class MultiRunCulturalEvolutionResults:
         ax.legend()
         ax.grid(True, alpha=0.3)
 
-        fig.savefig(output_dir / 'aggregate_attitudes.png', bbox_inches='tight', dpi=150)
+        fig.savefig(output_dir / f"aggregate_attitudes.{FORMAT}", format=FORMAT, bbox_inches='tight')
         plt.close()
 
     def plot_aggregate_gene_frequencies(self, output_dir: Path):
@@ -1091,7 +1089,7 @@ class MultiRunCulturalEvolutionResults:
         ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
         ax.grid(True, alpha=0.3)
 
-        fig.savefig(output_dir / 'aggregate_gene_frequencies.png', bbox_inches='tight', dpi=150)
+        fig.savefig(output_dir / f"aggregate_gene_frequencies.{FORMAT}", format=FORMAT, bbox_inches='tight')
         plt.close()
 
     def serialise(self) -> dict:
