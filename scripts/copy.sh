@@ -1,36 +1,48 @@
 #!/bin/bash
 
-# Set the source directory and destination directory
-SOURCE_DIR="results"
-DEST_DIR="copied_diagrams"  # Change this to your desired destination
+if [ $# -ne 2 ]; then
+    echo "Error: Exactly 2 arguments required" >&2
+    echo "Usage: $0 <arg1> <arg2>" >&2
+    exit 1
+fi
 
-# Create destination directory if it doesn't exist
-mkdir -p "$DEST_DIR"
+if [ ! -e "$1" ]; then
+    echo "Error: Path '$1' does not exist" >&2
+    exit 1
+fi
 
-# Find all social_welfare.png files and process them
-find "$SOURCE_DIR" -name "social_welfare.png" -type f | while read -r file; do
-    # Extract the path components
-    # file will be like: results/game_name/provider_model/batch_mixture/social_welfare.png
+if [ ! -e "$2" ]; then
+    echo "Error: Path '$2' does not exist" >&2
+    exit 1
+fi
 
-    # Get the relative path from results/
-    rel_path="${file#$SOURCE_DIR/}"
+SOURCE_DIR=$1
+DEST_DIR=$2
 
-    # Extract game name (first directory after results/)
-    game=$(echo "$rel_path" | cut -d'/' -f1)
+DIAGRAMS=("social_welfare.svg" "schelling_n_16.svg")
 
-    # Extract provider_model (second directory)
-    provider_model=$(echo "$rel_path" | cut -d'/' -f2)
+for diagram in "${DIAGRAMS[@]}"; do
+    find "$SOURCE_DIR" -name $diagram -type f | while read -r file; do
+        # Extract the path components
+        # file will be like: results/game_name/provider_model/batch_mixture/social_welfare.png
+        # Get the relative path from SOURCE_DIR/
+        rel_path="${file#${SOURCE_DIR%/}/}"
 
-    # Extract just the model part (everything after the first underscore)
-    model="${provider_model#*_}"
+        # Extract game name (first directory after results/)
+        game=$(echo "$rel_path" | cut -d'/' -f1)
 
-    # Create new filename
-    new_name="${game}_${model}_social_welfare.png"
+        # Extract provider_model (second directory)
+        provider_model=$(echo "$rel_path" | cut -d'/' -f2)
 
-    # Copy and rename
-    cp "$file" "$DEST_DIR/$new_name"
+        # Extract just the model part (everything after the first underscore)
+        model="${provider_model#*_}"
 
-    echo "Copied: $file -> $DEST_DIR/$new_name"
+        # Create new filename
+        new_name="${game}_${model}_${diagram}"
+
+        # Copy and rename
+        cp "$file" "$DEST_DIR/$new_name"
+
+        echo "Copied: $file -> $DEST_DIR/$new_name"
+    done
 done
-
-echo "Done! All files copied to $DEST_DIR"
