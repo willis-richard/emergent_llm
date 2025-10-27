@@ -4,8 +4,8 @@ from enum import StrEnum
 
 class Attitude(StrEnum):
     """Player attitudes for strategy generation."""
-    COOPERATIVE = "cooperative"
-    AGGRESSIVE = "aggressive"
+    COLLECTIVE = "collective"
+    EXPLOITATIVE = "exploitative"
 
     def __str__(self):
         return self.value
@@ -14,10 +14,9 @@ class Attitude(StrEnum):
         return f"Attitude.{self.name}"
 
     def flip(self):
-        return COOPERATIVE if self.value == AGGRESSIVE else AGGRESSIVE
-
+        return COLLECTIVE if self.value == EXPLOITATIVE else EXPLOITATIVE
 
 
 # Export for convenience
-COOPERATIVE = Attitude.COOPERATIVE
-AGGRESSIVE = Attitude.AGGRESSIVE
+COLLECTIVE = Attitude.COLLECTIVE
+EXPLOITATIVE = Attitude.EXPLOITATIVE

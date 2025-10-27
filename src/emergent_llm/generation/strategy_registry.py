@@ -56,11 +56,11 @@ class StrategyRegistry:
 
         specs = []
         for strategy_class in strategy_classes:
-            # Extract attitude from class name (Strategy_COOPERATIVE_1)
-            if "COOPERATIVE" in strategy_class.__name__:
-                attitude = Attitude.COOPERATIVE
-            elif "AGGRESSIVE" in strategy_class.__name__:
-                attitude = Attitude.AGGRESSIVE
+            # Extract attitude from class name (Strategy_COLLECTIVE_1)
+            if "COLLECTIVE" in strategy_class.__name__:
+                attitude = Attitude.COLLECTIVE
+            elif "EXPLOITATIVE" in strategy_class.__name__:
+                attitude = Attitude.EXPLOITATIVE
             else:
                 continue  # Skip malformed classes
 
@@ -96,10 +96,10 @@ class StrategyRegistry:
 
         all_specs = cls._load_specs_from_file(filepath)
 
-        cooperative = [s for s in all_specs if s.gene.attitude == Attitude.COOPERATIVE]
-        aggressive = [s for s in all_specs if s.gene.attitude == Attitude.AGGRESSIVE]
+        collective = [s for s in all_specs if s.gene.attitude == Attitude.COLLECTIVE]
+        exploitative = [s for s in all_specs if s.gene.attitude == Attitude.EXPLOITATIVE]
 
-        return cooperative, aggressive
+        return collective, exploitative
 
     def sample_spec(self, gene: Gene) -> StrategySpec:
         """

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict, fields
 from abc import ABC, abstractmethod
+from dataclasses import asdict, dataclass, fields
 
 
 @dataclass

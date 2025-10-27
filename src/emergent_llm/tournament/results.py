@@ -25,6 +25,18 @@ from matplotlib.ticker import MaxNLocator, MultipleLocator
 # FIGSIZE, SIZE, FORMAT = (5, 1.2), 8, 'svg'  # for 1 column slide
 FIGSIZE, SIZE, FORMAT = (2.2, 0.8), 7, 'svg'  # for 2 column slide
 
+plt.rcParams.update({
+    'font.size': SIZE,
+    'axes.titlesize': 'medium',
+    'axes.labelsize': 'medium',
+    'xtick.labelsize': 'small',
+    'ytick.labelsize': 'small',
+    'legend.fontsize': 'medium',
+    'lines.markersize': SIZE / 4,
+    'legend.handlelength': SIZE / 6,
+    'axes.linewidth': 0.1
+})
+
 
 @dataclass
 class MatchResult:
@@ -82,35 +94,35 @@ class PlayerStats:
 class MixtureResult:
     """Results for a specific mixture configuration."""
     group_size: int
-    n_cooperative: int
-    n_aggressive: int
-    cooperative_scores: list[float]
-    aggressive_scores: list[float]
+    n_collective: int
+    n_exploitative: int
+    collective_scores: list[float]
+    exploitative_scores: list[float]
     matches_played: int
 
     def __post_init__(self):
-        if not (self.n_cooperative + self.n_aggressive == self.group_size):
-            raise ValueError(f"Number of collective ({self.n_cooperative}) plus aggressive ({self.n_aggressive}) players must equal group size ({self.group_size})")
+        if not (self.n_collective + self.n_exploitative == self.group_size):
+            raise ValueError(f"Number of collective ({self.n_collective}) plus exploitative ({self.n_exploitative}) players must equal group size ({self.group_size})")
 
     @property
-    def aggressive_ratio(self) -> float:
-        return self.n_aggressive / self.group_size
+    def exploitative_ratio(self) -> float:
+        return self.n_exploitative / self.group_size
 
     @property
-    def cooperative_ratio(self) -> float:
-        return self.n_cooperative / self.group_size
+    def collective_ratio(self) -> float:
+        return self.n_collective / self.group_size
 
     @property
-    def avg_cooperative_score(self) -> float:
-        return float(np.mean(self.cooperative_scores)) if self.cooperative_scores else np.nan
+    def mean_collective_score(self) -> float:
+        return float(np.mean(self.collective_scores)) if self.collective_scores else np.nan
 
     @property
-    def avg_aggressive_score(self) -> float:
-        return float(np.mean(self.aggressive_scores)) if self.aggressive_scores else np.nan
+    def mean_exploitative_score(self) -> float:
+        return float(np.mean(self.exploitative_scores)) if self.exploitative_scores else np.nan
 
     @property
-    def avg_social_welfare(self) -> float:
-        all_scores = self.cooperative_scores + self.aggressive_scores
+    def mean_social_welfare(self) -> float:
+        all_scores = self.collective_scores + self.exploitative_scores
         return float(np.mean(all_scores)) if all_scores else np.nan
 
 
@@ -225,8 +237,8 @@ class FairTournamentResults:
 class MixtureTournamentResults:
     """Results from a mixture tournament."""
     config: BaseTournamentConfig
-    cooperative_player_ids: list[PlayerId]
-    aggressive_player_ids: list[PlayerId]
+    collective_player_ids: list[PlayerId]
+    exploitative_player_ids: list[PlayerId]
     match_results: list[MatchResult]
     _mixture_results: list[MixtureResult] = field(default=None, init=False, repr=False)
     _results_df: pd.DataFrame = field(default=None, init=False, repr=False)
@@ -241,32 +253,32 @@ class MixtureTournamentResults:
 
         for match_result in self.match_results:
             # Count attitudes in this match
-            n_cooperative = sum(1 for pid in match_result.player_ids
-                            if pid.attitude == Attitude.COOPERATIVE)
-            n_aggressive = sum(1 for pid in match_result.player_ids
-                            if pid.attitude == Attitude.AGGRESSIVE)
+            n_collective = sum(1 for pid in match_result.player_ids
+                            if pid.attitude == Attitude.COLLECTIVE)
+            n_exploitative = sum(1 for pid in match_result.player_ids
+                            if pid.attitude == Attitude.EXPLOITATIVE)
 
-            mixture_key = MixtureKey(n_cooperative, n_aggressive)
-            group_size = n_cooperative + n_aggressive
+            mixture_key = MixtureKey(n_collective, n_exploitative)
+            group_size = n_collective + n_exploitative
 
             # Initialize mixture result if needed
             if mixture_key not in mixture_stats:
                 mixture_stats[mixture_key] = MixtureResult(
                     group_size=group_size,
-                    n_cooperative=n_cooperative,
-                    n_aggressive=n_aggressive,
-                    cooperative_scores=[],
-                    aggressive_scores=[],
+                    n_collective=n_collective,
+                    n_exploitative=n_exploitative,
+                    collective_scores=[],
+                    exploitative_scores=[],
                     matches_played=0
                 )
 
             # Accumulate scores by attitude
             stats = mixture_stats[mixture_key]
             for player_id, total_payoff in zip(match_result.player_ids, match_result.total_payoffs):
-                if player_id.attitude == Attitude.COOPERATIVE:
-                    stats.cooperative_scores.append(total_payoff)
-                elif player_id.attitude == Attitude.AGGRESSIVE:
-                    stats.aggressive_scores.append(total_payoff)
+                if player_id.attitude == Attitude.COLLECTIVE:
+                    stats.collective_scores.append(total_payoff)
+                elif player_id.attitude == Attitude.EXPLOITATIVE:
+                    stats.exploitative_scores.append(total_payoff)
 
             stats.matches_played += 1
 
@@ -281,13 +293,13 @@ class MixtureTournamentResults:
         for result in self.mixture_results:
             rows.append({
                 'group_size': result.group_size,
-                'aggressive_ratio': result.aggressive_ratio,
-                'cooperative_ratio': result.cooperative_ratio,
-                'n_cooperative': result.n_cooperative,
-                'n_aggressive': result.n_aggressive,
-                'avg_cooperative_score': result.avg_cooperative_score,
-                'avg_aggressive_score': result.avg_aggressive_score,
-                'avg_social_welfare': result.avg_social_welfare,
+                'exploitative_ratio': result.exploitative_ratio,
+                'collective_ratio': result.collective_ratio,
+                'n_collective': result.n_collective,
+                'n_exploitative': result.n_exploitative,
+                'mean_collective_score': result.mean_collective_score,
+                'mean_exploitative_score': result.mean_exploitative_score,
+                'mean_social_welfare': result.mean_social_welfare,
                 'matches_played': result.matches_played,
             })
         results_df = pd.DataFrame(rows)
@@ -308,8 +320,8 @@ class MixtureTournamentResults:
         """Serialize to dictionary for JSON storage."""
         return {
             'config': self.config.serialise(),
-            'cooperative_player_ids': [asdict(pid) for pid in self.cooperative_player_ids],
-            'aggressive_player_ids': [asdict(pid) for pid in self.aggressive_player_ids],
+            'collective_player_ids': [asdict(pid) for pid in self.collective_player_ids],
+            'exploitative_player_ids': [asdict(pid) for pid in self.exploitative_player_ids],
             'match_results': [asdict(mr) for mr in self.match_results],
             'result_type': 'MixtureTournamentResults'
         }
@@ -325,14 +337,14 @@ class MixtureTournamentResults:
         """Load MixtureTournamentResults from dictionary data."""
 
         config = BaseTournamentConfig.from_dict(data['config'])
-        cooperative_player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['cooperative_player_ids']]
-        aggressive_player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['aggressive_player_ids']]
+        collective_player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['collective_player_ids']]
+        exploitative_player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['exploitative_player_ids']]
         match_results = [MatchResult.from_dict(mr_data) for mr_data in data['match_results']]
 
         return cls(
             config=config,
-            cooperative_player_ids=cooperative_player_ids,
-            aggressive_player_ids=aggressive_player_ids,
+            collective_player_ids=collective_player_ids,
+            exploitative_player_ids=exploitative_player_ids,
             match_results=match_results
         )
 
@@ -351,36 +363,24 @@ class MixtureTournamentResults:
     def create_schelling_diagram(self, output_dir: Path):
         """Create Schelling diagram for this tournament results."""
 
-        # Sort stats by number of cooperators
-        sorted_results = sorted(self.mixture_results, key=lambda x: x.n_cooperative)
-
-        plt.rcParams.update({
-            'font.size': SIZE,
-            'axes.titlesize': 'medium',
-            'axes.labelsize': 'medium',
-            'xtick.labelsize': 'small',
-            'ytick.labelsize': 'small',
-            'legend.fontsize': 'medium',
-            'lines.markersize': SIZE / 4,
-            'legend.handlelength': SIZE / 6,
-            'axes.linewidth': 0.1
-        })
+        # Sort stats by number of collective
+        sorted_results = sorted(self.mixture_results, key=lambda x: x.n_collective)
 
         fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
 
         # Extract data for plotting
-        n_cooperators = [result.n_cooperative for result in sorted_results]
-        coop_scores = [result.avg_cooperative_score for result in sorted_results]
-        agg_scores = [result.avg_aggressive_score for result in sorted_results]
+        n_collective = [result.n_collective for result in sorted_results]
+        collective_scores = [result.mean_collective_score for result in sorted_results]
+        exploitative_scores = [result.mean_exploitative_score for result in sorted_results]
 
-        # Shift cooperative scores to show payoffs as if there was one fewer cooperator
-        coop_scores = np.roll(coop_scores, -1)
+        # Shift collective scores to show payoffs as if there was one fewer collective
+        collective_scores = np.roll(collective_scores, -1)
 
-        # Plot cooperative and aggressive scores
-        ax.plot(n_cooperators, coop_scores,
-                label='Cooperative', lw=0.75, marker='o', clip_on=False)
-        ax.plot(n_cooperators, agg_scores,
-                label='Aggressive', lw=0.75, marker='s', clip_on=False)
+        # Plot collective and exploitative scores
+        ax.plot(n_collective, collective_scores,
+                label='Collective', lw=0.75, marker='o', clip_on=False)
+        ax.plot(n_collective, exploitative_scores,
+                label='Exploitative', lw=0.75, marker='s', clip_on=False)
 
         game_description = self.config.game_description
         group_size = game_description.n_players
@@ -533,8 +533,8 @@ class BatchMixtureTournamentResults:
 
         # Create summary pivot table
         summary_df = combined_df.pivot_table(
-            values='avg_social_welfare',
-            index='cooperative_ratio',
+            values='mean_social_welfare',
+            index='collective_ratio',
             columns='group_size',
             fill_value=np.nan
         )
@@ -554,10 +554,10 @@ class BatchMixtureTournamentResults:
 
     def __str__(self) -> str:
         """Create summary table with social welfare across group sizes and ratios."""
-        # Create pivot table with aggressive ratios as rows and group sizes as columns
+        # Create pivot table with exploitative ratios as rows and group sizes as columns
         pivot_df = self.combined_df.pivot_table(
-            values='avg_social_welfare',
-            index='cooperative_ratio',
+            values='mean_social_welfare',
+            index='collective_ratio',
             columns='group_size',
             fill_value=np.nan
         )
@@ -566,7 +566,7 @@ class BatchMixtureTournamentResults:
         pivot_df.index = [f"{ratio:.0%}" for ratio in pivot_df.index]
 
         outputs = "=== SOCIAL WELFARE SUMMARY TABLE ==="
-        outputs += "\nRows: Aggressive player ratio, Columns: Group size"
+        outputs += "\nRows: Exploitative player ratio, Columns: Group size"
         outputs += pivot_df.to_string(float_format='%.3f')
         return outputs
 
@@ -617,29 +617,17 @@ class BatchMixtureTournamentResults:
             mixture_result.create_schelling_diagram(output_dir)
 
     def create_social_welfare_diagram(self):
-        """Create social welfare vs cooperative ratio diagram with lines for each group size."""
-
-        plt.rcParams.update({
-            'font.size': SIZE,
-            'axes.titlesize': 'medium',
-            'axes.labelsize': 'medium',
-            'xtick.labelsize': 'small',
-            'ytick.labelsize': 'small',
-            'legend.fontsize': 'medium',
-            'lines.markersize': SIZE / 4,
-            'legend.handlelength': SIZE / 6,
-            'axes.linewidth': 0.1
-        })
+        """Create social welfare vs collective ratio diagram with lines for each group size."""
 
         fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
 
         # Plot a line for each group size
         for group_size in sorted(self.config.group_sizes):
             group_data = self.combined_df[self.combined_df['group_size'] == group_size]
-            group_data = group_data.sort_values('cooperative_ratio')
+            group_data = group_data.sort_values('collective_ratio')
 
-            ax.plot(group_data['cooperative_ratio'] * 100,  # Convert to percentage
-                    group_data['avg_social_welfare'],
+            ax.plot(group_data['collective_ratio'] * 100,  # Convert to percentage
+                    group_data['mean_social_welfare'],
                     label=f'n={group_size}',
                     lw=1.5,
                     marker='o')
@@ -651,12 +639,13 @@ class BatchMixtureTournamentResults:
         ax.set_ylabel('Mean reward')
         ax.set_xlim(0, 100)
         ax.set_ylim(math.floor(game_description.min_payoff()),
-                    (math.ceil(game_description.max_payoff() / 10 + 1) * 10 ))
+                    (math.ceil(game_description.max_social_welfare() / 10 + 1) * 10 ))
+                    # (math.ceil(game_description.max_payoff() / 10 + 1) * 10 ))
         ax.yaxis.set_major_locator(MultipleLocator(game_description.n_rounds // 1))
 
         plt.axhline(y=game_description.min_social_welfare(), color='grey', alpha=0.3, linestyle='-')
         plt.axhline(y=game_description.max_social_welfare(), color='grey', alpha=0.3, linestyle='-')
-        plt.axhline(y=game_description.max_payoff(), color='grey', alpha=0.3, linestyle='-')
+        # plt.axhline(y=game_description.max_payoff(), color='grey', alpha=0.3, linestyle='-')
 
         ax.legend(bbox_to_anchor=(0, 1.4), loc='upper left', ncol=len(self.config.group_sizes), frameon=False, columnspacing=0.5)
 
@@ -810,11 +799,11 @@ class CulturalEvolutionResults:
 
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        fig.savefig(output_dir / f"gene_frequencies.{FORMAT}", format=FORMAT, bbox_inches='tight')
+        plt.savefig(output_dir / f"gene_frequencies.{FORMAT}", format=FORMAT, bbox_inches='tight')
         plt.close()
 
     def plot_evolution_metrics(self, output_dir: str | Path):
-        """Plot cooperation rates and attitude proportions over generations."""
+        """Plot collective rates and attitude proportions over generations."""
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -822,39 +811,40 @@ class CulturalEvolutionResults:
         generations = list(range(len(self.gene_frequency_history)))
 
         # Attitude proportions
-        coop_props = []
-        agg_props = []
+        collective_props = []
+        exploitative_props = []
 
         for gen_freqs in self.gene_frequency_history:
-            coop_prop = sum(freq for gene, freq in gen_freqs.items()
-                           if gene.attitude == Attitude.COOPERATIVE)
-            coop_props.append(coop_prop)
-            agg_props.append(1 - coop_prop)
+            collective_prop = sum(freq for gene, freq in gen_freqs.items()
+                                  if gene.attitude == Attitude.COLLECTIVE)
+            collective_props.append(collective_prop)
+            exploitative_props.append(1 - collective_prop)
 
         fig, ax = plt.subplots(figsize=(8, 5))
-        ax.plot(generations, coop_props, label='Cooperative', marker='o')
-        ax.plot(generations, agg_props, label='Aggressive', marker='s')
+        ax.plot(generations, collective_props, label='Collective', marker='o')
+        ax.plot(generations, exploitative_props, label='Exploitative', marker='s')
         ax.set_xlabel('Generation')
         ax.set_ylabel('Proportion')
         ax.set_title('Attitude Distribution Over Generations')
+        ax.set_ylim(0, 1)
         ax.legend()
         ax.grid(True, alpha=0.3)
         fig.savefig(output_dir / f"attitude_evolution.{FORMAT}", format=FORMAT, bbox_inches='tight')
         plt.close()
 
         # Average cooperation from generation results
-        avg_cooperations = []
+        mean_cooperations = []
         for gen_result in self.generation_results:
             total_rounds = self.config.game_description.n_rounds
-            avg_coop = np.mean([
+            mean_coop = np.mean([
                 stats.mean_cooperations / total_rounds
                 for stats in gen_result.player_stats.values()
             ])
-            avg_cooperations.append(avg_coop)
+            mean_cooperations.append(mean_coop)
 
-        if avg_cooperations:
+        if mean_cooperations:
             fig, ax = plt.subplots(figsize=(8, 5))
-            ax.plot(range(len(avg_cooperations)), avg_cooperations, marker='o', color='green')
+            ax.plot(range(len(mean_cooperations)), mean_cooperations, marker='o', color='green')
             ax.set_xlabel('Generation')
             ax.set_ylabel('Average Cooperation Rate')
             ax.set_title('Cooperation Rate Over Generations')
@@ -921,176 +911,6 @@ class MultiRunCulturalEvolutionResults:
         for idx, run in enumerate(self.runs):
             run_dir = individual_dir / f"run_{idx:03d}"
             run.plots(run_dir)
-
-        # Plot aggregates
-        self.plot_aggregate_cooperation(output_dir)
-        self.plot_aggregate_attitudes(output_dir)
-        self.plot_aggregate_gene_frequencies(output_dir)
-
-    def plot_aggregate_cooperation(self, output_dir: Path):
-        """Plot average cooperation rate across all runs with individual runs in background."""
-        max_generations = max(len(run.generation_results) for run in self.runs)
-
-        # Collect cooperation rates for each run
-        all_coop_rates = []
-        for run in self.runs:
-            total_rounds = run.config.game_description.n_rounds
-            coop_rates = []
-            for gen_result in run.generation_results:
-                avg_coop = np.mean([
-                    stats.mean_cooperations / total_rounds
-                    for stats in gen_result.player_stats.values()
-                ])
-                coop_rates.append(avg_coop)
-            all_coop_rates.append(coop_rates)
-
-        # Pad shorter runs with NaN
-        padded_rates = []
-        for rates in all_coop_rates:
-            padded = rates + [np.nan] * (max_generations - len(rates))
-            padded_rates.append(padded)
-
-        rates_array = np.array(padded_rates)
-
-        # Calculate statistics
-        mean_rates = np.nanmean(rates_array, axis=0)
-        std_rates = np.nanstd(rates_array, axis=0)
-        generations = list(range(max_generations))
-
-        fig, ax = plt.subplots(figsize=(10, 6))
-
-        # Plot individual runs in light gray
-        for rates in all_coop_rates:
-            ax.plot(range(len(rates)), rates, color='gray', alpha=0.2, linewidth=0.5)
-
-        # Plot mean with confidence interval
-        ax.plot(generations, mean_rates, color='green', linewidth=2, label='Mean', marker='o')
-        ax.fill_between(generations,
-                        mean_rates - std_rates,
-                        mean_rates + std_rates,
-                        color='green', alpha=0.2, label='±1 std')
-
-        ax.set_xlabel('Generation')
-        ax.set_ylabel('Average Cooperation Rate')
-        ax.set_title(f'Cooperation Rate Evolution (n={len(self.runs)} runs)')
-        ax.set_ylim(0, 1)
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-
-        fig.savefig(output_dir / f"aggregate_cooperation.{FORMAT}", format=FORMAT, bbox_inches='tight')
-        plt.close()
-
-    def plot_aggregate_attitudes(self, output_dir: Path):
-        """Plot attitude proportions averaged across all runs."""
-        max_generations = max(len(run.gene_frequency_history) for run in self.runs)
-
-        # Collect attitude proportions for each run
-        all_coop_props = []
-        all_agg_props = []
-
-        for run in self.runs:
-            coop_props = []
-            agg_props = []
-
-            for gen_freqs in run.gene_frequency_history:
-                coop_prop = sum(freq for gene, freq in gen_freqs.items()
-                               if gene.attitude == Attitude.COOPERATIVE)
-                coop_props.append(coop_prop)
-                agg_props.append(1 - coop_prop)
-
-            # Pad shorter runs
-            coop_props += [np.nan] * (max_generations - len(coop_props))
-            agg_props += [np.nan] * (max_generations - len(agg_props))
-
-            all_coop_props.append(coop_props)
-            all_agg_props.append(agg_props)
-
-        coop_array = np.array(all_coop_props)
-        agg_array = np.array(all_agg_props)
-
-        mean_coop = np.nanmean(coop_array, axis=0)
-        std_coop = np.nanstd(coop_array, axis=0)
-        mean_agg = np.nanmean(agg_array, axis=0)
-        std_agg = np.nanstd(agg_array, axis=0)
-
-        generations = list(range(max_generations))
-
-        fig, ax = plt.subplots(figsize=(10, 6))
-
-        # Plot individual runs in background
-        for coop_props in all_coop_props:
-            valid_gens = [i for i, v in enumerate(coop_props) if not np.isnan(v)]
-            valid_props = [coop_props[i] for i in valid_gens]
-            ax.plot(valid_gens, valid_props, color='blue', alpha=0.1, linewidth=0.5)
-
-        for agg_props in all_agg_props:
-            valid_gens = [i for i, v in enumerate(agg_props) if not np.isnan(v)]
-            valid_props = [agg_props[i] for i in valid_gens]
-            ax.plot(valid_gens, valid_props, color='red', alpha=0.1, linewidth=0.5)
-
-        # Plot means
-        ax.plot(generations, mean_coop, color='blue', linewidth=2, label='Cooperative (mean)', marker='o')
-        ax.fill_between(generations, mean_coop - std_coop, mean_coop + std_coop,
-                        color='blue', alpha=0.2)
-
-        ax.plot(generations, mean_agg, color='red', linewidth=2, label='Aggressive (mean)', marker='s')
-        ax.fill_between(generations, mean_agg - std_agg, mean_agg + std_agg,
-                        color='red', alpha=0.2)
-
-        ax.set_xlabel('Generation')
-        ax.set_ylabel('Proportion')
-        ax.set_title(f'Attitude Distribution Evolution (n={len(self.runs)} runs)')
-        ax.set_ylim(0, 1)
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-
-        fig.savefig(output_dir / f"aggregate_attitudes.{FORMAT}", format=FORMAT, bbox_inches='tight')
-        plt.close()
-
-    def plot_aggregate_gene_frequencies(self, output_dir: Path):
-        """Plot gene frequencies averaged across all runs."""
-        # Collect all unique genes
-        all_genes = set()
-        for run in self.runs:
-            for gen_freqs in run.gene_frequency_history:
-                all_genes.update(gen_freqs.keys())
-
-        max_generations = max(len(run.gene_frequency_history) for run in self.runs)
-
-        fig, ax = plt.subplots(figsize=(12, 7))
-
-        for gene in sorted(all_genes, key=str):
-            # Collect frequency trajectories for this gene across all runs
-            gene_trajectories = []
-            for run in self.runs:
-                frequencies = [gen_freqs.get(gene, 0.0) for gen_freqs in run.gene_frequency_history]
-                # Pad with NaN
-                frequencies += [np.nan] * (max_generations - len(frequencies))
-                gene_trajectories.append(frequencies)
-
-            trajectories_array = np.array(gene_trajectories)
-            mean_freq = np.nanmean(trajectories_array, axis=0)
-            std_freq = np.nanstd(trajectories_array, axis=0)
-
-            generations = list(range(max_generations))
-
-            # Only plot if gene appears in at least one run significantly
-            if np.nanmax(mean_freq) > 0.01:
-                ax.plot(generations, mean_freq, marker='o', label=str(gene), linewidth=2)
-                ax.fill_between(generations,
-                               np.maximum(mean_freq - std_freq, 0),
-                               np.minimum(mean_freq + std_freq, 1),
-                               alpha=0.1)
-
-        ax.set_xlabel('Generation')
-        ax.set_ylabel('Gene Frequency')
-        ax.set_title(f'Gene Frequency Evolution (n={len(self.runs)} runs, mean ± std)')
-        ax.set_ylim(0, 1)
-        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        ax.grid(True, alpha=0.3)
-
-        fig.savefig(output_dir / f"aggregate_gene_frequencies.{FORMAT}", format=FORMAT, bbox_inches='tight')
-        plt.close()
 
     def serialise(self) -> dict:
         """Serialize to dictionary for JSON storage."""

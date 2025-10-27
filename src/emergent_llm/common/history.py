@@ -76,8 +76,8 @@ class GameHistory:
     def total_payoffs(self) -> list[float]:
         return self.payoffs.sum(axis=0).tolist()
 
-    def total_cooperations(self) -> list[bool]:
+    def total_cooperations(self) -> list[int]:
         return self.actions.sum(axis=0).tolist()
 
-    def cooperations_by_round(self) -> list[bool]:
+    def cooperations_by_round(self) -> list[int]:
         return self.actions.sum(axis=1).tolist()

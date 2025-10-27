@@ -18,7 +18,7 @@ from pathlib import Path
 import anthropic
 import ollama
 import openai
-from emergent_llm.common import (AGGRESSIVE, COOPERATIVE, Attitude, C, D,
+from emergent_llm.common import (EXPLOITATIVE, COLLECTIVE, Attitude, C, D,
                                  GameDescription, Gene)
 from emergent_llm.games import (CollectiveRiskDescription,
                                 CommonPoolDescription, PublicGoodsDescription)
@@ -100,7 +100,7 @@ def parse_description_file(description_file: Path) -> dict[tuple[str, int], str]
 def parse_strategy_file(strategy_file: Path) -> set[str]:
     """Parse existing strategy file and extract implemented strategy class names.
 
-    Returns set of class names like 'Strategy_COOPERATIVE_1'.
+    Returns set of class names like 'Strategy_COLLECTIVE_1'.
     """
     if not strategy_file.exists():
         print(f"WARNING: {strategy_file} not found")
@@ -402,7 +402,7 @@ import random
             raise ValueError(f"Unknown game description type: {game_description_class}")
 
         # Create test player
-        player = LLMPlayer("test_player", Gene("dummy", COOPERATIVE), game_description, strategy_class, max_errors=0)
+        player = LLMPlayer("test_player", Gene("dummy", COLLECTIVE), game_description, strategy_class, max_errors=0)
 
         class GradualDefector:
             def __init__(self, threshold=10):
@@ -698,7 +698,7 @@ def create_single_strategy_implementation(config: LLMConfig,
                                           description: str,
                                           game_description_class: type[GameDescription],
                                           logger: logging.Logger,
-                                          max_retries: int = 3) -> str:
+                                        max_retries: int = 3) -> str:
     """Create a single strategy implementation from description."""
 
     # Code generation with retry logic
@@ -807,7 +807,7 @@ def main():
     # Run appropriate phase
     if args.phase == 'descriptions':
         generate_descriptions(
-            config, game_description_class, [COOPERATIVE, AGGRESSIVE],
+            config, game_description_class, [COLLECTIVE, EXPLOITATIVE],
             args.n, description_file, logger
         )
     elif args.phase == 'implementations':

@@ -1,9 +1,7 @@
 """Multi-group fair tournament for testing strategy generalization across group sizes."""
 import logging
-from pathlib import Path
 
-from emergent_llm.common import Attitude, GameDescription, Gene, COOPERATIVE
-from emergent_llm.players import BaseStrategy, LLMPlayer, StrategySpec
+from emergent_llm.players import StrategySpec
 from emergent_llm.tournament.configs import (BaseTournamentConfig,
                                              BatchTournamentConfig)
 from emergent_llm.tournament.fair_tournament import FairTournament

@@ -10,8 +10,8 @@ from emergent_llm.games import (BaseGame, CollectiveRiskDescription,
 
 @dataclass(frozen=True)
 class MixtureKey:
-    n_cooperative: int
-    n_aggressive: int
+    n_collective: int
+    n_exploitative: int
 
 
 @dataclass

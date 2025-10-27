@@ -20,7 +20,7 @@ class LLMPlayer(BasePlayer):
 
         Args:
             name: Player name
-            attitude: Player's attitude (cooperative/aggressive)
+            attitude: Player's attitude (collective/exploitative)
             game_description: Game description
             strategy_class: Callable class implementing the strategy
             max_errors: Number of tolerated errors
@@ -72,7 +72,7 @@ class LLMPlayer(BasePlayer):
                 raise
 
             # Return fallback action based on attitude
-            return Action.C if self.id.attitude == Attitude.COOPERATIVE else Action.D
+            return Action.C if self.id.attitude == Attitude.COLLECTIVE else Action.D
 
     def __repr__(self):
         """String representation of the player."""
