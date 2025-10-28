@@ -1,24 +1,30 @@
 """Tournament results dataclasses."""
 import json
 import math
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import matplotlib
-
-matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from emergent_llm.common import Attitude, Gene, PlayerId
-from emergent_llm.games import (CollectiveRiskDescription,
-                                CommonPoolDescription, PublicGoodsDescription)
-from emergent_llm.tournament.configs import (BaseTournamentConfig,
-                                             BatchTournamentConfig,
-                                             CulturalEvolutionConfig,
-                                             MixtureKey)
 from matplotlib.ticker import MaxNLocator, MultipleLocator
 
+from emergent_llm.common import Attitude, Gene, PlayerId
+from emergent_llm.games import (
+    CollectiveRiskDescription,
+    CommonPoolDescription,
+    PublicGoodsDescription,
+)
+from emergent_llm.tournament.configs import (
+    BaseTournamentConfig,
+    BatchTournamentConfig,
+    CulturalEvolutionConfig,
+    MixtureKey,
+)
+
+matplotlib.use('Agg')
 
 # Setup plot styling
 # FIGSIZE, SIZE, FORMAT = (2.5, 0.9), 8, 'svg'  # for 2 column paper
@@ -767,72 +773,63 @@ class CulturalEvolutionResults:
 
         return cls.from_dict(data)
 
-    def plots(self, output_dir: str | Path):
-        output_dir = Path(output_dir)
-        output_dir.parent.mkdir(parents=True, exist_ok=True)
-        self.plot_gene_frequencies(output_dir)
-        self.plot_evolution_metrics(output_dir)
-
-    def plot_gene_frequencies(self, output_dir: str | Path):
+    def plot_gene_frequencies(self, output_dir: Path):
         """Plot gene frequency evolution over generations."""
-
-        # Collect all unique genes
         all_genes = set()
         for gen_freqs in self.gene_frequency_history:
             all_genes.update(gen_freqs.keys())
 
-        # Create frequency matrix: generations x genes
         generations = list(range(len(self.gene_frequency_history)))
 
-        plt.figure(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
 
         for gene in all_genes:
             frequencies = [gen_freqs.get(gene, 0.0) for gen_freqs in self.gene_frequency_history]
-            plt.plot(generations, frequencies, marker='o', label=str(gene))
+            ax.plot(generations, frequencies, marker='o', lw=0.75, label=str(gene), clip_on=False)
 
-        plt.xlabel('Generation')
-        plt.ylabel('Gene Frequency')
-        plt.title('Gene Frequency Evolution')
-        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        plt.grid(True, alpha=0.3)
-        plt.tight_layout()
+        ax.set_xlabel('Generation')
+        ax.set_ylabel('Gene Frequency')
+        ax.set_ylim(0, 1)
+        ax.legend(bbox_to_anchor=(0, 1.4), loc='upper left', frameon=False)
+        ax.grid(True, alpha=0.3)
 
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        plt.savefig(output_dir / f"gene_frequencies.{FORMAT}", format=FORMAT, bbox_inches='tight')
-        plt.close()
+        output_file = output_dir / f"gene_frequencies.{FORMAT}"
+        fig.savefig(output_file, format=FORMAT, bbox_inches='tight')
+        plt.close(fig)
 
-    def plot_evolution_metrics(self, output_dir: str | Path):
-        """Plot collective rates and attitude proportions over generations."""
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        # Calculate metrics per generation
+    def plot_attitude_evolution(self, output_dir: Path):
+        """Plot attitude proportions over generations."""
         generations = list(range(len(self.gene_frequency_history)))
 
-        # Attitude proportions
         collective_props = []
         exploitative_props = []
 
         for gen_freqs in self.gene_frequency_history:
             collective_prop = sum(freq for gene, freq in gen_freqs.items()
-                                  if gene.attitude == Attitude.COLLECTIVE)
+                                if gene.attitude == Attitude.COLLECTIVE)
             collective_props.append(collective_prop)
             exploitative_props.append(1 - collective_prop)
 
-        fig, ax = plt.subplots(figsize=(8, 5))
-        ax.plot(generations, collective_props, label='Collective', marker='o')
-        ax.plot(generations, exploitative_props, label='Exploitative', marker='s')
+        fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
+
+        ax.plot(generations, collective_props, label='Collective',
+                marker='o', lw=0.75, clip_on=False)
+        ax.plot(generations, exploitative_props, label='Exploitative',
+                marker='s', lw=0.75, clip_on=False)
+
         ax.set_xlabel('Generation')
         ax.set_ylabel('Proportion')
-        ax.set_title('Attitude Distribution Over Generations')
         ax.set_ylim(0, 1)
-        ax.legend()
+        ax.legend(bbox_to_anchor=(0, 1.4), loc='upper left', ncol=2,
+                 frameon=False, columnspacing=0.5)
         ax.grid(True, alpha=0.3)
-        fig.savefig(output_dir / f"attitude_evolution.{FORMAT}", format=FORMAT, bbox_inches='tight')
-        plt.close()
 
-        # Average cooperation from generation results
+        output_file = output_dir / f"attitude_evolution.{FORMAT}"
+        fig.savefig(output_file, format=FORMAT, bbox_inches='tight')
+        plt.close(fig)
+
+    def plot_cooperation_evolution(self, output_dir: Path):
+        """Plot cooperation rate over generations."""
         mean_cooperations = []
         for gen_result in self.generation_results:
             total_rounds = self.config.game_description.n_rounds
@@ -842,16 +839,74 @@ class CulturalEvolutionResults:
             ])
             mean_cooperations.append(mean_coop)
 
-        if mean_cooperations:
-            fig, ax = plt.subplots(figsize=(8, 5))
-            ax.plot(range(len(mean_cooperations)), mean_cooperations, marker='o', color='green')
-            ax.set_xlabel('Generation')
-            ax.set_ylabel('Average Cooperation Rate')
-            ax.set_title('Cooperation Rate Over Generations')
-            ax.set_ylim(0, 1)
-            ax.grid(True, alpha=0.3)
-            fig.savefig(output_dir / f"cooperation_evolution.{FORMAT}", format=FORMAT, bbox_inches='tight')
-            plt.close()
+        if not mean_cooperations:
+            return
+
+        fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
+
+        ax.plot(range(len(mean_cooperations)), mean_cooperations,
+                marker='o', lw=0.75, color='green', clip_on=False)
+
+        ax.set_xlabel('Generation')
+        ax.set_ylabel('Cooperation Rate')
+        ax.set_ylim(0, 1)
+        ax.legend(bbox_to_anchor=(0, 1.4), loc='upper left', frameon=False)
+        ax.grid(True, alpha=0.3)
+
+        output_file = output_dir / f"cooperation_evolution.{FORMAT}"
+        fig.savefig(output_file, format=FORMAT, bbox_inches='tight')
+        plt.close(fig)
+
+    def plot_mean_payoffs(self, output_dir: Path):
+        """Plot mean payoffs by attitude and overall through generations."""
+        collective_payoffs = []
+        exploitative_payoffs = []
+        total_payoffs = []
+
+        for gen_result in self.generation_results:
+            collective = []
+            exploitative = []
+
+            for stats in gen_result.player_stats.values():
+                if stats.player_id.attitude == Attitude.COLLECTIVE:
+                    collective.append(stats.mean_payoff)
+                elif stats.player_id.attitude == Attitude.EXPLOITATIVE:
+                    exploitative.append(stats.mean_payoff)
+
+            collective_payoffs.append(np.mean(collective) if collective else np.nan)
+            exploitative_payoffs.append(np.mean(exploitative) if exploitative else np.nan)
+            total_payoffs.append(np.mean([stats.mean_payoff
+                                         for stats in gen_result.player_stats.values()]))
+
+        fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
+
+        generations = range(len(self.generation_results))
+        ax.plot(generations, collective_payoffs, label='Collective',
+                marker='o', lw=0.75, clip_on=False)
+        ax.plot(generations, exploitative_payoffs, label='Exploitative',
+                marker='s', lw=0.75, clip_on=False)
+        ax.plot(generations, total_payoffs, label='Overall',
+                marker='^', lw=0.75, linestyle='--', clip_on=False)
+
+        ax.set_xlabel('Generation')
+        ax.set_ylabel('Mean Payoff')
+        ax.legend(bbox_to_anchor=(0, 1.4), loc='upper left', ncol=3,
+                 frameon=False, columnspacing=0.5)
+        ax.grid(True, alpha=0.3)
+
+        output_file = output_dir / f"mean_payoffs.{FORMAT}"
+        fig.savefig(output_file, format=FORMAT, bbox_inches='tight')
+        plt.close(fig)
+
+    def plots(self, output_dir: str | Path):
+        """Create all plots for cultural evolution results."""
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        self.plot_gene_frequencies(output_dir)
+        self.plot_attitude_evolution(output_dir)
+        self.plot_cooperation_evolution(output_dir)
+        self.plot_mean_payoffs(output_dir)
 
 @dataclass
 class MultiRunCulturalEvolutionResults:

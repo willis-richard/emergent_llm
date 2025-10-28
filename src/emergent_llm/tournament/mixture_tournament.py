@@ -62,7 +62,7 @@ class MixtureTournament(BaseTournament):
         for match_num in range(self.config.repetitions):
             # Create players for this match
             match_players = self._create_match_players(mixture_key)
-            match_id = f"mixture_{mixture_key}a_match{match_num:04d}"
+            match_id = f"mixture_{mixture_key}_match{match_num:04d}"
 
             # Run the match using base class method
             match_result = self._run_match(match_players, match_id)

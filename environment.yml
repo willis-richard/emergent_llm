@@ -19,15 +19,17 @@ dependencies:
   - ollama
   - ollama-python
   - google-genai
+  - json-rpc
 
   # dev packages
   - autoflake
   - epc
   - isort
+  - jedi>=0.18.0
+  - mypy
   - pandas-stubs
   - ptvsd>=4.2
-  - pylsp-mypy
-  - python-lsp-server  # though included by pylsp-mypy
+  - pylint
 
   - pip
   - pip:
