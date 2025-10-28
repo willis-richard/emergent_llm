@@ -30,6 +30,7 @@ dependencies:
   - pandas-stubs
   - ptvsd>=4.2
   - pylint
+  - yapf
 
   - pip
   - pip:

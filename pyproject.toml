@@ -1,10 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "emergent-llm"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.mypy]
 mypy_path = "src"
 namespace_packages = true
 explicit_package_bases = true
 
 [tool.isort]
-profile = "black"
+profile = "google"
+line_length = 100
 src_paths = ["src"]
 skip_gitignore = true
 
