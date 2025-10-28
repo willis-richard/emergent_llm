@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+
 from emergent_llm.common.attitudes import Attitude
 from emergent_llm.common.gene import Gene
 
@@ -25,13 +26,7 @@ class PlayerId:
         """Load PlayerId from dictionary data."""
         gene = None
         if data['gene'] is not None:
-            gene = Gene(
-                provider_model=data['gene']['provider_model'],
-                attitude=Attitude(data['gene']['attitude'])
-            )
+            gene = Gene(provider_model=data['gene']['provider_model'],
+                        attitude=Attitude(data['gene']['attitude']))
 
-        return cls(
-            name=data['name'],
-            gene=gene,
-            strategy=data['strategy']
-        )
+        return cls(name=data['name'], gene=gene, strategy=data['strategy'])

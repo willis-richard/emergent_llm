@@ -16,7 +16,7 @@ namespace_packages = true
 explicit_package_bases = true
 
 [tool.isort]
-profile = "google"
+profile = "black"
 line_length = 100
 src_paths = ["src"]
 skip_gitignore = true

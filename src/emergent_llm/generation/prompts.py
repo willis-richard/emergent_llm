@@ -1,9 +1,15 @@
 from emergent_llm.common.actions import Action
 from emergent_llm.common.attitudes import Attitude
 from emergent_llm.common.game_description import GameDescription
-from emergent_llm.games import CollectiveRiskDescription, CommonPoolDescription, PublicGoodsDescription
+from emergent_llm.games import (
+    CollectiveRiskDescription,
+    CommonPoolDescription,
+    PublicGoodsDescription,
+)
 
-def format_game_description(game_description_class: type[GameDescription]) -> str:
+
+def format_game_description(
+        game_description_class: type[GameDescription]) -> str:
     """Format game description for prompts."""
     if game_description_class == PublicGoodsDescription:
         return """GAME SPECIFICATION: N-Player Public Goods Game
@@ -149,7 +155,9 @@ Note: Payoffs depend on both current actions and accumulated stock depletion fro
     assert False, "GameDescription not recognised"
 
 
-def create_strategy_user_prompt(attitude: Attitude, game_description_class: type[GameDescription]) -> str:
+def create_strategy_user_prompt(
+        attitude: Attitude,
+        game_description_class: type[GameDescription]) -> str:
     """Create user prompt for strategy description generation."""
 
     state = ", state" if game_description_class == CommonPoolDescription else ""
@@ -174,7 +182,9 @@ Your strategy will play in a tournament against independent strategies developed
 You only need to describe the strategy in natural language, including pseudocode if helpful. Later, the strategy will be implemented as an algorithm."""
 
 
-def create_code_user_prompt(strategy_description: str, game_description_class: type[GameDescription]) -> str:
+def create_code_user_prompt(
+        strategy_description: str,
+        game_description_class: type[GameDescription]) -> str:
     """Create user prompt for code generation."""
 
     return f"""Convert this strategy description into a Python class that inherits from BaseStrategy.
@@ -231,7 +241,8 @@ class Strategy(BaseStrategy):
 {get_interface_description(game_description_class)}"""
 
 
-def get_interface_description(game_description_class: type[GameDescription]) -> str:
+def get_interface_description(
+        game_description_class: type[GameDescription]) -> str:
     return f"""from dataclasses import dataclass
 from enum import Enum
 import math

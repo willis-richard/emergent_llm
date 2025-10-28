@@ -8,9 +8,14 @@ import time
 import unittest
 
 import numpy as np
-from emergent_llm.common import C, D, Gene, COLLECTIVE
-from emergent_llm.games import (CollectiveRiskDescription, CollectiveRiskGame,
-                                PublicGoodsDescription, PublicGoodsGame)
+
+from emergent_llm.common import COLLECTIVE, C, D, Gene
+from emergent_llm.games import (
+    CollectiveRiskDescription,
+    CollectiveRiskGame,
+    PublicGoodsDescription,
+    PublicGoodsGame,
+)
 from emergent_llm.players import BaseStrategy, LLMPlayer, SimplePlayer
 
 
@@ -27,11 +32,15 @@ def parse_arguments() -> argparse.Namespace:
         type=str,
         required=True,
         choices=['pgg', 'crd', 'cpr'],
-        help="Game type: pgg (Public Goods Game), crd (Collective Risk Dilemma), cpr (Common Pool Resource)")
+        help=
+        "Game type: pgg (Public Goods Game), crd (Collective Risk Dilemma), cpr (Common Pool Resource)"
+    )
     parser.add_argument(
         "--name",
         action="store_true",
-        help="Print the name of the class being tested, to help discover slow implementations")
+        help=
+        "Print the name of the class being tested, to help discover slow implementations"
+    )
     return parser.parse_args()
 
 
@@ -55,6 +64,7 @@ def check_for_string(func_or_method, string: str) -> bool:
 
 def create_test(strategy_class: type, game_name: str, log: bool = False):
     """Create a test function for a strategy class."""
+
     def test(self):
         if log:
             print(f"{strategy_class.__name__}")
@@ -62,11 +72,9 @@ def create_test(strategy_class: type, game_name: str, log: bool = False):
         # Create game instance based on command line argument
         if game_name == 'pgg':
             game_type = PublicGoodsGame  # Use defaults
-            game_description = PublicGoodsDescription(
-                n_players=6,
-                n_rounds=20,
-                k=2.0
-            )
+            game_description = PublicGoodsDescription(n_players=6,
+                                                      n_rounds=20,
+                                                      k=2.0)
         elif game_name == 'crd':
             game_type = CollectiveRiskGame  # Use defaults
             game_description = CollectiveRiskDescription(
@@ -79,15 +87,23 @@ def create_test(strategy_class: type, game_name: str, log: bool = False):
             raise ValueError(f"Unknown game type: {game_type}")
 
         player = LLMPlayer(f"{strategy_class.__name__}",
-                           Gene("dummy", COLLECTIVE),
-                           game_description,
+                           Gene("dummy", COLLECTIVE), game_description,
                            strategy_class)
 
         # Test in different opponent mixtures
         test_mixtures = [
-            [SimplePlayer(f"cooperator_{i}", lambda: C) for i in range(game_description.n_players - 1)],
-            [SimplePlayer(f"defector_{i}", lambda: D) for i in range(game_description.n_players - 1)],
-            [SimplePlayer(f"random_{i}", lambda: np.random.choice([C,D])) for i in range(game_description.n_players - 1)],
+            [
+                SimplePlayer(f"cooperator_{i}", lambda: C)
+                for i in range(game_description.n_players - 1)
+            ],
+            [
+                SimplePlayer(f"defector_{i}", lambda: D)
+                for i in range(game_description.n_players - 1)
+            ],
+            [
+                SimplePlayer(f"random_{i}", lambda: np.random.choice([C, D]))
+                for i in range(game_description.n_players - 1)
+            ],
         ]
 
         for i, mixture in enumerate(test_mixtures):
@@ -101,13 +117,16 @@ def create_test(strategy_class: type, game_name: str, log: bool = False):
                 end_time = time.time()
 
                 game_duration = end_time - start_time
-                print(f"Strategy {strategy_class.__name__} vs mixture {i+1}: {game_duration:.4f}s")
+                print(
+                    f"Strategy {strategy_class.__name__} vs mixture {i+1}: {game_duration:.4f}s"
+                )
 
             except Exception as e:
-                self.fail(f"Strategy {strategy_class.__name__} failed during game: {str(e)}")
+                self.fail(
+                    f"Strategy {strategy_class.__name__} failed during game: {str(e)}"
+                )
 
     return test
-
 
 
 def load_module(module_path: str):
@@ -122,12 +141,12 @@ def load_module(module_path: str):
     """
     # add .py if missing from the module
     if not module_path.endswith(".py"):
-      module_path += ".py"
+        module_path += ".py"
 
     # Convert relative path to absolute path if needed
     if not os.path.isabs(module_path):
-      # Get absolute path relative to current working directory
-      module_path = os.path.abspath(module_path)
+        # Get absolute path relative to current working directory
+        module_path = os.path.abspath(module_path)
 
     if not os.path.exists(module_path):
         raise ImportError(f"Could not find module at {module_path}")
@@ -138,7 +157,8 @@ def load_module(module_path: str):
     # Load the module using importlib
     spec = importlib.util.spec_from_file_location(module_name, module_path)
     if spec is None:
-        raise ImportError(f"Could not load module specification from {module_path}")
+        raise ImportError(
+            f"Could not load module specification from {module_path}")
 
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -147,15 +167,17 @@ def load_module(module_path: str):
 
 
 def load_algorithms(module_name: str) -> list[type[BaseStrategy]]:
-  module = load_module(module_name)
+    module = load_module(module_name)
 
-  # Get all classes from the module that are derived from axelrod.Player
-  algos = [
-    cls for name, cls in inspect.getmembers(module)
-    if inspect.isclass(cls) and issubclass(cls, BaseStrategy) and cls != BaseStrategy
-  ]
+    # Get all classes from the module that are derived from axelrod.Player
+    algos = [
+        cls for name, cls in inspect.getmembers(module)
+        if inspect.isclass(cls) and issubclass(cls, BaseStrategy) and
+        cls != BaseStrategy
+    ]
 
-  return algos
+    return algos
+
 
 def main():
     parsed_args = parse_arguments()
@@ -163,7 +185,8 @@ def main():
 
     # Dynamically create test methods for each strategy class
     for strategy_class in algos:
-        test_method = create_test(strategy_class, parsed_args.game, parsed_args.name)
+        test_method = create_test(strategy_class, parsed_args.game,
+                                  parsed_args.name)
         test_method.__name__ = f'test_{strategy_class.__name__}'
         setattr(TestStrategyClass, test_method.__name__, test_method)
 

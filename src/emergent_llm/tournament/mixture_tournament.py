@@ -1,5 +1,6 @@
 """Mixture tournament for a single group size."""
 import random
+from dataclasses import asdict, dataclass, fields
 
 from emergent_llm.players import LLMPlayer
 from emergent_llm.tournament.base_tournament import BaseTournament
@@ -7,13 +8,12 @@ from emergent_llm.tournament.configs import BaseTournamentConfig, MixtureKey
 from emergent_llm.tournament.results import MixtureTournamentResults
 
 
-from dataclasses import dataclass, asdict, fields
-
-
 class MixtureTournament(BaseTournament):
     """Tournament testing different mixtures of collective vs exploitative players for a single group size."""
 
-    def __init__(self, collective_players: list[LLMPlayer], exploitative_players: list[LLMPlayer], config: BaseTournamentConfig):
+    def __init__(self, collective_players: list[LLMPlayer],
+                 exploitative_players: list[LLMPlayer],
+                 config: BaseTournamentConfig):
         """
         Initialize mixture tournament.
 
@@ -26,19 +26,23 @@ class MixtureTournament(BaseTournament):
         self.collective_players: list[LLMPlayer] = collective_players
         self.exploitative_players: list[LLMPlayer] = exploitative_players
 
-
         group_size = config.game_description.n_players
 
         # Validate we have enough strategies
         if len(collective_players) < group_size:
-            raise ValueError(f"Need at least {group_size} collective players, got {len(collective_players)}")
+            raise ValueError(
+                f"Need at least {group_size} collective players, got {len(collective_players)}"
+            )
         if len(exploitative_players) < group_size:
-            raise ValueError(f"Need at least {group_size} exploitative players, got {len(exploitative_players)}")
+            raise ValueError(
+                f"Need at least {group_size} exploitative players, got {len(exploitative_players)}"
+            )
 
     def run_tournament(self) -> MixtureTournamentResults:
         """Run tournament across all mixture ratios for this group size."""
         group_size = self.config.game_description.n_players
-        self.logger.info(f"Running mixture tournament for group size {group_size}")
+        self.logger.info(
+            f"Running mixture tournament for group size {group_size}")
 
         # Test all possible mixtures
         for n_exploitative in range(group_size + 1):
@@ -51,8 +55,7 @@ class MixtureTournament(BaseTournament):
             config=self.config,
             collective_player_ids=[p.id for p in self.collective_players],
             exploitative_player_ids=[p.id for p in self.exploitative_players],
-            match_results=self.match_results
-        )
+            match_results=self.match_results)
 
     def _run_mixture(self, mixture_key: MixtureKey):
         """Run multiple matches for a specific mixture"""
@@ -73,11 +76,15 @@ class MixtureTournament(BaseTournament):
 
         # Sample collective players
         if mixture_key.n_collective > 0:
-            players.extend(random.sample(self.collective_players, mixture_key.n_collective))
+            players.extend(
+                random.sample(self.collective_players,
+                              mixture_key.n_collective))
 
         # Sample exploitative players
         if mixture_key.n_exploitative > 0:
-            players.extend(random.sample(self.exploitative_players, mixture_key.n_exploitative))
+            players.extend(
+                random.sample(self.exploitative_players,
+                              mixture_key.n_exploitative))
 
         # Shuffle to randomize positions
         random.shuffle(players)

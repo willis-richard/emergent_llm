@@ -1,7 +1,8 @@
 """Minimal action enum for social dilemma games."""
-from numpy.typing import NDArray
-import numpy as np
 from enum import Enum
+
+import numpy as np
+from numpy.typing import NDArray
 
 
 class Action(Enum):
@@ -31,9 +32,8 @@ class Action(Enum):
         definition = f"class {cls.__name__}(Enum):\n"
 
         definition += "\n".join(
-            f"    {member.name} = \"{member.value}\""
-            if isinstance(member.value, str)
-            else f"    {member.name} = {member.value}"
+            f"    {member.name} = \"{member.value}\"" if isinstance(
+                member.value, str) else f"    {member.name} = {member.value}"
             for member in cls)
 
         return definition
@@ -41,7 +41,8 @@ class Action(Enum):
     @classmethod
     def to_bool_array(cls, actions: list['Action']) -> NDArray[np.bool_]:
         """Convert list of Actions to numpy boolean array."""
-        result = np.array([action == cls.C for action in actions], dtype=np.bool_)
+        result = np.array([action == cls.C for action in actions],
+                          dtype=np.bool_)
         assert result.dtype == np.bool_, f"Expected bool array, got {result.dtype}"
         return result
 

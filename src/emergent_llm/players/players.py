@@ -3,18 +3,27 @@ import logging
 from dataclasses import dataclass
 from typing import Callable
 
-from emergent_llm.common import (Action, Attitude, GameDescription, GameState,
-                                 Gene, PlayerHistory, PlayerId)
+from emergent_llm.common import (
+    Action,
+    Attitude,
+    GameDescription,
+    GameState,
+    Gene,
+    PlayerHistory,
+    PlayerId,
+)
 from emergent_llm.players.base_player import BasePlayer, BaseStrategy
 
 
 class LLMPlayer(BasePlayer):
     """Player that uses an LLM-generated strategy."""
 
-    def __init__(self, name: str, gene: Gene,
+    def __init__(self,
+                 name: str,
+                 gene: Gene,
                  game_description: GameDescription,
                  strategy_class: type[BaseStrategy],
-                 max_errors: int=2):
+                 max_errors: int = 2):
         """
         Initialise LLM player with generated strategy.
 
@@ -27,7 +36,9 @@ class LLMPlayer(BasePlayer):
         """
         super().__init__(name)
         self.gene = gene
-        self.id = PlayerId(name, gene, f"{strategy_class.__module__}.{strategy_class.__name__}")
+        self.id = PlayerId(
+            name, gene,
+            f"{strategy_class.__module__}.{strategy_class.__name__}")
         self.game_description: GameDescription = game_description
         self.strategy_class: type[BaseStrategy] = strategy_class
 
@@ -45,14 +56,17 @@ class LLMPlayer(BasePlayer):
         self.strategy_function = self.strategy_class(self.game_description)
         self.error_count = 0
 
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+    def __call__(self, state: GameState,
+                 history: None | PlayerHistory) -> Action:
         """Execute the strategy function with limited error handling."""
         try:
             action = self.strategy_function(state, history)
 
             # Validate the returned action
             if not isinstance(action, Action):
-                raise TypeError(f"Strategy returned {type(action).__name__} instead of Action")
+                raise TypeError(
+                    f"Strategy returned {type(action).__name__} instead of Action"
+                )
 
             return action
 
@@ -63,12 +77,13 @@ class LLMPlayer(BasePlayer):
             round_info = "first round" if history is None else f"round {history.round_number + 1}"
             self.logger.warning(
                 f"Strategy {self.strategy_class.__name__} error #{self.error_count} at {round_info}: "
-                f"{e.__class__.__name__}: {e}"
-            )
+                f"{e.__class__.__name__}: {e}")
 
             # Only allow 2 fallbacks, then let it crash
             if self.error_count > self.max_errors:
-                self.logger.error(f"Strategy {self.strategy_class.__name__} exceeded error limit")
+                self.logger.error(
+                    f"Strategy {self.strategy_class.__name__} exceeded error limit"
+                )
                 raise
 
             # Return fallback action based on attitude
@@ -102,7 +117,8 @@ class SimplePlayer(BasePlayer):
     def reset(self):
         pass
 
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+    def __call__(self, state: GameState,
+                 history: None | PlayerHistory) -> Action:
         """Execute the strategy function (ignoring game context)."""
         return self.strategy_function()
 
@@ -113,14 +129,13 @@ class StrategySpec:
     gene: Gene
     strategy_class: type[BaseStrategy]
 
-    def create_player(self, name: str, game_description: GameDescription) -> LLMPlayer:
+    def create_player(self, name: str,
+                      game_description: GameDescription) -> LLMPlayer:
         """Convenience method to create a player from this spec."""
-        return LLMPlayer(
-            name=name,
-            gene=self.gene,
-            game_description=game_description,
-            strategy_class=self.strategy_class
-        )
+        return LLMPlayer(name=name,
+                         gene=self.gene,
+                         game_description=game_description,
+                         strategy_class=self.strategy_class)
 
     def __str__(self) -> str:
         return f"{self.gene}:{self.strategy_class.__name__}"

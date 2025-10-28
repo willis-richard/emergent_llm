@@ -16,7 +16,8 @@ class BaseTournament(ABC):
         # Results storage
         self.match_results: list[MatchResult] = []
 
-    def _run_match(self, players: list[LLMPlayer], match_id: str) -> MatchResult:
+    def _run_match(self, players: list[LLMPlayer],
+                   match_id: str) -> MatchResult:
         """Run a single match and record results."""
         # Create and run game
         game_class = self.config.get_game_class()

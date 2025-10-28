@@ -18,15 +18,17 @@ from pathlib import Path
 import anthropic
 import ollama
 import openai
-from emergent_llm.common import (EXPLOITATIVE, COLLECTIVE, Attitude, C, D,
-                                 GameDescription, Gene)
-from emergent_llm.games import (CollectiveRiskDescription,
-                                CommonPoolDescription, PublicGoodsDescription)
-from emergent_llm.generation.prompts import (create_code_user_prompt,
-                                             create_strategy_user_prompt)
-from emergent_llm.players import BaseStrategy
 from google import genai
 from google.genai import errors as genai_errors
+
+from emergent_llm.common import COLLECTIVE, EXPLOITATIVE, Attitude, C, D, GameDescription, Gene
+from emergent_llm.games import (
+    CollectiveRiskDescription,
+    CommonPoolDescription,
+    PublicGoodsDescription,
+)
+from emergent_llm.generation.prompts import create_code_user_prompt, create_strategy_user_prompt
+from emergent_llm.players import BaseStrategy
 
 
 def setup_logging(log_file: Path) -> logging.Logger:
@@ -35,12 +37,10 @@ def setup_logging(log_file: Path) -> logging.Logger:
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
     # Configure logging
-    logging.basicConfig(
-        filename=str(log_file),
-        filemode="w",
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
-    )
+    logging.basicConfig(filename=str(log_file),
+                        filemode="w",
+                        level=logging.INFO,
+                        format='%(asctime)s - %(levelname)s - %(message)s')
     logger = logging.getLogger(__name__)
 
     # Reduce noise from HTTP clients
@@ -58,7 +58,8 @@ class LLMConfig:
     max_retries: int = 3
 
 
-def parse_description_file(description_file: Path) -> dict[tuple[str, int], str]:
+def parse_description_file(
+        description_file: Path) -> dict[tuple[str, int], str]:
     """Parse existing description file and extract existing descriptions.
 
     Returns dict mapping (attitude_name, n) tuple to description string.
@@ -79,7 +80,8 @@ def parse_description_file(description_file: Path) -> dict[tuple[str, int], str]
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign) and len(node.targets) == 1:
                 target = node.targets[0]
-                if isinstance(target, ast.Name) and isinstance(node.value, ast.Constant):
+                if isinstance(target, ast.Name) and isinstance(
+                        node.value, ast.Constant):
                     var_name = target.id
 
                     # Check if it matches our description variable pattern
@@ -91,7 +93,8 @@ def parse_description_file(description_file: Path) -> dict[tuple[str, int], str]
                         descriptions[(attitude_name, n)] = description
 
     except Exception as e:
-        logging.warning(f"Error parsing description file {description_file}: {e}")
+        logging.warning(
+            f"Error parsing description file {description_file}: {e}")
         return {}
 
     return descriptions
@@ -131,7 +134,8 @@ def parse_strategy_file(strategy_file: Path) -> set[str]:
     return strategy_classes
 
 
-def write_description_to_file(description_file: Path, attitude: Attitude, n: int, description: str):
+def write_description_to_file(description_file: Path, attitude: Attitude,
+                              n: int, description: str):
     """Append a new description using triple single quotes."""
     var_name = f"description_{attitude.name}_{n}"
 
@@ -145,8 +149,8 @@ def write_description_to_file(description_file: Path, attitude: Attitude, n: int
 
 
 def get_missing_descriptions(existing_descriptions: dict[tuple[str, int], str],
-                           attitudes: list[Attitude],
-                           n_per_attitude: int) -> list[tuple[Attitude, int]]:
+                             attitudes: list[Attitude],
+                             n_per_attitude: int) -> list[tuple[Attitude, int]]:
     """Get list of (attitude, n) tuples for missing descriptions."""
     missing = []
 
@@ -159,8 +163,10 @@ def get_missing_descriptions(existing_descriptions: dict[tuple[str, int], str],
     return missing
 
 
-def get_missing_implementations(existing_strategies: set[str],
-                              existing_descriptions: dict[tuple[str, int], str]) -> list[tuple[str, int, str]]:
+def get_missing_implementations(
+    existing_strategies: set[str], existing_descriptions: dict[tuple[str, int],
+                                                               str]
+) -> list[tuple[str, int, str]]:
     """Get list of (attitude_name, n, description) tuples for missing implementations."""
     missing = []
 
@@ -173,9 +179,9 @@ def get_missing_implementations(existing_strategies: set[str],
 
 
 def generate_strategy_description(config: LLMConfig,
-                                 attitude: Attitude,
-                                 game_description_class: type[GameDescription],
-                                 logger: logging.Logger = None) -> str:
+                                  attitude: Attitude,
+                                  game_description_class: type[GameDescription],
+                                  logger: logging.Logger = None) -> str:
     """Generate natural language strategy description."""
     system_prompt = "You are an AI assistant with expertise in strategic thinking."
     user_prompt = create_strategy_user_prompt(attitude, game_description_class)
@@ -199,7 +205,8 @@ def generate_strategy_code(config: LLMConfig,
                            logger: logging.Logger = None) -> str:
     """Generate Python code from strategy description."""
     system_prompt = "You are an expert Python programmer implementing game theory strategies."
-    user_prompt = create_code_user_prompt(strategy_description, game_description_class)
+    user_prompt = create_code_user_prompt(strategy_description,
+                                          game_description_class)
 
     if logger:
         logger.info("Generating strategy code")
@@ -235,7 +242,8 @@ def clean_generated_code(response: str) -> str:
         if class_matches:
             code = class_matches[0].strip()
         else:
-            raise ValueError("No Python code block or class definition found in response")
+            raise ValueError(
+                "No Python code block or class definition found in response")
 
     # Remove any remaining markdown artifacts
     code = re.sub(r'^```.*$', '', code, flags=re.MULTILINE)
@@ -243,8 +251,8 @@ def clean_generated_code(response: str) -> str:
 
     # Remove forbidden import statements that are already available in the environment
     forbidden_imports = [
-        r'^import\s+math\s*$',             # import math
-        r'^import\s+random\s*$',           # import random
+        r'^import\s+math\s*$',  # import math
+        r'^import\s+random\s*$',  # import random
         r'^import\s+numpy\s+as\s+np\s*$',  # import numpy as np
     ]
 
@@ -253,13 +261,15 @@ def clean_generated_code(response: str) -> str:
 
     # Fix quoted type hints - remove quotes around PlayerHistory in type annotations
     # Handle both double and single quotes
-    code = re.sub(r'\b(:\s*(?:None\s*\|\s*)?)["\']PlayerHistory["\']', r'\1PlayerHistory', code)
+    code = re.sub(r'\b(:\s*(?:None\s*\|\s*)?)["\']PlayerHistory["\']',
+                  r'\1PlayerHistory', code)
 
     return code
 
 
 def validate_strategy_code(code: str):
     """Validate strategy code for safety and correctness."""
+
     def is_safe_node(node):
         """Check if AST node is safe."""
         # yapf: disable
@@ -285,19 +295,28 @@ def validate_strategy_code(code: str):
         dangerous_types = (ast.Import, ast.ImportFrom, ast.Global, ast.Nonlocal,
                            ast.Delete, ast.With, ast.AsyncWith, ast.Raise)
 
-        dangerous_funcs = {'eval', 'exec', 'compile', 'open', '__import__', 'globals', 'locals', 'vars', 'dir'}
+        dangerous_funcs = {
+            'eval', 'exec', 'compile', 'open', '__import__', 'globals',
+            'locals', 'vars', 'dir'
+        }
 
         if isinstance(node, dangerous_types):
-            raise ValueError(f"Dangerous node type: {type(node).__name__}\nnode:\n{ast.unparse(node)}")
+            raise ValueError(
+                f"Dangerous node type: {type(node).__name__}\nnode:\n{ast.unparse(node)}"
+            )
 
         if not isinstance(node, allowed_types):
-            raise ValueError(f"Unsafe node type: {type(node).__name__}\nnode:\n{ast.unparse(node)}")
+            raise ValueError(
+                f"Unsafe node type: {type(node).__name__}\nnode:\n{ast.unparse(node)}"
+            )
 
         # Check for dangerous function calls
         if isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name):
                 if node.func.id in dangerous_funcs:
-                    raise ValueError(f"Dangerous function call: {node.func.id}\nnode:\n{ast.unparse(node)}")
+                    raise ValueError(
+                        f"Dangerous function call: {node.func.id}\nnode:\n{ast.unparse(node)}"
+                    )
 
         for child in ast.iter_child_nodes(node):
             is_safe_node(child)
@@ -324,13 +343,17 @@ def validate_strategy_code(code: str):
                 if node.name == '__init__':
                     args = [arg.arg for arg in node.args.args]
                     if args != ['self', 'game_description']:
-                        raise ValueError("__init__ must have signature (self, game_description)")
+                        raise ValueError(
+                            "__init__ must have signature (self, game_description)"
+                        )
 
                 # Validate __call__ method
                 elif node.name == '__call__':
                     args = [arg.arg for arg in node.args.args]
                     if args != ['self', 'state', 'history']:
-                        raise ValueError("__call__ must have signature (self, state, history)")
+                        raise ValueError(
+                            "__call__ must have signature (self, state, history)"
+                        )
 
         # Check required methods exist
         missing_methods = required_methods - found_methods
@@ -346,11 +369,13 @@ def validate_strategy_code(code: str):
         raise ValueError(f"Code validation failed: {e}") from e
 
 
-def test_generated_strategy(class_code: str, game_description_class: type[GameDescription]):
+def test_generated_strategy(class_code: str,
+                            game_description_class: type[GameDescription]):
     """Test the generated strategy by actually running it in games."""
     import tempfile
 
     import numpy as np
+
     from emergent_llm.players import LLMPlayer, SimplePlayer
 
     # Create a temporary module to load the strategy
@@ -371,40 +396,58 @@ import random
 
     try:
         # Load the temporary module
-        spec = importlib.util.spec_from_file_location("temp_strategy", temp_file)
+        spec = importlib.util.spec_from_file_location("temp_strategy",
+                                                      temp_file)
         temp_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(temp_module)
 
         # Find the strategy class
-        strategy_classes = [cls for name, cls in inspect.getmembers(temp_module)
-                          if inspect.isclass(cls) and issubclass(cls, BaseStrategy) and cls != BaseStrategy]
+        strategy_classes = [
+            cls for name, cls in inspect.getmembers(temp_module)
+            if inspect.isclass(cls) and issubclass(cls, BaseStrategy) and
+            cls != BaseStrategy
+        ]
 
         if not strategy_classes:
             raise ValueError("No strategy class found in generated code")
 
-        assert len(strategy_classes) == 1, "More than one strategy class defined"
+        assert len(
+            strategy_classes) == 1, "More than one strategy class defined"
         strategy_class = strategy_classes[0]
 
         # Determine game type and create test games
         if game_description_class == PublicGoodsDescription:
             from emergent_llm.games import PublicGoodsGame
             game_class = PublicGoodsGame
-            game_description = PublicGoodsDescription(n_players=6, n_rounds=20, k=2.0)
+            game_description = PublicGoodsDescription(n_players=6,
+                                                      n_rounds=20,
+                                                      k=2.0)
         elif game_description_class == CollectiveRiskDescription:
             from emergent_llm.games import CollectiveRiskGame
             game_class = CollectiveRiskGame
-            game_description = CollectiveRiskDescription(n_players=6, n_rounds=20, m=3, k=2.0)
+            game_description = CollectiveRiskDescription(n_players=6,
+                                                         n_rounds=20,
+                                                         m=3,
+                                                         k=2.0)
         elif game_description_class == CommonPoolDescription:
             from emergent_llm.games import CommonPoolGame
             game_class = CommonPoolGame
-            game_description = CommonPoolDescription(n_players=6, n_rounds=20, capacity=36)
+            game_description = CommonPoolDescription(n_players=6,
+                                                     n_rounds=20,
+                                                     capacity=36)
         else:
-            raise ValueError(f"Unknown game description type: {game_description_class}")
+            raise ValueError(
+                f"Unknown game description type: {game_description_class}")
 
         # Create test player
-        player = LLMPlayer("test_player", Gene("dummy", COLLECTIVE), game_description, strategy_class, max_errors=0)
+        player = LLMPlayer("test_player",
+                           Gene("dummy", COLLECTIVE),
+                           game_description,
+                           strategy_class,
+                           max_errors=0)
 
         class GradualDefector:
+
             def __init__(self, threshold=10):
                 self.threshold = threshold
                 self.round = 0
@@ -414,6 +457,7 @@ import random
                 return C if self.round <= self.threshold else D
 
         class PeriodicDefector:
+
             def __init__(self, period):
                 self.period = period
                 self.round = 0
@@ -426,27 +470,45 @@ import random
             game_description.n_players = n_players
             # Test against different opponent types
             test_mixtures = [
-                [SimplePlayer(f"cooperator_{i}", lambda: C)
-                 for i in range(game_description.n_players - 1)],
-                [SimplePlayer(f"defector_{i}", lambda: D)
-                 for i in range(game_description.n_players - 1)],
-                [SimplePlayer(f"random_{i}", lambda: random.choice([C, D]))
-                 for i in range(game_description.n_players - 1)],
+                [
+                    SimplePlayer(f"cooperator_{i}", lambda: C)
+                    for i in range(game_description.n_players - 1)
+                ],
+                [
+                    SimplePlayer(f"defector_{i}", lambda: D)
+                    for i in range(game_description.n_players - 1)
+                ],
+                [
+                    SimplePlayer(f"random_{i}", lambda: random.choice([C, D]))
+                    for i in range(game_description.n_players - 1)
+                ],
                 # Mostly cooperative (90% C, 10% D)
-                [SimplePlayer(f"mostly_coop_{i}", lambda: C if np.random.random() < 0.9 else D)
-                 for i in range(game_description.n_players - 1)],
+                [
+                    SimplePlayer(f"mostly_coop_{i}", lambda: C
+                                 if np.random.random() < 0.9 else D)
+                    for i in range(game_description.n_players - 1)
+                ],
                 # Mostly defective (10% C, 90% D)
-                [SimplePlayer(f"mostly_defect_{i}", lambda: C if np.random.random() < 0.1 else D)
-                 for i in range(game_description.n_players - 1)],
+                [
+                    SimplePlayer(f"mostly_defect_{i}", lambda: C
+                                 if np.random.random() < 0.1 else D)
+                    for i in range(game_description.n_players - 1)
+                ],
                 # Alternating cooperation
-                [SimplePlayer(f"alternating_{i}", PeriodicDefector(2))
-                 for i in range(game_description.n_players - 1)],
+                [
+                    SimplePlayer(f"alternating_{i}", PeriodicDefector(2))
+                    for i in range(game_description.n_players - 1)
+                ],
                 # Gradual defection
-                [SimplePlayer(f"grad_{i}", GradualDefector(10+i))
-                 for i in range(game_description.n_players - 1)],
+                [
+                    SimplePlayer(f"grad_{i}", GradualDefector(10 + i))
+                    for i in range(game_description.n_players - 1)
+                ],
                 # periodic
-                [SimplePlayer(f"period_{i}", PeriodicDefector(2+i))
-                 for i in range(game_description.n_players - 1)]
+                [
+                    SimplePlayer(f"period_{i}", PeriodicDefector(2 + i))
+                    for i in range(game_description.n_players - 1)
+                ]
             ]
 
             for mixture in test_mixtures:
@@ -461,18 +523,21 @@ import random
         os.unlink(temp_file)
 
 
-def get_llm_response(config: LLMConfig,
-                     system_prompt: str,
+def get_llm_response(config: LLMConfig, system_prompt: str,
                      user_prompt: str) -> str:
     """Get response from LLM client."""
+
     def handle_retry(attempt, max_retries, error):
         """Helper function to handle retry logic consistently"""
         if attempt < max_retries - 1:
-            wait_time = 2 ** attempt
-            logging.warning(f"Attempt {attempt + 1} failed: {error}. Retrying in {wait_time}s...")
+            wait_time = 2**attempt
+            logging.warning(
+                f"Attempt {attempt + 1} failed: {error}. Retrying in {wait_time}s..."
+            )
             time.sleep(wait_time)
             return True
-        logging.error(f"All {max_retries} attempts failed. Final error: {error}")
+        logging.error(
+            f"All {max_retries} attempts failed. Final error: {error}")
         return False
 
     for attempt in range(config.max_retries):
@@ -480,10 +545,13 @@ def get_llm_response(config: LLMConfig,
             try:
                 response = config.client.chat.completions.create(
                     model=config.model_name,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
+                    messages=[{
+                        "role": "system",
+                        "content": system_prompt
+                    }, {
+                        "role": "user",
+                        "content": user_prompt
+                    }],
                 )
                 return response.choices[0].message.content
             except (openai.InternalServerError, openai.RateLimitError,
@@ -498,33 +566,41 @@ def get_llm_response(config: LLMConfig,
                     model=config.model_name,
                     system=system_prompt,
                     max_tokens=4096,
-                    messages=[{"role": "user", "content": user_prompt}]
-                )
-                if hasattr(response, 'stop_reason') and response.stop_reason == "max_tokens":
+                    messages=[{
+                        "role": "user",
+                        "content": user_prompt
+                    }])
+                if hasattr(
+                        response,
+                        'stop_reason') and response.stop_reason == "max_tokens":
                     logging.warning(
                         f"Response was truncated due to max_tokens limit. "
                         f"Consider increasing max_tokens. Stop reason: {response.stop_reason}"
                     )
                 return response.content[0].text
             except (anthropic.InternalServerError, anthropic.RateLimitError,
-                    anthropic.APITimeoutError, anthropic.APIConnectionError) as e:
+                    anthropic.APITimeoutError,
+                    anthropic.APIConnectionError) as e:
                 if not handle_retry(attempt, config.max_retries, e):
                     raise
                 continue
 
         elif isinstance(config.client, ollama.Client):
             try:
-                response = config.client.chat(
-                    model=config.model_name,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ]
-                )
+                response = config.client.chat(model=config.model_name,
+                                              messages=[{
+                                                  "role": "system",
+                                                  "content": system_prompt
+                                              }, {
+                                                  "role": "user",
+                                                  "content": user_prompt
+                                              }])
                 return response['message']['content']
             except ollama.ResponseError as e:
                 if e.status_code == 404:
-                    logging.error(f"Ollama model '{config.model_name}' not found. Use 'ollama pull {config.model_name}' to download it.")
+                    logging.error(
+                        f"Ollama model '{config.model_name}' not found. Use 'ollama pull {config.model_name}' to download it."
+                    )
                 raise
 
         elif isinstance(config.client, genai.Client):
@@ -546,7 +622,8 @@ def get_llm_response(config: LLMConfig,
     raise RuntimeError(f"All {config.max_retries} attempts failed")
 
 
-def write_strategy_class(description: str, code: str, attitude: Attitude, n: int) -> str:
+def write_strategy_class(description: str, code: str, attitude: Attitude,
+                         n: int) -> str:
     """Create a complete strategy class with proper naming and documentation."""
 
     # Parse and modify the class
@@ -562,11 +639,9 @@ def write_strategy_class(description: str, code: str, attitude: Attitude, n: int
 
 
 def generate_descriptions(config: LLMConfig,
-                         game_description_class: type[GameDescription],
-                         attitudes: list[Attitude],
-                         n_per_attitude: int,
-                         description_file: Path,
-                         logger: logging.Logger):
+                          game_description_class: type[GameDescription],
+                          attitudes: list[Attitude], n_per_attitude: int,
+                          description_file: Path, logger: logging.Logger):
     """Phase 1: Generate strategy descriptions."""
 
     # Check existing descriptions
@@ -574,7 +649,8 @@ def generate_descriptions(config: LLMConfig,
     logger.info(f"Found {len(existing_descriptions)} existing descriptions")
 
     # Get missing descriptions
-    missing = get_missing_descriptions(existing_descriptions, attitudes, n_per_attitude)
+    missing = get_missing_descriptions(existing_descriptions, attitudes,
+                                       n_per_attitude)
 
     if not missing:
         print("All descriptions already exist!")
@@ -601,31 +677,39 @@ Generated with:
     for attitude, n in missing:
         try:
             print(f"Generating {attitude.name}_{n} description...")
-            description = generate_strategy_description(config, attitude, game_description_class, logger)
-            write_description_to_file(description_file, attitude, n, description)
+            description = generate_strategy_description(config, attitude,
+                                                        game_description_class,
+                                                        logger)
+            write_description_to_file(description_file, attitude, n,
+                                      description)
             print(f"✓ Generated description for {attitude.name}_{n}")
-            logger.info(f"Successfully generated description for {attitude.name}_{n}")
+            logger.info(
+                f"Successfully generated description for {attitude.name}_{n}")
 
         except Exception as e:
-            logger.error(f"Failed to generate description for {attitude.name}_{n}: {e}")
-            print(f"✗ Error generating description for {attitude.name}_{n}: {e}")
+            logger.error(
+                f"Failed to generate description for {attitude.name}_{n}: {e}")
+            print(
+                f"✗ Error generating description for {attitude.name}_{n}: {e}")
             continue
 
     print(f"\nDescriptions written to {description_file}")
 
 
 def generate_implementations(config: LLMConfig,
-                           game_description_class: type[GameDescription],
-                           description_file: Path,
-                           strategy_file: Path,
-                           logger: logging.Logger,
-                           max_retries: int = 3):
+                             game_description_class: type[GameDescription],
+                             description_file: Path,
+                             strategy_file: Path,
+                             logger: logging.Logger,
+                             max_retries: int = 3):
     """Phase 2: Generate code implementations from descriptions."""
 
     # Read existing descriptions
     existing_descriptions = parse_description_file(description_file)
     if not existing_descriptions:
-        print(f"No descriptions found in {description_file}. Run description generation first.")
+        print(
+            f"No descriptions found in {description_file}. Run description generation first."
+        )
         return
 
     # Check existing implementations
@@ -633,7 +717,8 @@ def generate_implementations(config: LLMConfig,
     logger.info(f"Found {len(existing_strategies)} existing implementations")
 
     # Get missing implementations
-    missing = get_missing_implementations(existing_strategies, existing_descriptions)
+    missing = get_missing_implementations(existing_strategies,
+                                          existing_descriptions)
 
     if not missing:
         print("All implementations already exist!")
@@ -678,8 +763,8 @@ import random
                 attitude = Attitude[attitude_name]
 
                 strategy_class = create_single_strategy_implementation(
-                    config, attitude, n, description, game_description_class, logger, max_retries
-                )
+                    config, attitude, n, description, game_description_class,
+                    logger, max_retries)
                 f.write("\n\n" + strategy_class)
                 f.flush()  # Save progress
                 print(f"✓ Implemented {attitude_name}_{n}")
@@ -693,12 +778,14 @@ import random
     print(f"\nImplementations written to {strategy_file}")
 
 
-def create_single_strategy_implementation(config: LLMConfig,
-                                          attitude: Attitude, n: int,
-                                          description: str,
-                                          game_description_class: type[GameDescription],
-                                          logger: logging.Logger,
-                                        max_retries: int = 3) -> str:
+def create_single_strategy_implementation(
+        config: LLMConfig,
+        attitude: Attitude,
+        n: int,
+        description: str,
+        game_description_class: type[GameDescription],
+        logger: logging.Logger,
+        max_retries: int = 3) -> str:
     """Create a single strategy implementation from description."""
 
     # Code generation with retry logic
@@ -707,7 +794,8 @@ def create_single_strategy_implementation(config: LLMConfig,
             print(f"  Coding attempt {attempt + 1}...")
 
             # Generate code implementation
-            code = generate_strategy_code(config, description, game_description_class, logger)
+            code = generate_strategy_code(config, description,
+                                          game_description_class, logger)
 
             # Create complete class
             class_code = write_strategy_class(description, code, attitude, n)
@@ -718,17 +806,24 @@ def create_single_strategy_implementation(config: LLMConfig,
             return class_code
 
         except Exception as e:
-            logger.warning(f"Coding attempt {attempt + 1} failed for {attitude.name}_{n}: {e}")
+            logger.warning(
+                f"Coding attempt {attempt + 1} failed for {attitude.name}_{n}: {e}"
+            )
             print(f"  ✗ Attempt {attempt + 1} failed: {e}")
             if attempt == max_retries - 1:
-                logger.error(f"All {max_retries} coding attempts failed for {attitude.name}_{n}")
+                logger.error(
+                    f"All {max_retries} coding attempts failed for {attitude.name}_{n}"
+                )
                 raise
             time.sleep(1)  # Brief pause before retry
 
-    raise RuntimeError(f"Unexpected failure in strategy implementation for {attitude.name}_{n}")
+    raise RuntimeError(
+        f"Unexpected failure in strategy implementation for {attitude.name}_{n}"
+    )
 
 
-def create_game_description_class(args: argparse.Namespace) -> type[GameDescription]:
+def create_game_description_class(
+        args: argparse.Namespace) -> type[GameDescription]:
     """Create game description class from arguments."""
     if args.game == "public_goods":
         return PublicGoodsDescription
@@ -743,25 +838,41 @@ def create_game_description_class(args: argparse.Namespace) -> type[GameDescript
 def parse_arguments() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Generate LLM strategies for social dilemma games"
-    )
+        description="Generate LLM strategies for social dilemma games")
 
     # Phase selection
     subparsers = parser.add_subparsers(dest='phase', help='Generation phase')
     subparsers.required = True
 
     # Phase 1: Description generation
-    desc_parser = subparsers.add_parser('descriptions', help='Generate strategy descriptions')
-    desc_parser.add_argument("--llm_provider", choices=["openai", "anthropic", "ollama", "google"], required=True)
+    desc_parser = subparsers.add_parser('descriptions',
+                                        help='Generate strategy descriptions')
+    desc_parser.add_argument(
+        "--llm_provider",
+        choices=["openai", "anthropic", "ollama", "google"],
+        required=True)
     desc_parser.add_argument("--model_name", type=str, required=True)
-    desc_parser.add_argument("--n", type=int, required=True, help="Number of strategies per attitude")
-    desc_parser.add_argument("--game", choices=["public_goods", "collective_risk", "common_pool"], required=True)
+    desc_parser.add_argument("--n",
+                             type=int,
+                             required=True,
+                             help="Number of strategies per attitude")
+    desc_parser.add_argument(
+        "--game",
+        choices=["public_goods", "collective_risk", "common_pool"],
+        required=True)
 
     # Phase 2: Implementation generation
-    impl_parser = subparsers.add_parser('implementations', help='Generate code implementations')
-    impl_parser.add_argument("--llm_provider", choices=["openai", "anthropic", "ollama", "google"], required=True)
+    impl_parser = subparsers.add_parser('implementations',
+                                        help='Generate code implementations')
+    impl_parser.add_argument(
+        "--llm_provider",
+        choices=["openai", "anthropic", "ollama", "google"],
+        required=True)
     impl_parser.add_argument("--model_name", type=str, required=True)
-    impl_parser.add_argument("--game", choices=["public_goods", "collective_risk", "common_pool"], required=True)
+    impl_parser.add_argument(
+        "--game",
+        choices=["public_goods", "collective_risk", "common_pool"],
+        required=True)
     impl_parser.add_argument("--max_retries", type=int, default=3)
 
     return parser.parse_args()
@@ -806,15 +917,13 @@ def main():
 
     # Run appropriate phase
     if args.phase == 'descriptions':
-        generate_descriptions(
-            config, game_description_class, [COLLECTIVE, EXPLOITATIVE],
-            args.n, description_file, logger
-        )
+        generate_descriptions(config, game_description_class,
+                              [COLLECTIVE, EXPLOITATIVE], args.n,
+                              description_file, logger)
     elif args.phase == 'implementations':
-        generate_implementations(
-            config, game_description_class, description_file,
-            strategy_file, logger, args.max_retries
-        )
+        generate_implementations(config, game_description_class,
+                                 description_file, strategy_file, logger,
+                                 args.max_retries)
 
     logger.info(f"Phase {args.phase} completed")
 

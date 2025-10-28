@@ -1,16 +1,20 @@
 """Game history classes for tournament and player use."""
 from dataclasses import dataclass
+
 import numpy as np
 from numpy.typing import NDArray
+
 from emergent_llm.common.actions import Action
 
 
 @dataclass
 class PlayerHistory:
-    my_actions: NDArray[np.bool_]    # This player's actions, indexed [round]
+    my_actions: NDArray[np.bool_]  # This player's actions, indexed [round]
     my_payoffs: NDArray[np.float64]  # This player's payoffs, indexed [round]
-    opponent_actions: NDArray[np.bool_]    # Opponents' actions, indexed [round, opponent]
-    opponent_payoffs: NDArray[np.float64]  # Opponents' payoffs, indexed [round, opponent]
+    opponent_actions: NDArray[
+        np.bool_]  # Opponents' actions, indexed [round, opponent]
+    opponent_payoffs: NDArray[
+        np.float64]  # Opponents' payoffs, indexed [round, opponent]
 
     @property
     def round_number(self) -> int:
@@ -24,15 +28,18 @@ class GameHistory:
     Complete game history for tournament/logging use.
     Just stores the raw data without player-specific processing.
     """
-    actions: NDArray[np.bool_]    # All players' actions,  indexed [round, player]
-    payoffs: NDArray[np.float64]  # All players' payoffs,  indexed [round, player]
+    actions: NDArray[np.bool_]  # All players' actions,  indexed [round, player]
+    payoffs: NDArray[
+        np.float64]  # All players' payoffs,  indexed [round, player]
 
     def __post_init__(self):
         """Ensure arrays are always 2D."""
         if self.actions.dtype != np.bool_:
-            raise TypeError(f"actions must be boolean array, got {self.actions.dtype}")
+            raise TypeError(
+                f"actions must be boolean array, got {self.actions.dtype}")
         if self.payoffs.dtype != np.float64:
-            raise TypeError(f"payoffs must be float64 array, got {self.payoffs.dtype}")
+            raise TypeError(
+                f"payoffs must be float64 array, got {self.payoffs.dtype}")
         if self.actions.ndim == 1:
             self.actions = self.actions.reshape(1, -1)
         if self.payoffs.ndim == 1:
@@ -51,12 +58,10 @@ class GameHistory:
         opponent_actions = self.actions[:, opponent_mask]
         opponent_payoffs = self.payoffs[:, opponent_mask]
 
-        return PlayerHistory(
-            my_actions=my_actions,
-            my_payoffs=my_payoffs,
-            opponent_actions=opponent_actions,
-            opponent_payoffs=opponent_payoffs
-        )
+        return PlayerHistory(my_actions=my_actions,
+                             my_payoffs=my_payoffs,
+                             opponent_actions=opponent_actions,
+                             opponent_payoffs=opponent_payoffs)
 
     def update(self, actions: NDArray[np.bool_], payoffs: NDArray[np.float64]):
         # Ensure input arrays are 2D

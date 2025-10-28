@@ -16,23 +16,21 @@ class FairTournament(BaseTournament):
         if len(players) % config.game_description.n_players != 0:
             raise ValueError(
                 f"Population size ({len(players)}) must be divisible by "
-                f"n_players ({config.game_description.n_players})"
-            )
+                f"n_players ({config.game_description.n_players})")
 
         self.players = players
 
     def run_tournament(self) -> FairTournamentResults:
         """Run complete tournament and return results."""
-        self.logger.info(f"Starting fair tournament: {self.config.repetitions} repetitions")
+        self.logger.info(
+            f"Starting fair tournament: {self.config.repetitions} repetitions")
 
         for repetition in range(self.config.repetitions):
             self._run_repetition(repetition)
 
-        return FairTournamentResults(
-            config=self.config,
-            player_ids=[p.id for p in self.players],
-            match_results=self.match_results
-        )
+        return FairTournamentResults(config=self.config,
+                                     player_ids=[p.id for p in self.players],
+                                     match_results=self.match_results)
 
     def _run_repetition(self, repetition: int):
         """Run a single repetition of the tournament."""

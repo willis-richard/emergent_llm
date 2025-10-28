@@ -1,20 +1,18 @@
 """Multi-group fair tournament for testing strategy generalization across group sizes."""
 import logging
 
-from emergent_llm.players import StrategySpec
-from emergent_llm.tournament.configs import (BaseTournamentConfig,
-                                             BatchTournamentConfig)
-from emergent_llm.tournament.fair_tournament import FairTournament
-from emergent_llm.tournament.results import (BatchFairTournamentResults,
-                                             FairTournamentResults)
 from tqdm import tqdm
+
+from emergent_llm.players import StrategySpec
+from emergent_llm.tournament.configs import BaseTournamentConfig, BatchTournamentConfig
+from emergent_llm.tournament.fair_tournament import FairTournament
+from emergent_llm.tournament.results import BatchFairTournamentResults, FairTournamentResults
 
 
 class BatchFairTournament:
     """Tournament that tests strategy generalization across multiple group sizes."""
 
-    def __init__(self,
-                 strategies: list[StrategySpec],
+    def __init__(self, strategies: list[StrategySpec],
                  config: BatchTournamentConfig):
 
         self.strategies = strategies
@@ -22,7 +20,9 @@ class BatchFairTournament:
 
         # Setup logging
         self.logger = logging.getLogger(__name__)
-        self.logger.info(f"Initialised batch fair tournament with {len(strategies)} strategies")
+        self.logger.info(
+            f"Initialised batch fair tournament with {len(strategies)} strategies"
+        )
 
         # Validate we have enough strategies for the largest group size to have diversity
         max_group_size = max(config.group_sizes)
@@ -31,8 +31,7 @@ class BatchFairTournament:
         if len(strategies) < required_population:
             raise ValueError(
                 f"Suggest you have at least {required_population} strategies for largest group size "
-                f"({max_group_size}), got {len(strategies)}"
-            )
+                f"({max_group_size}), got {len(strategies)}")
 
         # Storage for all results
         self.results: dict[int, FairTournamentResults] = {}
@@ -40,19 +39,22 @@ class BatchFairTournament:
     def run_tournament(self) -> BatchFairTournamentResults:
         """Run fair tournaments across all group sizes."""
         for group_size in tqdm(self.config.group_sizes, desc="Group sizes"):
-            self.logger.info(f"Running fair tournament for group size {group_size}")
+            self.logger.info(
+                f"Running fair tournament for group size {group_size}")
 
             # Generate game description for this group size
-            game_description = self.config.game_description_generator(group_size)
+            game_description = self.config.game_description_generator(
+                group_size)
 
             # Create tournament config for this group size
             tournament_config = BaseTournamentConfig(
                 game_description=game_description,
-                repetitions=self.config.repetitions
-            )
+                repetitions=self.config.repetitions)
 
-            players = [spec.create_player(f"player_{i}", game_description)
-                       for i, spec in enumerate(self.strategies)]
+            players = [
+                spec.create_player(f"player_{i}", game_description)
+                for i, spec in enumerate(self.strategies)
+            ]
 
             # Run fair tournament for this group size
             fair_tournament = FairTournament(players, tournament_config)

@@ -39,6 +39,9 @@ collective_risk_results.csv
 public_goods_results.csv
 *png
 *svg
-flycheck_*
 test/
 .virtual_documents
+
+# Emacs
+.#*
+flycheck_*

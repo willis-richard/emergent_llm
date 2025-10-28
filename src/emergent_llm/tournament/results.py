@@ -57,10 +57,11 @@ class MatchResult:
         """Load MatchResult from dictionary data."""
         return cls(
             match_id=data['match_id'],
-            player_ids=[PlayerId.from_dict(pid_data) for pid_data in data['player_ids']],
+            player_ids=[
+                PlayerId.from_dict(pid_data) for pid_data in data['player_ids']
+            ],
             total_payoffs=data['total_payoffs'],
-            total_cooperations=data['total_cooperations']
-        )
+            total_cooperations=data['total_cooperations'])
 
 
 @dataclass
@@ -108,7 +109,9 @@ class MixtureResult:
 
     def __post_init__(self):
         if not (self.n_collective + self.n_exploitative == self.group_size):
-            raise ValueError(f"Number of collective ({self.n_collective}) plus exploitative ({self.n_exploitative}) players must equal group size ({self.group_size})")
+            raise ValueError(
+                f"Number of collective ({self.n_collective}) plus exploitative ({self.n_exploitative}) players must equal group size ({self.group_size})"
+            )
 
     @property
     def exploitative_ratio(self) -> float:
@@ -120,11 +123,13 @@ class MixtureResult:
 
     @property
     def mean_collective_score(self) -> float:
-        return float(np.mean(self.collective_scores)) if self.collective_scores else np.nan
+        return float(np.mean(
+            self.collective_scores)) if self.collective_scores else np.nan
 
     @property
     def mean_exploitative_score(self) -> float:
-        return float(np.mean(self.exploitative_scores)) if self.exploitative_scores else np.nan
+        return float(np.mean(
+            self.exploitative_scores)) if self.exploitative_scores else np.nan
 
     @property
     def mean_social_welfare(self) -> float:
@@ -138,7 +143,9 @@ class FairTournamentResults:
     config: BaseTournamentConfig
     player_ids: list[PlayerId]
     match_results: list[MatchResult]
-    _player_stats: dict[str, PlayerStats] = field(default=None, init=False, repr=False)
+    _player_stats: dict[str, PlayerStats] = field(default=None,
+                                                  init=False,
+                                                  repr=False)
     _results_df: pd.DataFrame = field(default=None, init=False, repr=False)
 
     def __post_init__(self):
@@ -149,16 +156,16 @@ class FairTournamentResults:
         # Aggregate all match results into player statistics
         stats: dict[PlayerId, PlayerStats] = {}
         for mr in self.match_results:
-            for pid, total_payoffs, total_cooperations in zip(mr.player_ids,
-                                                              mr.total_payoffs,
-                                                              mr.total_cooperations):
+            for pid, total_payoffs, total_cooperations in zip(
+                    mr.player_ids, mr.total_payoffs, mr.total_cooperations):
                 if pid not in stats:
                     stats[pid] = PlayerStats(player_id=pid)
                 stats[pid].add_game_result(total_payoffs, total_cooperations)
 
         games_played = [s.games_played for s in stats.values()]
         if len(set(games_played)) > 1:
-            raise ValueError(f"Inconsistent games played across players: {games_played}")
+            raise ValueError(
+                f"Inconsistent games played across players: {games_played}")
 
         object.__setattr__(self, '_player_stats', stats)
 
@@ -174,7 +181,8 @@ class FairTournamentResults:
                 'total_cooperations': stats.total_cooperations,
                 'mean_cooperations': stats.mean_cooperations,
             })
-        results_df = pd.DataFrame(rows).sort_values('mean_payoff', ascending=False)
+        results_df = pd.DataFrame(rows).sort_values('mean_payoff',
+                                                    ascending=False)
         results_df.sort_index(inplace=True)
         object.__setattr__(self, '_results_df', results_df)
 
@@ -187,7 +195,8 @@ class FairTournamentResults:
         return self._results_df
 
     def __str__(self) -> str:
-        type_summary = self.results_df.groupby('player_attitude')['total_payoff'].agg(['mean', 'std', 'count'])
+        type_summary = self.results_df.groupby(
+            'player_attitude')['total_payoff'].agg(['mean', 'std', 'count'])
         output = str(type_summary)
 
         output += "\n\nGames played per player:"
@@ -218,14 +227,16 @@ class FairTournamentResults:
     def from_dict(cls, data: dict) -> 'FairTournamentResults':
         """Load FairTournamentResults from dictionary data."""
         config = BaseTournamentConfig.from_dict(data['config'])
-        player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['player_ids']]
-        match_results = [MatchResult.from_dict(mr_data) for mr_data in data['match_results']]
+        player_ids = [
+            PlayerId.from_dict(pid_data) for pid_data in data['player_ids']
+        ]
+        match_results = [
+            MatchResult.from_dict(mr_data) for mr_data in data['match_results']
+        ]
 
-        return cls(
-            config=config,
-            player_ids=player_ids,
-            match_results=match_results
-        )
+        return cls(config=config,
+                   player_ids=player_ids,
+                   match_results=match_results)
 
     @classmethod
     def load(cls, filepath: str) -> 'FairTournamentResults':
@@ -234,7 +245,8 @@ class FairTournamentResults:
             data = json.load(f)
 
         if data['result_type'] != 'FairTournamentResults':
-            raise ValueError(f"Expected FairTournamentResults, got {data['result_type']}")
+            raise ValueError(
+                f"Expected FairTournamentResults, got {data['result_type']}")
 
         return cls.from_dict(data)
 
@@ -246,7 +258,9 @@ class MixtureTournamentResults:
     collective_player_ids: list[PlayerId]
     exploitative_player_ids: list[PlayerId]
     match_results: list[MatchResult]
-    _mixture_results: list[MixtureResult] = field(default=None, init=False, repr=False)
+    _mixture_results: list[MixtureResult] = field(default=None,
+                                                  init=False,
+                                                  repr=False)
     _results_df: pd.DataFrame = field(default=None, init=False, repr=False)
 
     def __post_init__(self):
@@ -260,9 +274,9 @@ class MixtureTournamentResults:
         for match_result in self.match_results:
             # Count attitudes in this match
             n_collective = sum(1 for pid in match_result.player_ids
-                            if pid.attitude == Attitude.COLLECTIVE)
+                               if pid.attitude == Attitude.COLLECTIVE)
             n_exploitative = sum(1 for pid in match_result.player_ids
-                            if pid.attitude == Attitude.EXPLOITATIVE)
+                                 if pid.attitude == Attitude.EXPLOITATIVE)
 
             mixture_key = MixtureKey(n_collective, n_exploitative)
             group_size = n_collective + n_exploitative
@@ -275,12 +289,12 @@ class MixtureTournamentResults:
                     n_exploitative=n_exploitative,
                     collective_scores=[],
                     exploitative_scores=[],
-                    matches_played=0
-                )
+                    matches_played=0)
 
             # Accumulate scores by attitude
             stats = mixture_stats[mixture_key]
-            for player_id, total_payoff in zip(match_result.player_ids, match_result.total_payoffs):
+            for player_id, total_payoff in zip(match_result.player_ids,
+                                               match_result.total_payoffs):
                 if player_id.attitude == Attitude.COLLECTIVE:
                     stats.collective_scores.append(total_payoff)
                 elif player_id.attitude == Attitude.EXPLOITATIVE:
@@ -288,11 +302,13 @@ class MixtureTournamentResults:
 
             stats.matches_played += 1
 
-        object.__setattr__(self, '_mixture_results', list(mixture_stats.values()))
+        object.__setattr__(self, '_mixture_results',
+                           list(mixture_stats.values()))
 
         matches_played = [m.matches_played for m in self.mixture_results]
         if len(set(matches_played)) > 1:
-            raise ValueError(f"Inconsistent games played across mixtures: {matches_played}")
+            raise ValueError(
+                f"Inconsistent games played across mixtures: {matches_played}")
 
         rows = []
 
@@ -326,8 +342,12 @@ class MixtureTournamentResults:
         """Serialize to dictionary for JSON storage."""
         return {
             'config': self.config.serialise(),
-            'collective_player_ids': [asdict(pid) for pid in self.collective_player_ids],
-            'exploitative_player_ids': [asdict(pid) for pid in self.exploitative_player_ids],
+            'collective_player_ids': [
+                asdict(pid) for pid in self.collective_player_ids
+            ],
+            'exploitative_player_ids': [
+                asdict(pid) for pid in self.exploitative_player_ids
+            ],
             'match_results': [asdict(mr) for mr in self.match_results],
             'result_type': 'MixtureTournamentResults'
         }
@@ -343,16 +363,22 @@ class MixtureTournamentResults:
         """Load MixtureTournamentResults from dictionary data."""
 
         config = BaseTournamentConfig.from_dict(data['config'])
-        collective_player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['collective_player_ids']]
-        exploitative_player_ids = [PlayerId.from_dict(pid_data) for pid_data in data['exploitative_player_ids']]
-        match_results = [MatchResult.from_dict(mr_data) for mr_data in data['match_results']]
+        collective_player_ids = [
+            PlayerId.from_dict(pid_data)
+            for pid_data in data['collective_player_ids']
+        ]
+        exploitative_player_ids = [
+            PlayerId.from_dict(pid_data)
+            for pid_data in data['exploitative_player_ids']
+        ]
+        match_results = [
+            MatchResult.from_dict(mr_data) for mr_data in data['match_results']
+        ]
 
-        return cls(
-            config=config,
-            collective_player_ids=collective_player_ids,
-            exploitative_player_ids=exploitative_player_ids,
-            match_results=match_results
-        )
+        return cls(config=config,
+                   collective_player_ids=collective_player_ids,
+                   exploitative_player_ids=exploitative_player_ids,
+                   match_results=match_results)
 
     @classmethod
     def load(cls, filepath: str) -> 'MixtureTournamentResults':
@@ -361,32 +387,45 @@ class MixtureTournamentResults:
             data = json.load(f)
 
         if data['result_type'] != 'MixtureTournamentResults':
-            raise ValueError(f"Expected MixtureTournamentResults, got {data['result_type']}")
+            raise ValueError(
+                f"Expected MixtureTournamentResults, got {data['result_type']}")
 
         return cls.from_dict(data)
-
 
     def create_schelling_diagram(self, output_dir: Path):
         """Create Schelling diagram for this tournament results."""
 
         # Sort stats by number of collective
-        sorted_results = sorted(self.mixture_results, key=lambda x: x.n_collective)
+        sorted_results = sorted(self.mixture_results,
+                                key=lambda x: x.n_collective)
 
         fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
 
         # Extract data for plotting
         n_collective = [result.n_collective for result in sorted_results]
-        collective_scores = [result.mean_collective_score for result in sorted_results]
-        exploitative_scores = [result.mean_exploitative_score for result in sorted_results]
+        collective_scores = [
+            result.mean_collective_score for result in sorted_results
+        ]
+        exploitative_scores = [
+            result.mean_exploitative_score for result in sorted_results
+        ]
 
         # Shift collective scores to show payoffs as if there was one fewer collective
         collective_scores = np.roll(collective_scores, -1)
 
         # Plot collective and exploitative scores
-        ax.plot(n_collective, collective_scores,
-                label='Collective', lw=0.75, marker='o', clip_on=False)
-        ax.plot(n_collective, exploitative_scores,
-                label='Exploitative', lw=0.75, marker='s', clip_on=False)
+        ax.plot(n_collective,
+                collective_scores,
+                label='Collective',
+                lw=0.75,
+                marker='o',
+                clip_on=False)
+        ax.plot(n_collective,
+                exploitative_scores,
+                label='Exploitative',
+                lw=0.75,
+                marker='s',
+                clip_on=False)
 
         game_description = self.config.game_description
         group_size = game_description.n_players
@@ -396,15 +435,28 @@ class MixtureTournamentResults:
         ax.xaxis.set_major_locator(MaxNLocator(nbins=7, integer=True))
 
         ax.set_ylim(math.floor(game_description.min_payoff()),
-                    (math.ceil(game_description.max_payoff() / 10 + 1) * 10 ))
-        ax.yaxis.set_major_locator(MultipleLocator(self.config.game_description.n_rounds // 1))
+                    (math.ceil(game_description.max_payoff() / 10 + 1) * 10))
+        ax.yaxis.set_major_locator(
+            MultipleLocator(self.config.game_description.n_rounds // 1))
 
-        plt.axhline(y=game_description.min_social_welfare(), color='grey', alpha=0.3, linestyle='-')
-        plt.axhline(y=game_description.max_social_welfare(), color='grey', alpha=0.3, linestyle='-')
-        plt.axhline(y=game_description.max_payoff(), color='grey', alpha=0.3, linestyle='-')
+        plt.axhline(y=game_description.min_social_welfare(),
+                    color='grey',
+                    alpha=0.3,
+                    linestyle='-')
+        plt.axhline(y=game_description.max_social_welfare(),
+                    color='grey',
+                    alpha=0.3,
+                    linestyle='-')
+        plt.axhline(y=game_description.max_payoff(),
+                    color='grey',
+                    alpha=0.3,
+                    linestyle='-')
 
-        ax.legend(bbox_to_anchor=(0, 1.4), loc='upper left', ncol=2, frameon=False, columnspacing=0.5)
-
+        ax.legend(bbox_to_anchor=(0, 1.4),
+                  loc='upper left',
+                  ncol=2,
+                  frameon=False,
+                  columnspacing=0.5)
 
         # Ensure output directory exists
         output_file = Path(output_dir) / f"schelling_n_{group_size}.{FORMAT}"
@@ -425,13 +477,13 @@ class BatchFairTournamentResults:
     def __post_init__(self):
         """Compute combined results from individual tournament results."""
         if not self.fair_results:
-            raise ValueError("Cannot create results with no fair tournament results")
+            raise ValueError(
+                "Cannot create results with no fair tournament results")
 
         if len(self.fair_results) != len(self.config.group_sizes):
             raise ValueError(
                 f"Number of results ({len(self.fair_results)}) must match "
-                f"number of group sizes ({len(self.config.group_sizes)})"
-            )
+                f"number of group sizes ({len(self.config.group_sizes)})")
 
         # Combine all results into single DataFrame
         combined_rows = []
@@ -459,7 +511,9 @@ class BatchFairTournamentResults:
 
         # Group performance by attitude and group size
         if 'player_attitude' in self.combined_df.columns:
-            attitude_summary = self.combined_df.groupby(['group_size', 'player_attitude'])['mean_payoff'].agg(['mean', 'std', 'count'])
+            attitude_summary = self.combined_df.groupby([
+                'group_size', 'player_attitude'
+            ])['mean_payoff'].agg(['mean', 'std', 'count'])
             summary_lines.extend([
                 "\nPerformance by group size and attitude:",
                 str(attitude_summary)
@@ -471,8 +525,10 @@ class BatchFairTournamentResults:
         """Serialize to dictionary for JSON storage."""
         return {
             'config': asdict(self.config),
-            'fair_results': {str(group_size): result.serialise()
-                            for group_size, result in self.fair_results.items()},
+            'fair_results': {
+                str(group_size): result.serialise()
+                for group_size, result in self.fair_results.items()
+            },
             'result_type': 'BatchFairTournamentResults'
         }
 
@@ -487,13 +543,12 @@ class BatchFairTournamentResults:
     def from_dict(cls, data: dict) -> 'BatchFairTournamentResults':
         """Load BatchFairTournamentResults from dictionary data."""
         config = BatchTournamentConfig(**data['config'])
-        fair_results = {int(group_size): FairTournamentResults.from_dict(result_data)
-                        for group_size, result_data in data['fair_results'].items()}
+        fair_results = {
+            int(group_size): FairTournamentResults.from_dict(result_data)
+            for group_size, result_data in data['fair_results'].items()
+        }
 
-        return cls(
-            config=config,
-            fair_results=fair_results
-        )
+        return cls(config=config, fair_results=fair_results)
 
     @classmethod
     def load(cls, filepath: str) -> 'BatchFairTournamentResults':
@@ -502,10 +557,11 @@ class BatchFairTournamentResults:
             data = json.load(f)
 
         if data['result_type'] != 'BatchFairTournamentResults':
-            raise ValueError(f"Expected BatchFairTournamentResults, got {data['result_type']}")
+            raise ValueError(
+                f"Expected BatchFairTournamentResults, got {data['result_type']}"
+            )
 
         return cls.from_dict(data)
-
 
 
 @dataclass(frozen=True)
@@ -519,13 +575,13 @@ class BatchMixtureTournamentResults:
     def __post_init__(self):
         """Compute combined results from individual tournament results."""
         if not self.mixture_results:
-            raise ValueError("Cannot create results with no mixture tournament results")
+            raise ValueError(
+                "Cannot create results with no mixture tournament results")
 
         if len(self.mixture_results) != len(self.config.group_sizes):
             raise ValueError(
                 f"Number of results ({len(self.mixture_results)}) must match "
-                f"number of group sizes ({len(self.config.group_sizes)})"
-            )
+                f"number of group sizes ({len(self.config.group_sizes)})")
 
         # Combine all results into single DataFrame
         combined_rows = []
@@ -538,12 +594,10 @@ class BatchMixtureTournamentResults:
         object.__setattr__(self, '_combined_df', combined_df)
 
         # Create summary pivot table
-        summary_df = combined_df.pivot_table(
-            values='mean_social_welfare',
-            index='collective_ratio',
-            columns='group_size',
-            fill_value=np.nan
-        )
+        summary_df = combined_df.pivot_table(values='mean_social_welfare',
+                                             index='collective_ratio',
+                                             columns='group_size',
+                                             fill_value=np.nan)
         # Format index as percentages
         summary_df.index = [f"{ratio:.0%}" for ratio in summary_df.index]
         object.__setattr__(self, '_summary_df', summary_df)
@@ -561,12 +615,10 @@ class BatchMixtureTournamentResults:
     def __str__(self) -> str:
         """Create summary table with social welfare across group sizes and ratios."""
         # Create pivot table with exploitative ratios as rows and group sizes as columns
-        pivot_df = self.combined_df.pivot_table(
-            values='mean_social_welfare',
-            index='collective_ratio',
-            columns='group_size',
-            fill_value=np.nan
-        )
+        pivot_df = self.combined_df.pivot_table(values='mean_social_welfare',
+                                                index='collective_ratio',
+                                                columns='group_size',
+                                                fill_value=np.nan)
 
         # Format as percentages for the index
         pivot_df.index = [f"{ratio:.0%}" for ratio in pivot_df.index]
@@ -580,8 +632,10 @@ class BatchMixtureTournamentResults:
         """Serialize to dictionary for JSON storage."""
         return {
             'config': asdict(self.config),
-            'mixture_results': {str(group_size): result.serialise()
-                            for group_size, result in self.mixture_results.items()},
+            'mixture_results': {
+                str(group_size): result.serialise()
+                for group_size, result in self.mixture_results.items()
+            },
             'result_type': 'BatchMixtureTournamentResults'
         }
 
@@ -597,13 +651,12 @@ class BatchMixtureTournamentResults:
     def from_dict(cls, data: dict) -> 'BatchMixtureTournamentResults':
         """Load BatchMixtureTournamentResults from dictionary data."""
         config = BatchTournamentConfig(**data['config'])
-        mixture_results = {int(group_size): MixtureTournamentResults.from_dict(result_data)
-                        for group_size, result_data in data['mixture_results'].items()}
+        mixture_results = {
+            int(group_size): MixtureTournamentResults.from_dict(result_data)
+            for group_size, result_data in data['mixture_results'].items()
+        }
 
-        return cls(
-            config=config,
-            mixture_results=mixture_results
-        )
+        return cls(config=config, mixture_results=mixture_results)
 
     @classmethod
     def load(cls, filepath: str) -> 'BatchMixtureTournamentResults':
@@ -612,7 +665,9 @@ class BatchMixtureTournamentResults:
             data = json.load(f)
 
         if data['result_type'] != 'BatchMixtureTournamentResults':
-            raise ValueError(f"Expected BatchMixtureTournamentResults, got {data['result_type']}")
+            raise ValueError(
+                f"Expected BatchMixtureTournamentResults, got {data['result_type']}"
+            )
 
         return cls.from_dict(data)
 
@@ -629,35 +684,50 @@ class BatchMixtureTournamentResults:
 
         # Plot a line for each group size
         for group_size in sorted(self.config.group_sizes):
-            group_data = self.combined_df[self.combined_df['group_size'] == group_size]
+            group_data = self.combined_df[self.combined_df['group_size'] ==
+                                          group_size]
             group_data = group_data.sort_values('collective_ratio')
 
-            ax.plot(group_data['collective_ratio'] * 100,  # Convert to percentage
-                    group_data['mean_social_welfare'],
-                    label=f'n={group_size}',
-                    lw=1.5,
-                    marker='o')
+            ax.plot(
+                group_data['collective_ratio'] * 100,  # Convert to percentage
+                group_data['mean_social_welfare'],
+                label=f'n={group_size}',
+                lw=1.5,
+                marker='o')
 
         # Get game description from first mixture result
-        game_description = self.mixture_results[self.config.group_sizes[-1]].config.game_description
+        game_description = self.mixture_results[
+            self.config.group_sizes[-1]].config.game_description
 
         ax.set_xlabel('Proportion of collective prompts (%)')
         ax.set_ylabel('Mean reward')
         ax.set_xlim(0, 100)
-        ax.set_ylim(math.floor(game_description.min_payoff()),
-                    (math.ceil(game_description.max_social_welfare() / 10 + 1) * 10 ))
-                    # (math.ceil(game_description.max_payoff() / 10 + 1) * 10 ))
-        ax.yaxis.set_major_locator(MultipleLocator(game_description.n_rounds // 1))
+        ax.set_ylim(
+            math.floor(game_description.min_payoff()),
+            (math.ceil(game_description.max_social_welfare() / 10 + 1) * 10))
+        # (math.ceil(game_description.max_payoff() / 10 + 1) * 10 ))
+        ax.yaxis.set_major_locator(
+            MultipleLocator(game_description.n_rounds // 1))
 
-        plt.axhline(y=game_description.min_social_welfare(), color='grey', alpha=0.3, linestyle='-')
-        plt.axhline(y=game_description.max_social_welfare(), color='grey', alpha=0.3, linestyle='-')
+        plt.axhline(y=game_description.min_social_welfare(),
+                    color='grey',
+                    alpha=0.3,
+                    linestyle='-')
+        plt.axhline(y=game_description.max_social_welfare(),
+                    color='grey',
+                    alpha=0.3,
+                    linestyle='-')
         # plt.axhline(y=game_description.max_payoff(), color='grey', alpha=0.3, linestyle='-')
 
-        ax.legend(bbox_to_anchor=(0, 1.4), loc='upper left', ncol=len(self.config.group_sizes), frameon=False, columnspacing=0.5)
-
+        ax.legend(bbox_to_anchor=(0, 1.4),
+                  loc='upper left',
+                  ncol=len(self.config.group_sizes),
+                  frameon=False,
+                  columnspacing=0.5)
 
         # Ensure output directory exists
-        output_file = Path(self.config.results_dir) / "batch_mixture" / f"social_welfare.{FORMAT}"
+        output_file = Path(self.config.results_dir
+                          ) / "batch_mixture" / f"social_welfare.{FORMAT}"
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Save plot
@@ -681,7 +751,8 @@ class CulturalEvolutionResults:
             f"Final gene frequencies:"
         ]
         for gene, freq in sorted(self.final_gene_frequencies.items(),
-                                 key=lambda x: x[1], reverse=True):
+                                 key=lambda x: x[1],
+                                 reverse=True):
             lines.append(f"  {gene}: {freq:.2%}")
             return "\n".join(lines)
 
@@ -691,13 +762,15 @@ class CulturalEvolutionResults:
             'config': asdict(self.config),
             'final_generation': self.final_generation,
             'final_gene_frequencies': {
-                str(gene): freq for gene, freq in self.final_gene_frequencies.items()
+                str(gene): freq
+                for gene, freq in self.final_gene_frequencies.items()
             },
-            'gene_frequency_history': [
-                {str(gene): freq for gene, freq in gen_freqs.items()}
-                for gen_freqs in self.gene_frequency_history
+            'gene_frequency_history': [{
+                str(gene): freq for gene, freq in gen_freqs.items()
+            } for gen_freqs in self.gene_frequency_history],
+            'generation_results': [
+                result.serialise() for result in self.generation_results
             ],
-            'generation_results': [result.serialise() for result in self.generation_results],
             'result_type': 'CulturalEvolutionResults'
         }
 
@@ -713,8 +786,10 @@ class CulturalEvolutionResults:
         # Reconstruct config
         config_data = data['config']
         # Need to reconstruct genes list
-        genes = [Gene(g['provider_model'], Attitude(g['attitude']))
-                 for g in config_data['genes']]
+        genes = [
+            Gene(g['provider_model'], Attitude(g['attitude']))
+            for g in config_data['genes']
+        ]
 
         game_class_map = {
             'PublicGoodsDescription': PublicGoodsDescription,
@@ -722,8 +797,12 @@ class CulturalEvolutionResults:
             'CommonPoolDescription': CommonPoolDescription,
         }
         game_cls = game_class_map[config_data['game_description']['__class__']]
-        game_description = game_cls(**{k: v for k, v in config_data['game_description'].items()
-                                       if k != '__class__'})
+        game_description = game_cls(
+            **{
+                k: v
+                for k, v in config_data['game_description'].items()
+                if k != '__class__'
+            })
 
         config = CulturalEvolutionConfig(
             game_description=game_description,
@@ -748,19 +827,21 @@ class CulturalEvolutionResults:
             return result
 
         final_gene_frequencies = parse_gene_dict(data['final_gene_frequencies'])
-        gene_frequency_history = [parse_gene_dict(d) for d in data['gene_frequency_history']]
+        gene_frequency_history = [
+            parse_gene_dict(d) for d in data['gene_frequency_history']
+        ]
 
         # Reconstruct generation results
-        generation_results = [FairTournamentResults.from_dict(result_data)
-                             for result_data in data['generation_results']]
+        generation_results = [
+            FairTournamentResults.from_dict(result_data)
+            for result_data in data['generation_results']
+        ]
 
-        return cls(
-            config=config,
-            final_generation=data['final_generation'],
-            final_gene_frequencies=final_gene_frequencies,
-            gene_frequency_history=gene_frequency_history,
-            generation_results=generation_results
-        )
+        return cls(config=config,
+                   final_generation=data['final_generation'],
+                   final_gene_frequencies=final_gene_frequencies,
+                   gene_frequency_history=gene_frequency_history,
+                   generation_results=generation_results)
 
     @classmethod
     def load(cls, filepath: str) -> 'CulturalEvolutionResults':
@@ -769,7 +850,8 @@ class CulturalEvolutionResults:
             data = json.load(f)
 
         if data['result_type'] != 'CulturalEvolutionResults':
-            raise ValueError(f"Expected CulturalEvolutionResults, got {data['result_type']}")
+            raise ValueError(
+                f"Expected CulturalEvolutionResults, got {data['result_type']}")
 
         return cls.from_dict(data)
 
@@ -784,8 +866,16 @@ class CulturalEvolutionResults:
         fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
 
         for gene in all_genes:
-            frequencies = [gen_freqs.get(gene, 0.0) for gen_freqs in self.gene_frequency_history]
-            ax.plot(generations, frequencies, marker='o', lw=0.75, label=str(gene), clip_on=False)
+            frequencies = [
+                gen_freqs.get(gene, 0.0)
+                for gen_freqs in self.gene_frequency_history
+            ]
+            ax.plot(generations,
+                    frequencies,
+                    marker='o',
+                    lw=0.75,
+                    label=str(gene),
+                    clip_on=False)
 
         ax.set_xlabel('Generation')
         ax.set_ylabel('Gene Frequency')
@@ -806,22 +896,33 @@ class CulturalEvolutionResults:
 
         for gen_freqs in self.gene_frequency_history:
             collective_prop = sum(freq for gene, freq in gen_freqs.items()
-                                if gene.attitude == Attitude.COLLECTIVE)
+                                  if gene.attitude == Attitude.COLLECTIVE)
             collective_props.append(collective_prop)
             exploitative_props.append(1 - collective_prop)
 
         fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
 
-        ax.plot(generations, collective_props, label='Collective',
-                marker='o', lw=0.75, clip_on=False)
-        ax.plot(generations, exploitative_props, label='Exploitative',
-                marker='s', lw=0.75, clip_on=False)
+        ax.plot(generations,
+                collective_props,
+                label='Collective',
+                marker='o',
+                lw=0.75,
+                clip_on=False)
+        ax.plot(generations,
+                exploitative_props,
+                label='Exploitative',
+                marker='s',
+                lw=0.75,
+                clip_on=False)
 
         ax.set_xlabel('Generation')
         ax.set_ylabel('Proportion')
         ax.set_ylim(0, 1)
-        ax.legend(bbox_to_anchor=(0, 1.4), loc='upper left', ncol=2,
-                 frameon=False, columnspacing=0.5)
+        ax.legend(bbox_to_anchor=(0, 1.4),
+                  loc='upper left',
+                  ncol=2,
+                  frameon=False,
+                  columnspacing=0.5)
         ax.grid(True, alpha=0.3)
 
         output_file = output_dir / f"attitude_evolution.{FORMAT}"
@@ -844,8 +945,12 @@ class CulturalEvolutionResults:
 
         fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
 
-        ax.plot(range(len(mean_cooperations)), mean_cooperations,
-                marker='o', lw=0.75, color='green', clip_on=False)
+        ax.plot(range(len(mean_cooperations)),
+                mean_cooperations,
+                marker='o',
+                lw=0.75,
+                color='green',
+                clip_on=False)
 
         ax.set_xlabel('Generation')
         ax.set_ylabel('Cooperation Rate')
@@ -873,25 +978,46 @@ class CulturalEvolutionResults:
                 elif stats.player_id.attitude == Attitude.EXPLOITATIVE:
                     exploitative.append(stats.mean_payoff)
 
-            collective_payoffs.append(np.mean(collective) if collective else np.nan)
-            exploitative_payoffs.append(np.mean(exploitative) if exploitative else np.nan)
-            total_payoffs.append(np.mean([stats.mean_payoff
-                                         for stats in gen_result.player_stats.values()]))
+            collective_payoffs.append(
+                np.mean(collective) if collective else np.nan)
+            exploitative_payoffs.append(
+                np.mean(exploitative) if exploitative else np.nan)
+            total_payoffs.append(
+                np.mean([
+                    stats.mean_payoff
+                    for stats in gen_result.player_stats.values()
+                ]))
 
         fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
 
         generations = range(len(self.generation_results))
-        ax.plot(generations, collective_payoffs, label='Collective',
-                marker='o', lw=0.75, clip_on=False)
-        ax.plot(generations, exploitative_payoffs, label='Exploitative',
-                marker='s', lw=0.75, clip_on=False)
-        ax.plot(generations, total_payoffs, label='Overall',
-                marker='^', lw=0.75, linestyle='--', clip_on=False)
+        ax.plot(generations,
+                collective_payoffs,
+                label='Collective',
+                marker='o',
+                lw=0.75,
+                clip_on=False)
+        ax.plot(generations,
+                exploitative_payoffs,
+                label='Exploitative',
+                marker='s',
+                lw=0.75,
+                clip_on=False)
+        ax.plot(generations,
+                total_payoffs,
+                label='Overall',
+                marker='^',
+                lw=0.75,
+                linestyle='--',
+                clip_on=False)
 
         ax.set_xlabel('Generation')
         ax.set_ylabel('Mean Payoff')
-        ax.legend(bbox_to_anchor=(0, 1.4), loc='upper left', ncol=3,
-                 frameon=False, columnspacing=0.5)
+        ax.legend(bbox_to_anchor=(0, 1.4),
+                  loc='upper left',
+                  ncol=3,
+                  frameon=False,
+                  columnspacing=0.5)
         ax.grid(True, alpha=0.3)
 
         output_file = output_dir / f"mean_payoffs.{FORMAT}"
@@ -907,6 +1033,7 @@ class CulturalEvolutionResults:
         self.plot_attitude_evolution(output_dir)
         self.plot_cooperation_evolution(output_dir)
         self.plot_mean_payoffs(output_dir)
+
 
 @dataclass
 class MultiRunCulturalEvolutionResults:
@@ -928,7 +1055,8 @@ class MultiRunCulturalEvolutionResults:
         rows = []
         for run_idx, run in enumerate(self.runs):
             # Get dominant gene (highest frequency)
-            dominant_gene = max(run.final_gene_frequencies.items(), key=lambda x: x[1])
+            dominant_gene = max(run.final_gene_frequencies.items(),
+                                key=lambda x: x[1])
             gene, frequency = dominant_gene
 
             rows.append({
@@ -945,7 +1073,8 @@ class MultiRunCulturalEvolutionResults:
 
         # Add summary statistics
         print("\n=== TERMINATION SUMMARY ===")
-        print(f"\nRuns reaching threshold: {df['threshold_met'].sum()}/{len(df)}")
+        print(
+            f"\nRuns reaching threshold: {df['threshold_met'].sum()}/{len(df)}")
         print(f"\nDominant attitude distribution:")
         print(df['attitude'].value_counts())
         print(f"\nDominant provider_model distribution:")
@@ -983,7 +1112,10 @@ class MultiRunCulturalEvolutionResults:
     @classmethod
     def from_dict(cls, data: dict) -> 'MultiRunCulturalEvolutionResults':
         """Load MultiRunCulturalEvolutionResults from dictionary data."""
-        runs = [CulturalEvolutionResults.from_dict(run_data) for run_data in data['runs']]
+        runs = [
+            CulturalEvolutionResults.from_dict(run_data)
+            for run_data in data['runs']
+        ]
         return cls(runs=runs)
 
     @classmethod
@@ -993,6 +1125,8 @@ class MultiRunCulturalEvolutionResults:
             data = json.load(f)
 
         if data['result_type'] != 'MultiRunCulturalEvolutionResults':
-            raise ValueError(f"Expected MultiRunCulturalEvolutionResults, got {data['result_type']}")
+            raise ValueError(
+                f"Expected MultiRunCulturalEvolutionResults, got {data['result_type']}"
+            )
 
         return cls.from_dict(data)

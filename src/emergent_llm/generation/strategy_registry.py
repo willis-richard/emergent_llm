@@ -9,6 +9,7 @@ from emergent_llm.players import BaseStrategy, StrategySpec
 
 
 class StrategyRegistry:
+
     def __init__(self,
                  strategies_dir: Path,
                  game_name: str,
@@ -25,7 +26,8 @@ class StrategyRegistry:
         if not self.game_dir.exists():
             raise ValueError(f"Game directory not found: {self.game_dir}")
 
-        self.provider_models_filter = set(provider_models) if provider_models else None
+        self.provider_models_filter = set(
+            provider_models) if provider_models else None
         # Store StrategySpecs directly, keyed by Gene
         self.strategies: dict[Gene, list[StrategySpec]] = {}
         self._load_all_strategies()
@@ -33,7 +35,8 @@ class StrategyRegistry:
     def _load_all_strategies(self):
         """Load all strategy files in the game directory."""
         for strategy_file in self.game_dir.glob("*.py"):
-            if "description" in strategy_file.name or strategy_file.name.startswith("__"):
+            if "description" in strategy_file.name or strategy_file.name.startswith(
+                    "__"):
                 continue
 
             # Filter by provider_model if specified
@@ -78,13 +81,14 @@ class StrategyRegistry:
 
         return [
             cls for name, cls in inspect.getmembers(module)
-            if inspect.isclass(cls)
-            and issubclass(cls, BaseStrategy)
-            and cls != BaseStrategy
+            if inspect.isclass(cls) and issubclass(cls, BaseStrategy) and
+            cls != BaseStrategy
         ]
 
     @classmethod
-    def load_file(cls, filepath: Path) -> tuple[list[StrategySpec], list[StrategySpec]]:
+    def load_file(
+            cls,
+            filepath: Path) -> tuple[list[StrategySpec], list[StrategySpec]]:
         """
         Load strategies from a single file, split by attitude.
 
@@ -96,8 +100,12 @@ class StrategyRegistry:
 
         all_specs = cls._load_specs_from_file(filepath)
 
-        collective = [s for s in all_specs if s.gene.attitude == Attitude.COLLECTIVE]
-        exploitative = [s for s in all_specs if s.gene.attitude == Attitude.EXPLOITATIVE]
+        collective = [
+            s for s in all_specs if s.gene.attitude == Attitude.COLLECTIVE
+        ]
+        exploitative = [
+            s for s in all_specs if s.gene.attitude == Attitude.EXPLOITATIVE
+        ]
 
         return collective, exploitative
 
@@ -109,10 +117,8 @@ class StrategyRegistry:
             Randomly sampled StrategySpec
         """
         if gene not in self.strategies:
-            raise KeyError(
-                f"No strategies found for gene {gene}. "
-                f"Available genes: {self.available_genes}"
-            )
+            raise KeyError(f"No strategies found for gene {gene}. "
+                           f"Available genes: {self.available_genes}")
 
         specs = self.strategies[gene]
         if not specs:

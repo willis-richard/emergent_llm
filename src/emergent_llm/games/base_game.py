@@ -5,9 +5,10 @@ from typing import Sequence
 
 import numpy as np
 import pandas as pd
+from numpy.typing import NDArray
+
 from emergent_llm.common import Action, GameDescription, GameHistory, GameState
 from emergent_llm.players.base_player import BasePlayer
-from numpy.typing import NDArray
 
 
 @dataclass
@@ -16,7 +17,8 @@ class GameResult:
     player_names: list[str]  # Player names
     total_payoffs: list[float]  # Total scores by player
     total_cooperations: list[int]  # Number of cooperate actions by player
-    cooperations_by_round: list[int]  # Number of cooperate actions in each round
+    cooperations_by_round: list[
+        int]  # Number of cooperate actions in each round
     history: GameHistory  # Complete game history
     description: GameDescription  # Game parameters and rules
 
@@ -68,10 +70,8 @@ class BaseGame(ABC):
                  description: GameDescription):
         """Initialize game with players and description."""
         if len(players) != description.n_players:
-            raise ValueError(
-                f"Number of players ({len(players)}) must match "
-                f"description.n_players ({description.n_players})"
-            )
+            raise ValueError(f"Number of players ({len(players)}) must match "
+                             f"description.n_players ({description.n_players})")
 
         self.players: Sequence[BasePlayer] = players
         self.description: GameDescription = description
@@ -81,16 +81,19 @@ class BaseGame(ABC):
         self.current_round: int = 0
 
     @abstractmethod
-    def _calculate_payoffs(self, actions: NDArray[np.bool_]) -> NDArray[np.float64]:
+    def _calculate_payoffs(self,
+                           actions: NDArray[np.bool_]) -> NDArray[np.float64]:
         """Calculate payoffs for a single round given actions."""
 
     def _play_round(self, players: Sequence[BasePlayer]):
         """Play a single round of the game."""
         state = self.get_state()
 
-        action_enums = [player(state=state, history=None) if self.history is None
-                        else player(state=state, history=self.history.for_player(i))
-                        for i, player in enumerate(players)]
+        action_enums = [
+            player(state=state, history=None) if self.history is None else
+            player(state=state, history=self.history.for_player(i))
+            for i, player in enumerate(players)
+        ]
 
         actions = Action.to_bool_array(action_enums)
 
@@ -98,10 +101,7 @@ class BaseGame(ABC):
         payoffs = self._calculate_payoffs(actions)
 
         if self.history is None:
-            self.history = GameHistory(
-                actions=actions,
-                payoffs=payoffs
-               )
+            self.history = GameHistory(actions=actions, payoffs=payoffs)
         else:
             self.history.update(actions, payoffs)
 
@@ -122,8 +122,7 @@ class BaseGame(ABC):
             total_cooperations=self.history.total_cooperations(),
             cooperations_by_round=self.history.cooperations_by_round(),
             history=self.history,
-            description=self.description
-        )
+            description=self.description)
 
     def get_state(self) -> GameState:
         return GameState(self.current_round)
