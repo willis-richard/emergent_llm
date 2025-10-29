@@ -2,11 +2,11 @@
 
 format:
 	isort src/
-	yapf -i -r src/ --exclude '**/.*'
+	yapf -i -r src/
 
 lint:
 	isort --check-only src/
-	yapf --diff -r src/ --exclude '**/.*'
+	yapf --diff -r src/
 	mypy src/
 
 test:
