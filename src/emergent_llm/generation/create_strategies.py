@@ -889,9 +889,9 @@ def main():
     log_dir.mkdir(exist_ok=True)
 
     # Setup file paths
-    description_file = strategies_dir / f"{args.llm_provider}_{args.model_name}_descriptions.py"
-    strategy_file = strategies_dir / f"{args.llm_provider}_{args.model_name}.py"
-    log_file = log_dir / f"{args.llm_provider}_{args.model_name}_{args.phase}.log"
+    description_file = strategies_dir / f"{args.model_name}_descriptions.py"
+    strategy_file = strategies_dir / f"{args.model_name}.py"
+    log_file = log_dir / f"{args.model_name}_{args.phase}.log"
 
     # Setup logging
     logger = setup_logging(log_file)

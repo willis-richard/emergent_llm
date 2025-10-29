@@ -435,7 +435,7 @@ class MixtureTournamentResults:
         ax.xaxis.set_major_locator(MaxNLocator(nbins=7, integer=True))
 
         ax.set_ylim(math.floor(game_description.min_payoff()),
-                    (math.ceil(game_description.max_payoff() / 10 + 1) * 10))
+                    math.ceil(game_description.max_payoff() / 10 + 1) * 10)
         ax.yaxis.set_major_locator(
             MultipleLocator(self.config.game_description.n_rounds // 1))
 
@@ -704,8 +704,8 @@ class BatchMixtureTournamentResults:
         ax.set_xlim(0, 100)
         ax.set_ylim(
             math.floor(game_description.min_payoff()),
-            (math.ceil(game_description.max_social_welfare() / 10 + 1) * 10))
-        # (math.ceil(game_description.max_payoff() / 10 + 1) * 10 ))
+            math.ceil(game_description.max_social_welfare() / 10 + 1) * 10
+        )
         ax.yaxis.set_major_locator(
             MultipleLocator(game_description.n_rounds // 1))
 
@@ -743,6 +743,71 @@ class CulturalEvolutionResults:
     final_gene_frequencies: dict[Gene, float]
     gene_frequency_history: list[dict[Gene, float]]
     generation_results: list[FairTournamentResults]
+    _gene_frequency_df: pd.DataFrame = field(default=None, init=False, repr=False)
+    _generation_stats_df: pd.DataFrame = field(default=None, init=False, repr=False)
+
+    def __post_init__(self):
+        """Build analysis dataframes from raw results."""
+        all_genes = set()
+        for gen_freqs in self.gene_frequency_history:
+            all_genes.update(gen_freqs.keys())
+        all_genes = sorted(all_genes, key=str)
+
+        gene_freq_rows = []
+        for gen_freqs in self.gene_frequency_history:
+            row = {gene: gen_freqs.get(gene, 0.0) for gene in all_genes}
+            gene_freq_rows.append(row)
+
+        gene_frequency_df = pd.DataFrame(gene_freq_rows, columns=all_genes)
+        gene_frequency_df.index.name = 'generation'
+        object.__setattr__(self, '_gene_frequency_df', gene_frequency_df)
+
+        # Build generation statistics dataframe
+        stats_rows = []
+        for generation, gen_result in enumerate(self.generation_results):
+            collective_payoffs = []
+            exploitative_payoffs = []
+            all_payoffs = []
+            cooperations = []
+
+            total_rounds = self.config.game_description.n_rounds
+
+            for stats in gen_result.player_stats.values():
+                all_payoffs.append(stats.mean_payoff)
+                cooperations.append(stats.mean_cooperations / total_rounds)
+
+                if stats.player_id.attitude == Attitude.COLLECTIVE:
+                    collective_payoffs.append(stats.mean_payoff)
+                elif stats.player_id.attitude == Attitude.EXPLOITATIVE:
+                    exploitative_payoffs.append(stats.mean_payoff)
+
+            # Calculate attitude frequencies
+            gen_freqs = self.gene_frequency_history[generation]
+            collective_freq = sum(freq for gene, freq in gen_freqs.items()
+                                  if gene.attitude == Attitude.COLLECTIVE)
+
+            stats_rows.append({
+                'collective_mean_payoff': np.mean(collective_payoffs) if collective_payoffs else np.nan,
+                'exploitative_mean_payoff': np.mean(exploitative_payoffs) if exploitative_payoffs else np.nan,
+                'overall_mean_payoff': np.mean(all_payoffs),
+                'cooperation_rate': np.mean(cooperations),
+                'collective_frequency': collective_freq,
+                'exploitative_frequency': 1 - collective_freq,
+            })
+
+        generation_stats_df = pd.DataFrame(stats_rows)
+        generation_stats_df.index.name = 'generation'
+        object.__setattr__(self, '_generation_stats_df', generation_stats_df)
+
+    @property
+    def gene_frequency_df(self) -> pd.DataFrame:
+        """DataFrame of gene frequencies over generations."""
+        return self._gene_frequency_df
+
+    @property
+    def generation_stats_df(self) -> pd.DataFrame:
+        """DataFrame of generation-level statistics."""
+        return self._generation_stats_df
 
     def __str__(self) -> str:
         lines = [
@@ -754,20 +819,21 @@ class CulturalEvolutionResults:
                                  key=lambda x: x[1],
                                  reverse=True):
             lines.append(f"  {gene}: {freq:.2%}")
-            return "\n".join(lines)
+        return "\n".join(lines)
 
     def serialise(self) -> dict:
         """Serialise to dictionary for JSON storage."""
         return {
             'config': asdict(self.config),
             'final_generation': self.final_generation,
-            'final_gene_frequencies': {
-                str(gene): freq
+            'final_gene_frequencies': [
+                {'gene': asdict(gene), 'frequency': freq}
                 for gene, freq in self.final_gene_frequencies.items()
-            },
-            'gene_frequency_history': [{
-                str(gene): freq for gene, freq in gen_freqs.items()
-            } for gen_freqs in self.gene_frequency_history],
+            ],
+            'gene_frequency_history': [
+                [{'gene': asdict(gene), 'frequency': freq} for gene, freq in gen_freqs.items()]
+                for gen_freqs in self.gene_frequency_history
+            ],
             'generation_results': [
                 result.serialise() for result in self.generation_results
             ],
@@ -785,11 +851,6 @@ class CulturalEvolutionResults:
         """Load CulturalEvolutionResults from dictionary data."""
         # Reconstruct config
         config_data = data['config']
-        # Need to reconstruct genes list
-        genes = [
-            Gene(g['provider_model'], Attitude(g['attitude']))
-            for g in config_data['genes']
-        ]
 
         game_class_map = {
             'PublicGoodsDescription': PublicGoodsDescription,
@@ -815,20 +876,14 @@ class CulturalEvolutionResults:
         )
 
         # Parse gene frequency dictionaries
-        def parse_gene_dict(d):
-            result = {}
-            for gene_str, freq in d.items():
-                # Parse "provider_model[attitude]" format
-                match = re.match(r'(.+)\[(\w+)\]', gene_str)
-                if match:
-                    provider_model, attitude_str = match.groups()
-                    gene = Gene(provider_model, Attitude(attitude_str))
-                    result[gene] = freq
-            return result
+        final_gene_frequencies = {
+            Gene.from_dict(item['gene']): item['frequency']
+            for item in data['final_gene_frequencies']
+        }
 
-        final_gene_frequencies = parse_gene_dict(data['final_gene_frequencies'])
         gene_frequency_history = [
-            parse_gene_dict(d) for d in data['gene_frequency_history']
+            {Gene.from_dict(item['gene']): item['frequency'] for item in gen_freqs}
+            for gen_freqs in data['gene_frequency_history']
         ]
 
         # Reconstruct generation results
@@ -857,21 +912,11 @@ class CulturalEvolutionResults:
 
     def plot_gene_frequencies(self, output_dir: Path):
         """Plot gene frequency evolution over generations."""
-        all_genes = set()
-        for gen_freqs in self.gene_frequency_history:
-            all_genes.update(gen_freqs.keys())
+        fig, ax = plt.subplots(figsize=(FIGSIZE[0], FIGSIZE[1] * 2), facecolor='white')
 
-        generations = list(range(len(self.gene_frequency_history)))
-
-        fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
-
-        for gene in all_genes:
-            frequencies = [
-                gen_freqs.get(gene, 0.0)
-                for gen_freqs in self.gene_frequency_history
-            ]
-            ax.plot(generations,
-                    frequencies,
+        for gene in self.gene_frequency_df.columns:
+            ax.plot(self.gene_frequency_df.index,
+                    self.gene_frequency_df[gene],
                     marker='o',
                     lw=0.75,
                     label=str(gene),
@@ -880,7 +925,7 @@ class CulturalEvolutionResults:
         ax.set_xlabel('Generation')
         ax.set_ylabel('Gene Frequency')
         ax.set_ylim(0, 1)
-        ax.legend(bbox_to_anchor=(0, 1.4), loc='upper left', frameon=False)
+        ax.legend(bbox_to_anchor=(0, 1.8), loc='upper left', frameon=False)
         ax.grid(True, alpha=0.3)
 
         output_file = output_dir / f"gene_frequencies.{FORMAT}"
@@ -889,27 +934,16 @@ class CulturalEvolutionResults:
 
     def plot_attitude_evolution(self, output_dir: Path):
         """Plot attitude proportions over generations."""
-        generations = list(range(len(self.gene_frequency_history)))
-
-        collective_props = []
-        exploitative_props = []
-
-        for gen_freqs in self.gene_frequency_history:
-            collective_prop = sum(freq for gene, freq in gen_freqs.items()
-                                  if gene.attitude == Attitude.COLLECTIVE)
-            collective_props.append(collective_prop)
-            exploitative_props.append(1 - collective_prop)
-
         fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
 
-        ax.plot(generations,
-                collective_props,
+        ax.plot(self.generation_stats_df.index,
+                self.generation_stats_df['collective_frequency'],
                 label='Collective',
                 marker='o',
                 lw=0.75,
                 clip_on=False)
-        ax.plot(generations,
-                exploitative_props,
+        ax.plot(self.generation_stats_df.index,
+                self.generation_stats_df['exploitative_frequency'],
                 label='Exploitative',
                 marker='s',
                 lw=0.75,
@@ -931,22 +965,10 @@ class CulturalEvolutionResults:
 
     def plot_cooperation_evolution(self, output_dir: Path):
         """Plot cooperation rate over generations."""
-        mean_cooperations = []
-        for gen_result in self.generation_results:
-            total_rounds = self.config.game_description.n_rounds
-            mean_coop = np.mean([
-                stats.mean_cooperations / total_rounds
-                for stats in gen_result.player_stats.values()
-            ])
-            mean_cooperations.append(mean_coop)
-
-        if not mean_cooperations:
-            return
-
         fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
 
-        ax.plot(range(len(mean_cooperations)),
-                mean_cooperations,
+        ax.plot(self.generation_stats_df.index,
+                self.generation_stats_df['cooperation_rate'],
                 marker='o',
                 lw=0.75,
                 color='green',
@@ -964,52 +986,49 @@ class CulturalEvolutionResults:
 
     def plot_mean_payoffs(self, output_dir: Path):
         """Plot mean payoffs by attitude and overall through generations."""
-        collective_payoffs = []
-        exploitative_payoffs = []
-        total_payoffs = []
-
-        for gen_result in self.generation_results:
-            collective = []
-            exploitative = []
-
-            for stats in gen_result.player_stats.values():
-                if stats.player_id.attitude == Attitude.COLLECTIVE:
-                    collective.append(stats.mean_payoff)
-                elif stats.player_id.attitude == Attitude.EXPLOITATIVE:
-                    exploitative.append(stats.mean_payoff)
-
-            collective_payoffs.append(
-                np.mean(collective) if collective else np.nan)
-            exploitative_payoffs.append(
-                np.mean(exploitative) if exploitative else np.nan)
-            total_payoffs.append(
-                np.mean([
-                    stats.mean_payoff
-                    for stats in gen_result.player_stats.values()
-                ]))
-
         fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
 
-        generations = range(len(self.generation_results))
-        ax.plot(generations,
-                collective_payoffs,
+        ax.plot(self.generation_stats_df.index,
+                self.generation_stats_df['collective_mean_payoff'],
                 label='Collective',
                 marker='o',
                 lw=0.75,
                 clip_on=False)
-        ax.plot(generations,
-                exploitative_payoffs,
+        ax.plot(self.generation_stats_df.index,
+                self.generation_stats_df['exploitative_mean_payoff'],
                 label='Exploitative',
                 marker='s',
                 lw=0.75,
                 clip_on=False)
-        ax.plot(generations,
-                total_payoffs,
+        ax.plot(self.generation_stats_df.index,
+                self.generation_stats_df['overall_mean_payoff'],
                 label='Overall',
                 marker='^',
                 lw=0.75,
                 linestyle='--',
                 clip_on=False)
+
+        game_description = self.config.game_description
+
+        ax.axhline(y=game_description.min_social_welfare(),
+                   color='grey',
+                   alpha=0.3,
+                   linestyle='-')
+        ax.axhline(y=game_description.max_social_welfare(),
+                   color='grey',
+                   alpha=0.3,
+                   linestyle='-')
+        ax.axhline(y=game_description.max_payoff(),
+                   color='grey',
+                   alpha=0.3,
+                   linestyle='-')
+
+        ax.set_ylim(
+            math.floor(game_description.min_payoff()),
+            math.ceil(game_description.max_payoff() / 10 + 1) * 10
+        )
+        ax.yaxis.set_major_locator(
+            MultipleLocator(game_description.n_rounds // 1))
 
         ax.set_xlabel('Generation')
         ax.set_ylabel('Mean Payoff')
@@ -1063,7 +1082,7 @@ class MultiRunCulturalEvolutionResults:
                 'run': run_idx,
                 'generations': run.final_generation,
                 'dominant_gene': str(gene),
-                'provider_model': gene.provider_model,
+                'model': gene.model,
                 'attitude': gene.attitude.value,
                 'final_frequency': frequency,
                 'threshold_met': frequency >= run.config.threshold_pct,
@@ -1077,8 +1096,8 @@ class MultiRunCulturalEvolutionResults:
             f"\nRuns reaching threshold: {df['threshold_met'].sum()}/{len(df)}")
         print(f"\nDominant attitude distribution:")
         print(df['attitude'].value_counts())
-        print(f"\nDominant provider_model distribution:")
-        print(df['provider_model'].value_counts())
+        print(f"\nDominant model distribution:")
+        print(df['model'].value_counts())
         print(f"\nAverage final frequency: {df['final_frequency'].mean():.2%}")
         print(f"\nAverage generations: {df['generations'].mean():.1f}")
 

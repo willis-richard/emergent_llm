@@ -10,8 +10,16 @@ class Gene:
     """
     Immutable gene that can be hashed for frequency tracking.
     """
-    provider_model: str  # e.g., "anthropic_claude-sonnet-4"
+    model: str
     attitude: Attitude
 
     def __str__(self) -> str:
-        return f"{self.provider_model}[{self.attitude.value}]"
+        return f"{self.model}[{self.attitude.value}]"
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'Gene':
+        """Load Gene from dictionary data."""
+        return cls(
+            model=data['model'],
+            attitude=Attitude(data['attitude'])
+        )

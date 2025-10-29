@@ -13,12 +13,12 @@ class StrategyRegistry:
     def __init__(self,
                  strategies_dir: Path,
                  game_name: str,
-                 provider_models: list[str] | None = None):
+                 models: list[str] | None = None):
         """
         Args:
             strategies_dir: Base directory containing strategy files
             game_name: Name of game subdirectory
-            provider_models: Optional list of "provider_model" strings to filter by.
+            models: Optional list of "model" strings to filter by.
                              If None, loads all strategies.
                              Format: ["anthropic_claude-sonnet-4", ...]
         """
@@ -26,8 +26,8 @@ class StrategyRegistry:
         if not self.game_dir.exists():
             raise ValueError(f"Game directory not found: {self.game_dir}")
 
-        self.provider_models_filter = set(
-            provider_models) if provider_models else None
+        self.models_filter = set(
+            models) if models else None
         # Store StrategySpecs directly, keyed by Gene
         self.strategies: dict[Gene, list[StrategySpec]] = {}
         self._load_all_strategies()
@@ -39,8 +39,8 @@ class StrategyRegistry:
                     "__"):
                 continue
 
-            # Filter by provider_model if specified
-            if self.provider_models_filter is not None and strategy_file.stem not in self.provider_models_filter:
+            # Filter by model if specified
+            if self.models_filter is not None and strategy_file.stem not in self.models_filter:
                 continue
 
             specs = self._load_specs_from_file(strategy_file)
@@ -54,20 +54,20 @@ class StrategyRegistry:
     @classmethod
     def _load_specs_from_file(cls, filepath: Path) -> list[StrategySpec]:
         """Load all StrategySpecs from a Python file."""
-        provider_model = filepath.stem
         strategy_classes = cls._load_strategies_from_file(filepath)
+        model = filepath.stem
 
         specs = []
         for strategy_class in strategy_classes:
             # Extract attitude from class name (Strategy_COLLECTIVE_1)
-            if "COLLECTIVE" in strategy_class.__name__:
+            if "COOPERATIVE" in strategy_class.__name__:
                 attitude = Attitude.COLLECTIVE
-            elif "EXPLOITATIVE" in strategy_class.__name__:
+            elif "AGGRESSIVE" in strategy_class.__name__:
                 attitude = Attitude.EXPLOITATIVE
             else:
                 continue  # Skip malformed classes
 
-            gene = Gene(provider_model, attitude)
+            gene = Gene(model, attitude)
             specs.append(StrategySpec(gene, strategy_class))
 
         return specs
@@ -136,9 +136,9 @@ class StrategyRegistry:
         return set(self.strategies.keys())
 
     @property
-    def available_provider_models(self) -> set[str]:
-        """Get set of all provider models with loaded strategies."""
-        return set(gene.provider_model for gene in self.available_genes)
+    def available_models(self) -> set[str]:
+        """Get set of all models with loaded strategies."""
+        return set(gene.model for gene in self.available_genes)
 
     def count_strategies(self, gene: Gene) -> int:
         """Count number of strategies available for a gene."""

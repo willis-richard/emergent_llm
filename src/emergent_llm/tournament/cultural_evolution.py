@@ -167,17 +167,17 @@ class CulturalEvolutionTournament:
         if random.random() >= self.config.mutation_rate:
             return gene  # No mutation
 
-        # 50/50 chance of mutating provider_model vs attitude
-        available_models = self.registry.available_provider_models
+        # 50/50 chance of mutating model vs attitude
+        available_models = self.registry.available_models
 
         if random.random() < 0.5 and len(available_models) > 1:
-            # Mutate provider_model
-            other_models = available_models - {gene.provider_model}
-            new_provider = random.choice(list(other_models))
-            return Gene(new_provider, gene.attitude)
+            # Mutate model
+            other_models = available_models - {gene.model}
+            new_model = random.choice(list(other_models))
+            return Gene(new_model, gene.attitude)
 
         # Mutate attitude
-        return Gene(gene.provider_model, gene.attitude.flip())
+        return Gene(gene.model, gene.attitude.flip())
 
     def _calculate_gene_frequencies(self) -> dict[Gene, float]:
         """Calculate current gene frequencies in descending order."""
