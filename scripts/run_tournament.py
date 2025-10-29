@@ -1,24 +1,16 @@
-"""Run mixture tournament testing cooperative vs aggressive player ratios."""
+"""Run mixture tournament testing collective vs exploitative player ratios."""
 
 import argparse
-import importlib.util
-import inspect
 import logging
-import os
 import sys
 from pathlib import Path
 
-# Add src to path for imports
-src_path = Path(__file__).parent.parent / "src"
-sys.path.insert(0, str(src_path))
-
-from emergent_llm.games import (CollectiveRiskGame, CommonPoolGame,
-                                PublicGoodsGame, get_game_class)
-from emergent_llm.players import BaseStrategy
-from emergent_llm.tournament import (BatchMixtureTournament,
-                                     BatchTournamentConfig)
 from emergent_llm.generation import StrategyRegistry
-
+from emergent_llm.tournament import (
+    BatchMixtureTournament,
+    BatchMixtureTournamentResults,
+    BatchTournamentConfig,
+)
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -81,13 +73,13 @@ def main():
 
     # Load strategy classes
     print(f"Loading strategies from {args.strategies}...")
-    cooperative_specs, aggressive_specs = StrategyRegistry.load_file(args.strategies)
+    collective_specs, exploitative_specs = StrategyRegistry.load_file(args.strategies)
 
-    print(f"Found {len(cooperative_specs)} cooperative strategy classes")
-    print(f"Found {len(aggressive_specs)} aggressive strategy classes")
+    print(f"Found {len(collective_specs)} collective strategy classes")
+    print(f"Found {len(exploitative_specs)} exploitative strategy classes")
 
-    if not cooperative_specs or not aggressive_specs:
-        raise ValueError("Need both cooperative and aggressive strategy classes")
+    if not collective_specs or not exploitative_specs:
+        raise ValueError("Need both collective and exploitative strategy classes")
 
     # Show parameter scaling
     print(f"Game type: {args.game}")
@@ -104,14 +96,17 @@ def main():
 
     # Create and run tournament
     tournament = BatchMixtureTournament(
-        cooperative_specs=cooperative_specs,
-        aggressive_specs=aggressive_specs,
+        collective_specs=collective_specs,
+        exploitative_specs=exploitative_specs,
         config=config
     )
 
-    print("\nRunning tournament...")
-    results = tournament.run_tournament()
-    results.save()
+    # print("\nRunning tournament...")
+    # results = tournament.run_tournament()
+    # results.save()
+
+    results = BatchMixtureTournamentResults.load(results_dir / "batch_mixture/results.json")
+
     results.create_schelling_diagrams()
     results.create_social_welfare_diagram()
 

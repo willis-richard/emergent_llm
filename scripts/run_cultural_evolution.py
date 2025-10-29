@@ -1,14 +1,18 @@
 """Run multiple cultural evolution experiments in parallel."""
 import argparse
 import logging
-from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
+from pathlib import Path
 
-from emergent_llm.common import Gene, Attitude, COOPERATIVE, AGGRESSIVE
 from emergent_llm.games import STANDARD_GENERATORS
 from emergent_llm.generation import StrategyRegistry
-from emergent_llm.tournament import CulturalEvolutionConfig, CulturalEvolutionTournament, MultiRunCulturalEvolutionResults, CulturalEvolutionResults
+from emergent_llm.tournament import (
+    CulturalEvolutionConfig,
+    CulturalEvolutionResults,
+    CulturalEvolutionTournament,
+    MultiRunCulturalEvolutionResults,
+)
 
 
 def setup_logging(log_file: Path, loglevel=logging.INFO):
@@ -27,7 +31,7 @@ def setup_logging(log_file: Path, loglevel=logging.INFO):
 
 def run_single_experiment(run_id: int, config: CulturalEvolutionConfig,
                          strategies_dir: Path, game_name: str,
-                         provider_models: list[str] | None) -> tuple[int, CulturalEvolutionResults]:
+                         models: list[str] | None) -> tuple[int, CulturalEvolutionResults]:
     """
     Run a single cultural evolution experiment.
 
@@ -36,7 +40,7 @@ def run_single_experiment(run_id: int, config: CulturalEvolutionConfig,
         config: Tournament configuration
         strategies_dir: Base directory containing strategy files
         game_name: Name of game subdirectory
-        provider_models: Optional list of provider_models to filter by
+        models: Optional list of models to filter by
 
     Returns:
         Tuple of (run_id, results)
@@ -49,7 +53,7 @@ def run_single_experiment(run_id: int, config: CulturalEvolutionConfig,
     registry = StrategyRegistry(
         strategies_dir=strategies_dir,
         game_name=game_name,
-        provider_models=provider_models
+        models=models
     )
 
     # Run tournament
@@ -70,8 +74,8 @@ def parse_args():
                        help="Game type")
     parser.add_argument("--strategies_dir", type=str, default="strategies",
                        help="Base directory containing strategy files")
-    parser.add_argument("--provider_models", nargs='*', default=None,
-                       help="List of provider_models to use, filter out all others")
+    parser.add_argument("--models", nargs='*', default=None,
+                       help="List of models to use, filter out all others")
 
     # Game parameters
     parser.add_argument("--n_players", type=int, default=16,
@@ -154,7 +158,7 @@ def main():
         config=config,
         strategies_dir=Path(args.strategies_dir),
         game_name=args.game,
-        provider_models=args.provider_models
+        models=args.models
     )
 
     with ProcessPoolExecutor(max_workers=args.n_processes) as executor:

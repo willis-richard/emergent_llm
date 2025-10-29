@@ -8,30 +8,30 @@ PROVIDER_MODELS=(
     "google gemini-2.5-flash-lite"
 )
 
-for game in "${GAMES[@]}"; do
-    for pm in "${PROVIDER_MODELS[@]}"; do
-        read provider model <<< "$pm"
+# for game in "${GAMES[@]}"; do
+#     for pm in "${PROVIDER_MODELS[@]}"; do
+#         read provider model <<< "$pm"
 
-        python src/emergent_llm/generation/create_strategies.py descriptions \
-                --llm_provider "$provider" \
-                --model_name "$model" \
-                --game "$game" \
-                --n 128 &
-    done
-    wait
-done
+#         python src/emergent_llm/generation/create_strategies.py descriptions \
+#                 --llm_provider "$provider" \
+#                 --model_name "$model" \
+#                 --game "$game" \
+#                 --n 128 &
+#     done
+#     wait
+# done
 
-for game in "${GAMES[@]}"; do
-    for pm in "${PROVIDER_MODELS[@]}"; do
-        read provider model <<< "$pm"
+# for game in "${GAMES[@]}"; do
+#     for pm in "${PROVIDER_MODELS[@]}"; do
+#         read provider model <<< "$pm"
 
-        python src/emergent_llm/generation/create_strategies.py implementations \
-                   --llm_provider "$provider" \
-                   --model_name "$model" \
-                   --game "$game" &
-    done
-    wait
-done
+#         python src/emergent_llm/generation/create_strategies.py implementations \
+#                    --llm_provider "$provider" \
+#                    --model_name "$model" \
+#                    --game "$game" &
+#     done
+#     wait
+# done
 
 for game in "${GAMES[@]}"; do
     for pm in "${PROVIDER_MODELS[@]}"; do
