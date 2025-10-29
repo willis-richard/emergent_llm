@@ -185,30 +185,24 @@ def main():
     logger.info(f"All runs complete. {len(results_list)}/{args.n_runs} succeeded")
 
     # Create multi-run results
-    multi_results = MultiRunCulturalEvolutionResults(runs=results_list)
+    results = MultiRunCulturalEvolutionResults(runs=results_list)
 
     # Save results
     logger.info("Saving results...")
-    results_file = output_dir / "multi_run_results.json"
-    multi_results.save(str(results_file))
-
-    # Create termination analysis
-    logger.info("Creating termination analysis...")
-    termination_df = multi_results.analyze_termination()
-    termination_file = output_dir / "termination_analysis.csv"
-    termination_df.to_csv(termination_file, index=False)
-    logger.info(f"Termination analysis saved to {termination_file}")
+    results_file = output_dir / "results.json"
+    results.save(str(results_file))
 
     # Generate plots
     logger.info("Creating plots...")
-    multi_results.plots(output_dir)
+    results.plots(output_dir)
+
+    (Path(output_dir) / "results.txt").write_text(str(results))
 
     # Print summary
     print("\n" + "="*60)
-    print(multi_results)
+    print(results)
     print("="*60)
     print(f"\nResults saved to: {output_dir}")
-    print(f"Termination analysis: {termination_file}")
 
     logger.info("Experiment complete")
 

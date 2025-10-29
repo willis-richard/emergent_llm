@@ -1058,50 +1058,108 @@ class CulturalEvolutionResults:
 class MultiRunCulturalEvolutionResults:
     """Results from multiple parallel cultural evolution runs."""
     runs: list[CulturalEvolutionResults]
+    _run_summary_df: pd.DataFrame = field(default=None, init=False, repr=False)
+    _gene_summary_df: pd.DataFrame = field(default=None, init=False, repr=False)
 
-    def __str__(self) -> str:
-        lines = [
-            f"Multi-Run Cultural Evolution Results",
-            f"Number of runs: {len(self.runs)}",
-            f"Generations per run: min={min(r.final_generation for r in self.runs)}, "
-            f"max={max(r.final_generation for r in self.runs)}, "
-            f"mean={np.mean([r.final_generation for r in self.runs]):.1f}",
-        ]
-        return "\n".join(lines)
+    def __post_init__(self):
+        """Build analysis dataframes from all runs."""
+        if not self.runs:
+            raise ValueError("Cannot create results with no runs")
 
-    def analyze_termination(self) -> pd.DataFrame:
-        """Create summary table of termination conditions across all runs."""
-        rows = []
+        # Build per-run summary
+        run_rows = []
         for run_idx, run in enumerate(self.runs):
             # Get dominant gene (highest frequency)
             dominant_gene = max(run.final_gene_frequencies.items(),
                                 key=lambda x: x[1])
             gene, frequency = dominant_gene
 
-            rows.append({
+            run_rows.append({
                 'run': run_idx,
                 'generations': run.final_generation,
                 'dominant_gene': str(gene),
-                'model': gene.model,
-                'attitude': gene.attitude.value,
-                'final_frequency': frequency,
+                'dominant_model': gene.model,
+                'dominant_attitude': gene.attitude.value,
+                'dominant_frequency': frequency,
                 'threshold_met': frequency >= run.config.threshold_pct,
             })
 
-        df = pd.DataFrame(rows)
+        run_summary_df = pd.DataFrame(run_rows)
+        object.__setattr__(self, '_run_summary_df', run_summary_df)
 
-        # Add summary statistics
-        print("\n=== TERMINATION SUMMARY ===")
-        print(
-            f"\nRuns reaching threshold: {df['threshold_met'].sum()}/{len(df)}")
-        print(f"\nDominant attitude distribution:")
-        print(df['attitude'].value_counts())
-        print(f"\nDominant model distribution:")
-        print(df['model'].value_counts())
-        print(f"\nAverage final frequency: {df['final_frequency'].mean():.2%}")
-        print(f"\nAverage generations: {df['generations'].mean():.1f}")
+        # Build gene-level summary across all runs
+        all_genes = set()
+        for run in self.runs:
+            all_genes.update(run.final_gene_frequencies.keys())
 
-        return df
+        gene_rows = []
+        for gene in sorted(all_genes, key=str):
+            frequencies = []
+
+            for run in self.runs:
+                if gene in run.final_gene_frequencies:
+                    freq = run.final_gene_frequencies[gene]
+                    frequencies.append(freq)
+
+            gene_rows.append({
+                'gene': str(gene),
+                'model': gene.model,
+                'attitude': gene.attitude.value,
+                'mean_frequency': np.mean(frequencies) if frequencies else 0.0,
+                'std_frequency': np.std(frequencies) if frequencies else 0.0,
+            })
+
+        gene_summary_df = pd.DataFrame(gene_rows).sort_values(
+            'run_proportion', ascending=False)
+        object.__setattr__(self, '_gene_summary_df', gene_summary_df)
+
+    @property
+    def run_summary_df(self) -> pd.DataFrame:
+        """Per-run summary statistics."""
+        return self._run_summary_df
+
+    @property
+    def gene_summary_df(self) -> pd.DataFrame:
+        """Gene-level summary across all runs."""
+        return self._gene_summary_df
+
+    def __str__(self) -> str:
+        lines = [
+            "=" * 60,
+            "MULTI-RUN CULTURAL EVOLUTION RESULTS",
+            "=" * 60,
+            f"Total runs: {len(self.runs)}",
+            f"Runs reaching threshold: {self.run_summary_df['threshold_met'].sum()}/{len(self.runs)}",
+            f"Average generations: {self.run_summary_df['generations'].mean():.1f}",
+            "",
+            "GENE SUMMARY ACROSS ALL RUNS:",
+            "=" * 60,
+        ]
+
+        # Format gene summary table
+        display_df = self.gene_summary_df[[
+            'gene', 'run_proportion', 'mean_frequency'
+        ]].copy()
+        display_df['run_proportion'] = display_df['run_proportion'].apply(
+            lambda x: f"{x:.1%}")
+        display_df['mean_frequency'] = display_df['mean_frequency'].apply(
+            lambda x: f"{x:.3f}")
+        display_df.columns = ['Gene', 'Runs', 'Avg Freq']
+
+        lines.append(display_df.to_string(index=False))
+        lines.append("")
+        lines.append("DOMINANT ATTITUDE DISTRIBUTION:")
+        lines.append("=" * 60)
+        lines.append(
+            self.run_summary_df['dominant_attitude'].value_counts().to_string())
+        lines.append("")
+        lines.append("DOMINANT MODEL DISTRIBUTION:")
+        lines.append("=" * 60)
+        lines.append(
+            self.run_summary_df['dominant_model'].value_counts().to_string())
+        lines.append("=" * 60)
+
+        return "\n".join(lines)
 
     def plots(self, output_dir: str | Path):
         """Create all plots including individual runs and aggregates."""
