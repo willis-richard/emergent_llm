@@ -809,6 +809,11 @@ class CulturalEvolutionResults:
         """DataFrame of generation-level statistics."""
         return self._generation_stats_df
 
+    @property
+    def winning_gene(self) -> Gene:
+        """Gene with highest frequency in final generation."""
+        return max(self.final_gene_frequencies.items(), key=lambda x: x[1])[0]
+
     def __str__(self) -> str:
         lines = [
             f"Cultural Evolution Results",
@@ -1069,19 +1074,18 @@ class MultiRunCulturalEvolutionResults:
         # Build per-run summary
         run_rows = []
         for run_idx, run in enumerate(self.runs):
-            # Get dominant gene (highest frequency)
-            dominant_gene = max(run.final_gene_frequencies.items(),
-                                key=lambda x: x[1])
-            gene, frequency = dominant_gene
+            # Get winning gene (highest frequency)
+            winning_gene = run.winning_gene
+            winning_frequency = run.final_gene_frequencies[winning_gene]
 
             run_rows.append({
                 'run': run_idx,
                 'generations': run.final_generation,
-                'dominant_gene': str(gene),
-                'dominant_model': gene.model,
-                'dominant_attitude': gene.attitude.value,
-                'dominant_frequency': frequency,
-                'threshold_met': frequency >= run.config.threshold_pct,
+                'winning_gene': str(winning_gene),
+                'winning_model': winning_gene.model,
+                'winning_attitude': winning_gene.attitude.value,
+                'winning_frequency': winning_frequency,
+                'threshold_met': winning_frequency >= run.config.threshold_pct,
             })
 
         run_summary_df = pd.DataFrame(run_rows)
@@ -1092,25 +1096,32 @@ class MultiRunCulturalEvolutionResults:
         for run in self.runs:
             all_genes.update(run.final_gene_frequencies.keys())
 
+        # Count wins per gene
+        win_counts = {}
+        for run in self.runs:
+            winner = run.winning_gene
+            win_counts[winner] = win_counts.get(winner, 0) + 1
+
         gene_rows = []
         for gene in sorted(all_genes, key=str):
             frequencies = []
-
             for run in self.runs:
                 if gene in run.final_gene_frequencies:
                     freq = run.final_gene_frequencies[gene]
                     frequencies.append(freq)
 
+            wins = win_counts.get(gene, 0)
             gene_rows.append({
                 'gene': str(gene),
                 'model': gene.model,
                 'attitude': gene.attitude.value,
+                'wins': wins,
+                'win_proportion': wins / len(self.runs),
                 'mean_frequency': np.mean(frequencies) if frequencies else 0.0,
                 'std_frequency': np.std(frequencies) if frequencies else 0.0,
             })
 
-        gene_summary_df = pd.DataFrame(gene_rows).sort_values(
-            'run_proportion', ascending=False)
+        gene_summary_df = pd.DataFrame(gene_rows).sort_values('wins', ascending=False)
         object.__setattr__(self, '_gene_summary_df', gene_summary_df)
 
     @property
@@ -1124,40 +1135,37 @@ class MultiRunCulturalEvolutionResults:
         return self._gene_summary_df
 
     def __str__(self) -> str:
+        threshold_met = self.run_summary_df['threshold_met'].sum()
+        avg_gens = self.run_summary_df['generations'].mean()
+
         lines = [
-            "=" * 60,
-            "MULTI-RUN CULTURAL EVOLUTION RESULTS",
-            "=" * 60,
-            f"Total runs: {len(self.runs)}",
-            f"Runs reaching threshold: {self.run_summary_df['threshold_met'].sum()}/{len(self.runs)}",
-            f"Average generations: {self.run_summary_df['generations'].mean():.1f}",
+            f"Multi-run cultural evolution: {len(self.runs)} runs",
+            f"Threshold reached: {threshold_met}/{len(self.runs)} ({threshold_met/len(self.runs):.1%})",
+            f"Average generations: {avg_gens:.1f}",
             "",
-            "GENE SUMMARY ACROSS ALL RUNS:",
-            "=" * 60,
+            "Gene performance:",
         ]
 
-        # Format gene summary table
-        display_df = self.gene_summary_df[[
-            'gene', 'run_proportion', 'mean_frequency'
-        ]].copy()
-        display_df['run_proportion'] = display_df['run_proportion'].apply(
-            lambda x: f"{x:.1%}")
-        display_df['mean_frequency'] = display_df['mean_frequency'].apply(
-            lambda x: f"{x:.3f}")
-        display_df.columns = ['Gene', 'Runs', 'Avg Freq']
-
+        # Gene performance table - show all genes
+        display_df = self.gene_summary_df[['gene', 'wins', 'win_proportion', 'mean_frequency', 'std_frequency']].copy()
+        display_df['win_proportion'] = display_df['win_proportion'].apply(lambda x: f"{x:.1%}")
+        display_df['mean_frequency'] = display_df['mean_frequency'].apply(lambda x: f"{x:.3f}")
+        display_df['std_frequency'] = display_df['std_frequency'].apply(lambda x: f"{x:.3f}")
+        display_df.columns = ['Gene', 'Wins', 'Win%', 'Mean', 'Std']
         lines.append(display_df.to_string(index=False))
+
+        # Attitude and model summaries
         lines.append("")
-        lines.append("DOMINANT ATTITUDE DISTRIBUTION:")
-        lines.append("=" * 60)
-        lines.append(
-            self.run_summary_df['dominant_attitude'].value_counts().to_string())
+        lines.append("By attitude:")
+        attitude_counts = self.run_summary_df['winning_attitude'].value_counts()
+        for attitude, count in attitude_counts.items():
+            lines.append(f"  {attitude}: {count} ({count/len(self.runs):.1%})")
+
         lines.append("")
-        lines.append("DOMINANT MODEL DISTRIBUTION:")
-        lines.append("=" * 60)
-        lines.append(
-            self.run_summary_df['dominant_model'].value_counts().to_string())
-        lines.append("=" * 60)
+        lines.append("By model:")
+        model_counts = self.run_summary_df['winning_model'].value_counts()
+        for model, count in model_counts.items():
+            lines.append(f"  {model}: {count} ({count/len(self.runs):.1%})")
 
         return "\n".join(lines)
 
