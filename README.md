@@ -1,10 +1,12 @@
 # Social Dilemma Experiments
 
-A benchmark for assessing LLM behavior in social dilemma games, investigating whether large language models exhibit differential capabilities with aggressive vs. cooperative strategies.
+A benchmark for assessing LLM behaviour in multi-player social dilemma games, investigating whether large language models exhibit differential capabilities with exploitative vs collective strategies.
+
+This repository is under active development, and aims to extend the paper ["Will Systems of LLM Agents Lead to Cooperation: An Investigation into a Social Dilemma"](https://ifaamas.csc.liv.ac.uk/Proceedings/aamas2025/pdfs/p2786.pdf) from my earlier repo [evo_llm](github.com/willis-richard/evo_llm). to multi-player games.
 
 ## Overview
 
-This project investigates the emergent behavior of LLM-driven autonomous agents in social dilemmas. The key research question is whether LLMs are more successful with exploitative strategies compared to collective, cooperative approaches, and what this means for potential negative social outcomes.
+This project investigates the emergent behaviour of LLM-driven autonomous agents in multi-agent social dilemmas. The key research question is whether LLMs are more successful with exploitative strategies compared to collective, cooperative approaches, and what this means for potential negative social outcomes.
 
 ### Key Features
 
