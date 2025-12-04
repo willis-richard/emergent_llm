@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Define variables
 GAMES=("public_goods" "collective_risk" "common_pool")
 PROVIDER_MODELS=(
     "openai gpt-5-mini"
@@ -47,5 +46,5 @@ PROVIDER_MODELS=(
 # done
 
 for game in "${GAMES[@]}"; do
-    python scripts/run_cultural_evolution.py --game common_pool --n_players 16 --population_size 128 --n_rounds 20 --top_k 16 --repetitions 4 --n_runs 4 --n_processes 4 --max_generations 20
+    python scripts/run_cultural_evolution.py --game ${game} --n_players 16 --population_size 128 --n_rounds 20 --top_k 16 --repetitions 4 --n_runs 50 --n_processes 4 --max_generations 200
 done

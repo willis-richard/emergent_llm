@@ -97,3 +97,15 @@ class GameDescription(ABC):
         """
         Return the highest possible individual payoff in the game
         """
+
+    def normalised_max_social_welfare(self) -> float:
+        return self.max_social_welfare() / self.n_rounds
+
+    def normalised_min_social_welfare(self) -> float:
+        return self.min_social_welfare() / self.n_rounds
+
+    def normalised_max_payoff(self) -> float:
+        return self.max_payoff() / self.n_rounds
+
+    def normalised_min_payoff(self) -> float:
+        return self.min_payoff() / self.n_rounds

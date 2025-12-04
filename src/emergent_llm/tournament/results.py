@@ -403,12 +403,12 @@ class MixtureTournamentResults:
 
         # Extract data for plotting
         n_collective = [result.n_collective for result in sorted_results]
-        collective_scores = [
+        collective_scores = np.array([
             result.mean_collective_score for result in sorted_results
-        ]
-        exploitative_scores = [
+        ]) / self.config.game_description.n_rounds
+        exploitative_scores = np.array([
             result.mean_exploitative_score for result in sorted_results
-        ]
+        ]) / self.config.game_description.n_rounds
 
         # Shift collective scores to show payoffs as if there was one fewer collective
         collective_scores = np.roll(collective_scores, -1)
@@ -430,24 +430,23 @@ class MixtureTournamentResults:
         game_description = self.config.game_description
         group_size = game_description.n_players
         ax.set_xlabel('Number of collective co-players')
-        ax.set_ylabel('Mean reward')
+        ax.set_ylabel('Normalised reward')
         ax.set_xlim(0, group_size - 1)
         ax.xaxis.set_major_locator(MaxNLocator(nbins=7, integer=True))
 
-        ax.set_ylim(math.floor(game_description.min_payoff()),
-                    math.ceil(game_description.max_payoff() / 10 + 1) * 10)
-        ax.yaxis.set_major_locator(
-            MultipleLocator(self.config.game_description.n_rounds // 1))
+        ax.set_ylim(math.floor(game_description.normalised_min_payoff()),
+                    math.ceil(game_description.normalised_max_payoff()))
+        ax.yaxis.set_major_locator(MultipleLocator(1))
 
-        plt.axhline(y=game_description.min_social_welfare(),
+        plt.axhline(y=game_description.normalised_min_social_welfare(),
                     color='grey',
                     alpha=0.3,
                     linestyle='-')
-        plt.axhline(y=game_description.max_social_welfare(),
+        plt.axhline(y=game_description.normalised_max_social_welfare(),
                     color='grey',
                     alpha=0.3,
                     linestyle='-')
-        plt.axhline(y=game_description.max_payoff(),
+        plt.axhline(y=game_description.normalised_max_payoff(),
                     color='grey',
                     alpha=0.3,
                     linestyle='-')
@@ -682,6 +681,10 @@ class BatchMixtureTournamentResults:
 
         fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
 
+        # Get game description from first mixture result
+        game_description = self.mixture_results[
+            self.config.group_sizes[-1]].config.game_description
+
         # Plot a line for each group size
         for group_size in sorted(self.config.group_sizes):
             group_data = self.combined_df[self.combined_df['group_size'] ==
@@ -690,34 +693,28 @@ class BatchMixtureTournamentResults:
 
             ax.plot(
                 group_data['collective_ratio'] * 100,  # Convert to percentage
-                group_data['mean_social_welfare'],
+                group_data['mean_social_welfare'] / game_description.n_rounds,
                 label=f'n={group_size}',
                 lw=1.5,
                 marker='o')
 
-        # Get game description from first mixture result
-        game_description = self.mixture_results[
-            self.config.group_sizes[-1]].config.game_description
-
         ax.set_xlabel('Proportion of collective prompts (%)')
-        ax.set_ylabel('Mean reward')
+        ax.set_ylabel('Normalised reward')
         ax.set_xlim(0, 100)
         ax.set_ylim(
-            math.floor(game_description.min_payoff()),
-            math.ceil(game_description.max_social_welfare() / 10 + 1) * 10
+            math.floor(game_description.normalised_min_payoff()),
+            math.ceil(game_description.normalised_max_social_welfare())
         )
-        ax.yaxis.set_major_locator(
-            MultipleLocator(game_description.n_rounds // 1))
+        ax.yaxis.set_major_locator(MultipleLocator(1))
 
-        plt.axhline(y=game_description.min_social_welfare(),
+        plt.axhline(y=game_description.normalised_min_social_welfare(),
                     color='grey',
                     alpha=0.3,
                     linestyle='-')
-        plt.axhline(y=game_description.max_social_welfare(),
+        plt.axhline(y=game_description.normalised_max_social_welfare(),
                     color='grey',
                     alpha=0.3,
                     linestyle='-')
-        # plt.axhline(y=game_description.max_payoff(), color='grey', alpha=0.3, linestyle='-')
 
         ax.legend(bbox_to_anchor=(0, 1.4),
                   loc='upper left',
@@ -728,6 +725,68 @@ class BatchMixtureTournamentResults:
         # Ensure output directory exists
         output_file = Path(self.config.results_dir
                           ) / "batch_mixture" / f"social_welfare.{FORMAT}"
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Save plot
+        fig.savefig(output_file, format=FORMAT, bbox_inches='tight')
+        plt.close(fig)
+
+    def create_relative_schelling_diagram(self):
+        """Create exploitative - collective payoff diagram with lines for each group size."""
+
+        fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
+
+        # Get game description from first mixture result
+        game_description = self.mixture_results[
+            self.config.group_sizes[-1]].config.game_description
+
+        # Plot a line for each group size
+        for group_size in sorted(self.config.group_sizes):
+            group_data = self.combined_df[self.combined_df['group_size'] ==
+                                          group_size]
+            group_data = group_data.sort_values('collective_ratio')
+
+            collective_scores = group_data.mean_collective_score
+            rolled_collective_scores = np.roll(collective_scores, -1)[:-1]
+            exploitative_scores = group_data.mean_exploitative_score.values[:-1]
+            difference = exploitative_scores - rolled_collective_scores
+            normalised_difference = difference / game_description.n_rounds
+
+            n_collective = group_data.n_collective
+            rolled_n_collective = np.roll(n_collective, -1)[:-1] - 1
+            n_exploitative = group_data.n_exploitative.values[:-1] - 1
+            opponent_proportion = rolled_n_collective / (rolled_n_collective + n_exploitative)
+
+            ax.plot(
+                opponent_proportion * 100,  # Convert to percentage
+                normalised_difference,
+                label=f'n={group_size}',
+                lw=1.5,
+                marker='o')
+
+        ax.set_xlabel('Opponent collective prompts (%)')
+        ax.set_ylabel('Normalised advantage')
+        ax.set_xlim(0, 100)
+        ax.set_ylim(
+            math.floor((game_description.normalised_min_payoff() - game_description.normalised_max_payoff())),
+            math.ceil((game_description.normalised_max_payoff() - game_description.normalised_min_payoff()))
+        )
+        ax.yaxis.set_major_locator(MultipleLocator(1))
+
+        plt.axhline(y=0,
+                    color='grey',
+                    alpha=0.3,
+                    linestyle='-')
+
+        ax.legend(bbox_to_anchor=(0, 1.4),
+                  loc='upper left',
+                  ncol=len(self.config.group_sizes),
+                  frameon=False,
+                  columnspacing=0.5)
+
+        # Ensure output directory exists
+        output_file = Path(self.config.results_dir
+                          ) / "batch_mixture" / f"schelling_difference.{FORMAT}"
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Save plot
@@ -993,47 +1052,46 @@ class CulturalEvolutionResults:
         """Plot mean payoffs by attitude and overall through generations."""
         fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
 
+        game_description = self.config.game_description
+
         ax.plot(self.generation_stats_df.index,
-                self.generation_stats_df['collective_mean_payoff'],
+                self.generation_stats_df['collective_mean_payoff'] / game_description.n_rounds,
                 label='Collective',
                 marker='o',
                 lw=0.75,
                 clip_on=False)
         ax.plot(self.generation_stats_df.index,
-                self.generation_stats_df['exploitative_mean_payoff'],
+                self.generation_stats_df['exploitative_mean_payoff'] / game_description.n_rounds,
                 label='Exploitative',
                 marker='s',
                 lw=0.75,
                 clip_on=False)
         ax.plot(self.generation_stats_df.index,
-                self.generation_stats_df['overall_mean_payoff'],
+                self.generation_stats_df['overall_mean_payoff'] / game_description.n_rounds,
                 label='Overall',
                 marker='^',
                 lw=0.75,
                 linestyle='--',
                 clip_on=False)
 
-        game_description = self.config.game_description
-
-        ax.axhline(y=game_description.min_social_welfare(),
+        ax.axhline(y=game_description.normalised_min_social_welfare(),
                    color='grey',
                    alpha=0.3,
                    linestyle='-')
-        ax.axhline(y=game_description.max_social_welfare(),
+        ax.axhline(y=game_description.normalised_max_social_welfare(),
                    color='grey',
                    alpha=0.3,
                    linestyle='-')
-        ax.axhline(y=game_description.max_payoff(),
+        ax.axhline(y=game_description.normalised_max_payoff(),
                    color='grey',
                    alpha=0.3,
                    linestyle='-')
 
         ax.set_ylim(
-            math.floor(game_description.min_payoff()),
-            math.ceil(game_description.max_payoff() / 10 + 1) * 10
+            math.floor(game_description.normalised_min_payoff()),
+            math.ceil(game_description.normalised_max_payoff() / 10 + 1) * 10
         )
-        ax.yaxis.set_major_locator(
-            MultipleLocator(game_description.n_rounds // 1))
+        ax.yaxis.set_major_locator(MultipleLocator(1))
 
         ax.set_xlabel('Generation')
         ax.set_ylabel('Mean Payoff')

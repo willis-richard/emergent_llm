@@ -15,7 +15,7 @@ from emergent_llm.games.public_goods import PublicGoodsGame
 from emergent_llm.games.collective_risk import CollectiveRiskGame
 from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription
 from emergent_llm.players import SimplePlayer, LLMPlayer, StrategySpec
-from emergent_llm.common import C, D, Gene, COOPERATIVE, AGGRESSIVE
+from emergent_llm.common import C, D, Gene, COLLECTIVE, EXPLOITATIVE
 
 # Setup logging
 logging.basicConfig(
@@ -27,37 +27,37 @@ logging.basicConfig(
     ]
 )
 
-def cooperative_strategy(history, state=None):
+def collective_strategy(history, state=None):
     return lambda x, y=None: C
 
-def aggressive_strategy(history, state=None):
+def exploitative_strategy(history, state=None):
     return lambda x, y=None: D
 
 
 def create_test_population(game_description):
     """Create LLM players for testing."""
-    cooperative_players = []
+    collective_players = []
 
-    # 18 LLM cooperative players
+    # 18 LLM collective players
     for i in range(18):
-        cooperative_players.append(LLMPlayer(
+        collective_players.append(LLMPlayer(
             name=f"llm_coop_{i}",
-            gene=Gene("", COOPERATIVE),
+            gene=Gene("", COLLECTIVE),
             game_description=game_description,
-            strategy_class=cooperative_strategy,
+            strategy_class=collective_strategy,
         ))
 
-    aggressive_players = []
-    # 18 LLM aggressive players
+    exploitative_players = []
+    # 18 LLM exploitative players
     for i in range(18):
-        aggressive_players.append(LLMPlayer(
+        exploitative_players.append(LLMPlayer(
             name=f"llm_aggr_{i}",
-            gene=Gene("", AGGRESSIVE),
+            gene=Gene("", EXPLOITATIVE),
             game_description=game_description,
-            strategy_class=aggressive_strategy,
+            strategy_class=exploitative_strategy,
         ))
 
-    return cooperative_players, aggressive_players
+    return collective_players, exploitative_players
 
 def run_fair_tournament(game_description):
     """Run tournament with Public Goods Game."""
@@ -83,8 +83,8 @@ def run_mixture_tournament(game_description):
 
     # Create and run tournament
     tournament = MixtureTournament(
-        cooperative_players=c_p,
-        aggressive_players=a_p,
+        collective_players=c_p,
+        exploitative_players=a_p,
         config=config
     )
 
@@ -99,8 +99,8 @@ def run_batch_fair_tournament(generator_name):
         generator_name=generator_name
     )
 
-    strategies = [cooperative_strategy] * 16 + [aggressive_strategy] * 16
-    genes = [Gene("", COOPERATIVE)] * 16+ [Gene("", AGGRESSIVE)] * 16
+    strategies = [collective_strategy] * 16 + [exploitative_strategy] * 16
+    genes = [Gene("", COLLECTIVE)] * 16+ [Gene("", EXPLOITATIVE)] * 16
 
     # Create and run tournament
     tournament = BatchFairTournament(
@@ -121,8 +121,8 @@ def run_batch_mixture_tournament(generator_name):
 
     # Create and run tournament
     tournament = BatchMixtureTournament(
-        cooperative_strategies=[StrategySpec(Gene("", COOPERATIVE), cooperative_strategy)]*16,
-        aggressive_strategies=[StrategySpec(Gene("", AGGRESSIVE), aggressive_strategy)]*16,
+        collective_specs=[StrategySpec(Gene("", COLLECTIVE), collective_strategy)]*16,
+        exploitative_specs=[StrategySpec(Gene("", EXPLOITATIVE), exploitative_strategy)]*16,
         config=config
     )
 
@@ -207,6 +207,7 @@ def main():
     check = BatchMixtureTournamentResults.load("./test/batch_mixture/results.json")
     print(check)
     b_cpr_results.create_schelling_diagrams()
+    b_cpr_results.create_relative_schelling_diagram()
     b_cpr_results.create_social_welfare_diagram()
 
 
