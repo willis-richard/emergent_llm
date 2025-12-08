@@ -28,7 +28,7 @@ from emergent_llm.games import (
     PublicGoodsDescription,
 )
 from emergent_llm.generation.prompts import create_code_user_prompt, create_strategy_user_prompt
-from emergent_llm.players import BaseStrategy
+from emergent_llm.players import BaseStrategy, BasePlayer
 
 
 def setup_logging(log_file: Path) -> logging.Logger:
@@ -466,6 +466,219 @@ import random
                 self.round = (self.round + 1) % self.period
                 return D if self.round == 0 else C
 
+
+        class StrategyPlayer(BasePlayer):
+            """
+            Wrapper player that allows injecting a callable policy (rule-based or LLM-based)
+            into the standard game player interface.
+
+            This class:
+            - Receives a policy factory (a callable that returns a policy object)
+            - Resets the internal policy at the beginning of each new game
+            - Delegates all decision-making to the policy via __call__(state, history)
+            """
+
+            def __init__(self, name: str, policy_factory):
+                super().__init__(name)
+                self.policy_factory = policy_factory  # Factory that creates a new policy instance
+                self.policy = None
+                self.reset()
+
+            def reset(self):
+                """Re-instantiate the policy at the start of each new episode."""
+                self.policy = self.policy_factory()
+
+            def __call__(self, state, history):
+                """Delegate the decision to the underlying policy."""
+                return self.policy(state, history)
+
+        class AlwaysCooperate:
+            """
+            Baseline strategy: Always Cooperate (ALLC)
+
+            This agent always chooses action C, regardless of game state or history.
+            Acts as an upper bound for cooperation and social welfare.
+            """
+
+            def __call__(self, *_):
+                return C
+
+        class AlwaysDefect:
+            """
+            Baseline strategy: Always Defect (ALLD)
+
+            This agent always chooses action D, regardless of game state or history.
+            Acts as a lower bound for cooperation and a benchmark for exploitability.
+            """
+
+            def __call__(self, *_):
+                return D
+
+        class RandomHalf:
+            """
+            Baseline strategy: Random (RAND-0.5)
+
+            At each round, this agent cooperates with probability 0.5
+            and defects with probability 0.5, independently of history.
+            Serves as a stochastic noise baseline.
+            """
+
+            def __call__(self, *_):
+                return C if random.random() < 0.5 else D
+
+        class ThresholdConditionalCooperator:
+            """
+            Baseline strategy: Threshold Conditional Cooperator (TCC)
+
+            This agent cooperates if the fraction of cooperators in the previous round
+            is greater than or equal to a fixed threshold.
+
+            Parameters:
+            - threshold: minimum cooperation fraction required to cooperate (default = 0.5)
+
+            Behavior:
+            - First round: always cooperate
+            - Later rounds:
+                1. Compute last-round cooperation fraction
+                2. If fraction >= threshold -> Cooperate
+                3. Else -> Defect
+            """
+
+            def __init__(self, threshold: float = 0.5):
+                self.threshold = threshold  # Required fraction of cooperators to cooperate
+
+            def __call__(self, _state, history):
+                # First round: default to cooperation
+                if history is None or history.round_number == 0:
+                    return C
+
+                # Own last action (0 or 1)
+                my_last = bool(history.my_actions[-1])
+
+                # Opponents' last actions (vector of 0/1 values)
+                opponent_last = history.opponent_actions[-1]
+
+                # Total number of cooperators last round
+                total_cooperators = int(my_last) + int(opponent_last.sum())
+                total_players = 1 + opponent_last.shape[0]
+
+                # Cooperation fraction in the group
+                frac_coop = total_cooperators / total_players
+
+                # Threshold decision rule
+                return C if frac_coop >= self.threshold else D
+
+        class GenerousConditionalCooperator:
+            """
+            Baseline strategy: Generous Conditional Cooperator (GCC)
+
+            A probabilistic and forgiving version of threshold cooperation.
+
+            Parameters:
+            - low: lower cooperation threshold (default = 0.3)
+            - high: upper cooperation threshold (default = 0.7)
+
+            Behavior:
+            - First round: always cooperate
+            - If cooperation fraction >= high: cooperate with 90% probability
+            - If cooperation fraction <= low: cooperate with 10% probability
+            - Otherwise: cooperate with 50% probability
+
+            This strategy models noise-tolerant conditional cooperation.
+            """
+
+            def __init__(self, low: float = 0.3, high: float = 0.7):
+                self.low = low
+                self.high = high
+
+            def __call__(self, _state, history):
+                # First round: default to cooperation
+                if history is None or history.round_number == 0:
+                    return C
+
+                my_last = bool(history.my_actions[-1])
+                opponent_last = history.opponent_actions[-1]
+
+                total_cooperators = int(my_last) + int(opponent_last.sum())
+                total_players = 1 + opponent_last.shape[0]
+
+                frac_coop = total_cooperators / total_players
+
+                # High cooperation regime: very likely to cooperate
+                if frac_coop >= self.high:
+                    return C if random.random() < 0.9 else D
+
+                # Low cooperation regime: very unlikely to cooperate
+                if frac_coop <= self.low:
+                    return C if random.random() < 0.1 else D
+
+                # Intermediate regime: random cooperation
+                return C if random.random() < 0.5 else D
+
+        class GrimTrigger:
+            """
+            Baseline strategy: Grim Trigger (GRIM)
+
+            This agent starts by cooperating and continues to cooperate as long as
+            no defection is observed in the group. Once any defection occurs,
+            it defects forever for the rest of the game.
+
+            This represents a strict long-memory punitive strategy.
+            """
+
+            def __init__(self):
+                self.has_seen_defection = False  # Permanent punishment flag
+
+            def __call__(self, _state, history):
+                # First round: default to cooperation
+                if history is None or history.round_number == 0:
+                    return C
+
+                if not self.has_seen_defection:
+                    my_last = bool(history.my_actions[-1])
+                    opponent_last = history.opponent_actions[-1]
+
+                    # If any player defected last round, trigger permanent defection
+                    self.has_seen_defection = not my_last or not opponent_last.all()
+
+                # Defect forever after the first detected defection
+                return D if self.has_seen_defection else C
+
+        class JealousDefector:
+            """
+            Baseline strategy: Jealous / Competitive Defector (JEALOUS)
+
+            This agent compares its cumulative payoff to the group average:
+
+            Behavior:
+            - First round: defect
+            - If own cumulative payoff < group average payoff -> Defect
+            - Otherwise -> Cooperate with probability 0.5
+
+            This models payoff-based, competitive, and inequality-averse behavior.
+            """
+
+            def __call__(self, _state, history):
+                # First round: start with defection
+                if history is None or history.round_number == 0:
+                    return D
+
+                # Own cumulative payoff
+                my_total = float(history.my_payoffs.sum())
+
+                # Opponents' cumulative payoffs
+                opponent_totals = history.opponent_payoffs.sum(axis=0)
+
+                # Group average cumulative payoff
+                avg_total = (my_total + float(opponent_totals.sum())) / (
+                        1 + opponent_totals.shape[0])
+
+                # Defect if behind the group, otherwise mix cooperation and defection
+                if my_total < avg_total:
+                    return D
+
+                return C if random.random() < 0.5 else D
+
         for n_players in [4, 32]:
             game_description.n_players = n_players
             # Test against different opponent types
@@ -507,6 +720,39 @@ import random
                 # periodic
                 [
                     SimplePlayer(f"period_{i}", PeriodicDefector(2 + i))
+                    for i in range(game_description.n_players - 1)
+                ],
+                ##################3
+                [
+                    StrategyPlayer(f"allc_{i}", AlwaysCooperate)
+                    for i in range(game_description.n_players - 1)
+                ],
+                [
+                    StrategyPlayer(f"alld_{i}", AlwaysDefect)
+                    for i in range(game_description.n_players - 1)
+                ],
+                [
+                    StrategyPlayer(f"rand_{i}", RandomHalf)
+                    for i in range(game_description.n_players - 1)
+                ],
+                [
+                    StrategyPlayer(f"tcc_{i}",
+                                   lambda thr=0.5: ThresholdConditionalCooperator(
+                                       thr))
+                    for i in range(game_description.n_players - 1)
+                ],
+                [
+                    StrategyPlayer(f"gcc_{i}",
+                                   lambda low=0.3, high=0.7:
+                                   GenerousConditionalCooperator(low, high))
+                    for i in range(game_description.n_players - 1)
+                ],
+                [
+                    StrategyPlayer(f"grim_{i}", GrimTrigger)
+                    for i in range(game_description.n_players - 1)
+                ],
+                [
+                    StrategyPlayer(f"jealous_{i}", JealousDefector)
                     for i in range(game_description.n_players - 1)
                 ]
             ]
