@@ -19,7 +19,7 @@ fi
 SOURCE_DIR=$1
 DEST_DIR=$2
 
-DIAGRAMS=("social_welfare.svg" "schelling_n_16.svg")
+DIAGRAMS=("social_welfare.svg" "schelling_difference.svg")
 
 for diagram in "${DIAGRAMS[@]}"; do
     find "$SOURCE_DIR" -name $diagram -type f | while read -r file; do

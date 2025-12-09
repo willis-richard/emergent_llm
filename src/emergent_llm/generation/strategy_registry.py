@@ -22,7 +22,7 @@ class StrategyRegistry:
                              If None, loads all strategies.
                              Format: ["anthropic_claude-sonnet-4", ...]
         """
-        self.game_dir = strategies_dir / game_name
+        self.game_dir = Path(strategies_dir) / game_name
         if not self.game_dir.exists():
             raise ValueError(f"Game directory not found: {self.game_dir}")
 

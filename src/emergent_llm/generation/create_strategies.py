@@ -9,7 +9,6 @@ import importlib.util
 import inspect
 import logging
 import os
-import random
 import re
 import time
 from dataclasses import dataclass
@@ -21,14 +20,23 @@ import openai
 from google import genai
 from google.genai import errors as genai_errors
 
-from emergent_llm.common import COLLECTIVE, EXPLOITATIVE, Attitude, C, D, GameDescription, Gene
+from emergent_llm.common import COLLECTIVE, EXPLOITATIVE, Attitude, GameDescription, Gene
 from emergent_llm.games import (
     CollectiveRiskDescription,
     CommonPoolDescription,
     PublicGoodsDescription,
 )
 from emergent_llm.generation.prompts import create_code_user_prompt, create_strategy_user_prompt
-from emergent_llm.players import BaseStrategy
+from emergent_llm.players import (
+    BaseStrategy,
+    Cooperator,
+    Defector,
+    GradualDefector,
+    PeriodicDefector,
+    Random,
+    RandomCooperator,
+    RandomDefector,
+)
 
 
 def setup_logging(log_file: Path) -> logging.Logger:
@@ -374,8 +382,6 @@ def test_generated_strategy(class_code: str,
     """Test the generated strategy by actually running it in games."""
     import tempfile
 
-    import numpy as np
-
     from emergent_llm.players import LLMPlayer, SimplePlayer
 
     # Create a temporary module to load the strategy
@@ -446,70 +452,46 @@ import random
                            strategy_class,
                            max_errors=0)
 
-        class GradualDefector:
-
-            def __init__(self, threshold=10):
-                self.threshold = threshold
-                self.round = 0
-
-            def __call__(self):
-                self.round += 1
-                return C if self.round <= self.threshold else D
-
-        class PeriodicDefector:
-
-            def __init__(self, period):
-                self.period = period
-                self.round = 0
-
-            def __call__(self):
-                self.round = (self.round + 1) % self.period
-                return D if self.round == 0 else C
-
         for n_players in [4, 32]:
             game_description.n_players = n_players
             # Test against different opponent types
             test_mixtures = [
                 [
-                    SimplePlayer(f"cooperator_{i}", lambda: C)
+                    SimplePlayer(f"cooperator_{i}", Cooperator)
                     for i in range(game_description.n_players - 1)
                 ],
                 [
-                    SimplePlayer(f"defector_{i}", lambda: D)
+                    SimplePlayer(f"defector_{i}", Defector)
                     for i in range(game_description.n_players - 1)
                 ],
                 [
-                    SimplePlayer(f"random_{i}", lambda: random.choice([C, D]))
+                    SimplePlayer(f"random_{i}", Random)
                     for i in range(game_description.n_players - 1)
                 ],
-                # Mostly cooperative (90% C, 10% D)
                 [
-                    SimplePlayer(f"mostly_coop_{i}", lambda: C
-                                 if np.random.random() < 0.9 else D)
+                    SimplePlayer(f"mostly_coop_{i}", RandomCooperator)
                     for i in range(game_description.n_players - 1)
                 ],
-                # Mostly defective (10% C, 90% D)
                 [
-                    SimplePlayer(f"mostly_defect_{i}", lambda: C
-                                 if np.random.random() < 0.1 else D)
+                    SimplePlayer(f"mostly_defect_{i}", RandomDefector)
                     for i in range(game_description.n_players - 1)
                 ],
-                # Alternating cooperation
                 [
                     SimplePlayer(f"alternating_{i}", PeriodicDefector(2))
                     for i in range(game_description.n_players - 1)
                 ],
-                # Gradual defection
                 [
                     SimplePlayer(f"grad_{i}", GradualDefector(10 + i))
                     for i in range(game_description.n_players - 1)
                 ],
-                # periodic
                 [
                     SimplePlayer(f"period_{i}", PeriodicDefector(2 + i))
                     for i in range(game_description.n_players - 1)
                 ]
             ]
+
+
+            start_time = time.time()
 
             for mixture in test_mixtures:
                 players = [player] + mixture
@@ -517,6 +499,10 @@ import random
 
                 # This will raise an exception if the strategy fails
                 result = game.play_game()
+
+            total_time = time.time() - start_time
+            if total_time > 5:
+                raise RuntimeError(f"Strategy took {total_time:.1f} to run all mixtures")
 
     finally:
         # Clean up temp file

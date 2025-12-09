@@ -108,6 +108,7 @@ def main():
     results = BatchMixtureTournamentResults.load(results_dir / "batch_mixture/results.json")
 
     results.create_schelling_diagrams()
+    results.create_relative_schelling_diagram()
     results.create_social_welfare_diagram()
 
 

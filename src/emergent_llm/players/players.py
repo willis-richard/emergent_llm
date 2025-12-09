@@ -102,14 +102,13 @@ class LLMPlayer(BasePlayer):
 class SimplePlayer(BasePlayer):
     """Simple player for testing with no-argument strategy function."""
 
-    def __init__(self, name: str, strategy_function: Callable[[], Action]):
+    def __init__(self, name: str, strategy_function: Callable[[int], Action]):
         """
-        Initialize simple player with a no-argument strategy function.
+        Initialise simple player with a no-argument strategy function.
 
         Args:
             name: Player name
-            strategy_func: Function that takes no arguments and returns Action.
-                          Defaults to always cooperate.
+            strategy_func: Function taking the round number and returning an Action.
         """
         super().__init__(name)
         self.strategy_function = strategy_function
@@ -120,7 +119,8 @@ class SimplePlayer(BasePlayer):
     def __call__(self, state: GameState,
                  history: None | PlayerHistory) -> Action:
         """Execute the strategy function (ignoring game context)."""
-        return self.strategy_function()
+        round_number = 0 if history is None else history.round_number
+        return self.strategy_function(round_number)
 
 
 @dataclass(frozen=True)
