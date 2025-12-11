@@ -47,10 +47,20 @@ class Action(Enum):
         return result
 
     @classmethod
-    def from_bool_array(cls, bool_array: NDArray[np.bool_]) -> list['Action']:
-        """Convert numpy boolean array to list of Actions."""
+    def from_bool_array(cls, bool_array: NDArray[np.bool_]):
+        """Convert numpy boolean array to list/nested lists of Actions."""
         assert bool_array.dtype == np.bool_, f"Expected bool array, got {bool_array.dtype}"
-        return [cls.C if val else cls.D for val in bool_array]
+
+        # Convert all elements using flat iteration
+        flat_actions = [cls.C if val else cls.D for val in bool_array.flat]
+
+        # Return in original shape
+        if bool_array.ndim == 1:
+            return flat_actions
+        else:
+            # Reshape to nested lists matching input dimensions
+            arr = np.array(flat_actions, dtype=object).reshape(bool_array.shape)
+            return arr.tolist()
 
 
 # Export for convenience
