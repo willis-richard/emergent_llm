@@ -60,9 +60,9 @@ class StrategyRegistry:
         specs = []
         for strategy_class in strategy_classes:
             # Extract attitude from class name (Strategy_COLLECTIVE_1)
-            if "COOPERATIVE" in strategy_class.__name__:
+            if "COLLECTIVE" in strategy_class.__name__:
                 attitude = Attitude.COLLECTIVE
-            elif "AGGRESSIVE" in strategy_class.__name__:
+            elif "EXPLOITATIVE" in strategy_class.__name__:
                 attitude = Attitude.EXPLOITATIVE
             else:
                 continue  # Skip malformed classes

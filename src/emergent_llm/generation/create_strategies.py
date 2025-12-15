@@ -452,7 +452,7 @@ import random
                            strategy_class,
                            max_errors=0)
 
-        for n_players in [4, 32]:
+        for n_players in [4, 256]:
             game_description.n_players = n_players
             # Test against different opponent types
             test_mixtures = [
@@ -501,7 +501,7 @@ import random
                 result = game.play_game()
 
             total_time = time.time() - start_time
-            if total_time > 5:
+            if total_time > 2:
                 raise RuntimeError(f"Strategy took {total_time:.1f} to run all mixtures")
 
     finally:
