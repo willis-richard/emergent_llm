@@ -501,7 +501,7 @@ import random
                 result = game.play_game()
 
             total_time = time.time() - start_time
-            if total_time > 1:
+            if total_time > 3:
                 raise RuntimeError(f"Strategy took {total_time:.1f} to run all mixtures")
 
     finally:

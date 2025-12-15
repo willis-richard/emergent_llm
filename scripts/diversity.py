@@ -2,10 +2,15 @@ import argparse
 from collections import defaultdict
 from itertools import combinations_with_replacement, product
 
-from emergent_llm.common import Action, C, D
+from emergent_llm.common import Action, C, D, Gene
 from emergent_llm.games import STANDARD_GENERATORS, get_game_class
 from emergent_llm.generation import StrategyRegistry
 from emergent_llm.players import LLMPlayer, SimplePlayer
+
+import numpy as np
+from sklearn.decomposition import PCA
+from multiprocessing import Pool
+import matplotlib.pyplot as plt
 
 
 def parse_args():
@@ -27,6 +32,10 @@ def parse_args():
                        help="Number of rounds per game")
     parser.add_argument("--n_games", type=int, default=20,
                        help="Number of games for each trajectory")
+
+    # Parallel execution parameters
+    parser.add_argument("--n_processes", type=int, default=1,
+                        help="Number of parallel processes")
 
     return parser.parse_args()
 
@@ -79,14 +88,11 @@ def compute_features(player):
             features[hashable(context)] += actions
     return features
 
-
-gene_features = {}
-gene_means = {}
-for gene in genes:
+def compute_gene(gene: Gene):
     player_features = []
     player_means = []
-    for i in range(2):
-        algo = registry.get_all_specs(gene)[i].strategy_class
+    for strategy_spec in registry.get_all_specs(gene):
+        algo = strategy_spec.strategy_class
         player = LLMPlayer("testing", gene, description, algo)
         # player = SimplePlayer("player", RandomCooperator)
 
@@ -98,10 +104,77 @@ for gene in genes:
 
         all_values = [x for v in features.values() for x in Action.to_bool_array(v)]
         mean = sum(all_values) / len(all_values)
-        print(f"{algo.__name__}: {mean}")
+        print(f"{gene.model} {algo.__name__}: {mean}")
+    return gene, player_features, player_means
 
-    gene_features[gene] = player_features
-    gene_means[gene] = player_means
 
-print(gene_features)
+gene_features = {}
+gene_means = {}
+
+with Pool(processes=args.n_processes) as pool:
+    results = pool.map(compute_gene, genes)
+    for gene, player_features, player_means in results:
+        gene_features[gene] = player_features
+        gene_means[gene] = player_means
+
+# print(gene_features)
 print(gene_means)
+
+# PCA
+X_list = []
+labels = []
+
+for gene, mean_features in gene_means.items():
+    X_list.extend(mean_features)
+    labels.extend([str(gene)] * len(mean_features))
+
+X = np.array(X_list)
+labels = np.array(labels)
+
+pca = PCA(n_components=10)
+X_pca = pca.fit_transform(X)
+print(pca.explained_variance_ratio_[:5])
+
+n_generated = len(labels)
+
+fig, ax = plt.subplots(figsize=(10, 8))
+
+# Plot generated algorithms by behaviour
+handles = []
+for gene in genes:
+    mask = labels == str(gene)
+    scatter = ax.scatter(
+        X_pca[:n_generated][mask, 0],
+        X_pca[:n_generated][mask, 1],
+        alpha=0.3,
+        s=10
+    )
+    handles.append((scatter, str(gene)))
+
+baselines = {
+    'All-D': [0] * len(X[0]),
+    'All-C': [1] * len(X[0]),
+    }
+baseline_X = np.array(list(baselines.values()))
+baseline_labels = np.array(list(baselines.keys()))
+baseline_pca = pca.transform(baseline_X)
+X_full = np.vstack([X, baseline_X])
+
+# Plot baselines as larger labeled points
+for i, name in enumerate(baseline_labels):
+    ax.scatter(
+        baseline_pca[i, 0],
+        baseline_pca[i, 1],
+        marker='X',
+        s=200,
+        edgecolors='black',
+        linewidths=1.5
+    )
+    ax.annotate(name, (baseline_pca[i, 0], baseline_pca[i, 1]))
+
+ax.legend([h[0] for h in handles], [h[1] for h in handles])
+ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%} var)')
+ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%} var)')
+ax.legend()
+plt.tight_layout()
+plt.savefig("pca.png")

@@ -101,11 +101,11 @@ def main():
         config=config
     )
 
-    # print("\nRunning tournament...")
-    # results = tournament.run_tournament()
-    # results.save()
+    print("\nRunning tournament...")
+    results = tournament.run_tournament()
+    results.save()
 
-    results = BatchMixtureTournamentResults.load(results_dir / "batch_mixture/results.json")
+    # results = BatchMixtureTournamentResults.load(results_dir / "batch_mixture/results.json")
 
     results.create_schelling_diagrams()
     results.create_relative_schelling_diagram()

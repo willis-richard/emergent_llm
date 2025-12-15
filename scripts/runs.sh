@@ -3,8 +3,9 @@
 GAMES=("public_goods" "collective_risk" "common_pool")
 PROVIDER_MODELS=(
     "openai gpt-5-mini"
-    "anthropic claude-sonnet-4-0"
-    "google gemini-2.5-flash-lite"
+    "openai gpt-5.2"
+    "anthropic claude-opus-4-5"
+    "google gemini-3-pro-preview"
 )
 
 # for game in "${GAMES[@]}"; do
