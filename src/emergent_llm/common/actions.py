@@ -26,6 +26,18 @@ class Action(Enum):
     def flip(self) -> "Action":
         return Action(1 - self.value)
 
+    def __add__(self, other):
+        """Add Action value to number."""
+        if isinstance(other, (int, float)):
+            return self.value + other
+        return NotImplemented
+
+    def __radd__(self, other):
+        """Support sum() by allowing 0 + Action."""
+        if isinstance(other, (int, float)):
+            return other + self.value
+        return NotImplemented
+
     @classmethod
     def print_definition(cls) -> str:
         """For printing in prompts"""
