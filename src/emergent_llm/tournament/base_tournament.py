@@ -20,7 +20,7 @@ class BaseTournament(ABC):
                    match_id: str) -> MatchResult:
         """Run a single match and record results."""
         # Create and run game
-        game_class = self.config.get_game_class()
+        game_class = self.config.game_description.game_type()
         game = game_class(players, self.config.game_description)
         game_result = game.play_game()
 

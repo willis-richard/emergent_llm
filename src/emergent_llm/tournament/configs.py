@@ -25,19 +25,6 @@ class BaseTournamentConfig:
     game_description: GameDescription
     repetitions: int = 1
 
-    def get_game_class(self) -> type[BaseGame]:
-        """Get appropriate game class from description type."""
-        if isinstance(self.game_description, PublicGoodsDescription):
-            return PublicGoodsGame
-        elif isinstance(self.game_description, CollectiveRiskDescription):
-            return CollectiveRiskGame
-        elif isinstance(self.game_description, CommonPoolDescription):
-            return CommonPoolGame
-        else:
-            raise ValueError(
-                f"No game class found for description type: {type(self.game_description)}"
-            )
-
     def serialise(self) -> dict:
         """Serialize to dictionary for JSON storage."""
         return {

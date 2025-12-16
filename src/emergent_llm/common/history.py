@@ -16,11 +16,6 @@ class PlayerHistory:
     opponent_payoffs: NDArray[
         np.float64]  # Opponents' payoffs, indexed [round, opponent]
 
-    @property
-    def round_number(self) -> int:
-        """Current round number (number of completed rounds)."""
-        return len(self.my_actions)
-
 
 @dataclass
 class GameHistory:

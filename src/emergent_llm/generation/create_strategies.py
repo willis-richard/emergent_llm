@@ -20,12 +20,8 @@ import openai
 from google import genai
 from google.genai import errors as genai_errors
 
-from emergent_llm.common import COLLECTIVE, EXPLOITATIVE, Attitude, GameDescription, Gene
-from emergent_llm.games import (
-    CollectiveRiskDescription,
-    CommonPoolDescription,
-    PublicGoodsDescription,
-)
+from emergent_llm.common import COLLECTIVE, EXPLOITATIVE, Attitude, Gene
+from emergent_llm.games import STANDARD_GENERATORS
 from emergent_llm.generation.prompts import create_code_user_prompt, create_strategy_user_prompt
 from emergent_llm.players import (
     BaseStrategy,
@@ -66,19 +62,19 @@ class LLMConfig:
     max_retries: int = 3
 
 
-def parse_description_file(
-        description_file: Path) -> dict[tuple[str, int], str]:
-    """Parse existing description file and extract existing descriptions.
+def parse_strategy_description_file(
+        strategy_description_file: Path) -> dict[tuple[str, int], str]:
+    """Parse existing strategy description file and extract existing descriptions.
 
-    Returns dict mapping (attitude_name, n) tuple to description string.
+    Returns dict mapping (attitude_name, n) tuple to strategy description string.
     """
-    if not description_file.exists():
+    if not strategy_description_file.exists():
         return {}
 
-    descriptions = {}
+    strategy_descriptions = {}
 
     try:
-        with open(description_file, 'r', encoding='utf-8') as f:
+        with open(strategy_description_file, 'r', encoding='utf-8') as f:
             content = f.read()
 
         # Parse the file as Python AST
@@ -97,30 +93,30 @@ def parse_description_file(
                     if match:
                         attitude_name = match.group(1)
                         n = int(match.group(2))
-                        description = node.value.value
-                        descriptions[(attitude_name, n)] = description
+                        strategy_description = node.value.value
+                        strategy_descriptions[(attitude_name, n)] = strategy_description
 
     except Exception as e:
         logging.warning(
-            f"Error parsing description file {description_file}: {e}")
+            f"Error parsing strategy description file {strategy_description_file}: {e}")
         return {}
 
-    return descriptions
+    return strategy_descriptions
 
 
-def parse_strategy_file(strategy_file: Path) -> set[str]:
+def parse_strategy_implementation_file(strategy_implementation_file: Path) -> set[str]:
     """Parse existing strategy file and extract implemented strategy class names.
 
     Returns set of class names like 'Strategy_COLLECTIVE_1'.
     """
-    if not strategy_file.exists():
-        print(f"WARNING: {strategy_file} not found")
+    if not strategy_implementation_file.exists():
+        print(f"WARNING: {strategy_implementation_file} not found")
         return set()
 
     strategy_classes = set()
 
     try:
-        with open(strategy_file, 'r', encoding='utf-8') as f:
+        with open(strategy_implementation_file, 'r', encoding='utf-8') as f:
             content = f.read()
 
         # Parse the file as Python AST
@@ -134,7 +130,7 @@ def parse_strategy_file(strategy_file: Path) -> set[str]:
                     strategy_classes.add(class_name)
 
     except Exception as e:
-        error_msg = f"Error parsing description file {strategy_file}: {e}"
+        error_msg = f"Error parsing strategy implementations file {strategy_implementation_file}: {e}"
         logging.warning(error_msg)
         print(f"WARNING: {error_msg}")
         return set()
@@ -142,17 +138,17 @@ def parse_strategy_file(strategy_file: Path) -> set[str]:
     return strategy_classes
 
 
-def write_description_to_file(description_file: Path, attitude: Attitude,
-                              n: int, description: str):
+def write_description_to_file(strategy_description_file: Path, attitude: Attitude,
+                              n: int, strategy_description: str):
     """Append a new description using triple single quotes."""
     var_name = f"description_{attitude.name}_{n}"
 
     # Create description entry
-    description = description.replace("'''", "\\'\\'\\'")
-    description_entry = f"\n{var_name} = '''\n{description}\n'''\n"
+    strategy_description = strategy_description.replace("'''", "\\'\\'\\'")
+    description_entry = f"\n{var_name} = '''\n{strategy_description}\n'''\n"
 
     # Append to file
-    with open(description_file, 'a', encoding='utf-8') as f:
+    with open(strategy_description_file, 'a', encoding='utf-8') as f:
         f.write(description_entry)
 
 
@@ -172,15 +168,15 @@ def get_missing_descriptions(existing_descriptions: dict[tuple[str, int], str],
 
 
 def get_missing_implementations(
-    existing_strategies: set[str], existing_descriptions: dict[tuple[str, int],
-                                                               str]
+    existing_implementations: set[str], existing_descriptions: dict[tuple[str, int],
+                                                                    str]
 ) -> list[tuple[str, int, str]]:
     """Get list of (attitude_name, n, description) tuples for missing implementations."""
     missing = []
 
     for (attitude_name, n), description in existing_descriptions.items():
         class_name = f"Strategy_{attitude_name}_{n}"
-        if class_name not in existing_strategies:
+        if class_name not in existing_implementations:
             missing.append((attitude_name, n, description))
 
     return missing
@@ -188,11 +184,11 @@ def get_missing_implementations(
 
 def generate_strategy_description(config: LLMConfig,
                                   attitude: Attitude,
-                                  game_description_class: type[GameDescription],
+                                  game_name: str,
                                   logger: logging.Logger = None) -> str:
     """Generate natural language strategy description."""
     system_prompt = "You are an AI assistant with expertise in strategic thinking."
-    user_prompt = create_strategy_user_prompt(attitude, game_description_class)
+    user_prompt = create_strategy_user_prompt(attitude, game_name)
 
     if logger:
         logger.info(f"Generating {attitude.value} strategy description")
@@ -209,12 +205,12 @@ def generate_strategy_description(config: LLMConfig,
 
 def generate_strategy_code(config: LLMConfig,
                            strategy_description: str,
-                           game_description_class: type[GameDescription],
+                           game_name: str,
                            logger: logging.Logger = None) -> str:
     """Generate Python code from strategy description."""
     system_prompt = "You are an expert Python programmer implementing game theory strategies."
     user_prompt = create_code_user_prompt(strategy_description,
-                                          game_description_class)
+                                          game_name)
 
     if logger:
         logger.info("Generating strategy code")
@@ -378,7 +374,7 @@ def validate_strategy_code(code: str):
 
 
 def test_generated_strategy(class_code: str,
-                            game_description_class: type[GameDescription]):
+                            game_name: str):
     """Test the generated strategy by actually running it in games."""
     import tempfile
 
@@ -421,72 +417,50 @@ import random
             strategy_classes) == 1, "More than one strategy class defined"
         strategy_class = strategy_classes[0]
 
-        # Determine game type and create test games
-        if game_description_class == PublicGoodsDescription:
-            from emergent_llm.games import PublicGoodsGame
-            game_class = PublicGoodsGame
-            game_description = PublicGoodsDescription(n_players=6,
-                                                      n_rounds=20,
-                                                      k=2.0)
-        elif game_description_class == CollectiveRiskDescription:
-            from emergent_llm.games import CollectiveRiskGame
-            game_class = CollectiveRiskGame
-            game_description = CollectiveRiskDescription(n_players=6,
-                                                         n_rounds=20,
-                                                         m=3,
-                                                         k=2.0)
-        elif game_description_class == CommonPoolDescription:
-            from emergent_llm.games import CommonPoolGame
-            game_class = CommonPoolGame
-            game_description = CommonPoolDescription(n_players=6,
-                                                     n_rounds=20,
-                                                     capacity=36)
-        else:
-            raise ValueError(
-                f"Unknown game description type: {game_description_class}")
-
-        # Create test player
-        player = LLMPlayer("test_player",
-                           Gene("dummy", COLLECTIVE),
-                           game_description,
-                           strategy_class,
-                           max_errors=0)
 
         for n_players in [4, 256]:
-            game_description.n_players = n_players
+            game_description = STANDARD_GENERATORS[game_name + "_default"](n_players=n_players)
+            game_class = game_description.game_type()
+
+            player = LLMPlayer("test_player",
+                            Gene("dummy", COLLECTIVE),
+                            game_description,
+                            strategy_class,
+                            max_errors=0)
+
             # Test against different opponent types
             test_mixtures = [
                 [
                     SimplePlayer(f"cooperator_{i}", Cooperator)
-                    for i in range(game_description.n_players - 1)
+                    for i in range(n_players - 1)
                 ],
                 [
                     SimplePlayer(f"defector_{i}", Defector)
-                    for i in range(game_description.n_players - 1)
+                    for i in range(n_players - 1)
                 ],
                 [
                     SimplePlayer(f"random_{i}", Random)
-                    for i in range(game_description.n_players - 1)
+                    for i in range(n_players - 1)
                 ],
                 [
                     SimplePlayer(f"mostly_coop_{i}", RandomCooperator)
-                    for i in range(game_description.n_players - 1)
+                    for i in range(n_players - 1)
                 ],
                 [
                     SimplePlayer(f"mostly_defect_{i}", RandomDefector)
-                    for i in range(game_description.n_players - 1)
+                    for i in range(n_players - 1)
                 ],
                 [
                     SimplePlayer(f"alternating_{i}", PeriodicDefector(2))
-                    for i in range(game_description.n_players - 1)
+                    for i in range(n_players - 1)
                 ],
                 [
                     SimplePlayer(f"grad_{i}", GradualDefector(10 + i))
-                    for i in range(game_description.n_players - 1)
+                    for i in range(n_players - 1)
                 ],
                 [
                     SimplePlayer(f"period_{i}", PeriodicDefector(2 + i))
-                    for i in range(game_description.n_players - 1)
+                    for i in range(n_players - 1)
                 ]
             ]
 
@@ -501,7 +475,7 @@ import random
                 result = game.play_game()
 
             total_time = time.time() - start_time
-            if total_time > 3:
+            if total_time > 1:
                 raise RuntimeError(f"Strategy took {total_time:.1f} to run all mixtures")
 
     finally:
@@ -624,14 +598,13 @@ def write_strategy_class(description: str, code: str, attitude: Attitude,
     return ast.unparse(tree)
 
 
-def generate_descriptions(config: LLMConfig,
-                          game_description_class: type[GameDescription],
+def generate_descriptions(config: LLMConfig, game_name: str,
                           attitudes: list[Attitude], n_per_attitude: int,
                           description_file: Path, logger: logging.Logger):
     """Phase 1: Generate strategy descriptions."""
 
     # Check existing descriptions
-    existing_descriptions = parse_description_file(description_file)
+    existing_descriptions = parse_strategy_description_file(description_file)
     logger.info(f"Found {len(existing_descriptions)} existing descriptions")
 
     # Get missing descriptions
@@ -645,7 +618,7 @@ def generate_descriptions(config: LLMConfig,
     # Create description file header if it doesn't exist
     if not description_file.exists():
         header = f'''"""
-Strategy descriptions for {game_description_class.__name__}.
+Strategy descriptions for {game_name}.
 
 Generated with:
 - Provider: {config.client.__class__.__name__}
@@ -664,8 +637,7 @@ Generated with:
         try:
             print(f"Generating {attitude.name}_{n} description...")
             description = generate_strategy_description(config, attitude,
-                                                        game_description_class,
-                                                        logger)
+                                                        game_name, logger)
             write_description_to_file(description_file, attitude, n,
                                       description)
             print(f"✓ Generated description for {attitude.name}_{n}")
@@ -682,16 +654,13 @@ Generated with:
     print(f"\nDescriptions written to {description_file}")
 
 
-def generate_implementations(config: LLMConfig,
-                             game_description_class: type[GameDescription],
-                             description_file: Path,
-                             strategy_file: Path,
-                             logger: logging.Logger,
-                             max_retries: int = 3):
+def generate_implementations(config: LLMConfig, game_name: str,
+                             description_file: Path, strategy_file: Path,
+                             logger: logging.Logger, max_retries: int = 3):
     """Phase 2: Generate code implementations from descriptions."""
 
     # Read existing descriptions
-    existing_descriptions = parse_description_file(description_file)
+    existing_descriptions = parse_strategy_description_file(description_file)
     if not existing_descriptions:
         print(
             f"No descriptions found in {description_file}. Run description generation first."
@@ -699,7 +668,7 @@ def generate_implementations(config: LLMConfig,
         return
 
     # Check existing implementations
-    existing_strategies = parse_strategy_file(strategy_file)
+    existing_strategies = parse_strategy_implementation_file(strategy_file)
     logger.info(f"Found {len(existing_strategies)} existing implementations")
 
     # Get missing implementations
@@ -721,7 +690,7 @@ Each strategy is a callable class that implements a specific approach to the gam
 Generated with:
 - Provider: {config.client.__class__.__name__}
 - Model: {config.model_name}
-- Game: {game_description_class.__name__}
+- Game: {game_name}
 """
 
 from emergent_llm.players import BaseStrategy
@@ -749,7 +718,7 @@ import random
                 attitude = Attitude[attitude_name]
 
                 strategy_class = create_single_strategy_implementation(
-                    config, attitude, n, description, game_description_class,
+                    config, attitude, n, description, game_name,
                     logger, max_retries)
                 f.write("\n\n" + strategy_class)
                 f.flush()  # Save progress
@@ -765,13 +734,9 @@ import random
 
 
 def create_single_strategy_implementation(
-        config: LLMConfig,
-        attitude: Attitude,
-        n: int,
-        description: str,
-        game_description_class: type[GameDescription],
-        logger: logging.Logger,
-        max_retries: int = 3) -> str:
+        config: LLMConfig, attitude: Attitude,
+        n: int, description: str, game_name: str,
+        logger: logging.Logger, max_retries: int = 3) -> str:
     """Create a single strategy implementation from description."""
 
     # Code generation with retry logic
@@ -781,13 +746,13 @@ def create_single_strategy_implementation(
 
             # Generate code implementation
             code = generate_strategy_code(config, description,
-                                          game_description_class, logger)
+                                          game_name, logger)
 
             # Create complete class
             class_code = write_strategy_class(description, code, attitude, n)
 
             # Test the generated strategy
-            test_generated_strategy(class_code, game_description_class)
+            test_generated_strategy(class_code, game_name)
 
             return class_code
 
@@ -806,19 +771,6 @@ def create_single_strategy_implementation(
     raise RuntimeError(
         f"Unexpected failure in strategy implementation for {attitude.name}_{n}"
     )
-
-
-def create_game_description_class(
-        args: argparse.Namespace) -> type[GameDescription]:
-    """Create game description class from arguments."""
-    if args.game == "public_goods":
-        return PublicGoodsDescription
-    elif args.game == "collective_risk":
-        return CollectiveRiskDescription
-    elif args.game == "common_pool":
-        return CommonPoolDescription
-    else:
-        raise ValueError(f"Unknown game: {args.game}")
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -843,7 +795,7 @@ def parse_arguments() -> argparse.Namespace:
                              required=True,
                              help="Number of strategies per attitude")
     desc_parser.add_argument(
-        "--game",
+        "--game_name",
         choices=["public_goods", "collective_risk", "common_pool"],
         required=True)
 
@@ -856,7 +808,7 @@ def parse_arguments() -> argparse.Namespace:
         required=True)
     impl_parser.add_argument("--model_name", type=str, required=True)
     impl_parser.add_argument(
-        "--game",
+        "--game_name",
         choices=["public_goods", "collective_risk", "common_pool"],
         required=True)
     impl_parser.add_argument("--max_retries", type=int, default=3)
@@ -869,7 +821,7 @@ def main():
     args = parse_arguments()
 
     # Create output directory structure
-    strategies_dir = Path("strategies") / args.game
+    strategies_dir = Path("strategies") / args.game_name
     strategies_dir.mkdir(parents=True, exist_ok=True)
     log_dir = Path(f"{strategies_dir}/logs")
     log_dir.mkdir(exist_ok=True)
@@ -897,17 +849,13 @@ def main():
 
     config = LLMConfig(client, args.model_name)
 
-    # Create game description class
-    game_description_class = create_game_description_class(args)
-    logger.info(f"Game description class: {game_description_class.__name__}")
-
     # Run appropriate phase
     if args.phase == 'descriptions':
-        generate_descriptions(config, game_description_class,
+        generate_descriptions(config, args.game_name,
                               [COLLECTIVE, EXPLOITATIVE], args.n,
                               description_file, logger)
     elif args.phase == 'implementations':
-        generate_implementations(config, game_description_class,
+        generate_implementations(config, args.game_name,
                                  description_file, strategy_file, logger,
                                  args.max_retries)
 

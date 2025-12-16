@@ -6,14 +6,13 @@ from emergent_llm.games.common_pool import CommonPoolDescription, CommonPoolGame
 from emergent_llm.games.public_goods import PublicGoodsDescription, PublicGoodsGame
 
 
-def get_game_class(game_type: str) -> type[BaseGame]:
-    """Get game class based on type."""
+def get_game_types(game_type: str) -> tuple[type[BaseGame], type[GameDescription]]:
     if game_type == "public_goods":
-        return PublicGoodsGame
+        return PublicGoodsGame, PublicGoodsDescription
     elif game_type == "collective_risk":
-        return CollectiveRiskGame
+        return CollectiveRiskGame, CollectiveRiskDescription
     elif game_type == "common_pool":
-        return CommonPoolGame
+        return CommonPoolGame, CommonPoolDescription
     else:
         raise ValueError(f"Unknown game type: {game_type}")
 

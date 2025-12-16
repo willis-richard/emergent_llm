@@ -1,17 +1,10 @@
-from emergent_llm.common.actions import Action
-from emergent_llm.common.attitudes import Attitude
-from emergent_llm.common.game_description import GameDescription
-from emergent_llm.games import (
-    CollectiveRiskDescription,
-    CommonPoolDescription,
-    PublicGoodsDescription,
-)
+from emergent_llm.common import Action, Attitude, GameDescription
+from emergent_llm.games import get_game_types
 
 
-def format_game_description(
-        game_description_class: type[GameDescription]) -> str:
+def format_game_description(game_name: str) -> str:
     """Format game description for prompts."""
-    if game_description_class == PublicGoodsDescription:
+    if game_name == "public_goods":
         return """GAME SPECIFICATION: N-Player Public Goods Game
 
 PARAMETERS:
@@ -51,7 +44,7 @@ EXAMPLE CALCULATIONS (n=6, k=2):
 TOTAL GAME PAYOFF:
 Total payoff for player i over r rounds = Σ(t=1 to r) π_i,t"""
 
-    if game_description_class == CollectiveRiskDescription:
+    if game_name == "collective_risk":
         return """GAME SPECIFICATION: Collective Risk Dilemma
 
 PARAMETERS:
@@ -92,7 +85,7 @@ EXAMPLE CALCULATIONS (n=6, m=3, k=2):
 TOTAL GAME PAYOFF:
 Total payoff for player i over r rounds = Σ(t=1 to r) π_i,t"""
 
-    if game_description_class == CommonPoolDescription:
+    if game_name == "common_pool":
         return """GAME SPECIFICATION: Common Pool Resource Game
 PARAMETERS:
 - n: number of players (integer, n ≥ 2)
@@ -156,13 +149,12 @@ Note: Payoffs depend on both current actions and accumulated stock depletion fro
 
 
 def create_strategy_user_prompt(
-        attitude: Attitude,
-        game_description_class: type[GameDescription]) -> str:
+        attitude: Attitude, game_name: str) -> str:
     """Create user prompt for strategy description generation."""
 
-    state = ", state" if game_description_class == CommonPoolDescription else ""
+    state = ", state" if game_name == "common_pool" else ""
 
-    return f"""{format_game_description(game_description_class)}
+    return f"""{format_game_description(game_name)}
 
 Standard game theory assumptions hold:
 - Perfect information: All players can observe all other players' actions and payoffs from previous rounds
@@ -184,12 +176,14 @@ You only need to describe the strategy in natural language, including pseudocode
 
 def create_code_user_prompt(
         strategy_description: str,
-        game_description_class: type[GameDescription]) -> str:
+        game_name: str) -> str:
     """Create user prompt for code generation."""
+
+    _, game_description_class = get_game_types(game_name)
 
     return f"""Convert this strategy description into a Python class that inherits from BaseStrategy.
 
-{format_game_description(game_description_class)}
+{format_game_description(game_name)}
 
 **Strategy to Implement:**
 {strategy_description}
@@ -211,10 +205,14 @@ The following constructs are forbidden:
 - With statements and context managers
 - Async operations (async/await)
 
-**Available without imports:**
+Available without imports:
 - math.ceil(), math.floor(), math.sqrt(), etc.
 - random.choice(), random.random(), etc.
 - numpy functions as np.array(), np.mean(), etc.
+
+**File header your code will be appended to**
+
+{get_interface_description(game_description_class)}
 
 **Template:**
 ```python
@@ -224,26 +222,27 @@ class Strategy(BaseStrategy):
     \"\"\"
 
     def __init__(self, game_description: {game_description_class.__name__}):
-        # Initialize any state variables here
+        # Initialise any state variables here
         self.game_description = game_description
 
     def __call__(self, state: {game_description_class.game_state_type().__name__}, history: None | PlayerHistory) -> Action:
-        if history is None:
-            # First (zeroth) round logic
+        # Initial (zeroth) round logic
+        if state.round_number == 0:
             return Action.C  # or Action.D
 
-        # Subsequent rounds logic using history
-        return Action.C  # or Action.D
-```
-
-**File header your code will be appended to**
-
-{get_interface_description(game_description_class)}"""
+        # Subsequent rounds logic
+        # Example - count opponent cooperators in the most recent round:
+        cooperators = sum(history.opponent_actions[-1, :])
+        if cooperators >= self.game_description.n_players // 2:
+            return Action.C
+        return Action.D
+```"""
 
 
 def get_interface_description(
         game_description_class: type[GameDescription]) -> str:
-    return f"""from dataclasses import dataclass
+    return f"""```python
+from dataclasses import dataclass
 from enum import Enum
 import math
 import numpy as np
@@ -256,9 +255,7 @@ import random
 
 {game_description_class.print_definition()}
 
-
 {game_description_class.game_state_type().print_definition()}
-
 
 @dataclass
 class PlayerHistory:
@@ -267,16 +264,9 @@ class PlayerHistory:
     opponent_actions: NDArray[np.bool_]    # Opponents' actions, indexed [round, player]
     opponent_payoffs: NDArray[np.float64]  # Opponents' payoffs, indexed [round, player]
 
-    @property
-    def round_number(self) -> int:
-        \"\"\"Current round number (number of completed rounds).\"\"\"
-        return len(self.my_actions)
-
-# BOOLEAN ENCODING:
+# Boolean Encoding:
 # - True/1 means COOPERATE (Action.C)
 # - False/0 means DEFECT (Action.D)
-# - Arrays are 0-indexed: first round data is at index 0
-# - opponent_actions[0, 0] is opponent 1's action in round 0
-#
-# Example - count opponent cooperators in the most recent round:
-# cooperators = sum(history.opponent_actions[-1, :])"""
+# Arrays are 0-indexed:
+# - First round history is at index 0, so opponent_actions[0, 0] is opponent 1's action in round 0
+```"""

@@ -3,7 +3,7 @@ from collections import defaultdict
 from itertools import combinations_with_replacement, product
 
 from emergent_llm.common import Action, C, D, Gene
-from emergent_llm.games import STANDARD_GENERATORS, get_game_class
+from emergent_llm.games import STANDARD_GENERATORS, get_game_types
 from emergent_llm.generation import StrategyRegistry
 from emergent_llm.players import LLMPlayer, SimplePlayer
 
@@ -41,7 +41,7 @@ def parse_args():
 
 args = parse_args()
 
-game_class = get_game_class(args.game)
+game_class, _ = get_game_types(args.game)
 description = STANDARD_GENERATORS[args.game + "_default"](n_players=args.n_players, n_rounds=args.n_rounds)
 
 # Load strategies
@@ -154,6 +154,7 @@ for gene in genes:
 baselines = {
     'All-D': [0] * len(X[0]),
     'All-C': [1] * len(X[0]),
+    'Random 0.5': [0.5] * len(X[0]),
     }
 baseline_X = np.array(list(baselines.values()))
 baseline_labels = np.array(list(baselines.keys()))
@@ -172,9 +173,8 @@ for i, name in enumerate(baseline_labels):
     )
     ax.annotate(name, (baseline_pca[i, 0], baseline_pca[i, 1]))
 
-ax.legend([h[0] for h in handles], [h[1] for h in handles])
 ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%} var)')
 ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%} var)')
-ax.legend()
+ax.legend([h[0] for h in handles], [h[1] for h in handles])
 plt.tight_layout()
 plt.savefig("pca.png")

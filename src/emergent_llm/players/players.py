@@ -74,9 +74,8 @@ class LLMPlayer(BasePlayer):
             self.error_count += 1
 
             # Log the error with context
-            round_info = "first round" if history is None else f"round {history.round_number + 1}"
             self.logger.warning(
-                f"Strategy {self.strategy_class.__name__} error #{self.error_count} at {round_info}: "
+                f"Strategy {self.strategy_class.__name__} error #{self.error_count} at {state.round_number}: "
                 f"{e.__class__.__name__}: {e}")
 
             # Only allow 2 fallbacks, then let it crash
@@ -102,7 +101,7 @@ class LLMPlayer(BasePlayer):
 class SimplePlayer(BasePlayer):
     """Simple player for testing with no-argument strategy function."""
 
-    def __init__(self, name: str, strategy_function: Callable[[int], Action]):
+    def __init__(self, name: str, strategy_function: Callable[[GameState, None | PlayerHistory], Action]):
         """
         Initialise simple player with a no-argument strategy function.
 
@@ -119,8 +118,7 @@ class SimplePlayer(BasePlayer):
     def __call__(self, state: GameState,
                  history: None | PlayerHistory) -> Action:
         """Execute the strategy function (ignoring game context)."""
-        round_number = 0 if history is None else history.round_number
-        return self.strategy_function(round_number)
+        return self.strategy_function(state, history)
 
 
 @dataclass(frozen=True)
