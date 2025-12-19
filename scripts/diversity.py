@@ -5,7 +5,7 @@ from itertools import combinations_with_replacement, product
 from emergent_llm.common import Action, C, D, Gene
 from emergent_llm.games import STANDARD_GENERATORS, get_game_types
 from emergent_llm.generation import StrategyRegistry
-from emergent_llm.players import LLMPlayer, SimplePlayer
+from emergent_llm.players import LLMPlayer, SimplePlayer, Cooperator, Defector, ConditionalCooperator, Grim, AntiTFT, MeanActor
 
 import numpy as np
 from sklearn.decomposition import PCA
@@ -63,8 +63,8 @@ print(len(unique_combos))
 class FixedOpponent:
     fixed_actions = None
 
-    def __call__(self, round_number: int):
-        return self.fixed_actions[round_number]
+    def __call__(self, state, history):
+        return self.fixed_actions[state.round_number]
 
 def hashable(arr):
     return tuple(map(tuple, arr))
@@ -94,7 +94,6 @@ def compute_gene(gene: Gene):
     for strategy_spec in registry.get_all_specs(gene):
         algo = strategy_spec.strategy_class
         player = LLMPlayer("testing", gene, description, algo)
-        # player = SimplePlayer("player", RandomCooperator)
 
         features = compute_features(player)
         player_features.append((algo.__name__, features))
@@ -107,6 +106,35 @@ def compute_gene(gene: Gene):
         print(f"{gene.model} {algo.__name__}: {mean}")
     return gene, player_features, player_means
 
+def compute_baselines(baseline_players):
+    baseline_features = {}
+    for player in baseline_players:
+        features = compute_features(player)
+        for key, value in features.items():
+            if not value or len(set(value)) != 1:
+                raise ValueError(f"Key '{key}' has invalid list (empty or non-uniform values)")
+            features[key] = value[0]
+        baseline_features[player.id.name] = features
+
+        mean_features = [v.value for v in features.values()]
+        mean = sum(mean_features) / len(mean_features)
+        print(f"{player.id.name}: {mean}")
+    return baseline_features
+
+
+baseline_players = [
+    SimplePlayer("All-D", Defector),
+    SimplePlayer("All-C", Cooperator)
+]
+baseline_players += [SimplePlayer(f"C-Conditional-{i}", ConditionalCooperator(C, i)) for i in range(1, args.n_players)]
+baseline_players += [SimplePlayer(f"D-Conditional-{i}", ConditionalCooperator(D, i)) for i in range(1, args.n_players)]
+baseline_players += [SimplePlayer(f"C-AntiTFT-{i}", AntiTFT(C, i)) for i in range(1, args.n_players)]
+baseline_players += [SimplePlayer(f"D-AntiTFT-{i}", AntiTFT(D, i)) for i in range(1, args.n_players)]
+baseline_players += [SimplePlayer(f"C-MeanActor-{i}", MeanActor(C, i)) for i in [0.25, 0.5, 0.75]]
+baseline_players += [SimplePlayer(f"Grim-{i}", Grim(i)) for i in range(1, args.n_players)]
+
+baseline_features = compute_baselines(baseline_players)
+# print(baseline_features)
 
 gene_features = {}
 gene_means = {}
@@ -118,7 +146,7 @@ with Pool(processes=args.n_processes) as pool:
         gene_means[gene] = player_means
 
 # print(gene_features)
-print(gene_means)
+# print(gene_means)
 
 # PCA
 X_list = []
@@ -151,13 +179,8 @@ for gene in genes:
     )
     handles.append((scatter, str(gene)))
 
-baselines = {
-    'All-D': [0] * len(X[0]),
-    'All-C': [1] * len(X[0]),
-    'Random 0.5': [0.5] * len(X[0]),
-    }
-baseline_X = np.array(list(baselines.values()))
-baseline_labels = np.array(list(baselines.keys()))
+baseline_labels = np.array(list(baseline_features.keys()) + ['Random 0.5'])
+baseline_X = np.array([[v.value for v in inner_dict.values()] for inner_dict in baseline_features.values()] + [[0.5] * len(X[0])])
 baseline_pca = pca.transform(baseline_X)
 X_full = np.vstack([X, baseline_X])
 

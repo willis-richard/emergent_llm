@@ -192,8 +192,9 @@ def create_code_user_prompt(
 - Must be a single class inheriting from BaseStrategy
 - Return only the class definition, wrapped in a python block, no additional output
 - Must implement __init__(self, game_description) and __call__(self, state, history)
-- Handle first round (history=None) appropriately
-- Only use basic python, and math, random and np libraries, which are imported for you
+- Handle first round (state.round_number == 0 and history=None) appropriately
+- Only use basic Python 3.11, and math, random and numpy libraries, which are imported for you
+- Be careful with edge cases, such as possible division by zero
 
 The following constructs are forbidden:
 - Import statements
