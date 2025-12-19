@@ -1,8 +1,9 @@
 import random
+from typing import Callable
 
 import numpy as np
 
-from emergent_llm.common import C, D
+from emergent_llm.common import C, D, Action, GameState, PlayerHistory
 
 Cooperator = lambda _, __: C
 Defector = lambda _, __: D
@@ -15,7 +16,7 @@ class GradualDefector:
     def __init__(self, threshold=10):
         self.threshold = threshold
 
-    def __call__(self, state, _):
+    def __call__(self, state: GameState, _):
         return C if state.round_number <= self.threshold else D
 
 class PeriodicDefector:
@@ -23,15 +24,85 @@ class PeriodicDefector:
     def __init__(self, period):
         self.period = period
 
-    def __call__(self, state, _):
+    def __call__(self, state: GameState, _):
         return D if state.round_number % self.period == 0 else C
 
 class ConditionalCooperator:
 
-    def __init__(self, threshold):
+    def __init__(self, initial_action: Action, threshold: int):
+        self.initial_action = initial_action
         self.threshold = threshold
 
-    def __call__(self, state, history):
+    def __call__(self, state: GameState, history: PlayerHistory):
         if state.round_number == 0:
-            return C
+            return self.initial_action
+        return C if sum(history.opponent_actions[-1,:]) >= self.threshold else D
+
+class AntiTFT:
+
+    def __init__(self, initial_action: Action, threshold: int):
+        self.initial_action = initial_action
+        self.threshold = threshold
+
+    def __call__(self, state: GameState, history: PlayerHistory):
+        if state.round_number == 0:
+            return self.initial_action
         return D if sum(history.opponent_actions[-1,:]) >= self.threshold else C
+
+class Grim:
+
+    def __init__(self, initial_action: Action, threshold: int):
+        self.initial_action = initial_action
+        self.threshold = threshold
+
+    def __call__(self, state: GameState, history: PlayerHistory):
+        if state.round_number == 0:
+            return self.initial_action
+        number_opponents_who_have_defected = (~history.opponent_actions.all(axis=0)).sum()
+        return D if number_opponents_who_have_defected >= self.threshold else C
+
+class AntiGrim:
+
+    def __init__(self, initial_action: Action, threshold: int):
+        self.initial_action = initial_action
+        self.threshold = threshold
+
+    def __call__(self, state: GameState, history: PlayerHistory):
+        if state.round_number == 0:
+            return self.initial_action
+        number_opponents_who_have_cooperated = np.any(history.opponent_actions, axis=0).sum()
+        return C if number_opponents_who_have_cooperated >= self.threshold else D
+
+class FirstImpressions:
+
+    def __init__(self, initial_action: Action, threshold: int):
+        self.initial_action = initial_action
+        self.threshold = threshold
+
+    def __call__(self, state: GameState, history: PlayerHistory):
+        if state.round_number == 0:
+            return self.initial_action
+        return C if sum(history.opponent_actions[0,:]) >= self.threshold else D
+
+class MeanActor:
+    def __init__(self, initial_action: Action, proportion: float):
+        self.initial_action = initial_action
+        self.proportion = proportion
+
+    def __call__(self, state: GameState, history: PlayerHistory):
+        if state.round_number == 0:
+            return self.initial_action
+        return C if np.mean(history.opponent_actions) >= self.proportion else D
+
+class Flipper:
+    def __init__(self, flip_action: Action, n_rounds: int, default: Callable[[GameState, None | PlayerHistory], Action]):
+        self.flip_action = flip_action
+        self.n_rounds = n_rounds
+        self.default = default
+
+    def __call__(self, state: GameState, history: PlayerHistory):
+        if state.round_number != 0 and \
+           len(history.my_actions) >= self.n_rounds + 1 and \
+           all(a == self.flip_action for a in Action.from_bool_array(history.my_actions[-self.n_rounds:])):
+            return self.flip_action.flip()
+        return self.default(state, history)

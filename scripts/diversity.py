@@ -5,7 +5,7 @@ from itertools import combinations_with_replacement, product
 from emergent_llm.common import Action, C, D, Gene
 from emergent_llm.games import STANDARD_GENERATORS, get_game_types
 from emergent_llm.generation import StrategyRegistry
-from emergent_llm.players import LLMPlayer, SimplePlayer, Cooperator, Defector, ConditionalCooperator, Grim, AntiTFT, MeanActor
+from emergent_llm.players import LLMPlayer, SimplePlayer, Cooperator, Defector, ConditionalCooperator, Grim, AntiTFT, MeanActor, AntiGrim, FirstImpressions, Flipper
 
 import numpy as np
 from sklearn.decomposition import PCA
@@ -103,7 +103,7 @@ def compute_gene(gene: Gene):
 
         all_values = [x for v in features.values() for x in Action.to_bool_array(v)]
         mean = sum(all_values) / len(all_values)
-        print(f"{gene.model} {algo.__name__}: {mean}")
+        # print(f"{gene.model} {algo.__name__}: {mean}")
     return gene, player_features, player_means
 
 def compute_baselines(baseline_players):
@@ -127,14 +127,19 @@ baseline_players = [
     SimplePlayer("All-C", Cooperator)
 ]
 baseline_players += [SimplePlayer(f"C-Conditional-{i}", ConditionalCooperator(C, i)) for i in range(1, args.n_players)]
-baseline_players += [SimplePlayer(f"D-Conditional-{i}", ConditionalCooperator(D, i)) for i in range(1, args.n_players)]
-baseline_players += [SimplePlayer(f"C-AntiTFT-{i}", AntiTFT(C, i)) for i in range(1, args.n_players)]
-baseline_players += [SimplePlayer(f"D-AntiTFT-{i}", AntiTFT(D, i)) for i in range(1, args.n_players)]
-baseline_players += [SimplePlayer(f"C-MeanActor-{i}", MeanActor(C, i)) for i in [0.25, 0.5, 0.75]]
-baseline_players += [SimplePlayer(f"Grim-{i}", Grim(i)) for i in range(1, args.n_players)]
+# baseline_players += [SimplePlayer(f"D-Conditional-{i}", ConditionalCooperator(D, i)) for i in range(1, args.n_players)]
+# baseline_players += [SimplePlayer(f"C-AntiTFT-{i}", AntiTFT(C, i)) for i in range(1, args.n_players)]
+# baseline_players += [SimplePlayer(f"D-AntiTFT-{i}", AntiTFT(D, i)) for i in range(1, args.n_players)]
+# baseline_players += [SimplePlayer(f"C-MeanActor-{i}", MeanActor(C, i)) for i in [0.25, 0.5, 0.75]]
+baseline_players += [SimplePlayer(f"Grim-{i}", Grim(C, i)) for i in range(1, args.n_players)]
+baseline_players += [SimplePlayer(f"AntiGrim-{i}", AntiGrim(D, i)) for i in range(1, args.n_players)]
+# baseline_players += [SimplePlayer(f"D-FirstImpressions-{i}", FirstImpressions(D, i)) for i in range(1, args.n_players)]
+baseline_players += [SimplePlayer(f"1C-Flip-CC-{i}", Flipper(C, 1, ConditionalCooperator(C, i))) for i in range(1, args.n_players)]
+baseline_players += [SimplePlayer(f"1D-Flip-CC-{i}", Flipper(D, 1, ConditionalCooperator(C, i))) for i in range(1, args.n_players)]
+baseline_players += [SimplePlayer(f"2C-Flip-CC-{i}", Flipper(C, 2, ConditionalCooperator(C, i))) for i in range(1, args.n_players)]
+baseline_players += [SimplePlayer(f"2D-Flip-CC-{i}", Flipper(D, 2, ConditionalCooperator(C, i))) for i in range(1, args.n_players)]
 
 baseline_features = compute_baselines(baseline_players)
-# print(baseline_features)
 
 gene_features = {}
 gene_means = {}

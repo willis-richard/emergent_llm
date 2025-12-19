@@ -44,8 +44,11 @@ class MixtureTournament(BaseTournament):
         self.logger.info(
             f"Running mixture tournament for group size {group_size}")
 
+        # Step size: for large tournaments, only test every 4th
+        # This is a bit hacky
+        step_size = max(1, group_size // 64)
         # Test all possible mixtures
-        for n_exploitative in range(group_size + 1):
+        for n_exploitative in range(0, group_size + 1, step_size):
             n_collective = group_size - n_exploitative
             mixture_key = MixtureKey(n_collective, n_exploitative)
 

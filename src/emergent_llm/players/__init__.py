@@ -8,7 +8,29 @@ from .sample_players import (
     RandomCooperator,
     RandomDefector,
     GradualDefector,
-    PeriodicDefector
+    PeriodicDefector,
+    ConditionalCooperator,
+    AntiTFT,
+    Grim,
+    AntiGrim,
+    MeanActor,
+    FirstImpressions,
+    Flipper,
 )
 
-__all__ = ['BasePlayer', 'LLMPlayer', 'SimplePlayer', 'StrategySpec']
+__all__ = ['BasePlayer', 'LLMPlayer', 'SimplePlayer', 'StrategySpec',
+    'Cooperator',
+    'Defector',
+    'Random',
+    'RandomCooperator',
+    'RandomDefector',
+    'GradualDefector',
+    'PeriodicDefector',
+    'ConditionalCooperator',
+    'AntiTFT',
+    'Grim',
+    'AntiGrim',
+    'MeanActor',
+    'FirstImpressions',
+    'Flipper',
+]
