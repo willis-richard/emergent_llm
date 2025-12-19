@@ -384,13 +384,16 @@ def test_generated_strategy(class_code: str,
     with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
         # Write necessary imports and the class
         f.write("""
+from dataclasses import dataclass
+from enum import Enum
+import math
+import numpy as np
+from numpy.typing import NDArray
+import random
+
 from emergent_llm.players import BaseStrategy
 from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription, CommonPoolDescription, CommonPoolState
 from emergent_llm.common import Action, C, D, PlayerHistory, GameState
-import numpy as np
-from numpy.typing import NDArray
-import math
-import random
 
 """)
         f.write(class_code)
@@ -475,7 +478,7 @@ import random
                 result = game.play_game()
 
             total_time = time.time() - start_time
-            if total_time > 1:
+            if total_time > 0.5:
                 raise RuntimeError(f"Strategy took {total_time:.1f} to run all mixtures")
 
     finally:
@@ -693,13 +696,16 @@ Generated with:
 - Game: {game_name}
 """
 
+from dataclasses import dataclass
+from enum import Enum
+import math
+import numpy as np
+from numpy.typing import NDArray
+import random
+
 from emergent_llm.players import BaseStrategy
 from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription, CommonPoolDescription, CommonPoolState
 from emergent_llm.common import Action, C, D, PlayerHistory, GameState
-import numpy as np
-from numpy.typing import NDArray
-import math
-import random
 
 '''
         strategy_file.parent.mkdir(parents=True, exist_ok=True)

@@ -195,6 +195,10 @@ def create_code_user_prompt(
 - Handle first round (state.round_number == 0 and history=None) appropriately
 - Only use basic Python 3.11, and math, random and numpy libraries, which are imported for you
 - Be careful with edge cases, such as possible division by zero
+- The class will be renamed, and multiple instances will run concurrently in the same thread:
+    - Do not use hard-coded class names (use self.__class__)
+    - Do not use mutable class variables
+    - Define all instance state in __init__ as instance attributes
 
 The following constructs are forbidden:
 - Import statements
