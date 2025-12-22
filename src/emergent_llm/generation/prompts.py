@@ -2,6 +2,13 @@ from emergent_llm.common import Action, Attitude, GameDescription
 from emergent_llm.games import get_game_types
 
 
+HEADER_IMPORTS = """from dataclasses import dataclass
+from enum import Enum
+import math
+import numpy as np
+from numpy.typing import NDArray
+import random"""
+
 def format_game_description(game_name: str) -> str:
     """Format game description for prompts."""
     if game_name == "public_goods":
@@ -181,7 +188,7 @@ def create_code_user_prompt(
 
     _, game_description_class = get_game_types(game_name)
 
-    return f"""Convert this strategy description into a Python class that inherits from BaseStrategy.
+    return f"""Convert this strategy description into a Python 3.11 class that inherits from BaseStrategy.
 
 {format_game_description(game_name)}
 
@@ -247,12 +254,7 @@ class Strategy(BaseStrategy):
 def get_interface_description(
         game_description_class: type[GameDescription]) -> str:
     return f"""```python
-from dataclasses import dataclass
-from enum import Enum
-import math
-import numpy as np
-from numpy.typing import NDArray
-import random
+{HEADER_IMPORTS}
 
 
 {Action.print_definition()}

@@ -10,6 +10,7 @@ import inspect
 import logging
 import os
 import re
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,17 +23,28 @@ from google.genai import errors as genai_errors
 
 from emergent_llm.common import COLLECTIVE, EXPLOITATIVE, Attitude, Gene
 from emergent_llm.games import STANDARD_GENERATORS
-from emergent_llm.generation.prompts import create_code_user_prompt, create_strategy_user_prompt
+from emergent_llm.generation.prompts import (
+    HEADER_IMPORTS,
+    create_code_user_prompt,
+    create_strategy_user_prompt,
+)
+from emergent_llm.generation.test_strategies import test_strategy_class
 from emergent_llm.players import (
     BaseStrategy,
     Cooperator,
     Defector,
     GradualDefector,
+    LLMPlayer,
     PeriodicDefector,
     Random,
     RandomCooperator,
     RandomDefector,
+    SimplePlayer,
 )
+
+LOCAL_IMPORTS = """from emergent_llm.players import BaseStrategy
+from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription, CommonPoolDescription, CommonPoolState
+from emergent_llm.common import Action, C, D, PlayerHistory, GameState"""
 
 
 def setup_logging(log_file: Path) -> logging.Logger:
@@ -376,25 +388,13 @@ def validate_strategy_code(code: str):
 def test_generated_strategy(class_code: str,
                             game_name: str):
     """Test the generated strategy by actually running it in games."""
-    import tempfile
-
-    from emergent_llm.players import LLMPlayer, SimplePlayer
-
     # Create a temporary module to load the strategy
     with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
         # Write necessary imports and the class
-        f.write("""
-from dataclasses import dataclass
-from enum import Enum
-import math
-import numpy as np
-from numpy.typing import NDArray
-import random
+        f.write(f"""
+{HEADER_IMPORTS}
 
-from emergent_llm.players import BaseStrategy
-from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription, CommonPoolDescription, CommonPoolState
-from emergent_llm.common import Action, C, D, PlayerHistory, GameState
-
+{LOCAL_IMPORTS}
 """)
         f.write(class_code)
         temp_file = f.name
@@ -420,66 +420,7 @@ from emergent_llm.common import Action, C, D, PlayerHistory, GameState
             strategy_classes) == 1, "More than one strategy class defined"
         strategy_class = strategy_classes[0]
 
-
-        for n_players in [4, 256]:
-            game_description = STANDARD_GENERATORS[game_name + "_default"](n_players=n_players)
-            game_class = game_description.game_type()
-
-            player = LLMPlayer("test_player",
-                            Gene("dummy", COLLECTIVE),
-                            game_description,
-                            strategy_class,
-                            max_errors=0)
-
-            # Test against different opponent types
-            test_mixtures = [
-                [
-                    SimplePlayer(f"cooperator_{i}", Cooperator)
-                    for i in range(n_players - 1)
-                ],
-                [
-                    SimplePlayer(f"defector_{i}", Defector)
-                    for i in range(n_players - 1)
-                ],
-                [
-                    SimplePlayer(f"random_{i}", Random)
-                    for i in range(n_players - 1)
-                ],
-                [
-                    SimplePlayer(f"mostly_coop_{i}", RandomCooperator)
-                    for i in range(n_players - 1)
-                ],
-                [
-                    SimplePlayer(f"mostly_defect_{i}", RandomDefector)
-                    for i in range(n_players - 1)
-                ],
-                [
-                    SimplePlayer(f"alternating_{i}", PeriodicDefector(2))
-                    for i in range(n_players - 1)
-                ],
-                [
-                    SimplePlayer(f"grad_{i}", GradualDefector(10 + i))
-                    for i in range(n_players - 1)
-                ],
-                [
-                    SimplePlayer(f"period_{i}", PeriodicDefector(2 + i))
-                    for i in range(n_players - 1)
-                ]
-            ]
-
-
-            start_time = time.time()
-
-            for mixture in test_mixtures:
-                players = [player] + mixture
-                game = game_class(players, game_description)
-
-                # This will raise an exception if the strategy fails
-                result = game.play_game()
-
-            total_time = time.time() - start_time
-            if total_time > 0.5:
-                raise RuntimeError(f"Strategy took {total_time:.1f} to run all mixtures")
+        test_strategy_class(strategy_class, game_name, 1)
 
     finally:
         # Clean up temp file
@@ -696,16 +637,10 @@ Generated with:
 - Game: {game_name}
 """
 
-from dataclasses import dataclass
-from enum import Enum
-import math
-import numpy as np
-from numpy.typing import NDArray
-import random
+{HEADER_IMPORTS}
 
-from emergent_llm.players import BaseStrategy
-from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription, CommonPoolDescription, CommonPoolState
-from emergent_llm.common import Action, C, D, PlayerHistory, GameState
+{LOCAL_IMPORTS}
+
 
 '''
         strategy_file.parent.mkdir(parents=True, exist_ok=True)
