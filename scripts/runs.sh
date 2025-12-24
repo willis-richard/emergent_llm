@@ -20,7 +20,8 @@ for game in "${GAMES[@]}"; do
             python src/emergent_llm/generation/create_strategies.py implementations \
                     --llm_provider "$provider" \
                     --model_name "$model" \
-                    --game "$game"
+                    --game "$game" \
+                    --max_retries 5
         ) &
     done
     wait
