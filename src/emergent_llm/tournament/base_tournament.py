@@ -13,9 +13,6 @@ class BaseTournament(ABC):
         self.config: BaseTournamentConfig = config
         self.logger = logging.getLogger(self.__class__.__name__)
 
-        # Results storage
-        self.match_results: list[MatchResult] = []
-
     def _run_match(self, players: list[LLMPlayer],
                    match_id: str) -> MatchResult:
         """Run a single match and record results."""
@@ -32,8 +29,6 @@ class BaseTournament(ABC):
             total_cooperations=list(game_result.total_cooperations),
         )
 
-        # Store match result
-        self.match_results.append(match_result)
         self.logger.debug(f"{match_result}")
 
         return match_result

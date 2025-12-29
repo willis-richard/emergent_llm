@@ -5,13 +5,16 @@ from dataclasses import asdict, dataclass, fields
 from emergent_llm.players import LLMPlayer
 from emergent_llm.tournament.base_tournament import BaseTournament
 from emergent_llm.tournament.configs import BaseTournamentConfig, MixtureKey
-from emergent_llm.tournament.results import MixtureTournamentResults
+from emergent_llm.tournament.results import MixtureTournamentResults, MatchResult
+
+from multiprocessing import Pool
 
 
 class MixtureTournament(BaseTournament):
     """Tournament testing different mixtures of collective vs exploitative players for a single group size."""
 
-    def __init__(self, collective_players: list[LLMPlayer],
+    def __init__(self, collective_players: list[LLMPlayer]
+                 ,
                  exploitative_players: list[LLMPlayer],
                  config: BaseTournamentConfig):
         """
@@ -44,26 +47,29 @@ class MixtureTournament(BaseTournament):
         self.logger.info(
             f"Running mixture tournament for group size {group_size}")
 
+        # Test all possible mixtures
         # Step size: for large tournaments, only test every 4th
         # This is a bit hacky
         step_size = max(1, group_size // 64)
-        # Test all possible mixtures
-        for n_exploitative in range(0, group_size + 1, step_size):
-            n_collective = group_size - n_exploitative
-            mixture_key = MixtureKey(n_collective, n_exploitative)
+        mixture_keys = [MixtureKey(group_size - n_exploitative, n_exploitative) for n_exploitative in range(0, group_size + 1, step_size)]
 
-            self._run_mixture(mixture_key)
+        with Pool(processes=self.config.processes) as pool:
+            results = pool.map(self._run_mixture, mixture_keys)
+
+        match_results: list[MatchResult] = [entry for sublist in results for entry in sublist]
 
         return MixtureTournamentResults(
             config=self.config,
             collective_player_ids=[p.id for p in self.collective_players],
             exploitative_player_ids=[p.id for p in self.exploitative_players],
-            match_results=self.match_results)
+            match_results=match_results)
 
-    def _run_mixture(self, mixture_key: MixtureKey):
+    def _run_mixture(self, mixture_key: MixtureKey) -> list[MatchResult]:
         """Run multiple matches for a specific mixture"""
 
         self.logger.info(f"Testing mixture: {mixture_key}")
+
+        match_results: list[MatchResult] = []
 
         for match_num in range(self.config.repetitions):
             # Create players for this match
@@ -71,7 +77,10 @@ class MixtureTournament(BaseTournament):
             match_id = f"mixture_{mixture_key}_match{match_num:04d}"
 
             # Run the match using base class method
-            match_result = self._run_match(match_players, match_id)
+            result = self._run_match(match_players, match_id)
+            match_results.append(result)
+
+        return match_results
 
     def _create_match_players(self, mixture_key: MixtureKey) -> list[LLMPlayer]:
         """Create players for a single match by sampling from available strategies."""

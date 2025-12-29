@@ -1,21 +1,30 @@
 """Run a fair tournament where all players play equal games."""
 import logging
-import sys
-from pathlib import Path
-import pandas as pd
-import numpy as np
 
-from emergent_llm.tournament import (BatchFairTournament, BatchMixtureTournament,
-                                     BatchTournamentConfig,
-                                     BaseTournament, BaseTournamentConfig,
-                                     FairTournament, MixtureTournament,
-                                     FairTournamentResults, MixtureTournamentResults,
-                                     BatchFairTournamentResults, BatchMixtureTournamentResults)
-from emergent_llm.games.public_goods import PublicGoodsGame
-from emergent_llm.games.collective_risk import CollectiveRiskGame
-from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription
-from emergent_llm.players import SimplePlayer, LLMPlayer, StrategySpec
-from emergent_llm.common import C, D, Gene, COLLECTIVE, EXPLOITATIVE
+from emergent_llm.common import (
+    COLLECTIVE,
+    EXPLOITATIVE,
+    C,
+    D,
+    GameDescription,
+    GameState,
+    Gene,
+    PlayerHistory,
+)
+from emergent_llm.games import CollectiveRiskDescription, PublicGoodsDescription
+from emergent_llm.players import BaseStrategy, LLMPlayer, StrategySpec
+from emergent_llm.tournament import (
+    BaseTournamentConfig,
+    BatchFairTournament,
+    BatchFairTournamentResults,
+    BatchMixtureTournament,
+    BatchMixtureTournamentResults,
+    BatchTournamentConfig,
+    FairTournament,
+    FairTournamentResults,
+    MixtureTournament,
+    MixtureTournamentResults,
+)
 
 # Setup logging
 logging.basicConfig(
@@ -27,34 +36,42 @@ logging.basicConfig(
     ]
 )
 
-def collective_strategy(history, state=None):
-    return lambda x, y=None: C
 
-def exploitative_strategy(history, state=None):
-    return lambda x, y=None: D
+class CollectiveStrategy(BaseStrategy):
+    def __init__(self, game_description):
+        pass
+
+    def __call__(self, state, history):
+        return C
+
+
+class ExploitativeStrategy(BaseStrategy):
+    def __init__(self, game_description):
+        pass
+
+    def __call__(self, state, history):
+        return D
 
 
 def create_test_population(game_description):
     """Create LLM players for testing."""
     collective_players = []
 
-    # 18 LLM collective players
     for i in range(18):
         collective_players.append(LLMPlayer(
             name=f"llm_coop_{i}",
             gene=Gene("", COLLECTIVE),
             game_description=game_description,
-            strategy_class=collective_strategy,
+            strategy_class=CollectiveStrategy,
         ))
 
     exploitative_players = []
-    # 18 LLM exploitative players
     for i in range(18):
         exploitative_players.append(LLMPlayer(
             name=f"llm_aggr_{i}",
             gene=Gene("", EXPLOITATIVE),
             game_description=game_description,
-            strategy_class=exploitative_strategy,
+            strategy_class=ExploitativeStrategy,
         ))
 
     return collective_players, exploitative_players
@@ -64,7 +81,7 @@ def run_fair_tournament(game_description):
     # Create population (36 players = 6 matches)
     c_p, a_p = create_test_population(game_description)
 
-    config = BaseTournamentConfig(game_description, repetitions=2)
+    config = BaseTournamentConfig(game_description, repetitions=2, processes=2)
 
     # Create and run tournament
     tournament = FairTournament(
@@ -79,7 +96,7 @@ def run_mixture_tournament(game_description):
     # Create population (36 players = 6 matches)
     c_p, a_p = create_test_population(game_description)
 
-    config = BaseTournamentConfig(game_description, repetitions=2)
+    config = BaseTournamentConfig(game_description, repetitions=2, processes=2)
 
     # Create and run tournament
     tournament = MixtureTournament(
@@ -94,13 +111,14 @@ def run_batch_fair_tournament(generator_name):
     """Run tournament with Public Goods Game."""
     config = BatchTournamentConfig(
         group_sizes=[2,4,8],
-        repetitions=1,
+        repetitions=2,
+        processes=2,
         results_dir="./test",
         generator_name=generator_name
     )
 
-    strategies = [collective_strategy] * 16 + [exploitative_strategy] * 16
-    genes = [Gene("", COLLECTIVE)] * 16+ [Gene("", EXPLOITATIVE)] * 16
+    strategies = [CollectiveStrategy] * 16 + [ExploitativeStrategy] * 16
+    genes = [Gene("", COLLECTIVE)] * 16 + [Gene("", EXPLOITATIVE)] * 16
 
     # Create and run tournament
     tournament = BatchFairTournament(
@@ -114,15 +132,16 @@ def run_batch_mixture_tournament(generator_name):
     """Run tournament with Public Goods Game."""
     config = BatchTournamentConfig(
         group_sizes=[2,4,8],
-        repetitions=1,
+        repetitions=2,
+        processes=2,
         results_dir="./test",
         generator_name=generator_name
     )
 
     # Create and run tournament
     tournament = BatchMixtureTournament(
-        collective_specs=[StrategySpec(Gene("", COLLECTIVE), collective_strategy)]*16,
-        exploitative_specs=[StrategySpec(Gene("", EXPLOITATIVE), exploitative_strategy)]*16,
+        collective_specs=[StrategySpec(Gene("", COLLECTIVE), CollectiveStrategy)]*16,
+        exploitative_specs=[StrategySpec(Gene("", EXPLOITATIVE), ExploitativeStrategy)]*16,
         config=config
     )
 

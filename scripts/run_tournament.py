@@ -22,7 +22,9 @@ def parse_arguments():
                        default="public_goods", help="Game type")
     parser.add_argument("--matches", type=int, default=100,
                        help="Number of matches per mixture ratio")
-    parser.add_argument("--group-sizes", type=int, nargs="+", default=[2, 4, 8, 16, 32],
+    parser.add_argument("--processes", type=int, default=1,
+                       help="Number of processes to use")
+    parser.add_argument("--group-sizes", type=int, nargs="+", default=[4, 16, 64],
                        help="Group sizes to test")
     parser.add_argument("--verbose", action="store_true",
                        help="Enable verbose logging")
@@ -90,6 +92,7 @@ def main():
     config = BatchTournamentConfig(
         group_sizes=args.group_sizes,
         repetitions=args.matches,
+        processes=args.processes,
         results_dir=str(results_dir),
         generator_name=args.game + "_default"
     )
@@ -110,6 +113,8 @@ def main():
     results.create_schelling_diagrams()
     results.create_relative_schelling_diagram()
     results.create_social_welfare_diagram()
+
+    print(f"\nRun complete {args.strategies}...")
 
 
 if __name__ == "__main__":
