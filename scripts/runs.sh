@@ -35,7 +35,8 @@ for game in "${GAMES[@]}"; do
                --strategies strategies/$game/${model}.py \
                --game $game \
                --matches 200 \
-               --group-sizes 4 16 64 256 &
+               --group-sizes 4 16 64 256 \
+               --processes 8
     done
     wait
 done

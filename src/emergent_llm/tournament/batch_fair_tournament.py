@@ -49,7 +49,8 @@ class BatchFairTournament:
             # Create tournament config for this group size
             tournament_config = BaseTournamentConfig(
                 game_description=game_description,
-                repetitions=self.config.repetitions)
+                repetitions=self.config.repetitions,
+                processes=self.config.processes)
 
             players = [
                 spec.create_player(f"player_{i}", game_description)
