@@ -1,20 +1,18 @@
 """Mixture tournament for a single group size."""
 import random
-from dataclasses import asdict, dataclass, fields
+
+from pathos.multiprocessing import ProcessPool
 
 from emergent_llm.players import LLMPlayer
 from emergent_llm.tournament.base_tournament import BaseTournament
 from emergent_llm.tournament.configs import BaseTournamentConfig, MixtureKey
-from emergent_llm.tournament.results import MixtureTournamentResults, MatchResult
-
-from multiprocessing import Pool
+from emergent_llm.tournament.results import MatchResult, MixtureTournamentResults
 
 
 class MixtureTournament(BaseTournament):
     """Tournament testing different mixtures of collective vs exploitative players for a single group size."""
 
-    def __init__(self, collective_players: list[LLMPlayer]
-                 ,
+    def __init__(self, collective_players: list[LLMPlayer],
                  exploitative_players: list[LLMPlayer],
                  config: BaseTournamentConfig):
         """
@@ -51,15 +49,20 @@ class MixtureTournament(BaseTournament):
         # Step size: for large tournaments, only test every 4th
         # This is a bit hacky
         step_size = max(1, group_size // 64)
-        mixture_keys = [MixtureKey(group_size - n_exploitative, n_exploitative) for n_exploitative in range(0, group_size + 1, step_size)]
+        mixture_keys = [
+            MixtureKey(group_size - n_exploitative, n_exploitative)
+            for n_exploitative in range(0, group_size + 1, step_size)
+        ]
 
         if self.config.processes == 1:
             results = [self._run_mixture(mixture) for mixture in mixture_keys]
         else:
-            with Pool(processes=self.config.processes) as pool:
+            with ProcessPool(processes=self.config.processes) as pool:
                 results = pool.map(self._run_mixture, mixture_keys)
 
-        match_results: list[MatchResult] = [entry for sublist in results for entry in sublist]
+        match_results: list[MatchResult] = [
+            entry for sublist in results for entry in sublist
+        ]
 
         return MixtureTournamentResults(
             config=self.config,

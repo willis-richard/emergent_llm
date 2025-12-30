@@ -1,11 +1,10 @@
 import random
+from multiprocessing import Pool
 
 from emergent_llm.players import LLMPlayer
 from emergent_llm.tournament.base_tournament import BaseTournament
 from emergent_llm.tournament.configs import BaseTournamentConfig
 from emergent_llm.tournament.results import FairTournamentResults, MatchResult
-
-from multiprocessing import Pool
 
 
 class FairTournament(BaseTournament):
@@ -35,7 +34,9 @@ class FairTournament(BaseTournament):
             with Pool(processes=self.config.processes) as pool:
                 results = pool.map(self._run_repetition, repetitions)
 
-        match_results: list[MatchResult] = [entry for sublist in results for entry in sublist]
+        match_results: list[MatchResult] = [
+            entry for sublist in results for entry in sublist
+        ]
 
         return FairTournamentResults(config=self.config,
                                      player_ids=[p.id for p in self.players],
