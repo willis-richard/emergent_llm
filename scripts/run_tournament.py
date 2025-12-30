@@ -12,6 +12,9 @@ from emergent_llm.tournament import (
     BatchTournamentConfig,
 )
 
+import sys
+sys.setrecursionlimit(10000)
+
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Run mixture tournament")

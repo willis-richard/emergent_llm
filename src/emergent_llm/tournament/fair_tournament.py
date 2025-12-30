@@ -28,7 +28,7 @@ class FairTournament(BaseTournament):
 
         repetitions = [i for i in range(self.config.repetitions)]
 
-        if self.config.processes == 1:
+        if self.config.processes == 1 or self.config.game_description.n_players <= 32:
             results = [self._run_repetition(i) for i in repetitions]
         else:
             with Pool(processes=self.config.processes) as pool:

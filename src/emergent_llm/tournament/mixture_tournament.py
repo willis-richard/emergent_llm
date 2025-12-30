@@ -54,7 +54,7 @@ class MixtureTournament(BaseTournament):
             for n_exploitative in range(0, group_size + 1, step_size)
         ]
 
-        if self.config.processes == 1:
+        if self.config.processes == 1 or group_size <= 32:
             results = [self._run_mixture(mixture) for mixture in mixture_keys]
         else:
             with ProcessPool(processes=self.config.processes) as pool:
