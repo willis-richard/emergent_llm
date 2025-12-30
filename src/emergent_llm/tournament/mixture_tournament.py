@@ -53,8 +53,11 @@ class MixtureTournament(BaseTournament):
         step_size = max(1, group_size // 64)
         mixture_keys = [MixtureKey(group_size - n_exploitative, n_exploitative) for n_exploitative in range(0, group_size + 1, step_size)]
 
-        with Pool(processes=self.config.processes) as pool:
-            results = pool.map(self._run_mixture, mixture_keys)
+        if self.config.processes == 1:
+            results = [self._run_mixture(mixture) for mixture in mixture_keys]
+        else:
+            with Pool(processes=self.config.processes) as pool:
+                results = pool.map(self._run_mixture, mixture_keys)
 
         match_results: list[MatchResult] = [entry for sublist in results for entry in sublist]
 

@@ -45,7 +45,7 @@ class BatchMixtureTournament:
 
             # Generate game description for this group size
             game_description = self.config.game_description_generator(
-                group_size)
+                n_players=group_size)
 
             # Create mixture tournament config for this group size
             mixture_config = BaseTournamentConfig(

@@ -17,7 +17,7 @@ def get_game_types(game_type: str) -> tuple[type[BaseGame], type[GameDescription
         raise ValueError(f"Unknown game type: {game_type}")
 
 
-STANDARD_GENERATORS: dict[str, Callable] = {
+STANDARD_GENERATORS: dict[str, Callable[..., GameDescription]] = {
     'public_goods_default':
         lambda n_players, n_rounds=20: PublicGoodsDescription(
             n_players=n_players, n_rounds=n_rounds, k=2.0),

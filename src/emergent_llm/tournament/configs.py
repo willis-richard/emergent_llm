@@ -68,7 +68,7 @@ class BatchTournamentConfig:
             )
 
     @property
-    def game_description_generator(self) -> Callable[[int], GameDescription]:
+    def game_description_generator(self) -> Callable[..., GameDescription]:
         """Get the game description generator function."""
         return STANDARD_GENERATORS[self.generator_name]
 

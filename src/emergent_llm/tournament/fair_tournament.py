@@ -29,8 +29,11 @@ class FairTournament(BaseTournament):
 
         repetitions = [i for i in range(self.config.repetitions)]
 
-        with Pool(processes=self.config.processes) as pool:
-            results = pool.map(self._run_repetition, repetitions)
+        if self.config.processes == 1:
+            results = [self._run_repetition(i) for i in repetitions]
+        else:
+            with Pool(processes=self.config.processes) as pool:
+                results = pool.map(self._run_repetition, repetitions)
 
         match_results: list[MatchResult] = [entry for sublist in results for entry in sublist]
 
