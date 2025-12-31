@@ -2,6 +2,7 @@
 from .base_player import BasePlayer, BaseStrategy
 from .players import LLMPlayer, SimplePlayer, StrategySpec
 from .sample_players import (
+    Altenator,
     Cooperator,
     Defector,
     Random,
@@ -16,9 +17,11 @@ from .sample_players import (
     MeanActor,
     FirstImpressions,
     Flipper,
+    LastRounds,
 )
 
 __all__ = ['BasePlayer', 'LLMPlayer', 'SimplePlayer', 'StrategySpec',
+    'Altenator',
     'Cooperator',
     'Defector',
     'Random',
@@ -33,4 +36,5 @@ __all__ = ['BasePlayer', 'LLMPlayer', 'SimplePlayer', 'StrategySpec',
     'MeanActor',
     'FirstImpressions',
     'Flipper',
+    'LastRounds',
 ]

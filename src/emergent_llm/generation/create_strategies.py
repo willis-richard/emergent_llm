@@ -21,8 +21,7 @@ import openai
 from google import genai
 from google.genai import errors as genai_errors
 
-from emergent_llm.common import COLLECTIVE, EXPLOITATIVE, Attitude, Gene
-from emergent_llm.games import STANDARD_GENERATORS
+from emergent_llm.common import COLLECTIVE, EXPLOITATIVE, Attitude
 from emergent_llm.generation.prompts import (
     HEADER_IMPORTS,
     create_code_user_prompt,
@@ -31,15 +30,6 @@ from emergent_llm.generation.prompts import (
 from emergent_llm.generation.test_strategies import test_strategy_class
 from emergent_llm.players import (
     BaseStrategy,
-    Cooperator,
-    Defector,
-    GradualDefector,
-    LLMPlayer,
-    PeriodicDefector,
-    Random,
-    RandomCooperator,
-    RandomDefector,
-    SimplePlayer,
 )
 
 LOCAL_IMPORTS = """from emergent_llm.players import BaseStrategy

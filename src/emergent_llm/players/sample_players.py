@@ -27,6 +27,14 @@ class PeriodicDefector:
     def __call__(self, state: GameState, _):
         return D if state.round_number % self.period == 0 else C
 
+class Altenator:
+
+    def __init__(self, initial_action: Action):
+        self.action = initial_action
+
+    def __call__(self, state: GameState, _):
+        return self.action if state.round_number % 2 == 0 else self.action.flip()
+
 class ConditionalCooperator:
 
     def __init__(self, initial_action: Action, threshold: int):
@@ -105,4 +113,15 @@ class Flipper:
            len(history.my_actions) >= self.n_rounds + 1 and \
            all(a == self.flip_action for a in Action.from_bool_array(history.my_actions[-self.n_rounds:])):
             return self.flip_action.flip()
+        return self.default(state, history)
+
+class LastRounds:
+    def __init__(self, action: Action, rounds: list[int], default: Callable[[GameState, None | PlayerHistory], Action]):
+        self.action = action
+        self.rounds = rounds
+        self.default = default
+
+    def __call__(self, state: GameState, history: PlayerHistory):
+        if state.round_number in self.rounds:
+            return self.action
         return self.default(state, history)
