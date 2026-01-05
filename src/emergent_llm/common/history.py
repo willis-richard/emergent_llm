@@ -40,7 +40,7 @@ class GameHistory:
         if self.payoffs.ndim == 1:
             self.payoffs = self.payoffs.reshape(1, -1)
 
-    def for_player(self, player_index: int) -> None | PlayerHistory:
+    def for_player(self, player_index: int) -> PlayerHistory:
         """Create player-specific view from this game history."""
 
         # Extract player-specific data

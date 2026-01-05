@@ -716,11 +716,12 @@ class BatchMixtureTournamentResults:
                     alpha=0.3,
                     linestyle='-')
 
-        ax.legend(bbox_to_anchor=(0, 1.4),
+        ax.legend(bbox_to_anchor=(-0.13, 1.4),
                   loc='upper left',
                   ncol=len(self.config.group_sizes),
                   frameon=False,
-                  columnspacing=0.5)
+                  handletextpad=0.4,
+                  columnspacing=0.6)
 
         # Ensure output directory exists
         output_file = Path(self.config.results_dir
@@ -778,11 +779,12 @@ class BatchMixtureTournamentResults:
                     alpha=0.3,
                     linestyle='-')
 
-        ax.legend(bbox_to_anchor=(0, 1.4),
+        ax.legend(bbox_to_anchor=(-0.13, 1.4),
                   loc='upper left',
                   ncol=len(self.config.group_sizes),
                   frameon=False,
-                  columnspacing=0.5)
+                  handletextpad=0.4,
+                  columnspacing=0.6)
 
         # Ensure output directory exists
         output_file = Path(self.config.results_dir
