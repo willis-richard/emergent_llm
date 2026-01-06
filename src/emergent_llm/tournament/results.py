@@ -24,8 +24,6 @@ from emergent_llm.tournament.configs import (
     MixtureKey,
 )
 
-matplotlib.use('Agg')
-
 FIGSIZE, FORMAT = setup('3_col_paper')
 
 @dataclass
