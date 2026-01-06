@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.ticker import MaxNLocator, MultipleLocator
 
-from emergent_llm.common import Attitude, Gene, PlayerId
+from emergent_llm.common import Attitude, Gene, PlayerId, setup
 from emergent_llm.games import (
     CollectiveRiskDescription,
     CommonPoolDescription,
@@ -26,23 +26,7 @@ from emergent_llm.tournament.configs import (
 
 matplotlib.use('Agg')
 
-# Setup plot styling
-# FIGSIZE, SIZE, FORMAT = (2.5, 0.9), 8, 'svg'  # for 2 column paper
-# FIGSIZE, SIZE, FORMAT = (5, 1.2), 8, 'svg'  # for 1 column slide
-FIGSIZE, SIZE, FORMAT = (2.2, 0.8), 7, 'svg'  # for 2 column slide
-
-plt.rcParams.update({
-    'font.size': SIZE,
-    'axes.titlesize': 'medium',
-    'axes.labelsize': 'medium',
-    'xtick.labelsize': 'small',
-    'ytick.labelsize': 'small',
-    'legend.fontsize': 'medium',
-    'lines.markersize': SIZE / 4,
-    'legend.handlelength': SIZE / 6,
-    'axes.linewidth': 0.1
-})
-
+FIGSIZE, FORMAT = setup('3_col_paper')
 
 @dataclass
 class MatchResult:

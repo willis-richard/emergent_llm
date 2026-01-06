@@ -4,6 +4,8 @@ import argparse
 from functools import partial
 from itertools import combinations_with_replacement, product
 from multiprocessing import Pool
+import pickle
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -19,6 +21,7 @@ from emergent_llm.common import (
     GameState,
     Gene,
     PlayerHistory,
+    setup,
 )
 from emergent_llm.games import STANDARD_GENERATORS, get_game_types
 from emergent_llm.generation import StrategyRegistry
@@ -31,6 +34,8 @@ from emergent_llm.players import (
     SimplePlayer,
     SpecialRounds,
 )
+
+FIGSIZE, FORMAT = setup('3_col_paper')
 
 OpponentActions = tuple[tuple[Action, ...], ...]
 
@@ -72,11 +77,14 @@ def parse_args():
                         default=20,
                         help="Number of games for each trajectory")
 
-    # Parallel execution parameters
+    # Execution parameters
     parser.add_argument("--n_processes",
                         type=int,
                         default=1,
                         help="Number of parallel processes")
+    parser.add_argument("--force-recompute",
+                        action='store_true',
+                        help="Force recomputation of features even if cached")
 
     return parser.parse_args()
 
@@ -146,9 +154,9 @@ def create_baseline_players():
         SimplePlayer("LR-All-C", SpecialRounds(Cooperator, Defector, [args.n_rounds-1])),
     ]
     baseline_players += [SimplePlayer(f"CC-{i}", ConditionalCooperator(C, i)) for i in range(1, args.n_players)]
-    baseline_players += [SimplePlayer(f"HC-{i}", HistoricalCooperator(C, i)) for i in range(1, args.n_players)]
-    baseline_players += [SimplePlayer(f"S-CC-{i}", ConditionalCooperator(C, i, True)) for i in range(2, args.n_players+1)]
-    baseline_players += [SimplePlayer(f"S-HC-{i}", HistoricalCooperator(C, i, True)) for i in range(2, args.n_players+1)]
+    # baseline_players += [SimplePlayer(f"HC-{i}", HistoricalCooperator(C, i)) for i in range(1, args.n_players)]
+    # baseline_players += [SimplePlayer(f"S-CC-{i}", ConditionalCooperator(C, i, True)) for i in range(2, args.n_players+1)]
+    # baseline_players += [SimplePlayer(f"S-HC-{i}", HistoricalCooperator(C, i, True)) for i in range(2, args.n_players+1)]
     # baseline_players += [SimplePlayer(f"C-AntiTFT-{i}", AntiTFT(C, i)) for i in range(1, args.n_players)]
     # baseline_players += [SimplePlayer(f"D-AntiTFT-{i}", AntiTFT(D, i)) for i in range(1, args.n_players)]
     # baseline_players += [SimplePlayer(f"Grim-{i}", Grim(C, i)) for i in range(1, args.n_players)]
@@ -160,7 +168,7 @@ def create_baseline_players():
     # baseline_players += [SimplePlayer(f"2D-Flip-CC-{i}", Flipper(D, 2, ConditionalCooperator(C, i))) for i in range(1, args.n_players)]
     # baseline_players += [SimplePlayer(f"{a}-Alternator", Altenator(a)) for a in [C,D]]
     baseline_players += [SimplePlayer(f"LR-CC-{i}", SpecialRounds(ConditionalCooperator(C, i), Defector, [args.n_rounds-1])) for i in range(1, args.n_players)]
-    baseline_players += [SimplePlayer(f"LR-HC-{i}", SpecialRounds(HistoricalCooperator(C, i), Defector, [args.n_rounds-1])) for i in range(1, args.n_players)]
+    # baseline_players += [SimplePlayer(f"LR-HC-{i}", SpecialRounds(HistoricalCooperator(C, i), Defector, [args.n_rounds-1])) for i in range(1, args.n_players)]
     baseline_players += [SimplePlayer(f"test-3", SpecialRounds(HistoricalCooperator(C, 3, True), ConditionalCooperator(C, 1), [args.n_rounds-1]))]
 
     return baseline_players
@@ -220,6 +228,125 @@ def find_extrema(X_pca, metadata):
 
     return results
 
+def get_cache_path(args) -> Path:
+    """Generate cache filename based on parameters."""
+    cache_dir = Path("cache")
+    cache_dir.mkdir(exist_ok=True)
+
+    filename = f"{args.game}_p{args.n_players}_r{args.n_rounds}_g{args.n_games}"
+    if args.models:
+        filename += f"_{'_'.join(args.models)}"
+    if args.n_strategies:
+        filename += f"_s{args.n_strategies}"
+
+    return cache_dir / f"{filename}.pkl"
+
+def save_features(features_dict: dict[Gene, dict[str, dict[OpponentActions, float]]], args):
+    """Save computed features to disk."""
+    cache_path = get_cache_path(args)
+    with open(cache_path, 'wb') as f:
+        pickle.dump(features_dict, f)
+    print(f"Saved features to {cache_path}")
+
+def load_features(args) -> dict[Gene, dict[str, dict[OpponentActions, float]]] | None:
+    """Load cached features if they exist."""
+    cache_path = get_cache_path(args)
+    if not cache_path.exists():
+        return None
+
+    with open(cache_path, 'rb') as f:
+        features_dict = pickle.load(f)
+    print(f"Loaded features from {cache_path}")
+    return features_dict
+
+def compute_diversity_metrics(X: np.ndarray, labels: np.ndarray, X_pca: np.ndarray) -> dict:
+    """Compute diversity and separation metrics."""
+    metrics = {}
+
+    # 1. Mean pairwise Euclidean distance within each set
+    unique_labels = np.unique(labels)
+    within_set_distances = {}
+
+    for label in unique_labels:
+        mask = labels == label
+        subset = X[mask]
+
+        if len(subset) > 1:
+            # Compute pairwise distances
+            pairwise_dists = []
+            for i in range(len(subset)):
+                for j in range(i + 1, len(subset)):
+                    dist = np.linalg.norm(subset[i] - subset[j])
+                    pairwise_dists.append(dist)
+
+            mean_dist = np.mean(pairwise_dists)
+            within_set_distances[label] = {
+                'mean': mean_dist,
+                'std': np.std(pairwise_dists),
+                'n_pairs': len(pairwise_dists)
+            }
+
+    metrics['within_set_diversity'] = within_set_distances
+    metrics['mean_within_set_diversity'] = np.mean([v['mean'] for v in within_set_distances.values()])
+
+    # 2. Between-set centroid distances
+    centroids = {}
+    for label in unique_labels:
+        mask = labels == label
+        centroids[label] = X[mask].mean(axis=0)
+
+    between_set_distances = {}
+    label_list = list(unique_labels)
+    for i in range(len(label_list)):
+        for j in range(i + 1, len(label_list)):
+            label_i, label_j = label_list[i], label_list[j]
+            dist = np.linalg.norm(centroids[label_i] - centroids[label_j])
+            between_set_distances[f"{label_i} vs {label_j}"] = dist
+
+    metrics['between_set_separation'] = between_set_distances
+    metrics['mean_between_set_separation'] = np.mean(list(between_set_distances.values()))
+
+    # 3. Effective dimensionality from PCA eigenvalues
+    # Note: This needs the PCA object, not just transformed data
+    # We'll compute this separately after PCA is done
+
+    return metrics
+
+def compute_dimensionality_metrics(pca: PCA) -> dict:
+    """Compute effective dimensionality metrics from PCA eigenvalues."""
+    eigenvalues = pca.explained_variance_
+
+    metrics = {
+        'sum_eigenvalues': np.sum(eigenvalues),
+        'sum_squared_eigenvalues': np.sum(eigenvalues ** 2),
+        'participation_ratio': np.sum(eigenvalues) ** 2 / np.sum(eigenvalues ** 2),
+        'eigenvalues': eigenvalues.tolist(),
+        'explained_variance_ratio': pca.explained_variance_ratio_.tolist()
+    }
+
+    return metrics
+
+def print_metrics(diversity_metrics: dict, dimensionality_metrics: dict):
+    """Print all metrics in a readable format."""
+    print(f"\n{'='*80}")
+    print("DIVERSITY AND DIMENSIONALITY METRICS")
+    print(f"{'='*80}")
+
+    print("\n1. WITHIN-SET DIVERSITY (Mean Pairwise Euclidean Distance)")
+    print(f"   Overall mean: {diversity_metrics['mean_within_set_diversity']:.4f}")
+    for label, stats in diversity_metrics['within_set_diversity'].items():
+        print(f"   {label}: {stats['mean']:.4f} ± {stats['std']:.4f} ({stats['n_pairs']} pairs)")
+
+    print("\n2. BETWEEN-SET SEPARATION (Centroid Distances)")
+    print(f"   Overall mean: {diversity_metrics['mean_between_set_separation']:.4f}")
+    for pair, dist in diversity_metrics['between_set_separation'].items():
+        print(f"   {pair}: {dist:.4f}")
+
+    print("\n3. EFFECTIVE DIMENSIONALITY")
+    print(f"   Sum of eigenvalues: {dimensionality_metrics['sum_eigenvalues']:.4f}")
+    print(f"   Sum of squared eigenvalues: {dimensionality_metrics['sum_squared_eigenvalues']:.4f}")
+    print(f"   Participation ratio: {dimensionality_metrics['participation_ratio']:.2f}")
+    print(f"   (Effective number of dimensions: ~{dimensionality_metrics['participation_ratio']:.1f})")
 
 if __name__ == "__main__":
 
@@ -234,7 +361,7 @@ if __name__ == "__main__":
                                 game_name=args.game,
                                 models=args.models)
 
-    genes = list(registry.available_genes)
+    genes = sorted(list(registry.available_genes), key=str)
 
     all_actions = tuple(
         combination for combination in product([D, C], repeat=args.n_rounds -
@@ -247,15 +374,22 @@ if __name__ == "__main__":
 
     baseline_features = compute_baselines()
 
-    with Pool(processes=args.n_processes) as pool:
-        results = pool.map(compute_gene, genes)
+    cached_data = None if args.force_recompute else load_features(args)
+
+    if cached_data is not None:
+        results_dict = cached_data
+    else:
+        with Pool(processes=args.n_processes) as pool:
+            results = pool.map(compute_gene, genes)
+        results_dict = dict(zip(genes, results))
+        save_features(results_dict, args)
 
     # PCA
     X_list = []
     labels = []
     metadata = []
 
-    for gene, strategy_features in zip(genes, results):
+    for gene, strategy_features in results_dict.items():
         for strategy_name, feature_dict in strategy_features.items():
             X_list.append(list(feature_dict.values()))
             labels.append(str(gene))
@@ -268,7 +402,12 @@ if __name__ == "__main__":
     X_pca = pca.fit_transform(X)
     print(pca.explained_variance_ratio_[:5])
 
-    fig, ax = plt.subplots(figsize=(10, 8))
+    # Compute metrics
+    diversity_metrics = compute_diversity_metrics(X, labels, X_pca)
+    dimensionality_metrics = compute_dimensionality_metrics(pca)
+    print_metrics(diversity_metrics, dimensionality_metrics)
+
+    fig, ax = plt.subplots(figsize=FIGSIZE)
 
     # Plot generated algorithms by behaviour
     handles = []
@@ -329,25 +468,24 @@ if __name__ == "__main__":
     extrema_info = find_extrema(X_pca, metadata)
 
     # Annotate extreme points
-    for position, info in extrema_info.items():
-        ax.annotate(f"{info['strategy']}\n({info['gene']})",
-                    xy=info['coords'],
-                    xytext=(10, 10),
-                    textcoords='offset points',
-                    bbox=dict(boxstyle='round,pad=0.5',
-                              facecolor='yellow',
-                              alpha=0.7),
-                    arrowprops=dict(arrowstyle='->',
-                                    connectionstyle='arc3,rad=0',
-                                    lw=1.5),
-                    fontsize=8,
-                    zorder=10)
+    # for position, info in extrema_info.items():
+    #     ax.annotate(f"{info['strategy']}\n({info['gene']})",
+    #                 xy=info['coords'],
+    #                 xytext=(10, 10),
+    #                 textcoords='offset points',
+    #                 bbox=dict(boxstyle='round,pad=0.5',
+    #                           facecolor='yellow',
+    #                           alpha=0.7),
+    #                 arrowprops=dict(arrowstyle='->',
+    #                                 connectionstyle='arc3,rad=0',
+    #                                 lw=1.5),
+    #                 fontsize=8,
+    #                 zorder=10)
 
     ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%} var)')
     ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%} var)')
     ax.legend([h[0] for h in handles], [h[1] for h in handles])
-    plt.tight_layout()
-    plt.savefig(f"pca_{args.game}.png")
+    plt.savefig(f"pca_{args.game}.{FORMAT}", format=FORMAT, bbox_inches='tight')
 
     def analysis(tl):
         print(f"\n{'='*60}")
