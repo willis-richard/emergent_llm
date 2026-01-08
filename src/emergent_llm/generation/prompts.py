@@ -1,5 +1,5 @@
 from emergent_llm.common import Action, Attitude, GameDescription
-from emergent_llm.games import get_game_types
+from emergent_llm.games import get_game_type
 
 
 HEADER_IMPORTS = """from dataclasses import dataclass
@@ -186,7 +186,7 @@ def create_code_user_prompt(
         game_name: str) -> str:
     """Create user prompt for code generation."""
 
-    _, game_description_class = get_game_types(game_name)
+    _, game_description_class = get_game_type(game_name)
 
     return f"""Convert this strategy description into a Python 3.11 class that inherits from BaseStrategy.
 

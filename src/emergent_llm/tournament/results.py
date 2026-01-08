@@ -12,11 +12,7 @@ import pandas as pd
 from matplotlib.ticker import MaxNLocator, MultipleLocator
 
 from emergent_llm.common import Attitude, Gene, PlayerId, setup
-from emergent_llm.games import (
-    CollectiveRiskDescription,
-    CommonPoolDescription,
-    PublicGoodsDescription,
-)
+from emergent_llm.games import get_description_type
 from emergent_llm.tournament.configs import (
     BaseTournamentConfig,
     BatchTournamentConfig,
@@ -871,8 +867,10 @@ class CulturalEvolutionResults:
 
     def serialise(self) -> dict:
         """Serialise to dictionary for JSON storage."""
+        config_dict = asdict(self.config)
+        config_dict['game_description']['__class__'] = self.config.game_description.__class__.__name__
         return {
-            'config': asdict(self.config),
+            'config': config_dict,
             'final_generation': self.final_generation,
             'final_gene_frequencies': [
                 {'gene': asdict(gene), 'frequency': freq}
@@ -900,12 +898,7 @@ class CulturalEvolutionResults:
         # Reconstruct config
         config_data = data['config']
 
-        game_class_map = {
-            'PublicGoodsDescription': PublicGoodsDescription,
-            'CollectiveRiskDescription': CollectiveRiskDescription,
-            'CommonPoolDescription': CommonPoolDescription,
-        }
-        game_cls = game_class_map[config_data['game_description']['__class__']]
+        game_cls = get_description_type(config_data['game_description']['__class__'])
         game_description = game_cls(
             **{
                 k: v

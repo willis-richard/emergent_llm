@@ -6,7 +6,7 @@ from emergent_llm.games.common_pool import CommonPoolDescription, CommonPoolGame
 from emergent_llm.games.public_goods import PublicGoodsDescription, PublicGoodsGame
 
 
-def get_game_types(game_type: str) -> tuple[type[BaseGame], type[GameDescription]]:
+def get_game_type(game_type: str) -> tuple[type[BaseGame], type[GameDescription]]:
     if game_type == "public_goods":
         return PublicGoodsGame, PublicGoodsDescription
     elif game_type == "collective_risk":
@@ -15,6 +15,17 @@ def get_game_types(game_type: str) -> tuple[type[BaseGame], type[GameDescription
         return CommonPoolGame, CommonPoolDescription
     else:
         raise ValueError(f"Unknown game type: {game_type}")
+
+
+def get_description_type(description_type: str) -> type[GameDescription]:
+    if description_type == "PublicGoodsDescription":
+        return PublicGoodsDescription
+    elif description_type == "CollectiveRiskDescription":
+        return CollectiveRiskDescription
+    elif description_type == "CommonPoolDescription":
+        return CommonPoolDescription
+    else:
+        raise ValueError(f"Unknown game type: {description_type}")
 
 
 STANDARD_GENERATORS: dict[str, Callable[..., GameDescription]] = {

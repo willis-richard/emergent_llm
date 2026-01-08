@@ -192,6 +192,8 @@ def main():
     results_file = output_dir / "results.json"
     results.save(str(results_file))
 
+    # results = MultiRunCulturalEvolutionResults.load(output_dir / "results.json")
+
     # Generate plots
     logger.info("Creating plots...")
     results.plots(output_dir)

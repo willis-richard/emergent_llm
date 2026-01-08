@@ -6,7 +6,7 @@ from math import ceil
 
 import numpy as np
 
-from emergent_llm.common import Gene
+from emergent_llm.common import Gene, Attitude
 from emergent_llm.generation.strategy_registry import StrategyRegistry
 from emergent_llm.players import BaseStrategy, LLMPlayer, StrategySpec
 from emergent_llm.tournament.configs import BaseTournamentConfig, CulturalEvolutionConfig
@@ -30,26 +30,35 @@ class CulturalEvolutionTournament:
         self.registry = strategy_registry
         self.logger = logging.getLogger(__name__)
 
+        # Validate all model+attitude combinations exist
+        for model in self.registry.available_models:
+            for attitude in [Attitude.COLLECTIVE, Attitude.EXPLOITATIVE]:
+                gene = Gene(model, attitude)
+                if gene not in self.registry.available_genes:
+                    raise ValueError(f"Missing strategies for {gene}")
+
+        self.reset()
+
+    def initialise_population(self):
         genes = self.registry.available_genes
 
         # Initialise with uniform distribution over genes
         self.population = [
             self.registry.sample_spec(gene)
             for gene in genes
-            for _ in range(ceil(config.population_size / len(genes)))
+            for _ in range(ceil(self.config.population_size / len(genes)))
         ]
         random.shuffle(self.population)
-        self.population = self.population[:config.population_size]
+        self.population = self.population[:self.config.population_size]
 
         self.logger.debug(f"Population\n" +
                           "\n".join(map(str, self.population)))
-
-        self.reset()
 
     def reset(self):
         self.generation = 0
         self.gene_frequencies: list[dict[Gene, float]] = []
         self.generation_results: list = []
+        self.initialise_population()
 
     def run_tournament(self) -> CulturalEvolutionResults:
         """Run cultural evolution until termination condition met."""
@@ -75,10 +84,10 @@ class CulturalEvolutionTournament:
             # Run generation
             self._run_generation()
             self.generation += 1
-
-        # Final frequency calculation
-        final_frequencies = self._calculate_gene_frequencies()
-        self.gene_frequencies.append(final_frequencies)
+        else:
+            # Final frequency calculation if we exited via max generations
+            final_frequencies = self._calculate_gene_frequencies()
+            self.gene_frequencies.append(final_frequencies)
 
         return CulturalEvolutionResults(
             config=self.config,

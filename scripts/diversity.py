@@ -25,7 +25,7 @@ from emergent_llm.common import (
     PlayerHistory,
     setup,
 )
-from emergent_llm.games import STANDARD_GENERATORS, get_game_types
+from emergent_llm.games import STANDARD_GENERATORS, get_game_type
 from emergent_llm.generation import StrategyRegistry
 from emergent_llm.players import (
     BasePlayer,
@@ -510,7 +510,7 @@ if __name__ == "__main__":
     pca_data = {}
 
     for game_name in args.games:
-        game_class, _ = get_game_types(game_name)
+        game_class, _ = get_game_type(game_name)
         description = STANDARD_GENERATORS[game_name + "_default"](
             n_players=args.n_players, n_rounds=args.n_rounds)
         registry = StrategyRegistry(strategies_dir=args.strategies_dir,
@@ -548,7 +548,7 @@ if __name__ == "__main__":
     print(f"{'='*60}")
 
     # Need to set globals for baseline computation (use first game's setup)
-    game_class, _ = get_game_types(args.games[0])
+    game_class, _ = get_game_type(args.games[0])
     description = STANDARD_GENERATORS[args.games[0] + "_default"](
         n_players=args.n_players, n_rounds=args.n_rounds)
 
