@@ -105,27 +105,26 @@ def parse_args():
 # =============================================================================
 
 
-def get_cache_path(game_name: str, models: list[str], args) -> Path:
+def get_cache_path(game_name: str, gene: Gene, args) -> Path:
     cache_dir = Path("cache")
     cache_dir.mkdir(exist_ok=True)
-    filename = f"{game_name}_p{args.n_players}_r{args.n_rounds}_g{args.n_games}"
-    filename += f"_{'_'.join(sorted(models))}"
+    filename = f"{game_name}_{gene}_p{args.n_players}_r{args.n_rounds}_g{args.n_games}"
     if args.n_strategies:
         filename += f"_s{args.n_strategies}"
     return cache_dir / f"{filename}.pkl"
 
 
-def save_features(features_dict, game_name: str, models: list[str], args):
-    cache_path = get_cache_path(game_name, models, args)
+def save_features(features_dict, game_name: str, gene: Gene, args):
+    cache_path = get_cache_path(game_name, gene, args)
     with open(cache_path, 'wb') as f:
         pickle.dump(features_dict, f)
     print(f"Saved features to {cache_path}")
 
 
 def load_features(
-        game_name: str, models: list[str],
-        args) -> dict[Gene, dict[str, dict[OpponentActions, float]]] | None:
-    cache_path = get_cache_path(game_name, models, args)
+        game_name: str, gene: Gene,
+        args) -> dict[str, dict[OpponentActions, float]] | None:
+    cache_path = get_cache_path(game_name, gene, args)
     if not cache_path.exists():
         return None
     with open(cache_path, 'rb') as f:
@@ -183,6 +182,12 @@ def compute_features(player: BasePlayer, n_games: int) -> dict[OpponentActions, 
 
 
 def compute_gene(gene: Gene) -> dict[str, dict[OpponentActions, float]]:
+    # try cache first
+    if not args.recompute:
+        cached_data = load_features(game_name, gene, args)
+        if cached_data is not None:
+            return cached_data
+
     strategy_features = {}
     for strategy_spec in registry.get_all_specs(gene)[0:args.n_strategies]:
         algo = strategy_spec.strategy_class
@@ -193,6 +198,8 @@ def compute_gene(gene: Gene) -> dict[str, dict[OpponentActions, float]]:
 
         print(
             f"{gene.model} {algo.__name__}: {np.mean(list(features.values()))}")
+
+    save_features(strategy_features, game_name, gene, args)
     return strategy_features
 
 
@@ -236,7 +243,7 @@ def compute_baselines(n_players: int,
         baseline_features[player.id.name] = features
 
         mean = np.mean(list(features.values()))
-        print(f"{player.id.name}: {mean}.3f")
+        print(f"{player.id.name}: {mean:.3f}")
     return baseline_features
 
 
@@ -500,16 +507,9 @@ if __name__ == "__main__":
     # ==========================================================================
     # PHASE 1: Load/compute features for each game (with caching)
     # ==========================================================================
-    # 1st key game name, 2nd key gene, 3rd key strategy, 4th key trajector, value: cooperation %
-    game_features: dict[str, dict[Gene, dict[str, dict[OpponentActions, float]]]] = {}
     pca_data = {}
 
     for game_name in args.games:
-        print(f"\n{'='*60}")
-        print(f"LOADING {game_name.upper()}")
-        print(f"{'='*60}")
-
-        # Set globals for this game
         game_class, _ = get_game_types(game_name)
         description = STANDARD_GENERATORS[game_name + "_default"](
             n_players=args.n_players, n_rounds=args.n_rounds)
@@ -517,28 +517,17 @@ if __name__ == "__main__":
                                     game_name=game_name,
                                     models=args.models)
         genes = sorted(list(registry.available_genes), key=str)
-        models = sorted(list(registry.available_models), key=str)
 
-        # Try cache
-        cached_data = None if args.recompute else load_features(
-            game_name, models, args)
-
-        if cached_data is not None:
-            results_dict = cached_data
-        else:
-            with Pool(processes=args.n_processes) as pool:
-                results = pool.map(compute_gene, genes)
-                results_dict = dict(zip(genes, results))
-                save_features(results_dict, game_name, models, args)
+        with Pool(processes=args.n_processes) as pool:
+            results = pool.map(compute_gene, genes)
+            results_dict = dict(zip(genes, results))
 
         print(f"Loaded {len(results_dict.values())} genes, with {sum([len(v) for v in results_dict.values()])} strategies for {game_name}")
-        game_features[game_name] = results_dict
 
         X_game = []
         labels_game = []
         metadata_game = []
         for gene, strategy_features in results_dict.items():
-            pca_data[gene] = {'X': [], 'label': []}
             for strategy_name, feature_dict in strategy_features.items():
                 X_game.append(list(feature_dict.values()))
                 labels_game.append(str(gene))
@@ -659,9 +648,9 @@ if __name__ == "__main__":
         genes = pca_data[game_name]['genes']
 
         # Group genes by model
-        models_in_game = set(gene.model for gene in genes)
+        models = set(gene.model for gene in genes)
 
-        for model in sorted(models_in_game):
+        for model in sorted(models):
             # Get genes for this model, split by attitude
             collective_genes = [g for g in genes if g.model == model and g.attitude == Attitude.COLLECTIVE]
             exploitative_genes = [g for g in genes if g.model == model and g.attitude == Attitude.EXPLOITATIVE]
