@@ -27,15 +27,13 @@ PROVIDER_MODELS=(
 #     wait
 # done
 
-for game in "${GAMES[@]}"; do
-    python scripts/diversity.py \
-           --game $game \
-           --strategies_dir strategies \
-           --models claude-haiku-4-5 gpt-5-mini gemini-2.5-flash \
-           --n_rounds 5 \
-           --n_games 20 \
-           --n_processes 4
-done
+# python scripts/diversity.py \
+#         --game $game \
+#         --strategies_dir strategies \
+#         --models claude-haiku-4-5 gpt-5-mini gemini-2.5-flash \
+#         --n_rounds 5 \
+#         --n_games 20 \
+#         --n_processes 4
 
 # for game in "${GAMES[@]}"; do
 #     for pm in "${PROVIDER_MODELS[@]}"; do
@@ -52,6 +50,15 @@ done
 #     wait
 # done
 
-# for game in "${GAMES[@]}"; do
-#     python scripts/run_cultural_evolution.py --game ${game} --n_players 16 --population_size 128 --n_rounds 20 --top_k 16 --repetitions 4 --n_runs 50 --n_processes 4 --max_generations 200
-# done
+for game in "${GAMES[@]}"; do
+    python scripts/run_cultural_evolution.py \
+           --game ${game} \
+           --n_players 16 \
+           --n_rounds 20 \
+           --population_size 512 \
+           --top_k 64 \
+           --repetitions 10 \
+           --n_runs 100 \
+           --n_processes 4 \
+           --max_generations 200
+done

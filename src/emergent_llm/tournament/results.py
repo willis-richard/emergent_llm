@@ -1,11 +1,10 @@
 """Tournament results dataclasses."""
 import json
+from collections import Counter
 import math
-import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -18,6 +17,7 @@ from emergent_llm.tournament.configs import (
     BatchTournamentConfig,
     CulturalEvolutionConfig,
     MixtureKey,
+    SurvivorRecord,
 )
 
 FIGSIZE, FORMAT = setup('3_col_paper')
@@ -782,8 +782,10 @@ class CulturalEvolutionResults:
     final_gene_frequencies: dict[Gene, float]
     gene_frequency_history: list[dict[Gene, float]]
     generation_results: list[FairTournamentResults]
+    survivor_history: list[list['SurvivorRecord']] = field(default_factory=list)
     _gene_frequency_df: pd.DataFrame = field(default=None, init=False, repr=False)
     _generation_stats_df: pd.DataFrame = field(default=None, init=False, repr=False)
+    _survivor_summary_df: pd.DataFrame = field(default=None, init=False, repr=False)
 
     def __post_init__(self):
         """Build analysis dataframes from raw results."""
@@ -838,6 +840,34 @@ class CulturalEvolutionResults:
         generation_stats_df.index.name = 'generation'
         object.__setattr__(self, '_generation_stats_df', generation_stats_df)
 
+        # Build strategy survivor dataframe
+        # Count how often each strategy survives
+        strategy_counts: Counter[str] = Counter()
+        strategy_genes: dict[str, Gene] = {}
+        strategy_total_fitness: dict[str, float] = Counter()
+
+        for gen_survivors in self.survivor_history:
+            for record in gen_survivors:
+                strategy_counts[record.name] += 1
+                strategy_genes[record.name] = record.gene
+                strategy_total_fitness[record.name] += record.fitness
+
+        rows = []
+        for strategy_name, count in strategy_counts.most_common():
+            gene = strategy_genes[strategy_name]
+            avg_fitness = strategy_total_fitness[strategy_name] / count
+            rows.append({
+                'strategy': strategy_name,
+                'gene': str(gene),
+                'model': gene.model,
+                'attitude': gene.attitude.value,
+                'survival_count': count,
+                'survival_rate': count / len(self.survivor_history),
+                'mean_fitness': avg_fitness,
+            })
+
+        object.__setattr__(self, '_survivor_summary_df', pd.DataFrame(rows))
+
     @property
     def gene_frequency_df(self) -> pd.DataFrame:
         """DataFrame of gene frequencies over generations."""
@@ -847,6 +877,11 @@ class CulturalEvolutionResults:
     def generation_stats_df(self) -> pd.DataFrame:
         """DataFrame of generation-level statistics."""
         return self._generation_stats_df
+
+    @property
+    def survivor_summary_df(self) -> pd.DataFrame:
+        """Summary of strategy survival across generations."""
+        return self._survivor_summary_df
 
     @property
     def winning_gene(self) -> Gene:
@@ -863,6 +898,14 @@ class CulturalEvolutionResults:
                                  key=lambda x: x[1],
                                  reverse=True):
             lines.append(f"  {gene}: {freq:.2%}")
+
+        lines.append(f"\nTop surviving strategies (across {len(self.survivor_history)} generations):")
+        for _, row in self._survivor_summary_df.head(10).iterrows():
+            lines.append(
+                f"  {row['strategy']} ({row['gene']}): "
+                f"survived {row['survival_count']}x, mean fitness {row['mean_fitness']:.2f}"
+            )
+
         return "\n".join(lines)
 
     def serialise(self) -> dict:
@@ -882,6 +925,10 @@ class CulturalEvolutionResults:
             ],
             'generation_results': [
                 result.serialise() for result in self.generation_results
+            ],
+            'survivor_history': [
+                [record.to_dict() for record in gen_survivors]
+                for gen_survivors in self.survivor_history
             ],
             'result_type': 'CulturalEvolutionResults'
         }
@@ -933,11 +980,17 @@ class CulturalEvolutionResults:
             for result_data in data['generation_results']
         ]
 
+        survivor_history = [
+            [SurvivorRecord.from_dict(record) for record in gen_survivors]
+            for gen_survivors in data['survivor_history']
+        ]
+
         return cls(config=config,
                    final_generation=data['final_generation'],
                    final_gene_frequencies=final_gene_frequencies,
                    gene_frequency_history=gene_frequency_history,
-                   generation_results=generation_results)
+                   generation_results=generation_results,
+                   survivor_history=survivor_history)
 
     @classmethod
     def load(cls, filepath: str) -> 'CulturalEvolutionResults':
@@ -1095,11 +1148,11 @@ class CulturalEvolutionResults:
 
 
 @dataclass
-class MultiRunCulturalEvolutionResults:
-    """Results from multiple parallel cultural evolution runs."""
+class BatchCulturalEvolutionTournamentResults:
     runs: list[CulturalEvolutionResults]
     _run_summary_df: pd.DataFrame = field(default=None, init=False, repr=False)
     _gene_summary_df: pd.DataFrame = field(default=None, init=False, repr=False)
+    _strategy_summary_df: pd.DataFrame = field(default=None, init=False, repr=False)
 
     def __post_init__(self):
         """Build analysis dataframes from all runs."""
@@ -1159,6 +1212,39 @@ class MultiRunCulturalEvolutionResults:
         gene_summary_df = pd.DataFrame(gene_rows).sort_values('wins', ascending=False)
         object.__setattr__(self, '_gene_summary_df', gene_summary_df)
 
+        # Aggregate strategy survival statistics across all runs
+        strategy_counts: Counter[str] = Counter()
+        strategy_genes: dict[str, Gene] = {}
+        strategy_fitness_sum: dict[str, float] = Counter()
+        strategy_fitness_count: dict[str, int] = Counter()
+
+        for run in self.runs:
+            if not run.survivor_history:
+                continue
+
+            # All generations
+            for gen_survivors in run.survivor_history:
+                for record in gen_survivors:
+                    strategy_counts[record.strategy_name] += 1
+                    strategy_genes[record.strategy_name] = record.gene
+                    strategy_fitness_sum[record.strategy_name] += record.fitness
+                    strategy_fitness_count[record.strategy_name] += 1
+
+        rows = []
+        for strategy_name, count in strategy_counts.most_common():
+            gene = strategy_genes[strategy_name]
+            avg_fitness = strategy_fitness_sum[strategy_name] / strategy_fitness_count[strategy_name]
+            rows.append({
+                'strategy': strategy_name,
+                'gene': str(gene),
+                'model': gene.model,
+                'attitude': gene.attitude.value,
+                'total_survivals': count,
+                'mean_fitness': avg_fitness,
+            })
+
+        object.__setattr__(self, '_strategy_summary_df', pd.DataFrame(rows))
+
     @property
     def run_summary_df(self) -> pd.DataFrame:
         """Per-run summary statistics."""
@@ -1168,6 +1254,11 @@ class MultiRunCulturalEvolutionResults:
     def gene_summary_df(self) -> pd.DataFrame:
         """Gene-level summary across all runs."""
         return self._gene_summary_df
+
+    @property
+    def strategy_summary_df(self) -> pd.DataFrame:
+        """Aggregated strategy survival statistics across all runs."""
+        return self._strategy_summary_df
 
     def __str__(self) -> str:
         threshold_met = self.run_summary_df['threshold_met'].sum()
@@ -1201,6 +1292,16 @@ class MultiRunCulturalEvolutionResults:
         model_counts = self.run_summary_df['winning_model'].value_counts()
         for model, count in model_counts.items():
             lines.append(f"  {model}: {count} ({count/len(self.runs):.1%})")
+
+        lines.append("")
+        lines.append("Top surviving strategies (across all runs):")
+        top_strategies = self._strategy_summary_df.nlargest(10, 'total_survivals')
+        for _, row in top_strategies.iterrows():
+            lines.append(
+                f"  {row['strategy']} ({row['attitude']}): "
+                f"{row['total_survivals']} survivals, "
+                f"fitness={row['mean_fitness']:.2f}"
+            )
 
         return "\n".join(lines)
 

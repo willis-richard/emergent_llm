@@ -9,11 +9,13 @@ from .configs import (
     BatchTournamentConfig,
     CulturalEvolutionConfig,
     MixtureKey,
+    SurvivorRecord,
 )
 from .cultural_evolution import CulturalEvolutionTournament
 from .fair_tournament import FairTournament
 from .mixture_tournament import MixtureTournament
 from .results import (
+    BatchCulturalEvolutionTournamentResults,
     BatchFairTournamentResults,
     BatchMixtureTournamentResults,
     CulturalEvolutionResults,
@@ -21,7 +23,6 @@ from .results import (
     MatchResult,
     MixtureResult,
     MixtureTournamentResults,
-    MultiRunCulturalEvolutionResults,
     PlayerStats,
 )
 
@@ -29,6 +30,7 @@ __all__ = [
     'BaseTournament',
     'BaseTournamentConfig',
     'BatchCulturalEvolutionConfig',
+    'BatchCulturalEvolutionTournamentResults',
     'BatchCulturalEvolutionTournament',
     'BatchFairTournament',
     'BatchFairTournamentResults',
@@ -45,6 +47,6 @@ __all__ = [
     'MixtureResult',
     'MixtureTournament',
     'MixtureTournamentResults',
-    'MultiRunCulturalEvolutionResults',
     'PlayerStats',
+    'SurvivorRecord'
 ]

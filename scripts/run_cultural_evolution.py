@@ -8,7 +8,6 @@ from emergent_llm.tournament import (
     BatchCulturalEvolutionConfig,
     BatchCulturalEvolutionTournament,
     CulturalEvolutionConfig,
-    MultiRunCulturalEvolutionResults,
 )
 
 
@@ -132,7 +131,7 @@ if __name__ == "__main__":
         evolution_config=evolution_config,
         n_runs=args.n_runs,
         n_processes=args.n_processes,
-        output_dir=str(output_dir),
+        output_base_dir=output_dir,
         strategies_dir=args.strategies_dir,
         game_name=args.game,
         models=args.models)

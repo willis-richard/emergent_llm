@@ -1,4 +1,5 @@
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Callable
 
 from emergent_llm.common import GameDescription, Gene
@@ -78,6 +79,30 @@ class BatchTournamentConfig:
         return cls(**data)  # Simple since all fields are basic types
 
 
+@dataclass(frozen=True)
+class SurvivorRecord:
+    """Record of a survivor from selection."""
+    gene: Gene
+    strategy_name: str
+    fitness: float
+
+    def to_dict(self) -> dict:
+        return {
+            'gene': {'model': self.gene.model, 'attitude': self.gene.attitude.value},
+            'strategy_name': self.strategy_name,
+            'fitness': self.fitness
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'SurvivorRecord':
+        gene = Gene.from_dict(data['gene'])
+        return cls(gene=gene, strategy_name=data['strategy_name'], fitness=data['fitness'])
+
+    @property
+    def name(self):
+        return f"{self.gene}[{self.strategy_name}]"
+
+
 @dataclass
 class CulturalEvolutionConfig:
     """Configuration for cultural evolution tournament."""
@@ -127,7 +152,7 @@ class BatchCulturalEvolutionConfig:
     evolution_config: CulturalEvolutionConfig
     n_runs: int
     n_processes: int
-    output_dir: str
+    output_base_dir: str
 
     strategies_dir: str
     game_name: str
@@ -138,3 +163,32 @@ class BatchCulturalEvolutionConfig:
             raise ValueError("n_runs must be positive")
         if self.n_processes <= 0:
             raise ValueError("n_processes must be positive")
+
+    @property
+    def output_dir(self) -> str:
+        """Full output directory including experiment subdirectory."""
+        return str(Path(self.output_base_dir) / self._experiment_dir_name)
+
+    @property
+    def _experiment_dir_name(self) -> str:
+        """Generate unique experiment directory name from config."""
+
+        cfg = self.evolution_config
+        gd = cfg.game_description
+
+        parts = [
+            f"n{gd.n_players}",
+            f"r{gd.n_rounds}",
+            f"pop{cfg.population_size}",
+            f"top{cfg.top_k}",
+            f"mut{cfg.mutation_rate}",
+            f"thr{cfg.threshold_pct}",
+            f"gen{cfg.max_generations}",
+            f"rep{cfg.repetitions_per_generation}",
+        ]
+
+        if self.models:
+            models_str = "-".join(sorted(self.models))
+            parts.append(f"models_{models_str}")
+
+        return "_".join(parts)

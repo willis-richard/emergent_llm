@@ -9,7 +9,7 @@ import numpy as np
 from emergent_llm.common import Gene, Attitude
 from emergent_llm.generation.strategy_registry import StrategyRegistry
 from emergent_llm.players import BaseStrategy, LLMPlayer, StrategySpec
-from emergent_llm.tournament.configs import BaseTournamentConfig, CulturalEvolutionConfig
+from emergent_llm.tournament.configs import BaseTournamentConfig, CulturalEvolutionConfig, SurvivorRecord
 from emergent_llm.tournament.fair_tournament import FairTournament
 from emergent_llm.tournament.results import CulturalEvolutionResults
 
@@ -58,6 +58,7 @@ class CulturalEvolutionTournament:
         self.generation = 0
         self.gene_frequencies: list[dict[Gene, float]] = []
         self.generation_results: list = []
+        self.survivor_history: list[list[SurvivorRecord]] = []
         self.initialise_population()
 
     def run_tournament(self) -> CulturalEvolutionResults:
@@ -86,15 +87,16 @@ class CulturalEvolutionTournament:
             self.generation += 1
         else:
             # Final frequency calculation if we exited via max generations
-            final_frequencies = self._calculate_gene_frequencies()
-            self.gene_frequencies.append(final_frequencies)
+            frequencies = self._calculate_gene_frequencies()
+            self.gene_frequencies.append(frequencies)
 
         return CulturalEvolutionResults(
             config=self.config,
             final_generation=self.generation,
-            final_gene_frequencies=final_frequencies,
+            final_gene_frequencies=frequencies,
             gene_frequency_history=self.gene_frequencies,
-            generation_results=self.generation_results)
+            generation_results=self.generation_results,
+            survivor_history=self.survivor_history)
 
     def _run_generation(self):
         """Run one generation: compete, select, reproduce."""
@@ -123,7 +125,23 @@ class CulturalEvolutionTournament:
         # Selection: keep top K by argsort (already efficient)
         survivor_indices = np.argsort(fitnesses)[-self.config.top_k:]
         survivors = [self.population[i] for i in survivor_indices]
+        survivor_fitnesses = fitnesses[survivor_indices]
         self.logger.debug(f"Survivors:\n" + "\n".join(map(str, survivors)))
+
+        # Record survivors
+        survivor_records = [
+            SurvivorRecord(
+                gene=spec.gene,
+                strategy_name=spec.strategy_class.__name__,
+                fitness=float(fitness)
+            )
+            for spec, fitness in zip(survivors, survivor_fitnesses)
+        ]
+        self.survivor_history.append(survivor_records)
+
+        self.logger.debug(f"Survivors:\n" + "\n".join(
+            f"{r.strategy_name} ({r.gene}): {r.fitness:.2f}" for r in survivor_records
+        ))
 
         # Reproduction
         n_offspring = self.config.population_size - self.config.top_k

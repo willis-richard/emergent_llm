@@ -7,7 +7,7 @@ from pathlib import Path
 from emergent_llm.generation import StrategyRegistry
 from emergent_llm.tournament.configs import BatchCulturalEvolutionConfig
 from emergent_llm.tournament.cultural_evolution import CulturalEvolutionTournament
-from emergent_llm.tournament.results import CulturalEvolutionResults, MultiRunCulturalEvolutionResults
+from emergent_llm.tournament.results import CulturalEvolutionResults, BatchCulturalEvolutionTournamentResults
 
 
 def _run_single_experiment(
@@ -76,7 +76,7 @@ class BatchCulturalEvolutionTournament:
         self.runs_dir = self.output_dir / "runs"
         self.runs_dir.mkdir(parents=True, exist_ok=True)
 
-    def run_tournament(self) -> MultiRunCulturalEvolutionResults:
+    def run_tournament(self) -> BatchCulturalEvolutionTournamentResults:
         """Run all experiments, skipping already completed ones."""
         # Check for existing completed runs
         completed = _get_completed_runs(self.config.output_dir,
@@ -122,7 +122,7 @@ class BatchCulturalEvolutionTournament:
                     self.logger.error(f"Run {run_id} failed: {e}")
                     raise
 
-    def _load_all_results(self) -> MultiRunCulturalEvolutionResults:
+    def _load_all_results(self) -> BatchCulturalEvolutionTournamentResults:
         """Load all completed run results from disk."""
         runs = []
         for run_id in range(self.config.n_runs):
@@ -135,4 +135,4 @@ class BatchCulturalEvolutionTournament:
         if not runs:
             raise ValueError("No completed runs found")
 
-        return MultiRunCulturalEvolutionResults(runs=runs)
+        return BatchCulturalEvolutionTournamentResults(runs=runs)
