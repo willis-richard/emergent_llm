@@ -119,3 +119,22 @@ class CulturalEvolutionConfig:
 
         if self.repetitions_per_generation <= 0:
             raise ValueError("repetitions_per_generation must be positive")
+
+
+@dataclass
+class BatchCulturalEvolutionConfig:
+    """Configuration for batch cultural evolution tournament with incremental saving."""
+    evolution_config: CulturalEvolutionConfig
+    n_runs: int
+    n_processes: int
+    output_dir: str
+
+    strategies_dir: str
+    game_name: str
+    models: list[str] | None = None
+
+    def __post_init__(self):
+        if self.n_runs <= 0:
+            raise ValueError("n_runs must be positive")
+        if self.n_processes <= 0:
+            raise ValueError("n_processes must be positive")
