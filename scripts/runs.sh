@@ -40,25 +40,27 @@ PROVIDER_MODELS=(
 #         read provider model <<< "$pm"
 
 #         python scripts/run_tournament.py \
-#                --strategies strategies/$game/${model}.py \
-#                --game $game \
-#                --matches 200 \
-#                --group-sizes 4 16 64 256 \
-#                --processes 1 \
-#                --verbose &
+    #                --strategies strategies/$game/${model}.py \
+    #                --game $game \
+    #                --matches 200 \
+    #                --group-sizes 4 16 64 256 \
+    #                --processes 1 \
+    #                --verbose &
 #     done
 #     wait
 # done
 
 for game in "${GAMES[@]}"; do
-    python scripts/run_cultural_evolution.py \
-           --game ${game} \
-           --n_players 16 \
-           --n_rounds 20 \
-           --population_size 512 \
-           --top_k 64 \
-           --repetitions 10 \
-           --n_runs 100 \
-           --n_processes 4 \
-           --max_generations 200
+    for n_players in (4 64); do
+        python scripts/run_cultural_evolution.py \
+            --game ${game} \
+            --n_players $n_players \
+            --n_rounds 20 \
+            --population_size 512 \
+            --top_k 64 \
+            --repetitions 10 \
+            --n_runs 100 \
+            --n_processes 4 \
+            --max_generations 200
+    done
 done

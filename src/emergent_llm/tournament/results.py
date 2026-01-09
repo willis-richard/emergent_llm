@@ -853,11 +853,11 @@ class CulturalEvolutionResults:
                 strategy_total_fitness[record.name] += record.fitness
 
         rows = []
-        for strategy_name, count in strategy_counts.most_common():
-            gene = strategy_genes[strategy_name]
-            avg_fitness = strategy_total_fitness[strategy_name] / count
+        for name, count in strategy_counts.most_common():
+            gene = strategy_genes[name]
+            avg_fitness = strategy_total_fitness[name] / count
             rows.append({
-                'strategy': strategy_name,
+                'strategy': name,
                 'gene': str(gene),
                 'model': gene.model,
                 'attitude': gene.attitude.value,
@@ -1219,23 +1219,19 @@ class BatchCulturalEvolutionTournamentResults:
         strategy_fitness_count: dict[str, int] = Counter()
 
         for run in self.runs:
-            if not run.survivor_history:
-                continue
-
-            # All generations
-            for gen_survivors in run.survivor_history:
-                for record in gen_survivors:
-                    strategy_counts[record.strategy_name] += 1
-                    strategy_genes[record.strategy_name] = record.gene
-                    strategy_fitness_sum[record.strategy_name] += record.fitness
-                    strategy_fitness_count[record.strategy_name] += 1
+            final_survivors = run.survivor_history[-1]
+            for record in final_survivors:
+                strategy_counts[record.name] += 1
+                strategy_genes[record.name] = record.gene
+                strategy_fitness_sum[record.name] += record.fitness
+                strategy_fitness_count[record.name] += 1
 
         rows = []
-        for strategy_name, count in strategy_counts.most_common():
-            gene = strategy_genes[strategy_name]
-            avg_fitness = strategy_fitness_sum[strategy_name] / strategy_fitness_count[strategy_name]
+        for name, count in strategy_counts.most_common():
+            gene = strategy_genes[name]
+            avg_fitness = strategy_fitness_sum[name] / strategy_fitness_count[name]
             rows.append({
-                'strategy': strategy_name,
+                'strategy': name,
                 'gene': str(gene),
                 'model': gene.model,
                 'attitude': gene.attitude.value,
