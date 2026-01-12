@@ -6,7 +6,7 @@ from pathlib import Path
 from emergent_llm.games import STANDARD_GENERATORS
 from emergent_llm.tournament import (
     BatchCulturalEvolutionConfig,
-    BatchCulturalEvolutionTournament,
+    BatchCulturalEvolution,
     CulturalEvolutionConfig,
 )
 
@@ -140,7 +140,7 @@ if __name__ == "__main__":
     logger.info(f"Starting batch cultural evolution: {args.game}")
     logger.info(f"Runs: {args.n_runs}, Processes: {args.n_processes}")
 
-    tournament = BatchCulturalEvolutionTournament(batch_config)
+    tournament = BatchCulturalEvolution(batch_config)
     results = tournament.run_tournament()
 
     # Save aggregated results

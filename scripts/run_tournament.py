@@ -29,6 +29,9 @@ def parse_arguments():
                        help="Number of processes to use")
     parser.add_argument("--group-sizes", type=int, nargs="+", default=[4, 16, 64],
                        help="Group sizes to test")
+    parser.add_argument("--compress",
+                        action="store_true",
+                        help="Whether the outputs should be compressed")
     parser.add_argument("--verbose", action="store_true",
                        help="Enable verbose logging")
 
@@ -47,7 +50,7 @@ def setup_results_directory(strategies_path: str, game_type: str) -> tuple[Path,
     strategies_filename = Path(strategies_path).stem
 
     # Create results directory structure
-    results_base = Path("results") / game_type / strategies_filename
+    results_base = Path("results/self_play") / game_type / strategies_filename
     logs_dir = results_base / "logs"
 
     # Create all directories
@@ -97,6 +100,7 @@ def main():
         repetitions=args.matches,
         processes=args.processes,
         results_dir=str(results_dir),
+        compress=args.compress,
         generator_name=args.game + "_default"
     )
 

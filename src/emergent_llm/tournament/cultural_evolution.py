@@ -14,8 +14,8 @@ from emergent_llm.tournament.fair_tournament import FairTournament
 from emergent_llm.tournament.results import CulturalEvolutionResults
 
 
-class CulturalEvolutionTournament:
-    """Tournament simulating cultural evolution with selection and mutation."""
+class CulturalEvolution:
+    """Simulate cultural evolution with selection and mutation."""
 
     def __init__(self, config: CulturalEvolutionConfig,
                  strategy_registry: StrategyRegistry):
@@ -23,7 +23,7 @@ class CulturalEvolutionTournament:
         Initialise cultural evolution tournament.
 
         Args:
-            config: Tournament configuration
+            config:  CulturalEvolution tournament config
             strategy_registry: Registry for sampling strategies from genes
         """
         self.config = config

@@ -5,11 +5,11 @@ from pathlib import Path
 
 from emergent_llm.generation import StrategyRegistry
 from emergent_llm.tournament.configs import BatchCulturalEvolutionConfig
-from emergent_llm.tournament.cultural_evolution import CulturalEvolutionTournament
-from emergent_llm.tournament.results import CulturalEvolutionResults, BatchCulturalEvolutionTournamentResults
+from emergent_llm.tournament.cultural_evolution import CulturalEvolution
+from emergent_llm.tournament.results import CulturalEvolutionResults, BatchCulturalEvolutionResults
 
 
-def _get_run_path(output_dir: str, run_id: int, compress: bool) -> Path:
+def _get_run_path(output_dir: Path, run_id: int, compress: bool) -> Path:
     """Get path for a specific run's results file."""
     ext = ".json.gz" if compress else ".json"
     return Path(output_dir) / "runs" / f"run_{run_id:03d}{ext}"
@@ -29,12 +29,12 @@ def _run_single_experiment(
     logger.info(f"Starting run {run_id}")
 
     registry = StrategyRegistry(
-        strategies_dir=config.strategies_dir,
+        strategies_dir=Path(config.strategies_dir),
         game_name=config.game_name,
         models=config.models
     )
 
-    tournament = CulturalEvolutionTournament(config.evolution_config, registry)
+    tournament = CulturalEvolution(config.evolution_config, registry)
     result = tournament.run_tournament()
 
     output_path = _get_run_path(config.output_dir, run_id, config.compress)
@@ -44,7 +44,7 @@ def _run_single_experiment(
     return run_id, result
 
 
-class BatchCulturalEvolutionTournament:
+class BatchCulturalEvolution:
     """Tournament that runs multiple cultural evolution experiments with incremental saving."""
 
     def __init__(self, config: BatchCulturalEvolutionConfig):
@@ -55,7 +55,7 @@ class BatchCulturalEvolutionTournament:
         self.runs_dir = self.output_dir / "runs"
         self.runs_dir.mkdir(parents=True, exist_ok=True)
 
-    def run_tournament(self) -> BatchCulturalEvolutionTournamentResults:
+    def run_tournament(self) -> BatchCulturalEvolutionResults:
         """Run all experiments, skipping already completed ones."""
         self.logger.info("Checking for completed runs")
 
@@ -114,7 +114,7 @@ class BatchCulturalEvolutionTournament:
                     self.logger.error(f"Run {run_id} failed: {e}")
                     raise
 
-    def _load_all_results(self) -> BatchCulturalEvolutionTournamentResults:
+    def _load_all_results(self) -> BatchCulturalEvolutionResults:
         """Load all completed run results from disk."""
         runs = []
         for run_id in range(self.config.n_runs):
@@ -127,4 +127,4 @@ class BatchCulturalEvolutionTournament:
         if not runs:
             raise ValueError("No completed runs found")
 
-        return BatchCulturalEvolutionTournamentResults(config=self.config, runs=runs)
+        return BatchCulturalEvolutionResults(config=self.config, runs=runs)

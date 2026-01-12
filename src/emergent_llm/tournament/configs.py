@@ -58,6 +58,7 @@ class BatchTournamentConfig:
     repetitions: int
     processes: int
     results_dir: str
+    compress: bool
     generator_name: str  # Key from STANDARD_GENERATORS
 
     def __post_init__(self):

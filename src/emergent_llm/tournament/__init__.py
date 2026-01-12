@@ -1,6 +1,6 @@
 """Tournament classes for social dilemma experiments."""
 from .base_tournament import BaseTournament
-from .batch_cultural_evolution import BatchCulturalEvolutionTournament
+from .batch_cultural_evolution import BatchCulturalEvolution
 from .batch_fair_tournament import BatchFairTournament
 from .batch_mixture_tournament import BatchMixtureTournament
 from .configs import (
@@ -11,11 +11,11 @@ from .configs import (
     MixtureKey,
     SurvivorRecord,
 )
-from .cultural_evolution import CulturalEvolutionTournament
+from .cultural_evolution import CulturalEvolution
 from .fair_tournament import FairTournament
 from .mixture_tournament import MixtureTournament
 from .results import (
-    BatchCulturalEvolutionTournamentResults,
+    BatchCulturalEvolutionResults,
     BatchFairTournamentResults,
     BatchMixtureTournamentResults,
     CulturalEvolutionResults,
@@ -30,8 +30,8 @@ __all__ = [
     'BaseTournament',
     'BaseTournamentConfig',
     'BatchCulturalEvolutionConfig',
-    'BatchCulturalEvolutionTournamentResults',
-    'BatchCulturalEvolutionTournament',
+    'BatchCulturalEvolutionResults',
+    'BatchCulturalEvolution',
     'BatchFairTournament',
     'BatchFairTournamentResults',
     'BatchMixtureTournament',
@@ -39,7 +39,7 @@ __all__ = [
     'BatchTournamentConfig',
     'CulturalEvolutionConfig',
     'CulturalEvolutionResults',
-    'CulturalEvolutionTournament',
+    'CulturalEvolution',
     'FairTournament',
     'FairTournamentResults',
     'MatchResult',

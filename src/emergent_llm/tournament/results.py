@@ -510,6 +510,10 @@ class BatchFairTournamentResults:
         """Combined results DataFrame with group size information."""
         return self._combined_df
 
+    @property
+    def output_dir(self) -> Path:
+        return Path(self.config.results_dir) / "batch_fair"
+
     def __str__(self) -> str:
         """Summary of batch tournament results."""
         summary_lines = [
@@ -543,8 +547,10 @@ class BatchFairTournamentResults:
         }
 
     def save(self) -> None:
-        """Save results to gzipped JSON file."""
-        filepath = Path(self.config.results_dir) / "batch_fair/results.json.gz"
+        if self.config.compress:
+            filepath = self.output_dir / "results.json.gz"
+        else:
+            filepath = self.output_dir / "results.json"
         _save_json(filepath, self.serialise())
 
     @classmethod
@@ -617,6 +623,10 @@ class BatchMixtureTournamentResults:
         """Summary table with social welfare across group sizes and ratios."""
         return self._summary_df
 
+    @property
+    def output_dir(self) -> Path:
+        return Path(self.config.results_dir) / "batch_mixture"
+
     def __str__(self) -> str:
         """Create summary table with social welfare across group sizes and ratios."""
         # Create pivot table with exploitative ratios as rows and group sizes as columns
@@ -645,9 +655,10 @@ class BatchMixtureTournamentResults:
         }
 
     def save(self) -> None:
-        """Save results to gzipped JSON file."""
-        filepath = Path(
-            self.config.results_dir) / "batch_mixture/results.json.gz"
+        if self.config.compress:
+            filepath = self.output_dir / "results.json.gz"
+        else:
+            filepath = self.output_dir / "results.json"
         _save_json(filepath, self.serialise())
 
     @classmethod
@@ -673,9 +684,8 @@ class BatchMixtureTournamentResults:
 
     def create_schelling_diagrams(self):
         """Create Schelling diagrams for all group sizes."""
-        output_dir = Path(self.config.results_dir) / "batch_mixture"
         for group_size, mixture_result in self.mixture_results.items():
-            mixture_result.create_schelling_diagram(output_dir)
+            mixture_result.create_schelling_diagram(self.output_dir)
 
     def create_social_welfare_diagram(self):
         """Create social welfare vs collective ratio diagram with lines for each group size."""
@@ -725,8 +735,7 @@ class BatchMixtureTournamentResults:
                   columnspacing=0.6)
 
         # Ensure output directory exists
-        output_file = Path(self.config.results_dir
-                          ) / "batch_mixture" / f"social_welfare.{FORMAT}"
+        output_file = self.output_dir / f"social_welfare.{FORMAT}"
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Save plot
@@ -788,8 +797,7 @@ class BatchMixtureTournamentResults:
                   columnspacing=0.6)
 
         # Ensure output directory exists
-        output_file = Path(self.config.results_dir
-                          ) / "batch_mixture" / f"schelling_difference.{FORMAT}"
+        output_file = self.output_dir / f"schelling_difference.{FORMAT}"
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Save plot
@@ -1163,7 +1171,7 @@ class CulturalEvolutionResults:
 
 
 @dataclass
-class BatchCulturalEvolutionTournamentResults:
+class BatchCulturalEvolutionResults:
     config: BatchCulturalEvolutionConfig
     runs: list[CulturalEvolutionResults]
     _run_summary_df: pd.DataFrame = field(default=None, init=False, repr=False)
@@ -1334,20 +1342,25 @@ class BatchCulturalEvolutionTournamentResults:
         return {
             'config': asdict(self.config),
             'runs': [run.serialise() for run in self.runs],
-            'result_type': 'BatchCulturalEvolutionTournamentResults'
+            'result_type': 'BatchCulturalEvolutionResults'
         }
 
-    def save(self, filepath: str | None = None) -> None:
+    def save(self) -> None:
         """Save results to gzipped JSON file."""
-        savepath = self.config.output_dir if filepath is None else Path(
-            filepath)
-        Path(savepath).mkdir(parents=True, exist_ok=True)
-        (savepath / "results.txt").write_text(str(self))
-        _save_json(savepath / "results.json.gz", self.serialise())
+        output_dir = self.config.output_dir
+        (output_dir / "results.txt").write_text(str(self))
+
+        if self.config.compress:
+            filepath = output_dir / "results.json.gz"
+        else:
+            filepath = output_dir / "results.json"
+        _save_json(filepath, self.serialise())
+
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'BatchCulturalEvolutionTournamentResults':
-        """Load BatchCulturalEvolutionTournamentResults from dictionary data."""
+    def from_dict(cls, data: dict) -> 'BatchCulturalEvolutionResults':
+        """Load BatchCulturalEvolutionResults from dictionary data."""
 
         config = BatchCulturalEvolutionConfig(**data['config'])
 
@@ -1358,11 +1371,11 @@ class BatchCulturalEvolutionTournamentResults:
         return cls(config=config, runs=runs)
 
     @classmethod
-    def load(cls, filepath: str) -> 'BatchCulturalEvolutionTournamentResults':
-        """Load BatchCulturalEvolutionTournamentResults from JSON file (gzipped or plain)."""
+    def load(cls, filepath: str) -> 'BatchCulturalEvolutionResults':
+        """Load BatchCulturalEvolutionResults from JSON file (gzipped or plain)."""
         data = _load_json(Path(filepath))
-        if data.get('result_type') != 'BatchCulturalEvolutionTournamentResults':
+        if data.get('result_type') != 'BatchCulturalEvolutionResults':
             raise ValueError(
-                f"Expected BatchCulturalEvolutionTournamentResults, got {data.get('result_type')}"
+                f"Expected BatchCulturalEvolutionResults, got {data.get('result_type')}"
             )
         return cls.from_dict(data)
