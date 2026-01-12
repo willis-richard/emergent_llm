@@ -89,7 +89,7 @@ def parse_args():
     # Output
     parser.add_argument("--output_dir",
                         type=str,
-                        default="results/cultural_evolution",
+                        default="results",
                         help="Output directory for results")
     parser.add_argument(
         '-d',
@@ -107,14 +107,6 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
 
-    output_dir = Path(args.output_dir) / args.game
-    log_file = output_dir / "logs" / "batch_evolution.log"
-    setup_logging(log_file, args.loglevel)
-    logger = logging.getLogger(__name__)
-
-    logger.info(f"Starting batch cultural evolution: {args.game}")
-    logger.info(f"Runs: {args.n_runs}, Processes: {args.n_processes}")
-
     game_description = STANDARD_GENERATORS[f"{args.game}_default"](
         args.n_players, args.n_rounds)
 
@@ -131,20 +123,26 @@ if __name__ == "__main__":
         evolution_config=evolution_config,
         n_runs=args.n_runs,
         n_processes=args.n_processes,
-        output_base_dir=output_dir,
+        results_dir=args.output_dir,
         strategies_dir=args.strategies_dir,
         game_name=args.game,
         models=args.models)
+
+    log_file = batch_config.output_dir / "logs" / "batch_evolution.log"
+    setup_logging(log_file, args.loglevel)
+    logger = logging.getLogger(__name__)
+
+    logger.info(f"Starting batch cultural evolution: {args.game}")
+    logger.info(f"Runs: {args.n_runs}, Processes: {args.n_processes}")
 
     tournament = BatchCulturalEvolutionTournament(batch_config)
     results = tournament.run_tournament()
 
     # Save aggregated results
-    results.save(str(output_dir / "results.json"))
-    results.plots(output_dir)
-    (output_dir / "results.txt").write_text(str(results))
+    results.save()
+    results.plots()
 
     print("\n" + "=" * 60)
     print(results)
     print("=" * 60)
-    print(f"\nResults saved to: {output_dir}")
+    print(f"\nResults saved to: {batch_config.output_dir}")

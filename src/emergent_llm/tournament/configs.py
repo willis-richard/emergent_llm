@@ -152,7 +152,7 @@ class BatchCulturalEvolutionConfig:
     evolution_config: CulturalEvolutionConfig
     n_runs: int
     n_processes: int
-    output_base_dir: str
+    results_dir: str
 
     strategies_dir: str
     game_name: str
@@ -165,9 +165,9 @@ class BatchCulturalEvolutionConfig:
             raise ValueError("n_processes must be positive")
 
     @property
-    def output_dir(self) -> str:
+    def output_dir(self) -> Path:
         """Full output directory including experiment subdirectory."""
-        return str(Path(self.output_base_dir) / self._experiment_dir_name)
+        return Path(self.results_dir) / "cultural_evolution" / self.game_name / self._experiment_dir_name
 
     @property
     def _experiment_dir_name(self) -> str:

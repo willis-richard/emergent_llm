@@ -78,7 +78,8 @@ class BatchCulturalEvolutionTournament:
 
     def run_tournament(self) -> BatchCulturalEvolutionTournamentResults:
         """Run all experiments, skipping already completed ones."""
-        # Check for existing completed runs
+        self.logger.info(f"Checking for completed runs")
+
         completed = _get_completed_runs(self.config.output_dir,
                                         self.config.n_runs)
         pending = [i for i in range(self.config.n_runs) if i not in completed]

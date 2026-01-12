@@ -16,6 +16,7 @@ from emergent_llm.tournament.configs import (
     BaseTournamentConfig,
     BatchTournamentConfig,
     CulturalEvolutionConfig,
+    BatchCulturalEvolutionConfig,
     MixtureKey,
     SurvivorRecord,
 )
@@ -1149,6 +1150,7 @@ class CulturalEvolutionResults:
 
 @dataclass
 class BatchCulturalEvolutionTournamentResults:
+    config: BatchCulturalEvolutionConfig
     runs: list[CulturalEvolutionResults]
     _run_summary_df: pd.DataFrame = field(default=None, init=False, repr=False)
     _gene_summary_df: pd.DataFrame = field(default=None, init=False, repr=False)
@@ -1301,13 +1303,13 @@ class BatchCulturalEvolutionTournamentResults:
 
         return "\n".join(lines)
 
-    def plots(self, output_dir: str | Path):
+    def plots(self, filepath: str | None = None):
         """Create all plots including individual runs and aggregates."""
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        savepath = self.config.output_dir if filepath is None else Path(filepath)
+        savepath.mkdir(parents=True, exist_ok=True)
 
         # Plot individual runs
-        individual_dir = output_dir / "individual_runs"
+        individual_dir = savepath / "individual_runs"
         individual_dir.mkdir(exist_ok=True)
         for idx, run in enumerate(self.runs):
             run_dir = individual_dir / f"run_{idx:03d}"
@@ -1316,34 +1318,40 @@ class BatchCulturalEvolutionTournamentResults:
     def serialise(self) -> dict:
         """Serialize to dictionary for JSON storage."""
         return {
+            'config': asdict(self.config),
             'runs': [run.serialise() for run in self.runs],
-            'result_type': 'MultiRunCulturalEvolutionResults'
+            'result_type': 'BatchCulturalEvolutionTournamentResults'
         }
 
-    def save(self, filepath: str) -> None:
+    def save(self, filepath: str | None = None) -> None:
         """Save results to JSON file."""
-        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
-        with open(filepath, 'w') as f:
+        savepath = self.config.output_dir if filepath is None else Path(filepath)
+        Path(savepath).mkdir(parents=True, exist_ok=True)
+        (savepath / "results.txt").write_text(str(self))
+        with open(savepath / "results.json", 'w') as f:
             json.dump(self.serialise(), f, indent=2)
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'MultiRunCulturalEvolutionResults':
-        """Load MultiRunCulturalEvolutionResults from dictionary data."""
+    def from_dict(cls, data: dict) -> 'BatchCulturalEvolutionTournamentResults':
+        """Load BatchCulturalEvolutionTournamentResults from dictionary data."""
+
+        config = BatchCulturalEvolutionConfig(**data['config'])
+
         runs = [
             CulturalEvolutionResults.from_dict(run_data)
             for run_data in data['runs']
         ]
-        return cls(runs=runs)
+        return cls(config=config, runs=runs)
 
     @classmethod
-    def load(cls, filepath: str) -> 'MultiRunCulturalEvolutionResults':
-        """Load MultiRunCulturalEvolutionResults from JSON file."""
+    def load(cls, filepath: str) -> 'BatchCulturalEvolutionTournamentResults':
+        """Load BatchCulturalEvolutionTournamentResults from JSON file."""
         with open(filepath, 'r') as f:
             data = json.load(f)
 
-        if data['result_type'] != 'MultiRunCulturalEvolutionResults':
+        if data['result_type'] != 'BatchCulturalEvolutionTournamentResults':
             raise ValueError(
-                f"Expected MultiRunCulturalEvolutionResults, got {data['result_type']}"
+                f"Expected BatchCulturalEvolutionTournamentResults, got {data['result_type']}"
             )
 
         return cls.from_dict(data)

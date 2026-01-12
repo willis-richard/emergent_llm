@@ -6,6 +6,7 @@ PROVIDER_MODELS=(
     "google gemini-2.5-flash"
     "anthropic claude-haiku-4-5"
 )
+EVOLUTION_PLAYERS=(4 64)
 
 # for game in "${GAMES[@]}"; do
 #     for pm in "${PROVIDER_MODELS[@]}"; do
@@ -51,7 +52,7 @@ PROVIDER_MODELS=(
 # done
 
 for game in "${GAMES[@]}"; do
-    for n_players in (4 64); do
+    for n_players in "${EVOLUTION_PLAYERS[@]}"; do
         python scripts/run_cultural_evolution.py \
             --game ${game} \
             --n_players $n_players \
