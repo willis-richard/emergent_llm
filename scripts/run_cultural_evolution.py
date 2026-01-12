@@ -91,6 +91,10 @@ def parse_args():
                         type=str,
                         default="results",
                         help="Output directory for results")
+
+    parser.add_argument("--compress",
+                        action="store_true",
+                        help="Whether the outputs should be compressed")
     parser.add_argument(
         '-d',
         '--debug',
@@ -124,6 +128,7 @@ if __name__ == "__main__":
         n_runs=args.n_runs,
         n_processes=args.n_processes,
         results_dir=args.output_dir,
+        compress=args.compress,
         strategies_dir=args.strategies_dir,
         game_name=args.game,
         models=args.models)

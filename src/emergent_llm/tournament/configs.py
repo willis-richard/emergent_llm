@@ -153,6 +153,7 @@ class BatchCulturalEvolutionConfig:
     n_runs: int
     n_processes: int
     results_dir: str
+    compress: bool
 
     strategies_dir: str
     game_name: str

@@ -1,4 +1,5 @@
 """Tournament results dataclasses."""
+import gzip
 import json
 from collections import Counter
 import math
@@ -23,6 +24,30 @@ from emergent_llm.tournament.configs import (
 
 FIGSIZE, FORMAT = setup('3_col_paper')
 
+
+def _load_json(filepath: Path) -> dict:
+    """Load JSON from gzipped or plain file based on extension."""
+    filepath = Path(filepath)
+    if filepath.suffix == '.gz':
+        with gzip.open(filepath, 'rt', encoding='utf-8') as f:
+            return json.load(f)
+    else:
+        with open(filepath, 'r') as f:
+            return json.load(f)
+
+
+def _save_json(filepath: Path, data: dict) -> None:
+    """Save JSON to gzipped or plain file based on extension."""
+    filepath = Path(filepath)
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    if filepath.suffix == '.gz':
+        with gzip.open(filepath, 'wt', encoding='utf-8') as f:
+            json.dump(data, f)
+    else:
+        with open(filepath, 'w') as f:
+            json.dump(data, f, indent=2)
+
+
 @dataclass
 class MatchResult:
     """Results from a single match."""
@@ -31,16 +56,24 @@ class MatchResult:
     total_payoffs: list[float]
     total_cooperations: list[int]
 
+    def serialise(self, player_id_to_index: dict[PlayerId, int]) -> dict:
+        """Serialize match result with player indices."""
+        return {
+            'match_id': self.match_id,
+            'player_indices': [player_id_to_index[pid] for pid in self.player_ids],
+            'total_payoffs': self.total_payoffs,
+            'total_cooperations': self.total_cooperations,
+        }
+
     @classmethod
-    def from_dict(cls, data: dict) -> 'MatchResult':
+    def from_dict(cls, data: dict, index_to_player_id: list[PlayerId]) -> 'MatchResult':
         """Load MatchResult from dictionary data."""
         return cls(
             match_id=data['match_id'],
-            player_ids=[
-                PlayerId.from_dict(pid_data) for pid_data in data['player_ids']
-            ],
+            player_ids=[index_to_player_id[i] for i in data['player_indices']],
             total_payoffs=data['total_payoffs'],
-            total_cooperations=data['total_cooperations'])
+            total_cooperations=data['total_cooperations']
+        )
 
 
 @dataclass
@@ -189,18 +222,19 @@ class FairTournamentResults:
 
     def serialise(self) -> dict:
         """Serialize to dictionary for JSON storage."""
+        player_id_to_index = {pid: i for i, pid in enumerate(self.player_ids)}
         return {
             'config': self.config.serialise(),
             'player_ids': [asdict(pid) for pid in self.player_ids],
-            'match_results': [asdict(mr) for mr in self.match_results],
+            'match_results': [
+                mr.serialise(player_id_to_index) for mr in self.match_results
+            ],
             'result_type': 'FairTournamentResults'
         }
 
     def save(self, filepath: str) -> None:
-        """Save results to JSON file."""
-        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
-        with open(filepath, 'w') as f:
-            json.dump(self.serialise(), f, indent=2)
+        """Save results to gzipped JSON file."""
+        _save_json(Path(filepath), self.serialise())
 
     @classmethod
     def from_dict(cls, data: dict) -> 'FairTournamentResults':
@@ -210,23 +244,21 @@ class FairTournamentResults:
             PlayerId.from_dict(pid_data) for pid_data in data['player_ids']
         ]
         match_results = [
-            MatchResult.from_dict(mr_data) for mr_data in data['match_results']
+            MatchResult.from_dict(mr_data, player_ids)
+            for mr_data in data['match_results']
         ]
-
         return cls(config=config,
                    player_ids=player_ids,
                    match_results=match_results)
 
     @classmethod
     def load(cls, filepath: str) -> 'FairTournamentResults':
-        """Load FairTournamentResults from JSON file."""
-        with open(filepath, 'r') as f:
-            data = json.load(f)
-
-        if data['result_type'] != 'FairTournamentResults':
+        """Load FairTournamentResults from JSON file (gzipped or plain)."""
+        data = _load_json(Path(filepath))
+        if data.get('result_type') != 'FairTournamentResults':
             raise ValueError(
-                f"Expected FairTournamentResults, got {data['result_type']}")
-
+                f"Expected FairTournamentResults, got {data.get('result_type')}"
+            )
         return cls.from_dict(data)
 
 
@@ -319,6 +351,8 @@ class MixtureTournamentResults:
 
     def serialise(self) -> dict:
         """Serialize to dictionary for JSON storage."""
+        all_players = self.collective_player_ids + self.exploitative_player_ids
+        player_id_to_index = {pid: i for i, pid in enumerate(all_players)}
         return {
             'config': self.config.serialise(),
             'collective_player_ids': [
@@ -327,20 +361,19 @@ class MixtureTournamentResults:
             'exploitative_player_ids': [
                 asdict(pid) for pid in self.exploitative_player_ids
             ],
-            'match_results': [asdict(mr) for mr in self.match_results],
+            'match_results': [
+                mr.serialise(player_id_to_index) for mr in self.match_results
+            ],
             'result_type': 'MixtureTournamentResults'
         }
 
     def save(self, filepath: str) -> None:
-        """Save results to JSON file."""
-        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
-        with open(filepath, 'w') as f:
-            json.dump(self.serialise(), f, indent=2)
+        """Save results to gzipped JSON file."""
+        _save_json(Path(filepath), self.serialise())
 
     @classmethod
     def from_dict(cls, data: dict) -> 'MixtureTournamentResults':
         """Load MixtureTournamentResults from dictionary data."""
-
         config = BaseTournamentConfig.from_dict(data['config'])
         collective_player_ids = [
             PlayerId.from_dict(pid_data)
@@ -350,10 +383,11 @@ class MixtureTournamentResults:
             PlayerId.from_dict(pid_data)
             for pid_data in data['exploitative_player_ids']
         ]
+        all_players = collective_player_ids + exploitative_player_ids
         match_results = [
-            MatchResult.from_dict(mr_data) for mr_data in data['match_results']
+            MatchResult.from_dict(mr_data, all_players)
+            for mr_data in data['match_results']
         ]
-
         return cls(config=config,
                    collective_player_ids=collective_player_ids,
                    exploitative_player_ids=exploitative_player_ids,
@@ -361,14 +395,12 @@ class MixtureTournamentResults:
 
     @classmethod
     def load(cls, filepath: str) -> 'MixtureTournamentResults':
-        """Load MixtureTournamentResults from JSON file."""
-        with open(filepath, 'r') as f:
-            data = json.load(f)
-
-        if data['result_type'] != 'MixtureTournamentResults':
+        """Load MixtureTournamentResults from JSON file (gzipped or plain)."""
+        data = _load_json(Path(filepath))
+        if data.get('result_type') != 'MixtureTournamentResults':
             raise ValueError(
-                f"Expected MixtureTournamentResults, got {data['result_type']}")
-
+                f"Expected MixtureTournamentResults, got {data.get('result_type')}"
+            )
         return cls.from_dict(data)
 
     def create_schelling_diagram(self, output_dir: Path):
@@ -511,11 +543,9 @@ class BatchFairTournamentResults:
         }
 
     def save(self) -> None:
-        """Save results to JSON file."""
-        filepath = Path(self.config.results_dir) / "batch_fair/results.json"
-        filepath.parent.mkdir(parents=True, exist_ok=True)
-        with open(filepath, 'w') as f:
-            json.dump(self.serialise(), f, indent=2)
+        """Save results to gzipped JSON file."""
+        filepath = Path(self.config.results_dir) / "batch_fair/results.json.gz"
+        _save_json(filepath, self.serialise())
 
     @classmethod
     def from_dict(cls, data: dict) -> 'BatchFairTournamentResults':
@@ -530,15 +560,12 @@ class BatchFairTournamentResults:
 
     @classmethod
     def load(cls, filepath: str) -> 'BatchFairTournamentResults':
-        """Load BatchFairTournamentResults from JSON file."""
-        with open(filepath, 'r') as f:
-            data = json.load(f)
-
-        if data['result_type'] != 'BatchFairTournamentResults':
+        """Load BatchFairTournamentResults from JSON file (gzipped or plain)."""
+        data = _load_json(Path(filepath))
+        if data.get('result_type') != 'BatchFairTournamentResults':
             raise ValueError(
-                f"Expected BatchFairTournamentResults, got {data['result_type']}"
+                f"Expected BatchFairTournamentResults, got {data.get('result_type')}"
             )
-
         return cls.from_dict(data)
 
 
@@ -618,12 +645,10 @@ class BatchMixtureTournamentResults:
         }
 
     def save(self) -> None:
-        """Save results to JSON file."""
-        filepath = Path(self.config.results_dir) / "batch_mixture/results.json"
-        filepath.parent.mkdir(parents=True, exist_ok=True)
-        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
-        with open(filepath, 'w') as f:
-            json.dump(self.serialise(), f, indent=2)
+        """Save results to gzipped JSON file."""
+        filepath = Path(
+            self.config.results_dir) / "batch_mixture/results.json.gz"
+        _save_json(filepath, self.serialise())
 
     @classmethod
     def from_dict(cls, data: dict) -> 'BatchMixtureTournamentResults':
@@ -638,15 +663,12 @@ class BatchMixtureTournamentResults:
 
     @classmethod
     def load(cls, filepath: str) -> 'BatchMixtureTournamentResults':
-        """Load BatchMixtureTournamentResults from JSON file."""
-        with open(filepath, 'r') as f:
-            data = json.load(f)
-
-        if data['result_type'] != 'BatchMixtureTournamentResults':
+        """Load BatchMixtureTournamentResults from JSON file (gzipped or plain)."""
+        data = _load_json(Path(filepath))
+        if data.get('result_type') != 'BatchMixtureTournamentResults':
             raise ValueError(
-                f"Expected BatchMixtureTournamentResults, got {data['result_type']}"
+                f"Expected BatchMixtureTournamentResults, got {data.get('result_type')}"
             )
-
         return cls.from_dict(data)
 
     def create_schelling_diagrams(self):
@@ -935,10 +957,8 @@ class CulturalEvolutionResults:
         }
 
     def save(self, filepath: str) -> None:
-        """Save results to JSON file."""
-        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
-        with open(filepath, 'w') as f:
-            json.dump(self.serialise(), f, indent=2)
+        """Save results to gzipped JSON file."""
+        _save_json(Path(filepath), self.serialise())
 
     @classmethod
     def from_dict(cls, data: dict) -> 'CulturalEvolutionResults':
@@ -964,27 +984,23 @@ class CulturalEvolutionResults:
             repetitions_per_generation=config_data['repetitions_per_generation']
         )
 
-        # Parse gene frequency dictionaries
         final_gene_frequencies = {
             Gene.from_dict(item['gene']): item['frequency']
             for item in data['final_gene_frequencies']
         }
 
-        gene_frequency_history = [
-            {Gene.from_dict(item['gene']): item['frequency'] for item in gen_freqs}
-            for gen_freqs in data['gene_frequency_history']
-        ]
+        gene_frequency_history = [{
+            Gene.from_dict(item['gene']): item['frequency'] for item in gen_freqs
+        } for gen_freqs in data['gene_frequency_history']]
 
-        # Reconstruct generation results
         generation_results = [
             FairTournamentResults.from_dict(result_data)
             for result_data in data['generation_results']
         ]
 
-        survivor_history = [
-            [SurvivorRecord.from_dict(record) for record in gen_survivors]
-            for gen_survivors in data['survivor_history']
-        ]
+        survivor_history = [[
+            SurvivorRecord.from_dict(record) for record in gen_survivors
+        ] for gen_survivors in data['survivor_history']]
 
         return cls(config=config,
                    final_generation=data['final_generation'],
@@ -995,14 +1011,12 @@ class CulturalEvolutionResults:
 
     @classmethod
     def load(cls, filepath: str) -> 'CulturalEvolutionResults':
-        """Load CulturalEvolutionResults from JSON file."""
-        with open(filepath, 'r') as f:
-            data = json.load(f)
-
-        if data['result_type'] != 'CulturalEvolutionResults':
+        """Load CulturalEvolutionResults from JSON file (gzipped or plain)."""
+        data = _load_json(Path(filepath))
+        if data.get('result_type') != 'CulturalEvolutionResults':
             raise ValueError(
-                f"Expected CulturalEvolutionResults, got {data['result_type']}")
-
+                f"Expected CulturalEvolutionResults, got {data.get('result_type')}"
+            )
         return cls.from_dict(data)
 
     def plot_gene_frequencies(self, output_dir: Path):
@@ -1324,12 +1338,12 @@ class BatchCulturalEvolutionTournamentResults:
         }
 
     def save(self, filepath: str | None = None) -> None:
-        """Save results to JSON file."""
-        savepath = self.config.output_dir if filepath is None else Path(filepath)
+        """Save results to gzipped JSON file."""
+        savepath = self.config.output_dir if filepath is None else Path(
+            filepath)
         Path(savepath).mkdir(parents=True, exist_ok=True)
         (savepath / "results.txt").write_text(str(self))
-        with open(savepath / "results.json", 'w') as f:
-            json.dump(self.serialise(), f, indent=2)
+        _save_json(savepath / "results.json.gz", self.serialise())
 
     @classmethod
     def from_dict(cls, data: dict) -> 'BatchCulturalEvolutionTournamentResults':
@@ -1345,13 +1359,10 @@ class BatchCulturalEvolutionTournamentResults:
 
     @classmethod
     def load(cls, filepath: str) -> 'BatchCulturalEvolutionTournamentResults':
-        """Load BatchCulturalEvolutionTournamentResults from JSON file."""
-        with open(filepath, 'r') as f:
-            data = json.load(f)
-
-        if data['result_type'] != 'BatchCulturalEvolutionTournamentResults':
+        """Load BatchCulturalEvolutionTournamentResults from JSON file (gzipped or plain)."""
+        data = _load_json(Path(filepath))
+        if data.get('result_type') != 'BatchCulturalEvolutionTournamentResults':
             raise ValueError(
-                f"Expected BatchCulturalEvolutionTournamentResults, got {data['result_type']}"
+                f"Expected BatchCulturalEvolutionTournamentResults, got {data.get('result_type')}"
             )
-
         return cls.from_dict(data)
