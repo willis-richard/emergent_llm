@@ -25,10 +25,10 @@ def parse_arguments():
                        default="public_goods", help="Game type")
     parser.add_argument("--matches", type=int, default=100,
                        help="Number of matches per mixture ratio")
-    parser.add_argument("--processes", type=int, default=1,
-                       help="Number of processes to use")
     parser.add_argument("--group-sizes", type=int, nargs="+", default=[4, 16, 64],
                        help="Group sizes to test")
+    parser.add_argument("--processes", type=int, default=1,
+                       help="Number of processes to use")
     parser.add_argument("--results_dir", type=str, default="results")
     parser.add_argument("--output_style", choices=["full", "compress", "summary"],
                        default="full", help="What compression to apply to the results")

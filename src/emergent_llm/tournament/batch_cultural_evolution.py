@@ -11,7 +11,7 @@ from emergent_llm.tournament.results import CulturalEvolutionResults, BatchCultu
 
 def _get_run_dir(output_dir: Path, run_id: int) -> Path:
     """Get directory for a specific run's results."""
-    return Path(output_dir) / "runs" / f"run_{run_id:03d}"
+    return Path(output_dir) / "runs" / f"run_{run_id:04d}"
 
 
 def _run_single_experiment(

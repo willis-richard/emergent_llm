@@ -51,13 +51,12 @@ def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Run PCA for strategies")
 
-    parser.add_argument(
-        "--games",
-        type=str,
-        nargs='+',
-        default=["public_goods", "collective_risk", "common_pool"],
-        choices=["public_goods", "collective_risk", "common_pool"],
-        help="Game type(s) to analyse")
+    parser.add_argument("--games",
+                        type=str,
+                        nargs='+',
+                        default=["public_goods", "collective_risk", "common_pool"],
+                        choices=["public_goods", "collective_risk", "common_pool"],
+                        help="Game type(s) to analyse")
     parser.add_argument("--strategies_dir",
                         type=str,
                         default="strategies",
@@ -96,6 +95,9 @@ def parse_args():
     parser.add_argument("--plot_extrema",
                         action='store_true',
                         help="Label the corner strategies")
+    parser.add_argument("--results_dir",
+                        type=str,
+                        default="results")
 
     return parser.parse_args()
 
@@ -104,10 +106,12 @@ def parse_args():
 # CACHING
 # =============================================================================
 
+def get_output_dir(args) -> Path:
+    return Path(args.results_dir) / "diversity"
 
 def get_cache_path(game_name: str, gene: Gene, args) -> Path:
-    cache_dir = Path("cache")
-    cache_dir.mkdir(exist_ok=True)
+    cache_dir = get_output_dir(args) / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
     filename = f"{game_name}_{gene}_p{args.n_players}_r{args.n_rounds}_g{args.n_games}"
     if args.n_strategies:
         filename += f"_s{args.n_strategies}"
@@ -212,24 +216,20 @@ def create_baseline_players(n_players: int, n_rounds: int) -> list[SimplePlayer]
     baseline_players = [
         SimplePlayer("All-D", Defector),
         SimplePlayer("All-C", Cooperator),
-        SimplePlayer("LR-All-C",
+        SimplePlayer("All-C,LR-D",
                      SpecialRounds(Cooperator, Defector, [n_rounds - 1])),
+        SimplePlayer("All-D,LR-C",
+                     SpecialRounds(Defector, Cooperator, [n_rounds - 1])),
     ]
     baseline_players += [
         SimplePlayer(f"CC-{i}", ConditionalCooperator(C, i))
-        for i in range(1, n_players - 1)
+        for i in [2]
     ]
     baseline_players += [
         SimplePlayer(
-            f"LR-CC-{i}",
+            f"CC-{i},LR-D",
             SpecialRounds(ConditionalCooperator(C, i), Defector,
-                          [n_rounds - 1])) for i in range(1, n_players - 1)
-    ]
-    baseline_players += [
-        SimplePlayer(
-            "test-3",
-            SpecialRounds(HistoricalCooperator(C, 3, True),
-                          ConditionalCooperator(C, 1), [n_rounds - 1]))
+                          [n_rounds - 1])) for i in [2]
     ]
     return baseline_players
 
@@ -498,6 +498,7 @@ def plot_extrema(extrema_info, ax):
 
 if __name__ == "__main__":
     args = parse_args()
+    output_dir = get_output_dir(args)
 
     # Globals shared across all games
     all_actions = tuple(product([D, C], repeat=args.n_rounds - 1))
@@ -595,7 +596,7 @@ if __name__ == "__main__":
     plt.ylabel('Cumulative Explained Variance')
     plt.title('Combined PCA Scree Plot')
     plt.legend()
-    plt.savefig(f"scree_combined.{FORMAT}", format=FORMAT)
+    plt.savefig(output_dir / f"scree_combined.{FORMAT}", format=FORMAT)
     plt.close()
 
     # Individual plots per game (using combined PCA)
@@ -616,7 +617,7 @@ if __name__ == "__main__":
             plot_extrema(extrema_info, ax)
 
         plt.tight_layout()
-        plt.savefig(f"pca_{game_name}.{FORMAT}", format=FORMAT, bbox_inches='tight')
+        plt.savefig(output_dir / f"pca_{game_name}.{FORMAT}", format=FORMAT, bbox_inches='tight')
         plt.close()
 
     # ==========================================================================
