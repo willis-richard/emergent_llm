@@ -87,18 +87,12 @@ def parse_args():
                         help="Number of parallel processes")
 
     # Output
-    parser.add_argument("--output_dir",
-                        type=str,
-                        default="results",
-                        help="Output directory for results")
-
-    parser.add_argument("--compress",
-                        action="store_true",
-                        help="Whether the outputs should be compressed")
+    parser.add_argument("--results_dir", type=str, default="results")
+    parser.add_argument("--output_style", choices=["full", "compress", "summary"],
+                       default="full", help="What compression to apply to the results")
     parser.add_argument(
         '-d',
         '--debug',
-        help="Print lots of debugging statements",
         action="store_const",
         dest="loglevel",
         const=logging.DEBUG,
@@ -127,8 +121,8 @@ if __name__ == "__main__":
         evolution_config=evolution_config,
         n_runs=args.n_runs,
         n_processes=args.n_processes,
-        results_dir=args.output_dir,
-        compress=args.compress,
+        results_dir=args.results_dir,
+        output_style=args.output_style,
         strategies_dir=args.strategies_dir,
         game_name=args.game,
         models=args.models)

@@ -611,7 +611,7 @@ class MixtureTournamentResults:
             )
         return cls.from_dict(data)
 
-    def create_schelling_diagram(self, output_dir: Path):
+    def create_schelling_diagram(self, output_dir: str):
         sorted_results = self.summary.results_df.sort_values('n_collective')
 
         fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
@@ -1015,10 +1015,6 @@ class BatchFairTournamentResults:
     def combined_df(self) -> pd.DataFrame:
         return self._combined_df
 
-    @property
-    def output_dir(self) -> Path:
-        return Path(self.config.results_dir) / "batch_fair"
-
     def __str__(self) -> str:
         lines = [
             f"Batch Fair Tournament Results",
@@ -1047,7 +1043,7 @@ class BatchFairTournamentResults:
         }
 
     def save(self) -> Path:
-        filepath = self.output_dir / f"{self.FILENAME}{self.config.output_style.get_suffix()}"
+        filepath = Path(self.config.output_dir) / f"{self.FILENAME}{self.config.output_style.get_suffix()}"
         _save_json(filepath, self.serialise())
         return filepath
 
@@ -1110,10 +1106,6 @@ class BatchMixtureTournamentResults:
     def summary_df(self) -> pd.DataFrame:
         return self._summary_df
 
-    @property
-    def output_dir(self) -> Path:
-        return Path(self.config.results_dir) / "batch_mixture"
-
     def __str__(self) -> str:
         pivot_df = self.combined_df.pivot_table(values='mean_social_welfare',
                                                 index='collective_ratio',
@@ -1137,7 +1129,7 @@ class BatchMixtureTournamentResults:
         }
 
     def save(self) -> Path:
-        filepath = self.output_dir / f"{self.FILENAME}{self.config.output_style.get_suffix()}"
+        filepath = Path(self.config.output_dir) / f"{self.FILENAME}{self.config.output_style.get_suffix()}"
         _save_json(filepath, self.serialise())
         return filepath
 
@@ -1162,7 +1154,7 @@ class BatchMixtureTournamentResults:
 
     def create_schelling_diagrams(self):
         for group_size, mixture_result in self.mixture_results.items():
-            mixture_result.create_schelling_diagram(self.output_dir)
+            mixture_result.create_schelling_diagram(self.config.output_dir)
 
     def create_social_welfare_diagram(self):
         fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
@@ -1204,7 +1196,7 @@ class BatchMixtureTournamentResults:
                   handletextpad=0.4,
                   columnspacing=0.6)
 
-        output_file = self.output_dir / f"social_welfare.{FORMAT}"
+        output_file = Path(self.config.output_dir) / f"social_welfare.{FORMAT}"
         output_file.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_file, format=FORMAT, bbox_inches='tight')
         plt.close(fig)
@@ -1256,7 +1248,7 @@ class BatchMixtureTournamentResults:
                   handletextpad=0.4,
                   columnspacing=0.6)
 
-        output_file = self.output_dir / f"schelling_difference.{FORMAT}"
+        output_file = Path(self.config.output_dir) / f"schelling_difference.{FORMAT}"
         output_file.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_file, format=FORMAT, bbox_inches='tight')
         plt.close(fig)

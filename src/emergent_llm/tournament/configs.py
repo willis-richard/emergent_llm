@@ -58,20 +58,19 @@ class BaseTournamentConfig:
 
 
 @dataclass
+@dataclass
 class BatchTournamentConfig:
-    """Configuration for multi-group fair tournament."""
+    """Configuration for batch tournaments (fair or mixture)."""
     group_sizes: list[int]
     repetitions: int
-    processes: int
-    results_dir: str
-    output_style: OutputStyle
     generator_name: str  # Key from STANDARD_GENERATORS
+    processes: int
+    output_dir: str
+    output_style: OutputStyle
 
     def __post_init__(self):
         if isinstance(self.output_style, str):
             self.output_style = OutputStyle(self.output_style)
-
-        # Validate generator name exists.
         if self.generator_name not in STANDARD_GENERATORS:
             available = list(STANDARD_GENERATORS.keys())
             raise ValueError(
@@ -80,7 +79,6 @@ class BatchTournamentConfig:
 
     @property
     def game_description_generator(self) -> Callable[..., GameDescription]:
-        """Get the game description generator function."""
         return STANDARD_GENERATORS[self.generator_name]
 
 
@@ -176,7 +174,6 @@ class BatchCulturalEvolutionConfig:
             raise ValueError("n_processes must be positive")
         if isinstance(self.output_style, str):
             self.output_style = OutputStyle(self.output_style)
-
 
     @property
     def output_dir(self) -> Path:

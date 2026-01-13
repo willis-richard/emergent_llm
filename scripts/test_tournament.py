@@ -121,10 +121,10 @@ def run_batch_fair_tournament(generator_name):
     config = BatchTournamentConfig(
         group_sizes=[2,4,8],
         repetitions=2,
+        generator_name=generator_name,
         processes=2,
-        results_dir="./test",
+        output_dir="./test/self_play",
         output_style="full",
-        generator_name=generator_name
     )
 
     strategies = [CollectiveStrategy] * 16 + [ExploitativeStrategy] * 16
@@ -143,10 +143,10 @@ def run_batch_mixture_tournament(generator_name):
     config = BatchTournamentConfig(
         group_sizes=[2,4,8],
         repetitions=2,
+        generator_name=generator_name,
         processes=2,
-        results_dir="./test",
+        output_dir="./test/self_play",
         output_style="compressed",
-        generator_name=generator_name
     )
 
     # Create and run tournament
@@ -242,7 +242,7 @@ def main():
     print(b_cpr_results)
     b_cpr_results.save()
 
-    check = BatchFairTournamentResults.load("./test/batch_fair")
+    check = BatchFairTournamentResults.load("./test/self_play")
     print(check)
 
     print("\n=== BATCH MIXTURE CPR ===")
@@ -250,7 +250,7 @@ def main():
     print(b_cpr_results)
     b_cpr_results.save()
 
-    check = BatchMixtureTournamentResults.load("./test/batch_mixture")
+    check = BatchMixtureTournamentResults.load("./test/self_play")
     print(check)
 
     b_cpr_results.create_schelling_diagrams()
