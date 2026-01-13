@@ -1,18 +1,24 @@
 from dataclasses import asdict, dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Callable
 
 from emergent_llm.common import GameDescription, Gene
 from emergent_llm.games import (
     STANDARD_GENERATORS,
-    BaseGame,
     CollectiveRiskDescription,
-    CollectiveRiskGame,
     CommonPoolDescription,
-    CommonPoolGame,
     PublicGoodsDescription,
-    PublicGoodsGame,
 )
+
+
+class OutputStyle(StrEnum):
+    FULL = "full"
+    COMPRESSED = "compressed"
+    SUMMARY = "summary"
+
+    def get_suffix(self) -> str:
+        return ".json.gz" if self.value == OutputStyle.COMPRESSED else ".json"
 
 
 @dataclass(frozen=True)
@@ -58,11 +64,14 @@ class BatchTournamentConfig:
     repetitions: int
     processes: int
     results_dir: str
-    compress: bool
+    output_style: OutputStyle
     generator_name: str  # Key from STANDARD_GENERATORS
 
     def __post_init__(self):
-        """Validate generator name exists."""
+        if isinstance(self.output_style, str):
+            self.output_style = OutputStyle(self.output_style)
+
+        # Validate generator name exists.
         if self.generator_name not in STANDARD_GENERATORS:
             available = list(STANDARD_GENERATORS.keys())
             raise ValueError(
@@ -74,11 +83,6 @@ class BatchTournamentConfig:
         """Get the game description generator function."""
         return STANDARD_GENERATORS[self.generator_name]
 
-    @classmethod
-    def from_dict(cls, data: dict) -> 'BatchTournamentConfig':
-        """Load BatchTournamentConfig from dictionary data."""
-        return cls(**data)  # Simple since all fields are basic types
-
 
 @dataclass(frozen=True)
 class SurvivorRecord:
@@ -89,7 +93,10 @@ class SurvivorRecord:
 
     def to_dict(self) -> dict:
         return {
-            'gene': {'model': self.gene.model, 'attitude': self.gene.attitude.value},
+            'gene': {
+                'model': self.gene.model,
+                'attitude': self.gene.attitude.value
+            },
             'strategy_name': self.strategy_name,
             'fitness': self.fitness
         }
@@ -97,7 +104,9 @@ class SurvivorRecord:
     @classmethod
     def from_dict(cls, data: dict) -> 'SurvivorRecord':
         gene = Gene.from_dict(data['gene'])
-        return cls(gene=gene, strategy_name=data['strategy_name'], fitness=data['fitness'])
+        return cls(gene=gene,
+                   strategy_name=data['strategy_name'],
+                   fitness=data['fitness'])
 
     @property
     def name(self):
@@ -154,7 +163,7 @@ class BatchCulturalEvolutionConfig:
     n_runs: int
     n_processes: int
     results_dir: str
-    compress: bool
+    output_style: OutputStyle
 
     strategies_dir: str
     game_name: str
@@ -165,11 +174,16 @@ class BatchCulturalEvolutionConfig:
             raise ValueError("n_runs must be positive")
         if self.n_processes <= 0:
             raise ValueError("n_processes must be positive")
+        if isinstance(self.output_style, str):
+            self.output_style = OutputStyle(self.output_style)
+
 
     @property
     def output_dir(self) -> Path:
         """Full output directory including experiment subdirectory."""
-        return Path(self.results_dir) / "cultural_evolution" / self.game_name / self._experiment_dir_name
+        return Path(
+            self.results_dir
+        ) / "cultural_evolution" / self.game_name / self._experiment_dir_name
 
     @property
     def _experiment_dir_name(self) -> str:

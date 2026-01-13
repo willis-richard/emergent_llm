@@ -6,7 +6,7 @@ from pathos.multiprocessing import ProcessPool
 from emergent_llm.players import LLMPlayer
 from emergent_llm.tournament.base_tournament import BaseTournament
 from emergent_llm.tournament.configs import BaseTournamentConfig, MixtureKey
-from emergent_llm.tournament.results import MatchResult, MixtureTournamentResults
+from emergent_llm.tournament.results import MatchResult, MixtureTournamentResults, MixtureTournamentSummary
 
 
 class MixtureTournament(BaseTournament):
@@ -64,10 +64,14 @@ class MixtureTournament(BaseTournament):
             entry for sublist in results for entry in sublist
         ]
 
+        summary = MixtureTournamentSummary.from_match_results(
+            match_results, self.config)
+
         return MixtureTournamentResults(
             config=self.config,
             collective_player_ids=[p.id for p in self.collective_players],
             exploitative_player_ids=[p.id for p in self.exploitative_players],
+            summary=summary,
             match_results=match_results)
 
     def _run_mixture(self, mixture_key: MixtureKey) -> list[MatchResult]:

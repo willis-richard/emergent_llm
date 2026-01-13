@@ -11,7 +11,7 @@ from emergent_llm.generation.strategy_registry import StrategyRegistry
 from emergent_llm.players import BaseStrategy, LLMPlayer, StrategySpec
 from emergent_llm.tournament.configs import BaseTournamentConfig, CulturalEvolutionConfig, SurvivorRecord
 from emergent_llm.tournament.fair_tournament import FairTournament
-from emergent_llm.tournament.results import CulturalEvolutionResults
+from emergent_llm.tournament.results import CulturalEvolutionResults, CulturalEvolutionSummary
 
 
 class CulturalEvolution:
@@ -70,33 +70,38 @@ class CulturalEvolution:
         while self.generation < self.config.max_generations:
             self.logger.info(f"Generation {self.generation}")
 
-            # Record gene frequencies
             frequencies = self._calculate_gene_frequencies()
             self.gene_frequencies.append(frequencies)
             freq_str = ", ".join(
                 f"{gene}: {freq:.2%}" for gene, freq in frequencies.items())
             self.logger.info(f"Gene frequencies: {freq_str}")
 
-            # Check termination
             if self._check_threshold(frequencies):
                 self.logger.info("Threshold reached - terminating")
                 break
 
-            # Run generation
             self._run_generation()
             self.generation += 1
         else:
-            # Final frequency calculation if we exited via max generations
             frequencies = self._calculate_gene_frequencies()
             self.gene_frequencies.append(frequencies)
+
+        summary = CulturalEvolutionSummary.from_raw_data(
+            self.gene_frequencies,
+            self.survivor_history,
+            self.generation_results,
+            self.config
+        )
 
         return CulturalEvolutionResults(
             config=self.config,
             final_generation=self.generation,
             final_gene_frequencies=frequencies,
             gene_frequency_history=self.gene_frequencies,
-            generation_results=self.generation_results,
-            survivor_history=self.survivor_history)
+            survivor_history=self.survivor_history,
+            summary=summary,
+            generation_results=self.generation_results
+        )
 
     def _run_generation(self):
         """Run one generation: compete, select, reproduce."""

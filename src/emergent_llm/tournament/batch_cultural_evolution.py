@@ -4,27 +4,21 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 from emergent_llm.generation import StrategyRegistry
-from emergent_llm.tournament.configs import BatchCulturalEvolutionConfig
+from emergent_llm.tournament.configs import BatchCulturalEvolutionConfig, OutputStyle
 from emergent_llm.tournament.cultural_evolution import CulturalEvolution
 from emergent_llm.tournament.results import CulturalEvolutionResults, BatchCulturalEvolutionResults
 
 
-def _get_run_path(output_dir: Path, run_id: int, compress: bool) -> Path:
-    """Get path for a specific run's results file."""
-    ext = ".json.gz" if compress else ".json"
-    return Path(output_dir) / "runs" / f"run_{run_id:03d}{ext}"
+def _get_run_dir(output_dir: Path, run_id: int) -> Path:
+    """Get directory for a specific run's results."""
+    return Path(output_dir) / "runs" / f"run_{run_id:03d}"
 
 
 def _run_single_experiment(
     run_id: int,
     config: BatchCulturalEvolutionConfig,
 ) -> tuple[int, CulturalEvolutionResults]:
-    """
-    Worker function that runs a single evolution experiment.
-
-    Creates its own registry to avoid pickling issues with ProcessPoolExecutor.
-    Saves result immediately upon completion.
-    """
+    """Worker function that runs a single evolution experiment."""
     logger = logging.getLogger(f"Run-{run_id}")
     logger.info(f"Starting run {run_id}")
 
@@ -37,9 +31,9 @@ def _run_single_experiment(
     tournament = CulturalEvolution(config.evolution_config, registry)
     result = tournament.run_tournament()
 
-    output_path = _get_run_path(config.output_dir, run_id, config.compress)
-    result.save(str(output_path))
-    logger.info(f"Completed run {run_id} - saved to {output_path}")
+    run_dir = _get_run_dir(config.output_dir, run_id)
+    result.save(run_dir, config.output_style)
+    logger.info(f"Completed run {run_id} - saved to {run_dir}")
 
     return run_id, result
 
@@ -81,13 +75,13 @@ class BatchCulturalEvolution:
 
         completed = set()
         for run_id in range(self.config.n_runs):
-            path = _get_run_path(self.config.output_dir, run_id, self.config.compress)
-            if path.exists():
+            run_dir = _get_run_dir(self.config.output_dir, run_id)
+            if run_dir.exists():
                 try:
-                    CulturalEvolutionResults.load(str(path))
+                    CulturalEvolutionResults.load(run_dir)
                     completed.add(run_id)
                 except Exception as e:
-                    self.logger.warning(f"Run {run_id} file exists but invalid: {e}")
+                    self.logger.warning(f"Run {run_id} dir exists but invalid: {e}")
         return completed
 
     def _run_pending(self, pending: list[int], completed: set[int]):
@@ -118,9 +112,9 @@ class BatchCulturalEvolution:
         """Load all completed run results from disk."""
         runs = []
         for run_id in range(self.config.n_runs):
-            path = _get_run_path(self.config.output_dir, run_id, self.config.compress)
-            if path.exists():
-                runs.append(CulturalEvolutionResults.load(str(path)))
+            run_dir = _get_run_dir(self.config.output_dir, run_id)
+            if run_dir.exists():
+                runs.append(CulturalEvolutionResults.load(run_dir))
             else:
                 self.logger.warning(f"Missing result for run {run_id}")
 

@@ -123,7 +123,7 @@ def run_batch_fair_tournament(generator_name):
         repetitions=2,
         processes=2,
         results_dir="./test",
-        compress=False,
+        output_style="full",
         generator_name=generator_name
     )
 
@@ -145,7 +145,7 @@ def run_batch_mixture_tournament(generator_name):
         repetitions=2,
         processes=2,
         results_dir="./test",
-        compress=False,
+        output_style="compressed",
         generator_name=generator_name
     )
 
@@ -187,7 +187,7 @@ def run_batch_cultural_evolution(game_description):
                                           n_runs=2,
                                           n_processes=2,
                                           results_dir="test",
-                                          compress=False,
+                                          output_style="summary",
                                           strategies_dir="strategies",
                                           game_name="public_goods")
 
@@ -220,9 +220,9 @@ def main():
     print("Running Fair Public Goods Tournament...")
     pgg_results = run_fair_tournament(pgg_description)
     print(pgg_results)
-    pgg_results.save("./test/fair_pgg_results.json")
+    pgg_results.save("./test/fair_pgg")
 
-    check = FairTournamentResults.load("./test/fair_pgg_results.json")
+    check = FairTournamentResults.load("./test/fair_pgg")
     print(check)
 
 
@@ -230,19 +230,19 @@ def main():
     print("\nRunning Mixture Collective Risk Tournament...")
     crd_results = run_mixture_tournament(crd_description)
     print(crd_results)
-    crd_results.save("./test/mixture_crd_results.json")
+    crd_results.save("./test/mixture_crd")
 
-    check = MixtureTournamentResults.load("./test/mixture_crd_results.json")
+    check = MixtureTournamentResults.load("./test/mixture_crd")
     print(check)
 
-    crd_results.create_schelling_diagram("./test/crd_schelling")
+    crd_results.create_schelling_diagram("./test/mixture_crd")
 
     print("\n=== BATCH FAIR CPR ===")
     b_cpr_results = run_batch_fair_tournament("common_pool_default")
     print(b_cpr_results)
     b_cpr_results.save()
 
-    check = BatchFairTournamentResults.load("./test/batch_fair/results.json")
+    check = BatchFairTournamentResults.load("./test/batch_fair")
     print(check)
 
     print("\n=== BATCH MIXTURE CPR ===")
@@ -250,7 +250,7 @@ def main():
     print(b_cpr_results)
     b_cpr_results.save()
 
-    check = BatchMixtureTournamentResults.load("./test/batch_mixture/results.json")
+    check = BatchMixtureTournamentResults.load("./test/batch_mixture")
     print(check)
 
     b_cpr_results.create_schelling_diagrams()
@@ -260,9 +260,9 @@ def main():
     print("\n=== CULTURAL EVOLUTION CPR ===")
     ce_results = run_cultural_evolution(cpr_description)
     print(ce_results)
-    ce_results.save("./test/ce_results.json")
+    ce_results.save("./test/ce_results")
 
-    check = CulturalEvolutionResults.load("./test/ce_results.json")
+    check = CulturalEvolutionResults.load("./test/ce_results")
     print(check)
 
     print("\n=== BATCH CULTURAL EVOLUTION PGG ===")
@@ -270,7 +270,7 @@ def main():
     print(bce_results)
     bce_results.save()
 
-    check = BatchCulturalEvolutionResults.load("./test/cultural_evolution/public_goods/n6_r20_pop18_top4_mut0.1_thr0.8_gen5_rep2/results.json")
+    check = BatchCulturalEvolutionResults.load("./test/cultural_evolution/public_goods/n6_r20_pop18_top4_mut0.1_thr0.8_gen5_rep2")
     print(check)
 
 if __name__ == "__main__":
