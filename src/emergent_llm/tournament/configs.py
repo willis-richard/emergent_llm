@@ -31,7 +31,7 @@ class MixtureKey:
 class BaseTournamentConfig:
     game_description: GameDescription
     repetitions: int = 1
-    processes: int = 1
+    n_processes: int = 1
 
     def serialise(self) -> dict:
         """Serialize to dictionary for JSON storage."""
@@ -64,7 +64,7 @@ class BatchTournamentConfig:
     group_sizes: list[int]
     repetitions: int
     generator_name: str  # Key from STANDARD_GENERATORS
-    processes: int
+    n_processes: int
     output_dir: str
     output_style: OutputStyle
 

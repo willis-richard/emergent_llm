@@ -27,15 +27,15 @@ def parse_arguments():
                        help="Number of matches per mixture ratio")
     parser.add_argument("--group-sizes", type=int, nargs="+", default=[4, 16, 64],
                        help="Group sizes to test")
-    parser.add_argument("--processes", type=int, default=1,
-                       help="Number of processes to use")
+    parser.add_argument("--n_processes", type=int, default=1,
+                        help="Number of processes to use")
     parser.add_argument("--results_dir", type=str, default="results")
     parser.add_argument("--output_style", choices=["full", "compress", "summary"],
-                       default="full", help="What compression to apply to the results")
+                        default="full", help="What compression to apply to the results")
     parser.add_argument("--verbose", action="store_true",
-                       help="Enable verbose logging")
+                        help="Enable verbose logging")
     parser.add_argument("--load", action="store_true",
-                       help="Try to load instead of recomputing")
+                        help="Try to load instead of recomputing")
 
     return parser.parse_args()
 
@@ -102,7 +102,7 @@ def main():
             group_sizes=args.group_sizes,
             repetitions=args.matches,
             generator_name=args.game + "_default",
-            processes=args.processes,
+            n_processes=args.n_processes,
             output_dir=str(output_dir),
             output_style=args.output_style,
         )

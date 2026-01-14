@@ -499,6 +499,7 @@ def plot_extrema(extrema_info, ax):
 if __name__ == "__main__":
     args = parse_args()
     output_dir = get_output_dir(args)
+    print("Running diversity.py")
 
     # Globals shared across all games
     all_actions = tuple(product([D, C], repeat=args.n_rounds - 1))

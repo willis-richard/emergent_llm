@@ -51,7 +51,7 @@ class BatchMixtureTournament:
             mixture_config = BaseTournamentConfig(
                 game_description=game_description,
                 repetitions=self.config.repetitions,
-                processes=self.config.processes)
+                n_processes=self.config.n_processes)
 
             collective_players = [
                 spec.create_player(f"{spec.gene.attitude}_{i}",
