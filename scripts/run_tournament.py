@@ -34,6 +34,8 @@ def parse_arguments():
                        default="full", help="What compression to apply to the results")
     parser.add_argument("--verbose", action="store_true",
                        help="Enable verbose logging")
+    parser.add_argument("--load", action="store_true",
+                       help="Try to load instead of recomputing")
 
     return parser.parse_args()
 
@@ -81,35 +83,40 @@ def main():
     logger = logging.getLogger(__name__)
     logger.info(f"Starting batch cultural evolution: {args.game}")
 
-    # Load strategy classes
-    logger.info(f"Loading strategies from {args.strategies}...")
-    collective_specs, exploitative_specs = StrategyRegistry.load_file(args.strategies)
+    if args.load:
+        results = BatchMixtureTournamentResults.load(output_dir)
+        logger.info(f"Loaded results from {output_dir}")
+    else:
 
-    logger.info(f"Found {len(collective_specs)} collective strategy classes")
-    logger.info(f"Found {len(exploitative_specs)} exploitative strategy classes")
+        # Load strategy classes
+        logger.info(f"Loading strategies from {args.strategies}...")
+        collective_specs, exploitative_specs = StrategyRegistry.load_file(args.strategies)
 
-    if not collective_specs or not exploitative_specs:
-        raise ValueError("Need both collective and exploitative strategy classes")
+        logger.info(f"Found {len(collective_specs)} collective strategy classes")
+        logger.info(f"Found {len(exploitative_specs)} exploitative strategy classes")
 
-    config = BatchTournamentConfig(
-        group_sizes=args.group_sizes,
-        repetitions=args.matches,
-        generator_name=args.game + "_default",
-        processes=args.processes,
-        output_dir=str(output_dir),
-        output_style=args.output_style,
-    )
+        if not collective_specs or not exploitative_specs:
+            raise ValueError("Need both collective and exploitative strategy classes")
 
-    # Create and run tournament
-    tournament = BatchMixtureTournament(
-        collective_specs=collective_specs,
-        exploitative_specs=exploitative_specs,
-        config=config
-    )
+        config = BatchTournamentConfig(
+            group_sizes=args.group_sizes,
+            repetitions=args.matches,
+            generator_name=args.game + "_default",
+            processes=args.processes,
+            output_dir=str(output_dir),
+            output_style=args.output_style,
+        )
 
-    logger.info("Running tournament...")
-    results = tournament.run_tournament()
-    results.save()
+        # Create and run tournament
+        tournament = BatchMixtureTournament(
+            collective_specs=collective_specs,
+            exploitative_specs=exploitative_specs,
+            config=config
+        )
+
+        logger.info("Running tournament...")
+        results = tournament.run_tournament()
+        results.save()
 
     results.create_schelling_diagrams()
     results.create_relative_schelling_diagram()

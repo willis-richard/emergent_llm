@@ -35,6 +35,13 @@ PROCESSES=4
 #         --n_games 50 \
 #         --n_processes $PROCESSES
 
+python scripts/diversity.py \
+        --strategies_dir strategies \
+        --n_rounds 5 \
+        --n_games 50 \
+        --n_strategies 20 \
+        --n_processes $PROCESSES
+
 for game in "${GAMES[@]}"; do
     for pm in "${PROVIDER_MODELS[@]}"; do
         read provider model <<< "$pm"
@@ -47,6 +54,15 @@ for game in "${GAMES[@]}"; do
         #        --processes $PROCESSES \
         #        --output_style summary \
         #        --verbose
+
+        python scripts/run_tournament.py \
+               --strategies strategies/$game/${model}.py \
+               --game $game \
+               --matches 5 \
+               --group-sizes 4 16 \
+               --processes $PROCESSES \
+               --output_style summary \
+               --verbose
     done
 done
 
