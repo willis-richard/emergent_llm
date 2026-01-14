@@ -1,5 +1,18 @@
 #!/bin/bash
 
+RESULTS_DIR="results"
+STRATEGIES_DIR="strategies"
+N_PROCSSES=1
+
+while getopts "r:s:n:" opt; do
+    case "$opt" in
+        r) RESULTS_DIR="$OPTARG" ;;
+        s) STRATEGIES_DIR="$OPTARG" ;;
+        n) N_PROCSSES="$OPTARG" ;;
+        *) exit 1 ;;
+    esac
+done
+
 GAMES=("public_goods" "collective_risk" "common_pool")
 PROVIDER_MODELS=(
     "openai gpt-5-mini"
@@ -7,22 +20,25 @@ PROVIDER_MODELS=(
     "anthropic claude-haiku-4-5"
 )
 EVOLUTION_PLAYERS=(4 64)
-PROCESSES=4
 
 # for game in "${GAMES[@]}"; do
 #     for pm in "${PROVIDER_MODELS[@]}"; do
 #         read provider model <<< "$pm"
 #         (
-#             python src/emergent_llm/generation/create_strategies.py descriptions \
+#             python src/emergent_llm/generation/create_strategies.py \
 #                    --llm_provider "$provider" \
 #                    --model_name "$model" \
 #                    --game "$game" \
+#                    --strategies_dir $STRATEGIES_DIR \
+#                    descriptions \
 #                    --n 512
 
-#             python src/emergent_llm/generation/create_strategies.py implementations \
+#             python src/emergent_llm/generation/create_strategies.py \
 #                    --llm_provider "$provider" \
 #                    --model_name "$model" \
 #                    --game "$game" \
+#                    --strategies_dir STRATEGIES_DIR \
+#                    implementations \
 #                    --max_retries 5
 #         ) &
 #     done
@@ -30,37 +46,41 @@ PROCESSES=4
 # done
 
 # python scripts/diversity.py \
-#         --strategies_dir strategies \
+#         --strategies_dir STRATEGIES_DIR \
 #         --n_rounds 5 \
 #         --n_games 50 \
-#         --n_processes $PROCESSES
+#         --n_processes $N_PROCSSES \
+#         --results_dir $RESULTS_DIR
 
 python scripts/diversity.py \
-        --strategies_dir strategies \
-        --n_rounds 5 \
-        --n_games 50 \
-        --n_strategies 20 \
-        --n_processes $PROCESSES
+       --strategies_dir $STRATEGIES_DIR \
+       --n_rounds 5 \
+       --n_games 1 \
+       --n_strategies 20 \
+       --n_processes $N_PROCSSES \
+       --results_dir $RESULTS_DIR
 
-for game in "${GAMES[@]}"; do
+              for game in "${GAMES[@]}"; do
     for pm in "${PROVIDER_MODELS[@]}"; do
         read provider model <<< "$pm"
 
         # python scripts/run_tournament.py \
-        #        --strategies strategies/$game/${model}.py \
-        #        --game $game \
-        #        --matches 200 \
-        #        --group-sizes 4 16 64 256 \
-        #        --processes $PROCESSES \
-        #        --output_style summary \
-        #        --verbose
+            #       --strategies "$STRATEGIES_DIR/$game/${model}.py" \
+            #        --game $game \
+            #        --matches 200 \
+            #        --group-sizes 4 16 64 256 \
+            #        --n_processes $N_PROCSSES \
+            #        --results_dir $RESULTS_DIR \
+            #        --output_style summary \
+            #        --verbose
 
         python scripts/run_tournament.py \
-               --strategies strategies/$game/${model}.py \
+               --strategies "$STRATEGIES_DIR/$game/${model}.py" \
                --game $game \
                --matches 5 \
                --group-sizes 4 16 \
-               --processes $PROCESSES \
+               --n_processes $N_PROCSSES \
+               --results_dir $RESULTS_DIR \
                --output_style summary \
                --verbose
     done
@@ -79,7 +99,8 @@ for game in "${GAMES[@]}"; do
         #        --max_generations 200 \
         #        --repetitions 10 \
         #        --n_runs 100 \
-        #        --n_processes $PROCESSES \
+        #        --n_processes $N_PROCSSES \
+        #        --results_dir $RESULTS_DIR \
         #        --output_style summary
 
         python scripts/run_cultural_evolution.py \
@@ -90,7 +111,8 @@ for game in "${GAMES[@]}"; do
                --top_k 16 \
                --repetitions 2 \
                --n_runs 10 \
-               --n_processes $PROCESSES \
+               --n_processes $N_PROCSSES \
+               --results_dir $RESULTS_DIR \
                --max_generations 20
     done
 done
