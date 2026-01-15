@@ -29,7 +29,7 @@ EVOLUTION_PLAYERS=(4 64)
 #                    --llm_provider "$provider" \
 #                    --model_name "$model" \
 #                    --game "$game" \
-#                    --strategies_dir $STRATEGIES_DIR \
+#                    --strategies_dir "$STRATEGIES_DIR" \
 #                    descriptions \
 #                    --n 512
 
@@ -37,7 +37,7 @@ EVOLUTION_PLAYERS=(4 64)
 #                    --llm_provider "$provider" \
 #                    --model_name "$model" \
 #                    --game "$game" \
-#                    --strategies_dir STRATEGIES_DIR \
+#                    --strategies_dir "STRATEGIES_DIR" \
 #                    implementations \
 #                    --max_retries 5
 #         ) &
@@ -46,19 +46,19 @@ EVOLUTION_PLAYERS=(4 64)
 # done
 
 # python scripts/diversity.py \
-#         --strategies_dir STRATEGIES_DIR \
+#         --strategies_dir "$STRATEGIES_DIR" \
 #         --n_rounds 5 \
 #         --n_games 50 \
 #         --n_processes $N_PROCSSES \
-#         --results_dir $RESULTS_DIR
+#         --results_dir "$RESULTS_DIR"
 
 python scripts/diversity.py \
-       --strategies_dir $STRATEGIES_DIR \
+       --strategies_dir "$STRATEGIES_DIR" \
        --n_rounds 5 \
        --n_games 1 \
        --n_strategies 20 \
        --n_processes $N_PROCSSES \
-       --results_dir $RESULTS_DIR
+       --results_dir "$RESULTS_DIR"
 
               for game in "${GAMES[@]}"; do
     for pm in "${PROVIDER_MODELS[@]}"; do
@@ -70,7 +70,7 @@ python scripts/diversity.py \
             #        --matches 200 \
             #        --group-sizes 4 16 64 256 \
             #        --n_processes $N_PROCSSES \
-            #        --results_dir $RESULTS_DIR \
+            #        --results_dir "$RESULTS_DIR" \
             #        --output_style summary \
             #        --verbose
 
@@ -80,7 +80,7 @@ python scripts/diversity.py \
                --matches 5 \
                --group-sizes 4 16 \
                --n_processes $N_PROCSSES \
-               --results_dir $RESULTS_DIR \
+               --results_dir "$RESULTS_DIR" \
                --output_style summary \
                --verbose
     done
@@ -100,7 +100,7 @@ for game in "${GAMES[@]}"; do
         #        --repetitions 10 \
         #        --n_runs 100 \
         #        --n_processes $N_PROCSSES \
-        #        --results_dir $RESULTS_DIR \
+        #        --results_dir "$RESULTS_DIR" \
         #        --output_style summary
 
         python scripts/run_cultural_evolution.py \
@@ -112,7 +112,7 @@ for game in "${GAMES[@]}"; do
                --repetitions 2 \
                --n_runs 10 \
                --n_processes $N_PROCSSES \
-               --results_dir $RESULTS_DIR \
+               --results_dir "$RESULTS_DIR" \
                --max_generations 20
     done
 done
