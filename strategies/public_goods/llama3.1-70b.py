@@ -11490,42 +11490,6 @@ class Strategy_COLLECTIVE_371(BaseStrategy):
             expected_defection_payoff = 1 + self.game_description.k / self.game_description.n_players * num_coop
             return Action.C if expected_cooperation_payoff > expected_defection_payoff else Action.D
 
-class Strategy_COLLECTIVE_372(BaseStrategy):
-    """
-    The Adaptive Cooperative Threshold (ACT) strategy aims to balance individual payoffs with collective welfare by adapting to the game's history and opponent behaviors.
-    """
-
-    def __init__(self, game_description: PublicGoodsDescription):
-        self.game_description = game_description
-        self.theta = 0.0
-
-    def calculate_avg_cooperation_rate(self, previous_actions: NDArray[np.bool_]) -> float:
-        cooperation_count = sum((1 for actions in previous_actions if np.any(actions)))
-        return cooperation_count / len(previous_actions)
-
-    def count_contributions(self, actions: NDArray[np.bool_]) -> int:
-        return np.sum(actions)
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        previous_actions = history.opponent_actions
-        previous_payoffs = history.opponent_payoffs
-        avg_cooperation_rate = self.calculate_avg_cooperation_rate(previous_actions)
-        theta = self.game_description.k / self.game_description.n_players * (avg_cooperation_rate + 0.1)
-        total_contributions = self.count_contributions(history.my_actions[-1]) + self.count_contributions(previous_actions[-1])
-        if total_contributions >= self.game_description.n_players * theta:
-            return Action.C
-        opponent_defections = []
-        for i, action in enumerate(previous_actions[-2]):
-            if not action and previous_payoffs[-2][i] > history.my_payoffs[-2]:
-                opponent_defections.append(i)
-        if opponent_defections:
-            theta += 0.1 * len(opponent_defections) / self.game_description.n_players
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.C if total_contributions >= self.game_description.n_players // 2 else Action.D
-        return Action.C if total_contributions >= self.game_description.n_players * theta else Action.D
-
 class Strategy_COLLECTIVE_373(BaseStrategy):
     """
     Adaptive Cooperation with Gradual Forgiveness (ACGF) strategy.
@@ -28157,56 +28121,6 @@ class Strategy_EXPLOITATIVE_420(BaseStrategy):
         elif state.round_number == self.game_description.n_rounds - 1:
             return Action.D
 
-class Strategy_EXPLOITATIVE_421(BaseStrategy):
-    """
-    Hybrid exploitative strategy that combines elements of Tit-for-Tat (TFT) and Pavlov's strategy, 
-    with adaptations for the public goods game structure.
-    """
-
-    def __init__(self, game_description: PublicGoodsDescription):
-        self.game_description = game_description
-        self.w = 5
-        self.theta = 0.5
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        n = self.game_description.n_players
-        k = self.game_description.k
-        opponent_actions = np.array(history.opponent_actions)
-        avg_opponents_coop_rate = []
-        for i in range(max(0, state.round_number - self.w), state.round_number):
-            round_coop_rate = sum(opponent_actions[i]) / n
-            avg_opponents_coop_rate.append(round_coop_rate)
-        if len(avg_opponents_coop_rate) > 0:
-            avg_opponents_coop_rate = np.mean(avg_opponents_coop_rate)
-        else:
-            avg_opponents_coop_rate = 0
-        prev_round_cooperation = all(opponent_actions[-1, :])
-        if prev_round_cooperation:
-            return Action.C
-        elif any(opponent_actions[-1, :]):
-            p = k / n
-            return Action.D if random.random() < p else Action.C
-        pavlov_trigger = avg_opponents_coop_rate < self.theta
-        if pavlov_trigger:
-            p = k / n
-            return Action.D if random.random() < p else Action.C
-        opponent_payoffs = []
-        for i in range(max(0, state.round_number - self.w), state.round_number):
-            round_opponent_payoff = np.mean(history.opponent_payoffs[i])
-            opponent_payoffs.append(round_opponent_payoff)
-        if len(opponent_payoffs) > 0:
-            avg_opponents_payoff = np.mean(opponent_payoffs)
-        else:
-            avg_opponents_payoff = 0
-        my_payoff_over_w_rounds = sum(history.my_payoffs[-self.w:]) / min(self.w, state.round_number)
-        exploitable_opponent = any((np.logical_and(opponent_actions[:state.round_number, i].mean() > 0.75, history.opponent_payoffs[:, i].mean() < my_payoff_over_w_rounds) for i in range(n)))
-        if exploitable_opponent:
-            p = k / n
-            return Action.D if random.random() < p else Action.C
-        return Action.C
-
 class Strategy_EXPLOITATIVE_422(BaseStrategy):
     """
     The Adaptive Exploiter strategy balances exploitation with adaptability.
@@ -28885,43 +28799,6 @@ class Strategy_EXPLOITATIVE_442(BaseStrategy):
         opponents_cooperate = np.sum(history.opponent_actions[-1, :])
         payoff = 1 - int(my_action) + self.game_description.k / self.game_description.n_players * opponents_cooperate
         return payoff
-
-class Strategy_EXPLOITATIVE_443(BaseStrategy):
-    """
-    An exploitative strategy that adapts to the game's history and opponents' behaviors.
-    """
-
-    def __init__(self, game_description: PublicGoodsDescription):
-        self.game_description = game_description
-        self.theta = 0.5
-        self.exploiters = []
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0 or state.round_number == 1:
-            return Action.C
-        avg_coop_prev = sum(history.opponent_actions[-1, :]) / self.game_description.n_players
-        my_payoff_last_round = self.game_description.k / self.game_description.n_players * sum(history.my_actions[-1] + history.opponent_actions[-1, :])
-        if history.my_actions[-1]:
-            my_payoff_last_round -= 1
-        opponent_payoffs_last_round = np.array([self.game_description.k / self.game_description.n_players * sum(opponent_cooperate + history.opponent_actions[-1, :]) - opponent_cooperate for opponent_cooperate in history.opponent_actions[-1, :]])
-        if avg_coop_prev > self.theta or my_payoff_last_round > max(opponent_payoffs_last_round):
-            action = Action.C
-        else:
-            action = Action.D
-        if state.round_number % (self.game_description.n_rounds // 2) == 0 and state.round_number != 0:
-            avg_coop_prev_r_2 = sum(history.opponent_actions[-self.game_description.n_rounds // 2, :]) / self.game_description.n_players
-            if avg_coop_prev_r_2 > self.theta:
-                self.theta *= 0.9
-            else:
-                self.theta *= 1.05
-        for i, opponent_action in enumerate(history.opponent_actions[-1, :]):
-            if not opponent_action and len(history.opponent_actions) > 1 and (not history.opponent_actions[-2, i]) and (avg_coop_prev > self.theta):
-                self.exploiters.append(i)
-        if any((opponent_id in self.exploiters for opponent_id in range(self.game_description.n_players))):
-            action = Action.D
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.D
-        return action
 
 class Strategy_EXPLOITATIVE_444(BaseStrategy):
     """

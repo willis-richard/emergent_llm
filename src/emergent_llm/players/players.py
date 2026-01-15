@@ -75,13 +75,13 @@ class LLMPlayer(BasePlayer):
 
             # Log the error with context
             self.logger.warning(
-                f"Strategy {self.strategy_class.__name__} error #{self.error_count} at {state.round_number}: "
+                f"Strategy {self.id} error #{self.error_count} in round {state.round_number}: "
                 f"{e.__class__.__name__}: {e}")
 
             # Only allow 2 fallbacks, then let it crash
             if self.error_count > self.max_errors:
                 self.logger.error(
-                    f"Strategy {self.strategy_class.__name__} exceeded error limit"
+                    f"Strategy {self.id} exceeded error limit"
                 )
                 raise
 
