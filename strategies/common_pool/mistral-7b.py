@@ -2911,34 +2911,6 @@ class Strategy_COLLECTIVE_137(BaseStrategy):
         self.opponent_history.my_payoffs[-1] = payoff
         self.opponent_history.opponent_actions[-1, -1] = opponent_action
 
-class Strategy_COLLECTIVE_138(BaseStrategy):
-    """
-    Adaptive Tit-for-Tat (ATFT) Strategy in the Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.punishment_rounds = 0
-        self.last_opponent_action = None
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        action = Action.C
-        if state.round_number == 0 or state.round_number == self.game_description.n_rounds:
-            pass
-        elif history is not None:
-            self.last_opponent_action = history.opponent_actions[-1][-1]
-            if self.last_opponent_action == Action.C:
-                action = Action.C
-            elif self.last_opponent_action == Action.D and state.round_number > 1:
-                action = Action.D
-                self.punishment_rounds += 1
-                if self.punishment_rounds >= self.game_description.n_rounds - state.round_number:
-                    self.punishment_rounds = 0
-            elif self.last_opponent_action is None or not isinstance(self.last_opponent_action, Action):
-                print('Invalid opponent action. Defaulting to cooperate.')
-                action = Action.C
-        return action
-
 class Strategy_COLLECTIVE_139(BaseStrategy):
     """
     Tit-for-Tat Strategy for the Common Pool Resource Game.

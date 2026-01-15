@@ -27661,34 +27661,6 @@ class Strategy_EXPLOITATIVE_535(BaseStrategy):
             return Action.C if random.random() < self.defection_probability else Action.D
         return Action.C if history is None or history.my_actions[-1] == 1 else Action.D if random.random() < self.defection_probability else Action.C
 
-class Strategy_EXPLOITATIVE_536(BaseStrategy):
-    """
-    A strategy that adapts its cooperation threshold based on the behavior of other players in a repeated N-Player Public Goods Game.
-    """
-
-    def __init__(self, game_description: PublicGoodsDescription):
-        self.game_description = game_description
-        self.threshold = math.ceil((game_description.n_players + 1) / 2)
-        self.adaptation_rate = 0.01
-        self.history = PlayerHistory(my_actions=np.zeros(game_description.n_rounds, dtype=bool), my_payoffs=np.zeros(game_description.n_rounds), opponent_actions=np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((game_description.n_rounds, game_description.n_players)))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.D
-        elif history is not None:
-            self.history.my_actions[state.round_number - 1] = Action.C if state.round_number > 1 else Action.D
-            cooperators = sum(history.opponent_actions[-1, :])
-            change_in_cooperation = abs(cooperators - self.history.my_payoffs[-1] * (self.game_description.n_players / state.round_number))
-            self.threshold += self.adaptation_rate * change_in_cooperation
-        payoff = np.zeros(self.game_description.n_players)
-        if history is not None:
-            for i, opponent_actions in enumerate(history.opponent_actions):
-                total_cooperation = sum(opponent_actions)
-                if total_cooperation >= self.threshold:
-                    payoff[i] = 1 - (Action.D.value if opponent_actions[-1] else Action.C.value) + self.game_description.k / self.game_description.n_players * cooperators
-        self.history.my_payoffs[state.round_number - 1] = payoff[0] if state.round_number > 1 else 1
-        return Action.C if sum(history.opponent_actions[-1, :]) >= self.threshold else Action.D
-
 class Strategy_EXPLOITATIVE_537(BaseStrategy):
     """
     Tit-for-Tat with Adaptive Cooperation Threshold (TFT-ACT) strategy for N-Player Public Goods Game.
