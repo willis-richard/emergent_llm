@@ -6,6 +6,7 @@ from pathlib import Path
 
 from emergent_llm.common import Attitude, Gene
 from emergent_llm.players import BaseStrategy, StrategySpec
+from .create_strategies import make_safe
 
 
 class StrategyRegistry:
@@ -26,8 +27,8 @@ class StrategyRegistry:
         if not self.game_dir.exists():
             raise ValueError(f"Game directory not found: {self.game_dir}")
 
-        self.models_filter = set(
-            models) if models else None
+        self.models_filter = set([make_safe(model) for model in models]) if models else None
+
         # Store StrategySpecs directly, keyed by Gene
         self.strategies: dict[Gene, list[StrategySpec]] = {}
         self._load_all_strategies()
@@ -95,10 +96,11 @@ class StrategyRegistry:
         Convenience method for batch tournaments that load one file.
         """
         filepath = Path(filepath)
-        if not filepath.exists():
-            raise ValueError(f"Strategy file not found: {filepath}")
+        safe_filepath = filepath.parent / make_safe(filepath.name)
+        if not safe_filepath.exists():
+            raise ValueError(f"Strategy file not found: {safe_filepath}")
 
-        all_specs = cls._load_specs_from_file(filepath)
+        all_specs = cls._load_specs_from_file(safe_filepath)
 
         collective = [
             s for s in all_specs if s.gene.attitude == Attitude.COLLECTIVE

@@ -19,7 +19,7 @@ PROVIDER_MODELS=(
     "google gemini-2.5-flash"
     "anthropic claude-haiku-4-5"
     "ollama llama3.1-70b"
-    "ollama mistral:7b.py"
+    "ollama mistral:7b"
 )
 EVOLUTION_PLAYERS=(4 64)
 
@@ -79,7 +79,7 @@ for game in "${GAMES[@]}"; do
                --population_size 512 \
                --top_k 64 \
                --mutation_rate 0.1 \
-               --threshold_percent 0.75 \
+               --threshold_pct 0.75 \
                --max_generations 200 \
                --repetitions 10 \
                --n_runs 100 \

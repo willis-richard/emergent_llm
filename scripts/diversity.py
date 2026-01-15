@@ -26,7 +26,7 @@ from emergent_llm.common import (
     setup,
 )
 from emergent_llm.games import STANDARD_GENERATORS, get_game_type
-from emergent_llm.generation import StrategyRegistry, make_safe
+from emergent_llm.generation import StrategyRegistry
 from emergent_llm.players import (
     BasePlayer,
     ConditionalCooperator,
@@ -515,10 +515,9 @@ if __name__ == "__main__":
         game_class, _ = get_game_type(game_name)
         description = STANDARD_GENERATORS[game_name + "_default"](
             n_players=args.n_players, n_rounds=args.n_rounds)
-        safe_model_names = None if args.models is None else [make_safe(m) for m in args.models]
         registry = StrategyRegistry(strategies_dir=args.strategies_dir,
                                     game_name=game_name,
-                                    models=safe_model_names)
+                                    models=args.models)
         genes = sorted(list(registry.available_genes), key=str)
 
         with Pool(processes=args.n_processes) as pool:

@@ -4,7 +4,6 @@ import logging
 from pathlib import Path
 
 from emergent_llm.games import STANDARD_GENERATORS
-from emergent_llm.generation import make_safe
 from emergent_llm.tournament import (
     BatchCulturalEvolutionConfig,
     BatchCulturalEvolution,
@@ -118,8 +117,6 @@ if __name__ == "__main__":
         max_generations=args.max_generations,
         repetitions_per_generation=args.repetitions)
 
-    safe_model_names = None if args.models is None else [make_safe(m) for m in args.models]
-
     batch_config = BatchCulturalEvolutionConfig(
         evolution_config=evolution_config,
         n_runs=args.n_runs,
@@ -128,7 +125,7 @@ if __name__ == "__main__":
         output_style=args.output_style,
         strategies_dir=args.strategies_dir,
         game_name=args.game,
-        models=safe_model_names)
+        models=args.models)
 
     log_file = batch_config.output_dir / "logs" / "batch_evolution.log"
     setup_logging(log_file, args.loglevel)

@@ -29138,31 +29138,6 @@ class Strategy_EXPLOITATIVE_450(BaseStrategy):
         if state.round_number == self.game_description.n_rounds - 1:
             return Action.D
 
-class Strategy_EXPLOITATIVE_451(BaseStrategy):
-    """
-    Exploitative strategy based on history of opponent cooperation.
-    """
-
-    def __init__(self, game_description: PublicGoodsDescription):
-        self.game_description = game_description
-        self.n_players = game_description.n_players
-        self.k = game_description.k
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.C
-        total_cooperators_prev = sum(history.opponent_actions[-1, :]) + history.my_actions[-1]
-        avg_coop_rate = total_cooperators_prev / self.n_players
-        defect_threshold = (self.k - 1) / self.k
-        if avg_coop_rate > defect_threshold:
-            return Action.C
-        elif avg_coop_rate == defect_threshold:
-            return Action.D
-        else:
-            return Action.D
-
 class Strategy_EXPLOITATIVE_452(BaseStrategy):
     """
     Exploitative strategy that adapts to opponent behavior in the N-Player Public Goods Game.
