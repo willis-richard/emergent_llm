@@ -18,6 +18,9 @@ PROVIDER_MODELS=(
     "openai gpt-5-mini"
     "google gemini-2.5-flash"
     "anthropic claude-haiku-4-5"
+    "ollama deepseek-r1-32b"
+    "ollama llama3.1-70b"
+    "ollama mistral:7b.py"
 )
 EVOLUTION_PLAYERS=(4 64)
 

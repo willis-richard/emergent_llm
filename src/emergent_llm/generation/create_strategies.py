@@ -747,6 +747,9 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def make_safe(model_name: str) -> str:
+    return model_name.replace(":", "-")
+
 def main():
     """Main function."""
     args = parse_arguments()
@@ -758,7 +761,7 @@ def main():
     log_dir.mkdir(exist_ok=True)
 
     # Setup file paths
-    safe_model_name = args.model_name.replace(":", "-")
+    safe_model_name = make_safe(args.model_name)
     description_file = strategies_dir / f"{safe_model_name}_descriptions.py"
     strategy_file = strategies_dir / f"{safe_model_name}.py"
     log_file = log_dir / f"{safe_model_name}_{args.phase}.log"

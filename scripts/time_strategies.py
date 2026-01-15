@@ -1,6 +1,6 @@
 import argparse
 
-from emergent_llm.generation import StrategyRegistry, test_strategy_class
+from emergent_llm.generation import StrategyRegistry, test_strategy_class, make_safe
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -18,10 +18,11 @@ def parse_arguments() -> argparse.Namespace:
 def main():
     args = parse_arguments()
 
+    safe_model_names = None if args.models is None else [make_safe(m) for m in args.models]
     registry = StrategyRegistry(
         strategies_dir=args.strategies_dir,
         game_name=args.game_name,
-        models=args.models
+        models=safe_model_names
     )
 
     times = []
