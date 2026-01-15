@@ -54,6 +54,10 @@ python scripts/diversity.py \
         --n_processes $N_PROCESSES \
         --results_dir "$RESULTS_DIR"
 
+# Due to temperamental pickle errors, running with a single process
+pids=()
+jobs=()
+
 for game in "${GAMES[@]}"; do
     for pm in "${PROVIDER_MODELS[@]}"; do
         read provider model <<< "$pm"
@@ -63,11 +67,18 @@ for game in "${GAMES[@]}"; do
                --game $game \
                --matches 200 \
                --group-sizes 4 16 64 256 \
-               --n_processes $N_PROCESSES \
+               --n_processes 1 \
                --results_dir "$RESULTS_DIR" \
                --output_style summary \
-               --verbose
+               --verbose &
+
+        pids+=($!)
+        jobs+=("$game/$model")
     done
+done
+
+for i in "${!pids[@]}"; do
+    wait "${pids[$i]}" || echo "FAILED: ${jobs[$i]}"
 done
 
 for game in "${GAMES[@]}"; do
