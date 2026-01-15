@@ -2,13 +2,13 @@
 
 RESULTS_DIR="results"
 STRATEGIES_DIR="strategies"
-N_PROCSSES=1
+N_PROCESSES=1
 
 while getopts "r:s:n:" opt; do
     case "$opt" in
         r) RESULTS_DIR="$OPTARG" ;;
         s) STRATEGIES_DIR="$OPTARG" ;;
-        n) N_PROCSSES="$OPTARG" ;;
+        n) N_PROCESSES="$OPTARG" ;;
         *) exit 1 ;;
     esac
 done
@@ -37,7 +37,7 @@ EVOLUTION_PLAYERS=(4 64)
 #                    --llm_provider "$provider" \
 #                    --model_name "$model" \
 #                    --game "$game" \
-#                    --strategies_dir "STRATEGIES_DIR" \
+#                    --strategies_dir "$STRATEGIES_DIR" \
 #                    implementations \
 #                    --max_retries 5
 #         ) &
@@ -45,41 +45,23 @@ EVOLUTION_PLAYERS=(4 64)
 #     wait
 # done
 
-# python scripts/diversity.py \
-#         --strategies_dir "$STRATEGIES_DIR" \
-#         --n_rounds 5 \
-#         --n_games 50 \
-#         --n_processes $N_PROCSSES \
-#         --results_dir "$RESULTS_DIR"
-
 python scripts/diversity.py \
-       --strategies_dir "$STRATEGIES_DIR" \
-       --n_rounds 5 \
-       --n_games 1 \
-       --n_strategies 20 \
-       --n_processes $N_PROCSSES \
-       --results_dir "$RESULTS_DIR"
+        --strategies_dir "$STRATEGIES_DIR" \
+        --n_rounds 5 \
+        --n_games 50 \
+        --n_processes $N_PROCESSES \
+        --results_dir "$RESULTS_DIR"
 
-              for game in "${GAMES[@]}"; do
+for game in "${GAMES[@]}"; do
     for pm in "${PROVIDER_MODELS[@]}"; do
         read provider model <<< "$pm"
-
-        # python scripts/run_tournament.py \
-            #       --strategies "$STRATEGIES_DIR/$game/${model}.py" \
-            #        --game $game \
-            #        --matches 200 \
-            #        --group-sizes 4 16 64 256 \
-            #        --n_processes $N_PROCSSES \
-            #        --results_dir "$RESULTS_DIR" \
-            #        --output_style summary \
-            #        --verbose
 
         python scripts/run_tournament.py \
                --strategies "$STRATEGIES_DIR/$game/${model}.py" \
                --game $game \
-               --matches 5 \
-               --group-sizes 4 16 \
-               --n_processes $N_PROCSSES \
+               --matches 200 \
+               --group-sizes 4 16 64 256 \
+               --n_processes $N_PROCESSES \
                --results_dir "$RESULTS_DIR" \
                --output_style summary \
                --verbose
@@ -88,31 +70,19 @@ done
 
 for game in "${GAMES[@]}"; do
     for n_players in "${EVOLUTION_PLAYERS[@]}"; do
-        # python scripts/run_cultural_evolution.py \
-        #        --game ${game} \
-        #        --n_players $n_players \
-        #        --n_rounds 20 \
-        #        --population_size 512 \
-        #        --top_k 64 \
-        #        --mutation_rate 0.1 \
-        #        --threshold_percent 0.75 \
-        #        --max_generations 200 \
-        #        --repetitions 10 \
-        #        --n_runs 100 \
-        #        --n_processes $N_PROCSSES \
-        #        --results_dir "$RESULTS_DIR" \
-        #        --output_style summary
-
         python scripts/run_cultural_evolution.py \
                --game ${game} \
                --n_players $n_players \
-               --n_rounds 3 \
-               --population_size 128 \
-               --top_k 16 \
-               --repetitions 2 \
-               --n_runs 10 \
-               --n_processes $N_PROCSSES \
+               --n_rounds 20 \
+               --population_size 512 \
+               --top_k 64 \
+               --mutation_rate 0.1 \
+               --threshold_percent 0.75 \
+               --max_generations 200 \
+               --repetitions 10 \
+               --n_runs 100 \
+               --n_processes $N_PROCESSES \
                --results_dir "$RESULTS_DIR" \
-               --max_generations 20
+               --output_style summary
     done
 done
