@@ -876,78 +876,6 @@ class Strategy_COLLECTIVE_27(BaseStrategy):
         else:
             return Action.D
 
-class Strategy_COLLECTIVE_28(BaseStrategy):
-    """
-    This strategy initially cooperates to establish a cooperative foundation,
-    then adapts to the group's behavior by adjusting its cooperation probability.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.p_c = game_description.k / (game_description.k + 1)
-        self.cr = 0
-        self.coop_count = 0
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number < self.game_description.m - 1:
-            return Action.C
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.D
-        prev_payoff = self._calculate_previous_payoff(history)
-        if prev_payoff >= self.game_description.k:
-            action = random.choices([Action.C, Action.D], weights=[self.p_c, 1 - self.p_c])[0]
-        else:
-            action = Action.D
-        self.coop_count += action == Action.C
-        if state.round_number % (self.game_description.n_rounds // 4) == 0 and state.round_number > 0:
-            self.cr = self.coop_count / (self.game_description.n_players * state.round_number)
-            if self.cr < 0.5:
-                self.p_c *= 0.9
-                self.p_c = max(self.p_c, 0)
-            else:
-                self.p_c *= 1.1
-                self.p_c = min(self.p_c, 1)
-        return action
-
-    def _calculate_previous_payoff(self, history: PlayerHistory):
-        prev_round_opponent_actions = history.opponent_actions[-1, :]
-        prev_round_cooperators = sum(prev_round_opponent_actions)
-        if prev_round_cooperators >= self.game_description.m:
-            return self.game_description.k
-        else:
-            return 0
-
-class Strategy_COLLECTIVE_29(BaseStrategy):
-    """
-    A strategy that balances individual self-interest with a willingness to cooperate,
-    adapting to the game's history and other players' actions.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.p = 1.0
-        self.history = []
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        opponent_actions_list = [action for action in history.opponent_actions[-1, :]]
-        prev_coops = sum([1 if a else 0 for a in self.history[-self.game_description.m:]])
-        if prev_coops >= self.game_description.m:
-            return Action.C
-        elif len(self.history) < self.game_description.m - 1:
-            action = Action.D
-        else:
-            p = 1.0 - len([h for h in self.history if sum(h) < self.game_description.m]) / len(self.history)
-            action = Action.C if random.random() < p else Action.D
-            for other_action in opponent_actions_list:
-                if not other_action:
-                    self.p *= 0.9
-        self.history.append([a == Action.C for a in [action] + opponent_actions_list])
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.D
-        return action
-
 class Strategy_COLLECTIVE_30(BaseStrategy):
     """
     A collective strategy that balances individual self-interest with collective well-being.
@@ -1298,45 +1226,6 @@ class Strategy_COLLECTIVE_40(BaseStrategy):
         if state.round_number == self.game_description.n_rounds - 1:
             return Action.C
         return action
-
-class Strategy_COLLECTIVE_41(BaseStrategy):
-    """
-    A strategy that promotes collective cooperation by adapting to the game's history.
-    It encourages others to cooperate while being robust to various opponent behaviors.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.opponents_actions = [None] * game_description.n_players
-        self.forgiveness_counters = [0] * game_description.n_players
-        self.previous_outcome = None
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        if history is not None:
-            self.previous_outcome = sum(history.opponent_actions[-1, :])
-            self.opponents_actions[state.round_number % self.game_description.n_players] = history.my_actions[-1]
-        if self.previous_outcome >= self.game_description.m:
-            cooperate_prob = 1 - 1 / self.game_description.m
-        else:
-            cooperate_prob = (self.game_description.n_players - self.game_description.m) / self.game_description.n_players
-        for opponent, action in enumerate(self.opponents_actions):
-            if action is not None and action == Action.D and (self.previous_outcome < self.game_description.m):
-                punishment_prob = 0.5
-                if random.random() < punishment_prob:
-                    cooperate_prob *= 0.5
-        for opponent, counter in enumerate(self.forgiveness_counters):
-            if self.opponents_actions[opponent] == Action.C:
-                counter += 1
-                if counter >= 3:
-                    self.forgiveness_counters[opponent] = 0
-        if self.previous_outcome >= self.game_description.m:
-            cooperate_prob += 0.05
-        else:
-            cooperate_prob -= 0.05
-        cooperate_prob = max(0, min(cooperate_prob, 1))
-        return Action.C if random.random() < cooperate_prob else Action.D
 
 class Strategy_COLLECTIVE_42(BaseStrategy):
     """
@@ -2553,29 +2442,6 @@ class Strategy_COLLECTIVE_80(BaseStrategy):
             else:
                 self.H_d += 1
         return action
-
-class Strategy_COLLECTIVE_81(BaseStrategy):
-    """
-    Summary of the Adaptive Cooperation strategy here.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0 or (state.round_number == self.game_description.n_rounds - 1 and sum(history.opponent_actions[-2, :])):
-            return Action.C
-        prev_coops = sum(history.opponent_actions[-1, :]) + history.my_actions[-1]
-        if prev_coops >= self.game_description.m - 1 and prev_coops < self.game_description.m:
-            return Action.C
-        if prev_coops < self.game_description.m - 1 or prev_coops > self.game_description.m:
-            return Action.D
-        for opponent_cooperation in history.opponent_actions[-1, :]:
-            if not opponent_cooperation and sum(history.opponent_actions[-2, :]) + history.my_actions[-2] < self.game_description.m:
-                return Action.D
-        if prev_coops == self.game_description.m:
-            return Action.C
-        return Action.D
 
 class Strategy_COLLECTIVE_82(BaseStrategy):
     """
@@ -6532,37 +6398,6 @@ class Strategy_COLLECTIVE_210(BaseStrategy):
         if random.random() < self.cooperation_probability:
             return Action.C
         return Action.D
-
-class Strategy_COLLECTIVE_211(BaseStrategy):
-    """
-    The Adaptive Cooperative Threshold (ACT) strategy aims to balance individual self-interest with collective cooperation,
-    adapting to the game's history and parameters.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.c_prev = 0
-        self.avg_payoff = 0
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        m_current = max(self.game_description.m - 1, min(self.game_description.m + 1, self.game_description.m * (self.game_description.n_rounds - state.round_number) / self.game_description.n_rounds))
-        if history is not None:
-            self.c_prev = sum(history.opponent_actions[-1, :]) + 1
-            avg_payoff_recent = np.mean(history.my_payoffs[-3:]) if len(history.my_payoffs) >= 3 else np.mean(history.my_payoffs)
-            self.avg_payoff = (self.avg_payoff * (state.round_number - 2) + avg_payoff_recent) / (state.round_number - 1)
-        defected_last_round = history is not None and (not history.my_actions[-1])
-        if state.round_number == self.game_description.n_rounds:
-            return Action.C if self.c_prev >= m_current else Action.D
-        elif defected_last_round and self.c_prev < m_current:
-            return Action.C
-        elif self.avg_payoff > self.game_description.k * 0.8 and m_current < self.game_description.m + 1:
-            m_current += 1
-            if self.c_prev >= m_current:
-                return Action.C
-        else:
-            return Action.C if self.c_prev >= m_current else Action.D
 
 class Strategy_COLLECTIVE_212(BaseStrategy):
     """
@@ -11625,38 +11460,6 @@ class Strategy_COLLECTIVE_375(BaseStrategy):
         prev_round_actions = history.opponent_actions[-1, :]
         return sum(prev_round_actions) + (history.my_actions[-1] == 1)
 
-class Strategy_COLLECTIVE_376(BaseStrategy):
-    """
-    Adaptive Threshold Cooperation (ATC) Strategy for Collective Risk Dilemma.
-    
-    This strategy balances individual self-interest with collective well-being by adapting cooperation levels based on game history and parameters.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.coop_count = [0] * game_description.n_players
-        self.avg_payoff_prev = 1
-        self.p_coop = None
-
-    def calculate_avg_payoff(self, history: PlayerHistory) -> float:
-        total_payoff = sum(history.my_payoffs)
-        return total_payoff / len(history.my_payoffs)
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number < self.game_description.m - 1:
-            return Action.C
-        prev_round_coop = sum(history.opponent_actions[-1, :])
-        prev_round_avg_payoff = self.avg_payoff_prev
-        if history is not None and len(history.my_payoffs) > 0:
-            self.avg_payoff_prev = self.calculate_avg_payoff(history)
-        if prev_round_coop >= self.game_description.m - 1 and prev_round_avg_payoff > 1:
-            return Action.C
-        elif prev_round_coop < self.game_description.m - 1 and self.avg_payoff_prev <= 1:
-            return Action.D
-        else:
-            self.p_coop = max(0, (self.game_description.m - prev_round_coop) / self.game_description.n_players)
-            return Action.C if random.random() < self.p_coop else Action.D
-
 class Strategy_COLLECTIVE_377(BaseStrategy):
     """
     Adaptive Collective Cooperation strategy for Collective Risk Dilemma.
@@ -12628,38 +12431,6 @@ class Strategy_COLLECTIVE_411(BaseStrategy):
             return Action.D
         return Action.D
 
-class Strategy_COLLECTIVE_412(BaseStrategy):
-    """
-    The Adaptive Collective Contribution (ACC) strategy aims to balance individual self-interest with collective cooperation, 
-    adapting to the game's history and parameters.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C if abs(self.game_description.m - self.game_description.n_players / 2) < 0.5 else Action.D
-        prev_cooperators = sum(history.opponent_actions[-1, :]) + (history.my_actions[-1] == Action.C)
-        threshold_met = prev_cooperators >= self.game_description.m
-        if abs(self.game_description.m - self.game_description.n_players / 2) < 0.5:
-            return Action.C
-        if history.my_actions[-1] == Action.D and prev_cooperators < self.game_description.m:
-            return Action.C
-        for opponent in range(self.game_description.n_players):
-            if history.opponent_actions[-1, opponent] == False and prev_cooperators >= self.game_description.m:
-                return Action.D
-        if history.my_actions[-1] == Action.D and threshold_met:
-            return Action.C
-        majorities = sum([1 for action in history.opponent_actions[-1, :] if action]) + (history.my_actions[-1] == True)
-        minorities = self.game_description.n_players - majorities
-        return Action.C if majorities >= minorities else Action.D
-        if state.round_number == self.game_description.n_rounds - 1:
-            expected_payoffs_C = self.game_description.k * threshold_met + 0.5
-            expected_payoffs_D = 1 + self.game_description.k * threshold_met
-            return Action.C if expected_payoffs_C > expected_payoffs_D else Action.D
-        return Action.C
-
 class Strategy_COLLECTIVE_413(BaseStrategy):
     """
     A hybrid strategy balancing individual self-interest with collective well-being,
@@ -13430,44 +13201,6 @@ class Strategy_COLLECTIVE_440(BaseStrategy):
             total_payoff_D = sum(history.my_payoffs[~history.my_actions])
             return Action.C if total_payoff_C >= total_payoff_D else Action.D
         return Action.D
-
-class Strategy_COLLECTIVE_441(BaseStrategy):
-    """
-    Adaptive Collective Cooperation strategy.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        n_players = self.game_description.n_players
-        m = self.game_description.m
-        r = self.game_description.n_rounds
-        exploration_phase_rounds = int(0.1 * r)
-        if state.round_number == 0 or (history is not None and history.my_actions.size < exploration_phase_rounds):
-            return Action.C
-        elif state.round_number == self.game_description.n_rounds - 1:
-            return Action.D
-        else:
-            opponent_actions = history.opponent_actions[-2, :]
-            m_t = np.sum(opponent_actions) + (history.my_actions[-2] == True)
-            if m_t >= m:
-                p_C = 0.8
-                p_D = 0.2
-            else:
-                p_C = 0.2
-                p_D = 0.8
-            avg_coop_rate_window_size = min(10, history.my_actions.size)
-            opponent_avg_cooperations = np.mean(np.sum(history.opponent_actions[-avg_coop_rate_window_size:-1, :], axis=1))
-            if opponent_avg_cooperations > m:
-                p_C += 0.1
-                p_D -= 0.1
-            elif opponent_avg_cooperations < m:
-                p_C -= 0.1
-                p_D += 0.1
-            p_C = max(0, min(p_C, 1))
-            p_D = 1 - p_C
-            return random.choices([Action.C, Action.D], weights=[p_C, p_D])[0]
 
 class Strategy_COLLECTIVE_442(BaseStrategy):
     """
@@ -16116,30 +15849,6 @@ class Strategy_EXPLOITATIVE_14(BaseStrategy):
             return Action.C
         else:
             return Action.D
-
-class Strategy_EXPLOITATIVE_15(BaseStrategy):
-    """
-    The Adaptive Threshold strategy aims to maximize its own payoff by adapting to the opponents' behavior while exploiting their cooperation.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.exploit_threshold = 0.6
-        self.avg_cooperation_rates = [0] * game_description.m
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0 or state.round_number < self.game_description.m - 1:
-            return Action.C
-        num_cooperators = sum((1 for action in history.opponent_actions[-1, :] if action))
-        avg_cooperation_rate = (sum(self.avg_cooperation_rates) + num_cooperators / self.game_description.n_players) / self.game_description.m
-        self.avg_cooperation_rates.append(num_cooperators / self.game_description.n_players)
-        self.avg_cooperation_rates.pop(0)
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.D
-        if avg_cooperation_rate > self.exploit_threshold:
-            return Action.D
-        else:
-            return Action.C
 
 class Strategy_EXPLOITATIVE_16(BaseStrategy):
     """
@@ -23620,38 +23329,6 @@ class Strategy_EXPLOITATIVE_260(BaseStrategy):
         else:
             return Action.D if M < self.threshold else Action.C
 
-class Strategy_EXPLOITATIVE_261(BaseStrategy):
-    """
-    Conditional Cooperator with Adaptive Threshold (CCAT)
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.theta = 0.5 * game_description.n_players / game_description.m
-        self.cooperate_history = []
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0 or len(self.cooperate_history) == 0:
-            if self.game_description.m <= self.game_description.n_players / 2:
-                return Action.C
-            else:
-                return Action.D
-        CR = sum(self.cooperate_history[-self.game_description.m:]) / len(self.cooperate_history)
-        if CR >= self.theta or self.game_description.m == self.game_description.n_players:
-            action = Action.C
-        elif state.round_number < self.game_description.n_rounds - 1:
-            action = Action.D
-        else:
-            action = Action.C
-        self.cooperate_history.append(1 if action == Action.C else 0)
-        if len(history.opponent_actions) > 0:
-            opponents_cooperated = sum(history.opponent_actions[-1, :])
-            if opponents_cooperated >= self.game_description.m:
-                self.theta *= 0.9
-            elif opponents_cooperated < self.game_description.m and len(self.cooperate_history) > self.game_description.m:
-                self.theta = min(1, self.theta * 1.2)
-        return action
-
 class Strategy_EXPLOITATIVE_262(BaseStrategy):
     """
     Exploitative strategy that adapts to opponents' behavior in a Collective Risk Dilemma game.
@@ -24542,29 +24219,6 @@ class Strategy_EXPLOITATIVE_291(BaseStrategy):
             return Action.C
         else:
             return Action.D
-
-class Strategy_EXPLOITATIVE_292(BaseStrategy):
-    """
-    The Adaptive Threshold Hunter strategy aims to maximize individual payoffs by adaptively adjusting its cooperation level based on the game's history and parameters.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.p_C = 0.5
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return random.choice([Action.C, Action.D])
-        m_prev = sum(history.opponent_actions[-1, :]) + (history.my_actions[-1] == Action.C)
-        if m_prev >= self.game_description.m:
-            self.p_C = min(0.9, self.p_C + 0.1)
-        else:
-            self.p_C = max(0.1, self.p_C - 0.1)
-        if m_prev >= self.game_description.m - 1:
-            p_D = 0.5 - m_prev / self.game_description.n_players
-            return random.choices([Action.C, Action.D], weights=[self.p_C, p_D])[0]
-        else:
-            return Action.C if random.random() < self.p_C else Action.D
 
 class Strategy_EXPLOITATIVE_293(BaseStrategy):
     """
@@ -34792,34 +34446,6 @@ class Strategy_COLLECTIVE_600(BaseStrategy):
         if state.round_number == self.game_description.n_rounds - 1:
             return Action.C if c_prev >= self.game_description.m / self.game_description.n_players else Action.D
         return Action.C if random.random() < self.p else Action.D
-
-class Strategy_EXPLOITATIVE_513(BaseStrategy):
-    """
-    Exploitative Strategy: "Conditional Cooperation with Punishment".
-    Cooperates initially, then adapts to opponents' behaviors by monitoring the number of cooperators and defectors.
-    Punishes defectors who defect in more than half of the previous rounds.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.opponent_defections = None
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number <= 1:
-            return Action.C
-        prev_round_coop = sum(history.opponent_actions[-1, :]) + 1
-        prev_two_rounds_avg_coop = (prev_round_coop + sum(history.opponent_actions[-2, :] + [True])) / 2
-        if prev_two_rounds_avg_coop >= self.game_description.m:
-            return Action.C
-        if self.opponent_defections is None:
-            self.opponent_defections = [[0 for _ in range(state.round_number)] for _ in range(self.game_description.n_players)]
-        for i, opponent_actions in enumerate(history.opponent_actions):
-            for j, action in enumerate(opponent_actions):
-                if not action:
-                    self.opponent_defections[i][j] += 1
-        if any((d / state.round_number > 0.5 for d in [sum(opponent) for opponent in self.opponent_defections])):
-            return Action.D
-        return Action.C
 
 class Strategy_EXPLOITATIVE_514(BaseStrategy):
     """

@@ -9086,40 +9086,6 @@ class Strategy_COLLECTIVE_290(BaseStrategy):
             return Action.D
         return Action.C
 
-class Strategy_COLLECTIVE_291(BaseStrategy):
-    """
-    A collective strategy for the Common Pool Resource Game that balances individual payoffs with long-term sustainability.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.capacity = game_description.capacity
-
-    def estimate_stock_growth(self, current_stock):
-        return 2 * current_stock * (1 - current_stock / self.capacity)
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        previous_actions = history.opponent_actions[-1, :] if history else []
-        previous_payoffs = history.my_payoffs if history else []
-        if state.current_stock < 0.5 * self.capacity:
-            return Action.D
-        opponents_cooperated = sum(previous_actions) / len(previous_actions)
-        if opponents_cooperated >= 0.5:
-            return Action.C
-        expected_growth = self.estimate_stock_growth(state.current_stock)
-        if expected_growth < 0.2 * self.capacity:
-            return Action.D
-        recent_payoffs = previous_payoffs[-3:] if len(previous_payoffs) >= 3 else []
-        average_recent_payoff = sum(recent_payoffs) / len(recent_payoffs)
-        all_players_average_payoff = sum(history.my_payoffs) / state.round_number if history else 0
-        if average_recent_payoff < all_players_average_payoff:
-            return Action.D
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.D
-        return Action.C
-
 class Strategy_COLLECTIVE_292(BaseStrategy):
     """
     A collective strategy for the Common Pool Resource Game that adapts to various opponent behaviors and game states.
@@ -20782,45 +20748,6 @@ class Strategy_EXPLOITATIVE_147(BaseStrategy):
             return Action.C
         return action
 
-class Strategy_EXPLOITATIVE_148(BaseStrategy):
-    """
-    Adaptive Stock Exploiter (ASE) strategy for Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.cooperation_threshold = 0.6
-        self.defection_threshold = 0.2
-        self.initial_rounds = int(0.1 * game_description.n_rounds)
-        self.current_stock = game_description.capacity
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if state.round_number < self.initial_rounds:
-            return Action.C
-        opponent_actions = history.opponent_actions[-1, :]
-        opponent_cooperation_rate = np.mean(opponent_actions)
-        growth_rate = self.calculate_growth_rate(self.current_stock)
-        cooperation_threshold_adjustment = state.round_number / self.game_description.n_rounds * 0.1
-        defection_threshold_adjustment = -(state.round_number / self.game_description.n_rounds) * 0.05
-        self.cooperation_threshold += cooperation_threshold_adjustment
-        self.defection_threshold += defection_threshold_adjustment
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.D
-        if self.current_stock <= 0:
-            return Action.C
-        if self.current_stock < self.game_description.capacity * self.defection_threshold:
-            return Action.D
-        elif opponent_cooperation_rate > self.cooperation_threshold:
-            return Action.D
-        elif growth_rate < self.game_description.capacity * 0.2:
-            return Action.C
-        else:
-            return Action.D
-
-    def calculate_growth_rate(self, stock):
-        growth = 2 * stock * (1 - stock / self.game_description.capacity)
-        return growth
-
 class Strategy_EXPLOITATIVE_149(BaseStrategy):
     """
     This strategy aims to maximize its payoff by adaptively exploiting the common pool resource while considering the game's state and history.
@@ -22576,35 +22503,6 @@ class Strategy_EXPLOITATIVE_207(BaseStrategy):
         if np.all(np.diff(recent_trend) < 0):
             pass
         return action
-
-class Strategy_EXPLOITATIVE_208(BaseStrategy):
-    """
-    This strategy adapts to the game dynamics and opponent behaviors while aiming to maximize payoffs.
-    It combines elements of conditional cooperation with a readiness to defect based on stock levels and observed opponent behavior.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.tau = game_description.capacity / 2
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        previous_round_actions = history.opponent_actions[-1]
-        opponents_defected = sum((1 for action in previous_round_actions if not action))
-        if state.current_stock > self.tau and opponents_defected > 0:
-            return Action.D
-        elif state.current_stock < self.tau and sum(previous_round_actions) >= len(previous_round_actions) / 2:
-            return Action.D
-        recent_behavior = history.opponent_actions[-3:, :]
-        most_cooperate = np.mean(recent_behavior, axis=1)
-        frequent_defectors_exist = any((np.mean(defector) < 0.5 for defector in recent_behavior.T))
-        if state.current_stock > self.tau and all(most_cooperate >= 0.5):
-            return Action.C
-        elif frequent_defectors_exist:
-            return Action.D if random.random() < 0.5 else Action.C
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.D
 
 class Strategy_EXPLOITATIVE_209(BaseStrategy):
     """

@@ -16024,63 +16024,6 @@ class Strategy_EXPLOITATIVE_13(BaseStrategy):
             return Action.D
         return Action.C
 
-class Strategy_EXPLOITATIVE_14(BaseStrategy):
-    """
-    Adaptive Exploiter strategy for N-Player Public Goods Game.
-    
-    This strategy initially cooperates with a probability of 0.5 in the first round,
-    then enters an exploitation mode where it adapts to opponents' behaviors.
-    It punishes opponents who exploit others and updates its cooperation probability
-    based on observed opponent actions.
-    """
-
-    def __init__(self, game_description: PublicGoodsDescription):
-        self.game_description = game_description
-        self.p_init = 0.5
-        self.cooperation_probability = self.p_init
-        self.opponent_punishments = []
-
-    def calculate_avg_payoff(self, history: PlayerHistory) -> float:
-        payoffs = np.concatenate(([history.my_payoffs[-1]], history.opponent_payoffs[-1]))
-        return np.mean(payoffs)
-
-    def get_opponent_actions(self, history: PlayerHistory) -> NDArray[np.bool_]:
-        return history.opponent_actions[-1]
-
-    def punish_opponents(self, opponent_actions: NDArray[np.bool_], payoffs: NDArray[np.float64]):
-        avg_payoff = np.mean(payoffs)
-        for i, (action, payoff) in enumerate(zip(opponent_actions, payoffs)):
-            if action == 0 and payoff > avg_payoff:
-                self.opponent_punishments.append((i, 2))
-
-    def update_cooperation_probability(self, avg_payoff_prev_round: float, opponent_actions: NDArray[np.bool_]):
-        for action in opponent_actions:
-            if action == 1 and avg_payoff_prev_round < self.game_description.k / self.game_description.n_players:
-                self.cooperation_probability = min(self.cooperation_probability + 0.1, 0.9)
-            elif action == 0 and avg_payoff_prev_round >= self.game_description.k / self.game_description.n_players:
-                self.cooperation_probability = max(self.cooperation_probability - 0.1, 0.1)
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return random.choices([Action.C, Action.D], weights=[self.p_init, 1 - self.p_init])[0]
-        for opponent, rounds in self.opponent_punishments[:]:
-            if rounds > 0:
-                self.opponent_punishments[self.opponent_punishments.index((opponent, rounds))] = (opponent, rounds - 1)
-            else:
-                self.opponent_punishments.remove((opponent, rounds))
-        avg_payoff_prev_round = self.calculate_avg_payoff(history)
-        opponent_actions = self.get_opponent_actions(history)
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.D
-        self.punish_opponents(opponent_actions, np.concatenate(([history.my_payoffs[-1]], history.opponent_payoffs[-1])))
-        self.update_cooperation_probability(avg_payoff_prev_round, opponent_actions)
-        if avg_payoff_prev_round >= self.game_description.k / self.game_description.n_players:
-            return Action.C
-        elif any((opponent == i for i, rounds in self.opponent_punishments)):
-            return Action.D
-        else:
-            return random.choices([Action.C, Action.D], weights=[self.cooperation_probability, 1 - self.cooperation_probability])[0]
-
 class Strategy_EXPLOITATIVE_15(BaseStrategy):
     """
     Adaptive Exploiter strategy in N-Player Public Goods Game.
