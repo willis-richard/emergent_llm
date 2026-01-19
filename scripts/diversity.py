@@ -1,6 +1,7 @@
 # pylint: disable=redefined-outer-name,missing-function-docstring,missing-class-docstring,possibly-used-before-assignment
 
 import argparse
+import logging
 from scipy.spatial.distance import pdist, cdist
 from dataclasses import dataclass
 from itertools import combinations_with_replacement, product
@@ -102,6 +103,15 @@ def parse_args():
     return parser.parse_args()
 
 
+def setup_logging(log_file: Path, loglevel=logging.INFO):
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=loglevel,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[logging.FileHandler(log_file),
+                  logging.StreamHandler()])
+
+
 # =============================================================================
 # CACHING
 # =============================================================================
@@ -122,7 +132,7 @@ def save_features(features_dict, game_name: str, gene: Gene, args):
     cache_path = get_cache_path(game_name, gene, args)
     with open(cache_path, 'wb') as f:
         pickle.dump(features_dict, f)
-    print(f"Saved features to {cache_path}")
+    logger.info(f"Saved features to {cache_path}")
 
 
 def load_features(
@@ -130,10 +140,11 @@ def load_features(
         args) -> dict[str, dict[OpponentActions, float]] | None:
     cache_path = get_cache_path(game_name, gene, args)
     if not cache_path.exists():
+        logger.info(f"Could not find existing cache at {cache_path}")
         return None
     with open(cache_path, 'rb') as f:
         features_dict = pickle.load(f)
-    print(f"Loaded features from {cache_path}")
+    logger.info(f"Loaded features from {cache_path}")
     return features_dict
 
 
@@ -200,7 +211,7 @@ def compute_gene(gene: Gene) -> dict[str, dict[OpponentActions, float]]:
         features = compute_features(player, args.n_games)
         strategy_features[algo.__name__] = features
 
-        print(
+        logger.info(
             f"{gene.model} {algo.__name__}: {np.mean(list(features.values()))}")
 
     save_features(strategy_features, game_name, gene, args)
@@ -243,7 +254,7 @@ def compute_baselines(n_players: int,
         baseline_features[player.id.name] = features
 
         mean = np.mean(list(features.values()))
-        print(f"{player.id.name}: {mean:.3f}")
+        logger.info(f"{player.id.name}: {mean:.3f}")
     return baseline_features
 
 
@@ -448,22 +459,22 @@ def find_extrema(X_pca, metadata):
             'features': feature_dict
         }
 
-        print(f"\n{position.upper().replace('_', ' ')}:")
-        print(f"  Gene: {gene}")
-        print(f"  Strategy: {strategy_name}")
-        print(f"  PC1: {X_pca[idx, 0]:.3f}, PC2: {X_pca[idx, 1]:.3f}")
+        logger.info(f"\n{position.upper().replace('_', ' ')}:")
+        logger.info(f"  Gene: {gene}")
+        logger.info(f"  Strategy: {strategy_name}")
+        logger.info(f"  PC1: {X_pca[idx, 0]:.3f}, PC2: {X_pca[idx, 1]:.3f}")
 
         coop_rate = np.mean(list(feature_dict.values()))
-        print(f"  Overall cooperation rate: {coop_rate:.2%}")
+        logger.info(f"  Overall cooperation rate: {coop_rate:.2%}")
 
     return results
 
 def extrema_analysis(tl):
-    print(f"\n{'='*60}")
-    print(f"EXTREMA ANALYSIS")
-    print(f"{'='*60}")
+    logger.info(f"\n{'='*60}")
+    logger.info(f"EXTREMA ANALYSIS")
+    logger.info(f"{'='*60}")
     features = tl['features']
-    print(f"Behavior by context (showing first 10 contexts):")
+    logger.info(f"Behavior by context (showing first 10 contexts):")
     for i, (context, coop_prob) in enumerate(list(features.items())[:20]):
         # Context is tuple of tuples, flatten and convert to string
         if len(context) == 0:
@@ -473,7 +484,7 @@ def extrema_analysis(tl):
             context_str = '|'.join(''.join('C' if val else 'D'
                                             for val in round_actions)
                                     for round_actions in context)
-        print(f"  {context_str}: {coop_prob:.1%} coop)")
+        logger.info(f"  {context_str}: {coop_prob:.1%} coop)")
 
 
 def plot_extrema(extrema_info, ax):
@@ -499,7 +510,12 @@ def plot_extrema(extrema_info, ax):
 if __name__ == "__main__":
     args = parse_args()
     output_dir = get_output_dir(args)
-    print("Running diversity.py")
+
+    log_file = output_dir / "logs" / "diversity.log"
+    setup_logging(log_file)
+    logger = logging.getLogger(__name__)
+
+    logger.info(f"Running diversity.py for games: {args.games}")
 
     # Globals shared across all games
     all_actions = tuple(product([D, C], repeat=args.n_rounds - 1))
@@ -524,7 +540,7 @@ if __name__ == "__main__":
             results = pool.map(compute_gene, genes)
             results_dict = dict(zip(genes, results))
 
-        print(f"Loaded {len(results_dict.values())} genes, with {sum([len(v) for v in results_dict.values()])} strategies for {game_name}")
+        logger.info(f"Results for {len(results_dict.values())} genes, with {sum([len(v) for v in results_dict.values()])} strategies in total for {game_name}")
 
         X_game = []
         labels_game = []
@@ -545,9 +561,9 @@ if __name__ == "__main__":
     # ==========================================================================
     # PHASE 2: Compute baselines (same for all games - depends only on n_players, n_rounds)
     # ==========================================================================
-    print(f"\n{'='*60}")
-    print("COMPUTING BASELINES")
-    print(f"{'='*60}")
+    logger.info(f"\n{'='*60}")
+    logger.info("COMPUTING BASELINES")
+    logger.info(f"{'='*60}")
 
     # Need to set globals for baseline computation (use first game's setup)
     game_class, _ = get_game_type(args.games[0])
@@ -560,19 +576,16 @@ if __name__ == "__main__":
     n_features = len(baseline_X[0])
     baseline_X = np.array(baseline_X + [[0.5] * n_features])
 
-    print(
-        "\nFeatures:\n",
-        f"{len(unique_combos)} unique opponent action combinations of length {args.n_rounds - 1}\n",
-        f"Giving rise to {n_features} features in total (including histories of shorter length)."
+    logger.info(f"Features:\n{len(unique_combos)} unique opponent action combinations of length {args.n_rounds - 1}\nGiving rise to {n_features} features in total (including histories of shorter length)."
     )
 
 
     # ==========================================================================
     # PHASE 3: Combined PCA (all games together, plotted separately)
     # ==========================================================================
-    print(f"\n{'='*60}")
-    print("COMBINED PCA ANALYSIS")
-    print(f"{'='*60}")
+    logger.info(f"\n{'='*60}")
+    logger.info("COMBINED PCA ANALYSIS")
+    logger.info(f"{'='*60}")
 
     # Stack all games
     X_all = np.vstack([pca_data[g]['X'] for g in args.games])
@@ -624,29 +637,29 @@ if __name__ == "__main__":
     # ==========================================================================
     # PHASE 4: Compute and display metrics
     # ==========================================================================
-    print(f"\n{'='*60}")
-    print("DIVERSITY METRICS (Within-set)")
-    print(f"{'='*60}")
+    logger.info(f"\n{'='*60}")
+    logger.info("DIVERSITY METRICS (Within-set)")
+    logger.info(f"{'='*60}")
 
     for game_name in args.games:
-        print(f"\n  {game_name}:")
+        logger.info(f"\n  {game_name}:")
         mask = game_labels == game_name
         for gene in pca_data[game_name]['genes']:
             gene_mask = mask & (labels_all == str(gene))
             X_gene = X_all[gene_mask]
             mpd, mpd_norm = compute_within_set_metrics(X_gene, random_baseline_dist)
             pr = compute_participation_ratio(X_gene)
-            print(f"    {gene}: MPD={mpd:.3f} (norm={mpd_norm:.2f}), PR={pr:.2f}")
+            logger.info(f"    {gene}: MPD={mpd:.3f} (norm={mpd_norm:.2f}), PR={pr:.2f}")
 
     # ==========================================================================
     # PHASE 5: Between-set metrics (by attitude within each game/model)
     # ==========================================================================
-    print(f"\n{'='*60}")
-    print("BETWEEN-SET METRICS (Collective vs Exploitative)")
-    print(f"{'='*60}")
+    logger.info(f"\n{'='*60}")
+    logger.info("BETWEEN-SET METRICS (Collective vs Exploitative)")
+    logger.info(f"{'='*60}")
 
     for game_name in args.games:
-        print(f"\n  {game_name}:")
+        logger.info(f"\n  {game_name}:")
         genes = pca_data[game_name]['genes']
 
         # Group genes by model
@@ -675,4 +688,4 @@ if __name__ == "__main__":
                 centroid_distance=centroid_dist,
                 cohens_d=cohens_d
             )
-            print(f"    {metrics}")
+            logger.info(f"    {metrics}")

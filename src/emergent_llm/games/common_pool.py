@@ -77,6 +77,7 @@ class CommonPoolGame(BaseGame):
         payoffs = share + share * (~actions).astype(np.float64)
 
         self.stock -= np.sum(payoffs)
+        self.stock = max(self.stock, 0)  # added in case of float precision errors
         self.stock += 2 * self.stock * (1 -
                                         self.stock / self.description.capacity)
         self.stock = min(self.stock, self.description.capacity)
