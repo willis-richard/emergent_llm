@@ -1018,7 +1018,7 @@ class BatchFairTournamentResults:
     def __str__(self) -> str:
         lines = [
             f"Batch Fair Tournament Results",
-            f"Group sizes: {self.config.group_sizes}",
+            f"Group sizes: {sorted(self.fair_results.keys())}",
             f"Repetitions per group: {self.config.repetitions}",
         ]
 
@@ -1043,7 +1043,7 @@ class BatchFairTournamentResults:
         }
 
     def save(self) -> Path:
-        filepath = Path(self.config.output_dir) / f"{self.FILENAME}{self.config.output_style.get_suffix()}"
+        filepath = self.config.output_dir / f"{self.FILENAME}{self.config.output_style.get_suffix()}"
         _save_json(filepath, self.serialise())
         return filepath
 
@@ -1129,7 +1129,7 @@ class BatchMixtureTournamentResults:
         }
 
     def save(self) -> Path:
-        filepath = Path(self.config.output_dir) / f"{self.FILENAME}{self.config.output_style.get_suffix()}"
+        filepath = self.config.output_dir / f"{self.FILENAME}{self.config.output_style.get_suffix()}"
         _save_json(filepath, self.serialise())
         return filepath
 
@@ -1159,10 +1159,10 @@ class BatchMixtureTournamentResults:
     def create_social_welfare_diagram(self):
         fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
 
-        gd = self.mixture_results[
-            self.config.group_sizes[-1]].config.game_description
+        group_sizes = sorted(self.mixture_results.keys())
+        gd = self.mixture_results[group_sizes[-1]].config.game_description
 
-        for group_size in sorted(self.config.group_sizes):
+        for group_size in group_sizes:
             group_data = self.combined_df[self.combined_df['group_size'] ==
                                           group_size]
             group_data = group_data.sort_values('collective_ratio')
@@ -1191,12 +1191,12 @@ class BatchMixtureTournamentResults:
 
         ax.legend(bbox_to_anchor=(-0.13, 1.4),
                   loc='upper left',
-                  ncol=len(self.config.group_sizes),
+                  ncol=len(group_sizes),
                   frameon=False,
                   handletextpad=0.4,
                   columnspacing=0.6)
 
-        output_file = Path(self.config.output_dir) / f"social_welfare.{FORMAT}"
+        output_file = self.config.output_dir / f"social_welfare.{FORMAT}"
         output_file.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_file, format=FORMAT, bbox_inches='tight')
         plt.close(fig)
@@ -1204,10 +1204,10 @@ class BatchMixtureTournamentResults:
     def create_relative_schelling_diagram(self):
         fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
 
-        gd = self.mixture_results[
-            self.config.group_sizes[-1]].config.game_description
+        group_sizes = sorted(self.mixture_results.keys())
+        gd = self.mixture_results[group_sizes[-1]].config.game_description
 
-        for group_size in sorted(self.config.group_sizes):
+        for group_size in group_sizes:
             group_data = self.combined_df[self.combined_df['group_size'] ==
                                           group_size]
             group_data = group_data.sort_values('collective_ratio')
@@ -1243,12 +1243,12 @@ class BatchMixtureTournamentResults:
 
         ax.legend(bbox_to_anchor=(-0.13, 1.4),
                   loc='upper left',
-                  ncol=len(self.config.group_sizes),
+                  ncol=len(group_sizes),
                   frameon=False,
                   handletextpad=0.4,
                   columnspacing=0.6)
 
-        output_file = Path(self.config.output_dir) / f"schelling_difference.{FORMAT}"
+        output_file = self.config.output_dir / f"schelling_difference.{FORMAT}"
         output_file.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_file, format=FORMAT, bbox_inches='tight')
         plt.close(fig)

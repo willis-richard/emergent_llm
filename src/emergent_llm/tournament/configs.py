@@ -58,15 +58,16 @@ class BaseTournamentConfig:
 
 
 @dataclass
-@dataclass
 class BatchTournamentConfig:
     """Configuration for batch tournaments (fair or mixture)."""
     group_sizes: list[int]
     repetitions: int
     generator_name: str  # Key from STANDARD_GENERATORS
     n_processes: int
-    output_dir: str
+    results_dir: str
     output_style: OutputStyle
+    game_name: str
+    model_name: str
 
     def __post_init__(self):
         if isinstance(self.output_style, str):
@@ -80,6 +81,17 @@ class BatchTournamentConfig:
     @property
     def game_description_generator(self) -> Callable[..., GameDescription]:
         return STANDARD_GENERATORS[self.generator_name]
+
+    @property
+    def output_dir(self) -> Path:
+        """Full output directory including experiment subdirectory."""
+        return (Path(self.results_dir) / "self_play" / self.game_name /
+                self.model_name / self._experiment_dir_name)
+
+    @property
+    def _experiment_dir_name(self) -> str:
+        """Generate unique experiment directory name from config."""
+        return f"rep{self.repetitions}"
 
 
 @dataclass(frozen=True)
