@@ -20,6 +20,7 @@ PROVIDER_MODELS=(
     "anthropic claude-haiku-4-5"
     "ollama llama3.1-70b"
     "ollama mistral:7b"
+    "openrouter deepseek-r1-distill-llama-70b"
 )
 EVOLUTION_PLAYERS=(4 64)
 

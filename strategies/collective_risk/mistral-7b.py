@@ -2850,34 +2850,6 @@ class Strategy_COLLECTIVE_141(BaseStrategy):
                 return Action.D
         return Action.C
 
-class Strategy_COLLECTIVE_142(BaseStrategy):
-    """
-    Tit-for-Tat Adaptive Strategy for the Collective Risk Dilemma game.
-    This strategy fosters cooperation when others do so, but also punishes defection to ensure fairness.
-    It adapts to opponent behavior by switching to a punishing strategy if necessary.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.n_consecutive_defects = self.game_description.n_players // 2
-        self.punishing_duration = self.game_description.n_players // 4
-        self.current_state = Action.C
-        self.punishing_mode = False
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0 and history is None:
-            return self.current_state
-        cooperators = sum(history.opponent_actions[-1, :])
-        if cooperators >= self.game_description.m:
-            self.current_state = Action.C
-        else:
-            self.current_state = Action.D
-        if not self.punishing_mode and cooperators < self.game_description.m - self.n_consecutive_defects:
-            self.punishing_mode = True
-        elif self.punishing_mode and history.my_actions[-self.punishing_duration - 1, :].sum() >= self.n_consecutive_defects:
-            self.punishing_mode = False
-        return self.current_state
-
 class Strategy_COLLECTIVE_143(BaseStrategy):
     """
     Tit-for-Tat Cooperation (TFTC) strategy for Collective Risk Dilemma.
