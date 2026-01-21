@@ -2,7 +2,6 @@
 
 import argparse
 import logging
-from scipy.spatial.distance import pdist, cdist
 from dataclasses import dataclass
 from itertools import combinations_with_replacement, product
 from multiprocessing import Pool
@@ -12,7 +11,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Ellipse
-from scipy.spatial.distance import pdist
+from scipy.spatial.distance import pdist, cdist
 from sklearn.decomposition import PCA
 
 from emergent_llm.common import (
@@ -40,6 +39,8 @@ from emergent_llm.players import (
 )
 
 FIGSIZE, FORMAT = setup('fullscreen')
+# Increase due to legend
+FIGSIZE = (FIGSIZE[0], FIGSIZE[1] * 1.25)
 
 OpponentActions = tuple[tuple[Action, ...], ...]
 
@@ -144,7 +145,7 @@ def load_features(
         return None
     with open(cache_path, 'rb') as f:
         features_dict = pickle.load(f)
-    logger.info(f"Loaded features from {cache_path}")
+    logger.info(f"Loaded features for {len(features_dict.keys())} strategies from {cache_path}")
     return features_dict
 
 
@@ -212,7 +213,7 @@ def compute_gene(gene: Gene) -> dict[str, dict[OpponentActions, float]]:
         strategy_features[algo.__name__] = features
 
         logger.info(
-            f"{gene.model} {algo.__name__}: {np.mean(list(features.values()))}")
+            f"{gene.model} {algo.__name__}: {np.mean(list(features.values())):.3f}")
 
     save_features(strategy_features, game_name, gene, args)
     return strategy_features
@@ -367,6 +368,9 @@ def compute_between_set_metrics(X_collective: np.ndarray,
 # PLOTTING HELPERS
 # =============================================================================
 
+# Baselines with labels on the left (defector-ish strategies)
+BASELINE_LABELS_LEFT = {"All-D", "All-D,LR-C"}
+
 
 def plot_covariance_ellipse(ax, mean, cov, n_std=1.0, **kwargs):
     eigenvalues, eigenvectors = np.linalg.eigh(cov)
@@ -375,6 +379,24 @@ def plot_covariance_ellipse(ax, mean, cov, n_std=1.0, **kwargs):
     ellipse = Ellipse(mean, width, height, angle=angle, **kwargs)
     ax.add_patch(ellipse)
     return ellipse
+
+
+def plot_baselines(ax, baseline_pca, baseline_labels, marker_size=120, font_size=6):
+    """Plot baseline strategies with positioned labels."""
+    for i, name in enumerate(baseline_labels):
+        ax.scatter(baseline_pca[i, 0],
+                   baseline_pca[i, 1],
+                   marker='X',
+                   s=marker_size,
+                   color='gray',
+                   edgecolors='black',
+                   linewidths=1,
+                   zorder=6)
+        ha = 'right' if name in BASELINE_LABELS_LEFT else 'left'
+        offset = -5 if name in BASELINE_LABELS_LEFT else 5
+        ax.annotate(name, (baseline_pca[i, 0], baseline_pca[i, 1]),
+                    fontsize=font_size, ha=ha, xytext=(offset, 0),
+                    textcoords='offset points')
 
 
 def plot_pca(ax, X_pca, genes, labels, baseline_pca, baseline_labels, title,
@@ -416,21 +438,99 @@ def plot_pca(ax, X_pca, genes, labels, baseline_pca, baseline_labels, title,
                                         linewidth=1.5)
         handles.append((scatter, str(gene)))
 
-    # Plot baselines
-    for i, name in enumerate(baseline_labels):
-        ax.scatter(baseline_pca[i, 0],
-                   baseline_pca[i, 1],
-                   marker='X',
-                   s=120,
-                   edgecolors='black',
-                   linewidths=1,
-                   zorder=6)
-        ax.annotate(name, (baseline_pca[i, 0], baseline_pca[i, 1]), fontsize=6)
+    plot_baselines(ax, baseline_pca, baseline_labels)
 
     ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
     ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})')
     ax.set_title(title)
     ax.legend([h[0] for h in handles], [h[1] for h in handles], fontsize=6)
+
+
+def plot_combined_pca_grid(pca_data, X_pca_combined, labels_all, game_labels,
+                           baseline_pca, baseline_labels, games, pca, output_dir):
+    """
+    Create a 2×3 grid: rows=attitudes, columns=games.
+    Each subplot shows all models for that game/attitude combination.
+    """
+    attitudes = [Attitude.COLLECTIVE, Attitude.EXPLOITATIVE]
+    attitude_names = {Attitude.COLLECTIVE: "Collective", Attitude.EXPLOITATIVE: "Exploitative"}
+
+    # Extract unique models across all genes
+    all_genes = []
+    for g in games:
+        all_genes.extend(pca_data[g]['genes'])
+    models = sorted(set(gene.model for gene in all_genes))
+    model_colors = dict(zip(models, plt.colormaps.get_cmap('tab10')(np.linspace(0, 1, len(models)))))
+
+    fig, axes = plt.subplots(2, 3, figsize=(FIGSIZE[0] * 3, FIGSIZE[1] * 2),
+                             sharex=True, sharey=True)
+
+    for col, game in enumerate(games):
+        game_mask = game_labels == game
+        genes_for_game = pca_data[game]['genes']
+
+        for row, attitude in enumerate(attitudes):
+            ax = axes[row, col]
+
+            # Filter genes for this attitude
+            genes_this_attitude = [g for g in genes_for_game if g.attitude == attitude]
+            handles = []
+
+            for model in models:
+                # Find the gene for this model+attitude (if exists)
+                matching_genes = [g for g in genes_this_attitude if g.model == model]
+                if not matching_genes:
+                    continue
+                gene = matching_genes[0]
+
+                mask = game_mask & (labels_all == str(gene))
+                points = X_pca_combined[mask, :2]
+
+                if len(points) == 0:
+                    continue
+
+                color = model_colors[model]
+                scatter = ax.scatter(points[:, 0], points[:, 1],
+                                     alpha=0.3, s=10, color=color)
+
+                # Centroid
+                mean_pt = points.mean(axis=0)
+                ax.scatter(mean_pt[0], mean_pt[1], marker='o', s=100,
+                           color=color, edgecolors='black', linewidths=1.5, zorder=5)
+
+                # Ellipse
+                if len(points) > 2:
+                    cov = np.cov(points.T)
+                    plot_covariance_ellipse(ax, mean_pt, cov, n_std=1.0,
+                                            facecolor=color, alpha=0.15,
+                                            edgecolor=color, linewidth=1.5)
+
+                handles.append((scatter, model))
+
+            # Baselines (smaller markers for grid)
+            plot_baselines(ax, baseline_pca, baseline_labels,
+                           marker_size=60, font_size=5)
+
+            # Labels
+            if row == 0:
+                ax.set_title(game, fontsize=12)
+            if col == 0:
+                ax.set_ylabel(f"{attitude_names[attitude]}\nPC2 ({pca.explained_variance_ratio_[1]:.1%})",
+                              fontsize=10)
+            if row == 1:
+                ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})', fontsize=10)
+
+    # Shared legend for models (outside the grid on the right)
+    legend_handles = [plt.Line2D([0], [0], marker='o', color='w',
+                                  markerfacecolor=model_colors[m], markersize=10,
+                                  label=m) for m in models]
+    fig.legend(handles=legend_handles, loc='center right',
+               bbox_to_anchor=(1.02, 0.5), fontsize=9, title='Model')
+
+    plt.tight_layout(rect=[0, 0, 0.95, 1])  # Leave space for legend
+    plt.savefig(output_dir / f"pca_combined_grid.{FORMAT}", format=FORMAT, bbox_inches='tight')
+    plt.close()
+    logger.info(f"Saved combined PCA grid to {output_dir / f'pca_combined_grid.{FORMAT}'}")
 
 
 # =============================================================================
@@ -474,7 +574,7 @@ def extrema_analysis(tl):
     logger.info(f"EXTREMA ANALYSIS")
     logger.info(f"{'='*60}")
     features = tl['features']
-    logger.info(f"Behavior by context (showing first 10 contexts):")
+    logger.info(f"Behavior by context (showing first 20 contexts):")
     for i, (context, coop_prob) in enumerate(list(features.items())[:20]):
         # Context is tuple of tuples, flatten and convert to string
         if len(context) == 0:
@@ -633,6 +733,11 @@ if __name__ == "__main__":
         plt.tight_layout()
         plt.savefig(output_dir / f"pca_{game_name}.{FORMAT}", format=FORMAT, bbox_inches='tight')
         plt.close()
+
+    # Combined 2x3 grid plot (attitudes × games)
+    plot_combined_pca_grid(pca_data, X_pca_combined, labels_all, game_labels,
+                           baseline_pca_combined, baseline_labels, args.games,
+                           pca_combined, output_dir)
 
     # ==========================================================================
     # PHASE 4: Compute and display metrics
