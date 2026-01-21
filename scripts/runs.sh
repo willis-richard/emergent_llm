@@ -54,20 +54,27 @@ python scripts/diversity.py \
         --n_processes $N_PROCESSES \
         --results_dir "$RESULTS_DIR"
 
-# Due to temperamental pickle errors, running with a single process
-pids=()
-jobs=()
-
 for game in "${GAMES[@]}"; do
+    pids=()
+    jobs=()
+
     for pm in "${PROVIDER_MODELS[@]}"; do
         read provider model <<< "$pm"
 
+        # Gemini uses Enum which sometimes gives pickle errors, so it needs single processing
+        # llama and gpt mini are the slow models
+        if [[ "$model" == *"gemini"* || "$model" == *"claude"* || "$model" == *"mistral"* ]]; then
+            n_proc=1
+        else
+            n_proc=$(((N_PROCESSES - 3) / 2))
+        fi
+
         python scripts/run_tournament.py \
                --strategies "$STRATEGIES_DIR/$game/${model}.py" \
-               --game $game \
-               --matches 200 \
-               --group-sizes 4 16 64 256 \
-               --n_processes 1 \
+               --game "$game" \
+               --matches 2 \
+               --group-sizes 4 16 \
+               --n_processes "$n_proc" \
                --results_dir "$RESULTS_DIR" \
                --output_style summary \
                --verbose &
@@ -75,10 +82,10 @@ for game in "${GAMES[@]}"; do
         pids+=($!)
         jobs+=("$game/$model")
     done
-done
 
-for i in "${!pids[@]}"; do
-    wait "${pids[$i]}" || echo "FAILED: ${jobs[$i]}"
+    for i in "${!pids[@]}"; do
+        wait "${pids[$i]}" || echo "FAILED: ${jobs[$i]}"
+    done
 done
 
 for game in "${GAMES[@]}"; do
