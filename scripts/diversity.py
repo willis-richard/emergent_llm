@@ -197,26 +197,27 @@ def compute_features(player: BasePlayer, n_games: int) -> dict[OpponentActions, 
     return features
 
 
-def compute_gene(gene: Gene) -> dict[str, dict[OpponentActions, float]]:
-    # try cache first
-    if not args.recompute:
-        cached_data = load_features(game_name, gene, args)
-        if cached_data is not None:
-            return cached_data
+def chunk_indices(n_items: int, n_chunks: int) -> list[list[int]]:
+    """Split indices into approximately equal chunks."""
+    chunk_size = (n_items + n_chunks - 1) // n_chunks
+    return [list(range(i, min(i + chunk_size, n_items)))
+            for i in range(0, n_items, chunk_size)]
 
-    strategy_features = {}
-    for strategy_spec in registry.get_all_specs(gene)[0:args.n_strategies]:
-        algo = strategy_spec.strategy_class
-        player = LLMPlayer("testing", gene, description, algo)
 
+def compute_strategy_chunk(strategy_indices: list[int]) -> list[tuple[str, dict[OpponentActions, float]]]:
+    """Compute features for a chunk of strategies. Runs in worker process."""
+    worker_registry = StrategyRegistry(args.strategies_dir, game_name, [gene.model])
+    specs = worker_registry.get_all_specs(gene)
+
+    results = []
+    for idx in strategy_indices:
+        spec = specs[idx]
+        player = LLMPlayer("testing", gene, description, spec.strategy_class)
         features = compute_features(player, args.n_games)
-        strategy_features[algo.__name__] = features
+        results.append((spec.strategy_class.__name__, features))
+        logger.info(f"{gene.model} {spec.strategy_class.__name__}: {np.mean(list(features.values())):.3f}")
 
-        logger.info(
-            f"{gene.model} {algo.__name__}: {np.mean(list(features.values())):.3f}")
-
-    save_features(strategy_features, game_name, gene, args)
-    return strategy_features
+    return results
 
 
 # =============================================================================
@@ -636,11 +637,37 @@ if __name__ == "__main__":
                                     models=args.models)
         genes = sorted(list(registry.available_genes), key=str)
 
-        with Pool(processes=args.n_processes) as pool:
-            results = pool.map(compute_gene, genes)
-            results_dict = dict(zip(genes, results))
+        results_dict = {}
 
-        logger.info(f"Results for {len(results_dict.values())} genes, with {sum([len(v) for v in results_dict.values()])} strategies in total for {game_name}")
+        for gene in genes:
+            # Check cache first
+            if not args.recompute:
+                cached_data = load_features(game_name, gene, args)
+                if cached_data is not None:
+                    results_dict[gene] = cached_data
+                    continue
+
+            all_specs = registry.get_all_specs(gene)
+            n_strategies = len(all_specs) if args.n_strategies is None else min(len(all_specs), args.n_strategies)
+            chunks = chunk_indices(n_strategies, args.n_processes)
+
+            logger.info(f"Computing {n_strategies} strategies for {gene} in {len(chunks)} chunks")
+
+            with Pool(processes=args.n_processes) as pool:
+                chunk_results = pool.map(compute_strategy_chunk, chunks)
+
+            # Aggregate results
+            strategy_features = {}
+            for chunk_result in chunk_results:
+                for strategy_name, features in chunk_result:
+                    strategy_features[strategy_name] = features
+
+            save_features(strategy_features, game_name, gene, args)
+            results_dict[gene] = strategy_features
+
+        logger.info(f"Results for {len(results_dict)} genes, with "
+                    f"{sum(len(v) for v in results_dict.values())} strategies "
+                    f"in total for {game_name}")
 
         X_game = []
         labels_game = []
