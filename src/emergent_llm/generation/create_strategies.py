@@ -718,7 +718,7 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate LLM strategies for social dilemma games")
     parser.add_argument("--llm_provider",
-                        choices=["openai", "anthropic", "ollama", "google"],
+                        choices=["openai", "anthropic", "ollama", "google", "openrouter"],
                         required=True)
     parser.add_argument("--model_name", type=str, required=True)
     parser.add_argument(
@@ -776,6 +776,8 @@ def main():
         client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     elif args.llm_provider == "ollama":
         client = ollama.Client(host=os.environ["OLLAMA_HOST"])
+    elif args.llm_provider == "openrouter":
+        client = openai.OpenAI(base_url="https://openrouter.ai/api/v1",api_key=os.environ["OPENROUTER_API_KEY"])
     elif args.llm_provider == "google":
         client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
