@@ -30,6 +30,7 @@ from emergent_llm.generation import StrategyRegistry
 from emergent_llm.players import (
     BasePlayer,
     ConditionalCooperator,
+    ConditionalDefector,
     Cooperator,
     Defector,
     HistoricalCooperator,
@@ -38,7 +39,7 @@ from emergent_llm.players import (
     SpecialRounds,
 )
 
-FIGSIZE, FORMAT = setup('fullscreen')
+FIGSIZE, FORMAT = setup('3_col_paper')
 # Increase due to legend
 FIGSIZE = (FIGSIZE[0], FIGSIZE[1] * 1.25)
 
@@ -229,20 +230,14 @@ def create_baseline_players(n_players: int, n_rounds: int) -> list[SimplePlayer]
     baseline_players = [
         SimplePlayer("All-D", Defector),
         SimplePlayer("All-C", Cooperator),
-        SimplePlayer("All-C,LR-D",
-                     SpecialRounds(Cooperator, Defector, [n_rounds - 1])),
-        SimplePlayer("All-D,LR-C",
-                     SpecialRounds(Defector, Cooperator, [n_rounds - 1])),
     ]
     baseline_players += [
-        SimplePlayer(f"CC-{i}", ConditionalCooperator(C, i))
-        for i in [2]
+        SimplePlayer(f"CC({i})", ConditionalCooperator(C, i))
+        for i in range(1, args.n_players)
     ]
     baseline_players += [
-        SimplePlayer(
-            f"CC-{i},LR-D",
-            SpecialRounds(ConditionalCooperator(C, i), Defector,
-                          [n_rounds - 1])) for i in [2]
+        SimplePlayer(f"CD({i})", ConditionalDefector(D, i))
+        for i in range(1, args.n_players)
     ]
     return baseline_players
 
@@ -382,7 +377,7 @@ def plot_covariance_ellipse(ax, mean, cov, n_std=1.0, **kwargs):
     return ellipse
 
 
-def plot_baselines(ax, baseline_pca, baseline_labels, marker_size=120, font_size=6):
+def plot_baselines(ax, baseline_pca, baseline_labels, marker_size=120):
     """Plot baseline strategies with positioned labels."""
     for i, name in enumerate(baseline_labels):
         ax.scatter(baseline_pca[i, 0],
@@ -396,8 +391,7 @@ def plot_baselines(ax, baseline_pca, baseline_labels, marker_size=120, font_size
         ha = 'right' if name in BASELINE_LABELS_LEFT else 'left'
         offset = -5 if name in BASELINE_LABELS_LEFT else 5
         ax.annotate(name, (baseline_pca[i, 0], baseline_pca[i, 1]),
-                    fontsize=font_size, ha=ha, xytext=(offset, 0),
-                    textcoords='offset points')
+                    ha=ha, xytext=(offset, 0), textcoords='offset points')
 
 
 def plot_pca(ax, X_pca, genes, labels, baseline_pca, baseline_labels, title,
@@ -444,7 +438,8 @@ def plot_pca(ax, X_pca, genes, labels, baseline_pca, baseline_labels, title,
     ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
     ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})')
     ax.set_title(title)
-    ax.legend([h[0] for h in handles], [h[1] for h in handles], fontsize=6)
+    ax.legend([h[0] for h in handles], [h[1] for h in handles], loc='upper center', frameon=False,
+               bbox_to_anchor=(0.4, 1.05), ncol=2)
 
 
 def plot_combined_pca_grid(pca_data, X_pca_combined, labels_all, game_labels,
@@ -509,8 +504,7 @@ def plot_combined_pca_grid(pca_data, X_pca_combined, labels_all, game_labels,
                 handles.append((scatter, model))
 
             # Baselines (smaller markers for grid)
-            plot_baselines(ax, baseline_pca, baseline_labels,
-                           marker_size=60, font_size=5)
+            plot_baselines(ax, baseline_pca, baseline_labels, marker_size=60)
 
             # Labels
             if row == 0:
@@ -525,8 +519,8 @@ def plot_combined_pca_grid(pca_data, X_pca_combined, labels_all, game_labels,
     legend_handles = [plt.Line2D([0], [0], marker='o', color='w',
                                   markerfacecolor=model_colors[m], markersize=10,
                                   label=m) for m in models]
-    fig.legend(handles=legend_handles, loc='center right',
-               bbox_to_anchor=(1.02, 0.5), fontsize=9, title='Model')
+    fig.legend(handles=legend_handles, loc='upper center', frameon=False,
+               bbox_to_anchor=(0.4, 1.05), ncol=len(registry.available_models))
 
     plt.tight_layout(rect=[0, 0, 0.95, 1])  # Leave space for legend
     plt.savefig(output_dir / f"pca_combined_grid.{FORMAT}", format=FORMAT, bbox_inches='tight')
@@ -546,6 +540,10 @@ def find_extrema(X_pca, metadata):
         'top_right': np.argmax(X_pca[:, 0] + X_pca[:, 1]),
         'bottom_left': np.argmin(X_pca[:, 0] + X_pca[:, 1]),
         'bottom_right': np.argmax(X_pca[:, 0] - X_pca[:, 1]),
+        'top': np.argmin(X_pca[:, 0]),
+        'right': np.argmax(X_pca[:, 1]),
+        'bottom': np.argmin(X_pca[:, 0]),
+        'left': np.argmin(X_pca[:, 1]),
     }
 
     results = {}

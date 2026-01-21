@@ -51,6 +51,22 @@ class ConditionalCooperator:
             return C if (sum(history.opponent_actions[-1,:]) + history.my_actions[-1]) >= self.threshold else D
         return C if sum(history.opponent_actions[-1,:]) >= self.threshold else D
 
+class ConditionalDefector:
+
+    def __init__(self, initial_action: Action, threshold: int, include_self: bool = False):
+        self.initial_action = initial_action
+        self.threshold = threshold
+        self.include_self = include_self
+
+    def __call__(self, state: GameState, history: PlayerHistory | None) -> Action:
+        if state.round_number == 0:
+            return self.initial_action
+        assert history is not None
+
+        if self.include_self:
+            return D if (sum(history.opponent_actions[-1,:]) + history.my_actions[-1]) >= self.threshold else C
+        return D if sum(history.opponent_actions[-1,:]) >= self.threshold else C
+
 class HistoricalCooperator:
 
     def __init__(self, initial_action: Action, threshold: int, include_self: bool = False):
