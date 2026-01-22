@@ -2850,33 +2850,33 @@ class Strategy_COLLECTIVE_141(BaseStrategy):
                 return Action.D
         return Action.C
 
-class Strategy_COLLECTIVE_142(BaseStrategy):
-    """
-    Tit-for-Tat Adaptive Strategy for the Collective Risk Dilemma game.
-    This strategy fosters cooperation when others do so, but also punishes defection to ensure fairness.
-    It adapts to opponent behavior by switching to a punishing strategy if necessary.
-    """
+# class Strategy_COLLECTIVE_142(BaseStrategy):
+#     """
+#     Tit-for-Tat Adaptive Strategy for the Collective Risk Dilemma game.
+#     This strategy fosters cooperation when others do so, but also punishes defection to ensure fairness.
+#     It adapts to opponent behavior by switching to a punishing strategy if necessary.
+#     """
 
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.n_consecutive_defects = self.game_description.n_players // 2
-        self.punishing_duration = self.game_description.n_players // 4
-        self.current_state = Action.C
-        self.punishing_mode = False
+#     def __init__(self, game_description: CollectiveRiskDescription):
+#         self.game_description = game_description
+#         self.n_consecutive_defects = self.game_description.n_players // 2
+#         self.punishing_duration = self.game_description.n_players // 4
+#         self.current_state = Action.C
+#         self.punishing_mode = False
 
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0 and history is None:
-            return self.current_state
-        cooperators = sum(history.opponent_actions[-1, :])
-        if cooperators >= self.game_description.m:
-            self.current_state = Action.C
-        else:
-            self.current_state = Action.D
-        if not self.punishing_mode and cooperators < self.game_description.m - self.n_consecutive_defects:
-            self.punishing_mode = True
-        elif self.punishing_mode and history.my_actions[-self.punishing_duration - 1, :].sum() >= self.n_consecutive_defects:
-            self.punishing_mode = False
-        return self.current_state
+#     def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+#         if state.round_number == 0 and history is None:
+#             return self.current_state
+#         cooperators = sum(history.opponent_actions[-1, :])
+#         if cooperators >= self.game_description.m:
+#             self.current_state = Action.C
+#         else:
+#             self.current_state = Action.D
+#         if not self.punishing_mode and cooperators < self.game_description.m - self.n_consecutive_defects:
+#             self.punishing_mode = True
+#         elif self.punishing_mode and history.my_actions[-self.punishing_duration - 1, :].sum() >= self.n_consecutive_defects:
+#             self.punishing_mode = False
+#         return self.current_state
 
 class Strategy_COLLECTIVE_143(BaseStrategy):
     """
@@ -8438,36 +8438,36 @@ class Strategy_COLLECTIVE_414(BaseStrategy):
             self.opponent_history[-1] = opponent_last_action
             return Action.C
 
-class Strategy_COLLECTIVE_415(BaseStrategy):
-    """
-    A strategy based on Tit-for-Tat Adaptive Cooperative (TFTAC). The strategy cooperates if at least m players cooperated in the previous round, and defects otherwise.
-    If more than n-m+1 players cooperated in the previous round, it temporarily raises the threshold to encourage reciprocity by requiring m+1 players to cooperate.
-    If less than m players cooperated in the previous round, it waits for m players to defect before returning to cooperation again.
-    In the last round, it always cooperates regardless of previous actions to maximize potential payoff.
-    """
+# class Strategy_COLLECTIVE_415(BaseStrategy):
+#     """
+#     A strategy based on Tit-for-Tat Adaptive Cooperative (TFTAC). The strategy cooperates if at least m players cooperated in the previous round, and defects otherwise.
+#     If more than n-m+1 players cooperated in the previous round, it temporarily raises the threshold to encourage reciprocity by requiring m+1 players to cooperate.
+#     If less than m players cooperated in the previous round, it waits for m players to defect before returning to cooperation again.
+#     In the last round, it always cooperates regardless of previous actions to maximize potential payoff.
+#     """
 
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.threshold = None
-        self.m = min(game_description.n_players - 1, game_description.m)
+#     def __init__(self, game_description: CollectiveRiskDescription):
+#         self.game_description = game_description
+#         self.threshold = None
+#         self.m = min(game_description.n_players - 1, game_description.m)
 
-    def __call__(self, state: GameState, history: PlayerHistory) -> Action:
-        if state.round_number == 0 or history is None:
-            return Action.C
-        cooperation_count = sum(history.opponent_actions[-1])
-        if cooperation_count >= self.m and cooperation_count <= self.game_description.n_players - self.m + 1:
-            action = Action.C
-        elif cooperation_count < self.m and cooperation_count < len(history.opponent_actions) - self.m + 1:
-            action = Action.C
-        else:
-            if self.threshold is None or self.threshold > self.game_description.n_players // (self.m + 1):
-                self.threshold = math.ceil(self.game_description.n_players / (self.m + 1))
-            elif self.threshold <= self.game_description.n_players // (self.m + 1):
-                self.threshold = None
-            action = Action.D if cooperation_count < self.threshold else Action.C
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.C
-        return action
+#     def __call__(self, state: GameState, history: PlayerHistory) -> Action:
+#         if state.round_number == 0 or history is None:
+#             return Action.C
+#         cooperation_count = sum(history.opponent_actions[-1])
+#         if cooperation_count >= self.m and cooperation_count <= self.game_description.n_players - self.m + 1:
+#             action = Action.C
+#         elif cooperation_count < self.m and cooperation_count < len(history.opponent_actions) - self.m + 1:
+#             action = Action.C
+#         else:
+#             if self.threshold is None or self.threshold > self.game_description.n_players // (self.m + 1):
+#                 self.threshold = math.ceil(self.game_description.n_players / (self.m + 1))
+#             elif self.threshold <= self.game_description.n_players // (self.m + 1):
+#                 self.threshold = None
+#             action = Action.D if cooperation_count < self.threshold else Action.C
+#         if state.round_number == self.game_description.n_rounds - 1:
+#             return Action.C
+#         return action
 
 class Strategy_COLLECTIVE_416(BaseStrategy):
     """
