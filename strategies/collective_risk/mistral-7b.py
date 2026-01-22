@@ -24,25 +24,6 @@ from emergent_llm.common import Action, C, D, PlayerHistory, GameState
 
 
 
-class Strategy_COLLECTIVE_3(BaseStrategy):
-    """Adaptive Tit-for-Tat strategy for the Collective Risk Dilemma game."""
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.min_players = max(1, math.ceil(game_description.n_players * 0.5))
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds, dtype=np.float64), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros((game_description.n_rounds, game_description.n_players), dtype=np.float64))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory):
-        if state.round_number == 0:
-            self.history.my_actions[0] = True
-            return Action.C
-        cooperators = sum(history.opponent_actions[-1, :])
-        if cooperators >= self.min_players and history.my_payoffs[-1] != 1 + (self.game_description.k - 1):
-            self.history.my_actions[-1] = True
-            return Action.C
-        self.history.my_actions[-1] = False
-        return Action.D
-
 class Strategy_COLLECTIVE_6(BaseStrategy):
     """
     Strategy Name: Tit-for-Tat with Adaptive Cooperation (TFT-AC)
@@ -638,31 +619,6 @@ class Strategy_COLLECTIVE_35(BaseStrategy):
             penultimate_cooperators = sum(history.opponent_actions[state.round_number - 1, :]) if history else 0
             return Action.C if penultimate_cooperators >= self.cooperation_threshold else Action.D
 
-class Strategy_COLLECTIVE_36(BaseStrategy):
-    """
-    Adaptive Tit-for-Tat (ATFT) for Collective Risk Dilemma
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.trust_threshold = math.ceil(game_description.n_players * 0.5)
-        self.history = PlayerHistory(my_actions=np.zeros(game_description.n_rounds, dtype=bool), my_payoffs=np.zeros(game_description.n_rounds), opponent_actions=np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((game_description.n_rounds, game_description.n_players)))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if history is None:
-            self.history = PlayerHistory(my_actions=np.zeros(self.game_description.n_rounds, dtype=bool), my_payoffs=np.zeros(self.game_description.n_rounds), opponent_actions=np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((self.game_description.n_rounds, self.game_description.n_players)))
-        if state.round_number == 0:
-            return Action.C
-        else:
-            cooperators = sum(history.opponent_actions[-1])
-            if cooperators >= self.trust_threshold:
-                self.history.my_actions[-1] = True
-                self.history.my_payoffs[-1] = self.game_description.k - 1 if cooperators >= self.game_description.m else 1
-            else:
-                self.history.my_actions[-1] = False
-                self.history.my_payoffs[-1] = 1
-        return Action(self.history.my_actions[-1])
-
 class Strategy_COLLECTIVE_37(BaseStrategy):
     """
     A Tit-for-Tat (TFT) strategy with an adaptive cooperation threshold (AC-TFT) for the Collective Risk Dilemma game.
@@ -768,29 +724,6 @@ class Strategy_COLLECTIVE_41(BaseStrategy):
         self.average_opponent_payoff = np.mean(history.opponent_payoffs[:-1]) if history else 0
         self.last_round_action = action
         return action
-
-class Strategy_COLLECTIVE_42(BaseStrategy):
-    """
-    An implementation of the Adaptive Tit-for-Tat strategy in Collective Risk Dilemma game.
-    The strategy cooperates initially and adjusts its actions based on opponents' previous behaviors to encourage cooperation while not being exploited.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(my_actions=np.zeros(self.game_description.n_rounds), my_payoffs=np.zeros(self.game_description.n_rounds), opponent_actions=np.zeros((self.game_description.n_rounds, self.game_description.n_players)), opponent_payoffs=np.zeros((self.game_description.n_rounds, self.game_description.n_players)))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if history is None:
-            self.history = PlayerHistory(my_actions=np.zeros(self.game_description.n_rounds), my_payoffs=np.zeros(self.game_description.n_rounds), opponent_actions=np.zeros((self.game_description.n_rounds, self.game_description.n_players)), opponent_payoffs=np.zeros((self.game_description.n_rounds, self.game_description.n_players)))
-        if state.round_number == 0:
-            self.history.my_actions[state.round_number] = True
-        else:
-            cooperators = sum(history.opponent_actions[-1, :])
-            if cooperators >= self.game_description.n_players // 2:
-                self.history.my_actions[state.round_number] = True
-            else:
-                self.history.my_actions[state.round_number] = False
-        return Action(self.history.my_actions[state.round_number])
 
 class Strategy_COLLECTIVE_43(BaseStrategy):
     """
@@ -1013,30 +946,6 @@ class Strategy_COLLECTIVE_52(BaseStrategy):
             self.deviation_count += 1
         return self.state
 
-class Strategy_COLLECTIVE_53(BaseStrategy):
-    """
-    A strategy inspired by the Tit-for-Tat game theory concept, which encourages cooperation among players in the Collective Risk Dilemma game.
-    The Adaptive version of this strategy implements a forgiveness mechanism, allowing for return to cooperation after a deviation from it.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(my_actions=np.zeros(self.game_description.n_rounds, dtype=bool), my_payoffs=np.zeros(self.game_description.n_rounds), opponent_actions=np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((self.game_description.n_rounds, self.game_description.n_players)))
-
-    def __call__(self, state: GameState, history: PlayerHistory | None) -> Action:
-        if not history:
-            return Action.C
-        opponent_cooperators = sum(history.opponent_actions[state.round_number - 1, :])
-        cooperate = opponent_cooperators >= self.game_description.n_players // self.game_description.m
-        if state.round_number == 0 or (state.round_number > 0 and (not self.history.my_actions[state.round_number - 1])):
-            cooperate = True
-        if state.round_number > 0 and self.history.my_actions[state.round_number - 1]:
-            cooperate &= cooperate
-        self.history.my_actions[state.round_number] = cooperate
-        if state.round_number > 0 and (not cooperate) and self.history.my_actions[state.round_number - 1]:
-            self.history.my_payoffs[state.round_number - 1] += (self.game_description.k - 1) * (self.game_description.n_players - 1 - opponent_cooperators)
-        return Action(int(cooperate)) if cooperate else Action.D
-
 class Strategy_COLLECTIVE_54(BaseStrategy):
     """
     Adaptive Tit-for-Tat (ATFT) for Collective Risk Dilemma
@@ -1083,29 +992,6 @@ class Strategy_COLLECTIVE_55(BaseStrategy):
             return Action.C
         else:
             return Action.D
-
-class Strategy_COLLECTIVE_56(BaseStrategy):
-    """
-    Implementation of the Tit-for-Tat with Adaptive Cooperation Threshold (TFT-ACT) strategy for the Collective Risk Dilemma game.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.cooperation_threshold = math.ceil(game_description.m)
-        self.adaptation_rate = 0.1
-        self.history = PlayerHistory(np.zeros(self.game_description.n_rounds, dtype=bool), np.zeros(self.game_description.n_rounds), np.zeros((self.game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros(self.game_description.n_rounds))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory):
-        self.history = history or self.history
-        if state.round_number == 0:
-            action = Action.D
-        else:
-            cooperators = sum(self.history.opponent_actions[-state.round_number:, -1])
-            action = Action.C if cooperators >= self.cooperation_threshold else Action.D
-        self.history.my_actions[state.round_number - 1] = action == Action.C
-        if state.round_number < self.game_description.n_rounds:
-            self.cooperation_threshold += (self.history.my_actions[-1] * self.adaptation_rate - (not self.history.my_actions[-1]) * self.adaptation_rate) / (state.round_number - 1)
-        return action
 
 class Strategy_COLLECTIVE_58(BaseStrategy):
     """
@@ -1367,45 +1253,6 @@ class Strategy_COLLECTIVE_67(BaseStrategy):
             k_adjusted = self.k * (1 + self.alpha if self.prev_opponent_cooperators >= self.game_description.m else 1 - self.alpha)
             return Action(int(k_adjusted > random.random()))
         return Action.D
-
-class Strategy_COLLECTIVE_69(BaseStrategy):
-    """
-    Implementation of Tit-for-Tat Adaptive Cooperative (TFTAC) strategy for Collective Risk Dilemma game.
-    This strategy demonstrates goodwill and encourages reciprocation, retaliating against defection while being forgiving towards initial mistakes or temporary deviations from cooperation.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros(game_description.n_rounds))
-        self.own_actions = 0
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if history is None:
-            self.history.my_actions[0] = True
-            self.own_actions += 1
-            return Action.C
-        state_round = min(state.round_number, len(self.history.my_payoffs) - 1)
-        history_round = min(len(self.history.my_payoffs), history.opponent_actions.shape[0])
-        if state.round_number == history_round:
-            majority = math.ceil(self.game_description.n_players / 2)
-            cooperators = sum(history.opponent_actions[-1, :])
-            if cooperators > majority:
-                return Action.C
-            else:
-                return Action.D
-        self.history.my_payoffs[state_round] = (1 - self.own_actions) * self.game_description.k if sum(self.history.opponent_actions[state_round, :]) >= self.game_description.m else 1 - self.own_actions
-        self.history.my_actions[state_round] = self.own_action(history_round)
-        self.own_actions += int(self.history.my_actions[-1])
-        if state_round == history_round - 1:
-            if sum(self.history.opponent_actions[state_round, :]) == self.own_actions:
-                return self.history.opponent_actions[state_round, -1]
-        majority = int((len(self.history.opponent_actions[state_round, :]) + 1) / 2)
-        if self.own_actions < self.game_description.m - 1 or self.own_actions >= self.game_description.n - (self.game_description.m - 1):
-            return Action.D
-        if sum(self.history.opponent_actions[state_round, :]) == len(self.history.opponent_actions[state_round, :]):
-            return Action.C
-        else:
-            return Action.D
 
 class Strategy_COLLECTIVE_70(BaseStrategy):
     """
@@ -1727,25 +1574,6 @@ class Strategy_COLLECTIVE_84(BaseStrategy):
         elif cooperators < self.game_description.m:
             return Action.D
         return Action.C
-
-class Strategy_COLLECTIVE_85(BaseStrategy):
-    """
-    Tit-for-Tat with Adaptive Cooperation (TFT-AC) strategy for Collective Risk Dilemma.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(my_actions=np.zeros(game_description.n_rounds, dtype=bool), my_payoffs=np.zeros(game_description.n_rounds, dtype=float), opponent_actions=np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((game_description.n_rounds, game_description.n_players), dtype=float))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if history is None or state.round_number == 0:
-            self.history.my_actions[state.round_number] = True
-        else:
-            num_cooperators = sum(history.opponent_actions[-1, :])
-            cooperators_threshold = self.game_description.n_players * (self.game_description.m / 100)
-            cooperate = False if num_cooperators < cooperators_threshold else True
-            self.history.my_actions[state.round_number] = cooperate
-        return Action(int(self.history.my_actions[-1]))
 
 class Strategy_COLLECTIVE_86(BaseStrategy):
     """
@@ -2488,32 +2316,6 @@ class Strategy_COLLECTIVE_124(BaseStrategy):
                 self.current_threshold = max(self.min_cooperators, self.current_threshold - 1)
         return Action.C if cooperators >= self.current_threshold else Action.D
 
-class Strategy_COLLECTIVE_125(BaseStrategy):
-    """
-    A strategy that implements the Tit-for-Tat with Threshold (TFT-Threshold) strategy in the Collective Risk Dilemma game.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.threshold = self.game_description.m
-        self.punishment_steps = math.ceil((self.game_description.n_players - self.threshold) / 2)
-        self.history = PlayerHistory(my_actions=np.zeros(self.game_description.n_rounds, dtype=bool), my_payoffs=np.zeros(self.game_description.n_rounds, dtype=float), opponent_actions=np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=float))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory):
-        if state.round_number == 0:
-            self.history.my_actions[0] = True
-            return Action.C
-        if state.round_number == self.game_description.n_rounds - 1:
-            cooperators = np.sum(self.history.opponent_actions[-1, :])
-            if cooperators >= self.threshold:
-                self.history.my_actions[-1] = True
-                return Action.C
-        cooperators = np.sum(self.history.opponent_actions[-1, :])
-        self.history.my_actions[state.round_number - 1] = cooperators >= self.threshold
-        if not self.history.my_actions[state.round_number - 1] and state.round_number > self.punishment_steps:
-            self.history.my_actions[state.round_number - 1] = True
-        return Action(self.history.my_actions[state.round_number - 1])
-
 class Strategy_COLLECTIVE_126(BaseStrategy):
     """
     Adaptive Tit-for-Tat (ATfT) strategy for the Collective Risk Dilemma game.
@@ -2530,28 +2332,6 @@ class Strategy_COLLECTIVE_126(BaseStrategy):
         if cooperators < self.minimum_cooperators:
             return Action.D
         return Action.C
-
-class Strategy_COLLECTIVE_127(BaseStrategy):
-    """
-    Strategy Name: Tit-for-Tat with Adaptive Cooperation Threshold (TFTAT)
-    Strategy Description: This strategy cooperates in the first round and subsequently adapts its cooperation based on the proportion of cooperators in the previous round.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.cooperation_threshold = game_description.m / game_description.n_players
-        self.history = PlayerHistory(my_actions=np.zeros(game_description.n_rounds, dtype=bool), my_payoffs=np.zeros(game_description.n_rounds), opponent_actions=np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((game_description.n_rounds, game_description.n_players)))
-
-    def __call__(self, state: GameState, history: PlayerHistory) -> Action:
-        if state.round_number == 0:
-            self.history.my_actions[0] = True
-        else:
-            opponents_cooperated = np.sum(history.opponent_actions[-1, :])
-            cooperation_probability = opponents_cooperated / self.game_description.n_players
-            if cooperation_probability >= self.cooperation_threshold and history.my_actions[-1] != True:
-                self.cooperation_threshold += (self.game_description.n_rounds - state.round_number) * 0.01
-                return Action.C
-        return Action.D
 
 class Strategy_COLLECTIVE_128(BaseStrategy):
     """
@@ -4325,28 +4105,6 @@ class Strategy_COLLECTIVE_217(BaseStrategy):
             return Action.C
         return Action.D
 
-class Strategy_COLLECTIVE_218(BaseStrategy):
-    """
-    Strategy Name: Tit-for-Tat with Adaptive Cooperative Threshold (TFT-ACT)
-    Strategy Description: Follows cooperative or defective actions based on majority behavior of other players in recent past.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.m = math.ceil(game_description.n_players // 2)
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players - 1), dtype=bool), np.zeros((game_description.n_rounds, game_description.n_players - 1)))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            self.history.my_actions[0] = True
-            return Action.C
-        cooperators = np.sum(history.opponent_actions[-self.m:, :]) >= (self.game_description.n_players - 1) // 2
-        if cooperators:
-            self.history.my_actions[-1] = True
-            return Action.C
-        self.history.my_actions[-1] = False
-        return Action.D
-
 class Strategy_COLLECTIVE_219(BaseStrategy):
     """
     An adaptive Tit-for-Tat strategy for the Collective Risk Dilemma game.
@@ -5492,31 +5250,6 @@ class Strategy_COLLECTIVE_280(BaseStrategy):
     def min_cooperators(self, history):
         return int(np.sum(history.my_actions))
 
-class Strategy_COLLECTIVE_281(BaseStrategy):
-    """
-    Tit-for-Tat (with modification) for Collective Risk Dilemma
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros(game_description.n_rounds))
-
-    def __call__(self, state: GameState, history: PlayerHistory) -> Action:
-        if state.round_number == 0:
-            self.history.my_actions[0] = True
-            return Action.C
-        elif state.round_number < len(history.my_payoffs):
-            cooperators = sum(history.opponent_actions[-1, :])
-            if cooperators < self.game_description.m and history.my_actions[-1] == False:
-                self.history.my_actions[state.round_number] = True
-                return Action.C
-            elif cooperators >= self.game_description.m:
-                self.history.my_actions[state.round_number] = history.opponent_actions[-1, self.__class__.__len__([0]) - 1]
-                return self.history.opponent_actions[-1, self.__class__.__len__([0]) - 1]
-        else:
-            self.history.my_actions[state.round_number] = True
-            return Action.C
-
 class Strategy_COLLECTIVE_282(BaseStrategy):
     """
     A strategy based on the Adaptive Tit-for-Tat approach for the Collective Risk Dilemma game.
@@ -5862,38 +5595,6 @@ class Strategy_COLLECTIVE_297(BaseStrategy):
         self.last_defection_round = state.round_number if action == Action.D and opponent_action.sum() < self.game_description.m - 1 else self.last_defection_round
         return action
 
-class Strategy_COLLECTIVE_299(BaseStrategy):
-    """
-    Implementation of Tit-for-Tat-Adaptive (TfTA) strategy for Collective Risk Dilemma game.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(self.game_description.n_rounds, dtype=bool), np.zeros(self.game_description.n_rounds), np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), np.zeros((self.game_description.n_rounds, self.game_description.n_players)))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if history is not None and state.round_number > 0 and (len(history.my_actions) > 0):
-            last_action = history.my_actions[-1]
-        else:
-            last_action = False
-        if state.round_number == 0 or (state.round_number > 0 and history.opponent_actions[-1, -1] != last_action):
-            action = Action.D
-        else:
-            action = Action.C
-        self.history.my_actions[-1] = action == Action.C
-        if action == Action.C:
-            self.history.my_payoffs[-1] = 0 if len(history.opponent_actions[-1]) < self.game_description.m else 0 + self.game_description.k
-        else:
-            self.history.my_payoffs[-1] = 1
-        self.history.opponent_actions[-1, -1] = last_action
-        if len(self.history.opponent_actions) < state.round_number + 1:
-            self.history.opponent_payoffs[state.round_number, -1] = 1 + 0 if last_action else 1 + self.game_description.k
-        elif last_action:
-            self.history.opponent_payoffs[state.round_number, -1] = 1 + 0
-        else:
-            self.history.opponent_payoffs[state.round_number, -1] = 1 + self.game_description.k
-        return action
-
 class Strategy_COLLECTIVE_300(BaseStrategy):
     """
     The Tit-for-Tat with Adaptive Cooperation Threshold (TFT-ACT) strategy for Collective Risk Dilemma games.
@@ -5916,42 +5617,6 @@ class Strategy_COLLECTIVE_300(BaseStrategy):
             self.min_coop += (state.round_number - len(self.round_history) - 1) % 2 + 1
             self.round_history.append(state.round_number)
             return Action.D
-
-class Strategy_COLLECTIVE_302(BaseStrategy):
-    """
-    Implements the Adaptive Tit-for-Tat strategy for Collective Risk Dilemma game.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(self.game_description.n_rounds, dtype=bool), np.zeros(self.game_description.n_rounds), np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), np.zeros(self.game_description.n_rounds))
-        self.cooperation_count = 0
-
-    def __call__(self, state: GameState, history: None | PlayerHistory):
-        if state.round_number == 0:
-            return Action.D
-        if history is None:
-            history = PlayerHistory(np.zeros(self.game_description.n_rounds, dtype=bool), np.zeros(self.game_description.n_rounds), np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), np.zeros(self.game_description.n_rounds))
-        self.history = history
-        if state.round_number == 1:
-            cooperators = sum(self.history.opponent_actions[-1, :])
-            if cooperators >= self.game_description.m:
-                self.cooperation_count += 1
-            else:
-                self.cooperation_count = 0
-        current_cooperation = sum(self.history.opponent_actions[-1, :])
-        if current_cooperation >= self.game_description.m:
-            action = Action.C
-            self.cooperation_count += 1
-        elif self.cooperation_count > 0 and self.cooperation_count < self.game_description.n_players:
-            action = Action.C
-            self.cooperation_count -= 1
-        else:
-            action = Action.D
-            self.cooperation_count = 0
-        self.history.my_actions[state.round_number - 1] = action == Action.C
-        self.history.opponent_actions[state.round_number - 1, :] = history.opponent_actions[-1, :] if state.round_number > 1 else None
-        return action
 
 class Strategy_COLLECTIVE_303(BaseStrategy):
     """
@@ -6355,31 +6020,6 @@ class Strategy_COLLECTIVE_322(BaseStrategy):
             probability_to_cooperate = max(min(probability_to_cooperate, 1), 0)
         cooperate_probability = random.uniform(0, 1)
         return Action.C if cooperate_probability <= probability_to_cooperate else Action.D
-
-class Strategy_COLLECTIVE_323(BaseStrategy):
-    """
-    Adaptive Tit-for-Tat Strategy for the Collective Risk Dilemma.
-    A simple strategy that demonstrates goodwill and fosters trust,
-    reciprocating cooperation while punishing defection, and forgiving past errors.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(my_actions=np.empty((1,), dtype=bool), my_payoffs=np.empty((1,)), opponent_actions=np.zeros((1, game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((1, game_description.n_players)))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0 and history is None:
-            return Action.C
-        elif state.round_number == 0 and history:
-            self.history = history
-            return Action.C
-        my_action = self.history.my_actions[-1]
-        opponent_cooperators = sum(self.history.opponent_actions[-1, :])
-        if opponent_cooperators >= self.game_description.n_players // 2:
-            return Action.C
-        elif my_action and opponent_cooperators < self.game_description.n_players // 2:
-            self.history.my_payoffs[-1] = 1 - self.history.my_actions[0]
-        return Action.D
 
 class Strategy_COLLECTIVE_324(BaseStrategy):
     """
@@ -7581,37 +7221,6 @@ class Strategy_COLLECTIVE_374(BaseStrategy):
         else:
             return Action.D
 
-class Strategy_COLLECTIVE_375(BaseStrategy):
-    """
-    A strategy based on the Tit-for-Tat Adaptive (TFT-A) in Collective Risk Dilemma games.
-    Cooperates on the first round to signal goodwill and promotes cooperation, copies others' actions in subsequent rounds,
-    punishes those who did not cooperate, rewards frequent cooperators, and adopts the most recent opponent behavior in the last round.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros(game_description.n_rounds))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if history is None:
-            self.history.opponent_actions[0] = np.full(self.game_description.n_players, False)
-            return Action.C
-        if state.round_number == 0:
-            return Action.C
-        opponent_moves = history.opponent_actions[-1]
-        nb_coop = sum(opponent_moves)
-        if nb_coop >= self.game_description.m or (nb_ties := sum([1 for moves in history.opponent_actions if sum(moves) == nb_coop])) > 0:
-            return Action.C
-        if state.round_number == self.game_description.n_rounds - 1:
-            return history.opponent_actions[-2][self.__class__.__name__]
-        max_coops = -1
-        max_player = None
-        for i in range(self.game_description.n_players):
-            coop_count = sum([1 for moves in history.opponent_actions if moves[i] == Action.C])
-            if coop_count > max_coops:
-                max_coops, max_player = (coop_count, i)
-        return history.opponent_actions[-1][max_player]
-
 class Strategy_COLLECTIVE_377(BaseStrategy):
     """
     A strategy that cooperates initially and adapts its cooperation threshold based on the average percentage of cooperators in past rounds.
@@ -8441,26 +8050,6 @@ class Strategy_COLLECTIVE_415(BaseStrategy):
             return Action.C
         return action
 
-class Strategy_COLLECTIVE_416(BaseStrategy):
-    """
-    Implementation of the Tit-for-Tat Adaptive strategy for the Collective Risk Dilemma game.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(my_actions=np.zeros(game_description.n_rounds, dtype=bool), my_payoffs=np.zeros(game_description.n_rounds), opponent_actions=np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((game_description.n_rounds, game_description.n_players)))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if history is None:
-            self.history.my_actions[0] = True
-        elif state.round_number == 0:
-            self.history.my_actions[0] = True
-        elif self.history.opponent_actions[-1, (self.game_description.n_players - 1) // 2:(self.game_description.n_players + 1) // 2].mean() >= self.game_description.n_players // self.game_description.m:
-            self.history.my_actions[state.round_number] = True
-        else:
-            self.history.my_actions[state.round_number] = False
-        return Action(self.history.my_actions[state.round_number])
-
 class Strategy_COLLECTIVE_417(BaseStrategy):
     """
     Strategy name: Tit-for-Tat with Adaptive Threshold (TFTA)
@@ -8873,40 +8462,6 @@ class Strategy_COLLECTIVE_436(BaseStrategy):
             return Action.D
         return Action.D
 
-class Strategy_COLLECTIVE_438(BaseStrategy):
-    """
-    Tit-for-Tat strategy with Adaptive Cooperation Threshold for Collective Risk Dilemma
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.threshold = math.ceil(game_description.n_players * 0.5)
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros(game_description.n_rounds))
-        self.p = 0.65
-        self.q = 0.35
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        cooperators = sum(history.opponent_actions[state.round_number - 1, :])
-        self.history.my_actions[state.round_number - 1] = cooperators >= self.threshold
-        if state.round_number == self.game_description.n_rounds:
-            return self.decide_last_round(cooperators)
-        self.history.my_payoffs[state.round_number - 1] = 1 - self.history.my_actions[state.round_number - 1] if cooperators < self.threshold else 1 - self.history.my_actions[state.round_number - 1] + self.game_description.k
-        self.adjust_threshold(cooperators)
-        return Action.C if self.history.my_actions[state.round_number - 1] else Action.D
-
-    def decide_last_round(self, cooperators):
-        if cooperators >= self.threshold * (1 + self.q) or cooperators <= self.threshold * (1 - self.p):
-            return Action.C
-        return Action.D
-
-    def adjust_threshold(self, cooperators):
-        if cooperators / self.game_description.n_players < self.p:
-            self.threshold += 1
-        elif cooperators / self.game_description.n_players > self.q:
-            self.threshold -= 1
-
 class Strategy_COLLECTIVE_439(BaseStrategy):
     """
     Adaptive Tit-for-Tat strategy for Collective Risk Dilemma game.
@@ -9107,41 +8662,6 @@ class Strategy_COLLECTIVE_446(BaseStrategy):
         else:
             return Action.D
 
-class Strategy_COLLECTIVE_447(BaseStrategy):
-    """
-    TFT-ACT is a strategy in Collective Risk Dilemma games that promotes cooperation and punishes defection. It seeks a balance between selfish behavior and altruism.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros(game_description.n_rounds))
-        self.m = game_description.m
-        self.action = Action.C
-
-    def update_history(self, round_number, cooperation_level):
-        self.history.my_actions[round_number - 1] = self.action == Action.C
-        self.history.my_payoffs[round_number - 1] = cooperation_level * (self.action != Action.C) + (1 - cooperation_level) * (self.action == Action.C)
-        self.history.opponent_actions[round_number - 1, :] = cooperation_level
-
-    def decide_action(self, current_round):
-        if current_round == 0:
-            return Action.C
-        cooperation_prev_round = self.history.opponent_actions[-1].mean()
-        if cooperation_prev_round >= self.m / self.game_description.n_players:
-            return Action.C
-        elif cooperation_prev_round < self.m / self.game_description.n_players and self.action == Action.D:
-            return Action.D
-        else:
-            return self.action
-
-    def __call__(self, state: GameState, history: PlayerHistory) -> Action:
-        if history is None:
-            self.update_history(1, 0)
-            return self.decide_action(1)
-        else:
-            self.history = history
-            return self.decide_action(state.round_number + 1)
-
 class Strategy_COLLECTIVE_448(BaseStrategy):
     """
     Strategy Name: Adaptive Tit-for-Tat (ATfT) for Collective Risk Dilemma
@@ -9338,28 +8858,6 @@ class Strategy_COLLECTIVE_457(BaseStrategy):
         else:
             self.last_action = Action.D
             return self.last_action
-
-class Strategy_COLLECTIVE_458(BaseStrategy):
-    """
-    The Adaptive Tit-for-Tat (ATfT) strategy for the Collective Risk Dilemma game.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros((game_description.n_rounds, game_description.n_players)))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0 and history is None:
-            return Action.C
-        self.history.my_actions[-1] = Action.D if history is None else history.my_actions[-1]
-        self.history.my_payoffs[-1] = np.mean(history.opponent_payoffs[-1]) if history is not None else 1
-        if history is None:
-            cooperators = math.ceil((self.game_description.n_players - 1) / 2)
-        else:
-            cooperators = sum(history.opponent_actions[-1]) + 1
-        if state.round_number > 0 and (cooperators >= self.game_description.m - 1 if self.history.my_actions[-1] else cooperators < self.game_description.m - 1) == (self.history.my_actions[-2] if len(self.history.opponent_payoffs) > 1 else True):
-            return Action.C
-        return Action.D
 
 class Strategy_COLLECTIVE_459(BaseStrategy):
     """
@@ -9562,43 +9060,6 @@ class Strategy_COLLECTIVE_468(BaseStrategy):
         self.opponent_action_history.append(history.my_actions[-1])
         return Action.C
 
-class Strategy_COLLECTIVE_469(BaseStrategy):
-    """
-    Tit-for-Tat with Adaptive Cooperation Threshold (TFT-ACT) strategy for the Collective Risk Dilemma game.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = None
-        self.cooperation_threshold = self.game_description.n_players // 2
-        self.k = int(game_description.k * (self.game_description.n_players - 1))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if history is None:
-            self.history = PlayerHistory(np.zeros(self.game_description.n_rounds, dtype=bool), np.zeros(self.game_description.n_rounds), np.zeros((self.game_description.n_rounds, self.game_description.n_players - 1), dtype=bool), np.zeros((self.game_description.n_rounds, self.game_description.n_players - 1)))
-            if state.round_number == 0:
-                return Action.C
-            else:
-                self.cooperation_threshold = 0 if self.history.opponent_actions[0, 1 - self.__class__] == 0 else self.game_description.n_players // 2
-        action = Action.C
-        if state.round_number > 1:
-            cooperation_ratio = np.mean(self.history.opponent_actions[state.round_number - self.k:state.round_number, :])
-            self.cooperation_threshold = math.floor((cooperation_ratio + 1) * (self.game_description.n_players - 1)) if cooperation_ratio >= self.game_description.m - 1 else self.game_description.m
-            if cooperation_ratio >= self.game_description.m:
-                action = Action.C
-            elif cooperation_ratio < self.game_description.m - 1:
-                action = Action.D
-        self.history.my_actions[state.round_number] = bool(action)
-        if state.round_number > 1:
-            self.history.my_payoffs[state.round_number] = self._calculate_payoff(state, self.history)
-        return action
-
-    def _calculate_payoff(self, state: GameState, history: PlayerHistory) -> float:
-        cooperators = np.sum(history.opponent_actions[state.round_number - 1])
-        if cooperators < self.game_description.m:
-            return 1
-        return 1 + self.game_description.k * (self.game_description.n_players - np.sum(history.opponent_actions[state.round_number - 1]))
-
 class Strategy_COLLECTIVE_471(BaseStrategy):
     """
     The Adaptive Tit-for-Tat (ATfT) strategy for the Collective Risk Dilemma.
@@ -9613,29 +9074,6 @@ class Strategy_COLLECTIVE_471(BaseStrategy):
             return Action.C
         cooperators = sum(history.opponent_actions[-1, :]) if history else 0
         return Action.C if cooperators >= self.m else Action.D
-
-class Strategy_COLLECTIVE_472(BaseStrategy):
-    """
-    Adaptive Tit-for-Tat Strategy for Collective Risk Dilemma
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players - 1)), np.zeros((game_description.n_rounds, game_description.n_players - 1)))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory):
-        if state.round_number == 0:
-            self.history.my_actions[0] = True
-            return Action.C
-        my_cooperators = self.history.my_actions[-1]
-        opponent_cooperators = sum(self.history.opponent_actions[-1, :])
-        if my_cooperators and opponent_cooperators >= self.game_description.m or (not my_cooperators and (not opponent_cooperators)):
-            self.history.my_actions[state.round_number] = True
-            return Action.C
-        self.history.my_actions[state.round_number] = False
-        if len(self.history) > state.round_number and self.history.opponent_actions[-1, state.round_number - 1] == False:
-            self.history.my_actions[state.round_number] = True
-        return Action.D
 
 class Strategy_COLLECTIVE_473(BaseStrategy):
     """
@@ -9757,41 +9195,6 @@ class Strategy_COLLECTIVE_481(BaseStrategy):
         elif history.opponent_actions[-1, 0] == Action.D:
             self.last_round_action = Action.D
         return self.last_round_action
-
-class Strategy_COLLECTIVE_483(BaseStrategy):
-    """
-    Strategy Name: Tit-for-Tat with Adaptive Cooperation (TFT-AC)
-    A collective risk dilemma strategy promoting cooperation and reciprocity.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(self.game_description.n_rounds, dtype=bool), np.zeros(self.game_description.n_rounds), np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), np.zeros(self.game_description.n_rounds))
-        self.last_round = -1
-        self.last_cooperators = 0
-
-    def __call__(self, state: GameState, history: PlayerHistory):
-        if state.round_number == 0:
-            self.history.my_actions[self.last_round] = True
-            return Action.C
-        self.last_round += 1
-        self.history.my_actions[self.last_round] = True
-        if self.last_cooperators >= self.game_description.m:
-            cooperators = sum(history.opponent_actions[self.last_round, :])
-            if cooperators >= self.game_description.m and sum(self.history.my_actions[:self.last_round + 1]) == sum(self.history.my_actions[:self.last_round]):
-                return Action.C
-            elif cooperators < self.game_description.m - 1 and self.history.my_actions[self.last_round - 1] and (cooperators + 1 >= self.game_description.m):
-                return Action.C
-        else:
-            return Action.D
-        self.history.my_payoffs[self.last_round] = self._calculate_payoff(cooperators, self.last_round)
-        self.last_cooperators = cooperators
-
-    def _calculate_payoff(self, cooperators: int, round_number: int) -> float:
-        if cooperators < self.game_description.m or sum(self.history.my_actions[:round_number]) == 0:
-            return 1
-        else:
-            return 1 + self.game_description.k
 
 class Strategy_COLLECTIVE_484(BaseStrategy):
     """
@@ -10226,38 +9629,6 @@ class Strategy_COLLECTIVE_502(BaseStrategy):
             else:
                 return Action.C
         return Action.C
-
-class Strategy_COLLECTIVE_503(BaseStrategy):
-    """
-    Implementation of Adaptive Cooperative Tit-for-Tat (ACTFT) strategy for Collective Risk Dilemma game.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history_length = int(math.ceil(game_description.n_rounds * 0.75))
-        self.cooperation_threshold = self.game_description.m_initial = game_description.m // 2
-        self.tolerance = int(math.ceil((self.cooperation_threshold - game_description.m + game_description.m_initial) / 3))
-        self.forgiveness_period = int(math.ceil(game_description.n_rounds * 0.15))
-        self.history = [None] * self.history_length
-
-    def __call__(self, state: GameState, history: None | PlayerHistory):
-        if state.round_number == 0 or not history:
-            return Action.C
-        if not history:
-            self.history = [None] * self.history_length
-        cooperation_rate = self.calculate_cooperation_rate(history)
-        if self.forgiveness_period > state.round_number and (cooperation_rate >= self.cooperation_threshold - self.tolerance or cooperation_rate <= self.game_description.m + self.tolerance):
-            return Action.C
-        if state.round_number > self.forgiveness_period and cooperation_rate < self.cooperation_threshold - self.tolerance:
-            self.update_cooperation_threshold()
-        return Action.C if cooperation_rate >= self.cooperation_threshold else Action.D
-
-    def calculate_cooperation_rate(self, history):
-        cooperators = np.sum(history.opponent_actions[-self.history_length:, :].flatten())
-        return cooperators / self.history_length if self.history_length > 0 else random.choice([0, 1])
-
-    def update_cooperation_threshold(self):
-        self.cooperation_threshold = min(self.cooperation_threshold + 1, self.game_description.m)
 
 class Strategy_COLLECTIVE_504(BaseStrategy):
     """
@@ -10780,32 +10151,6 @@ class Strategy_EXPLOITATIVE_12(BaseStrategy):
             self.cooperation_threshold -= 1
         self.history.my_actions[-1] = action
         self.history.my_payoffs[-1] = private_payoff
-        return action
-
-class Strategy_EXPLOITATIVE_13(BaseStrategy):
-    """
-    A variant of Tit-for-Tat strategy that dynamically adjusts cooperation threshold to encourage cooperation or punish defection.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.cooperative_threshold = game_description.m
-        self.history = PlayerHistory(my_actions=np.zeros(game_description.n_rounds, dtype=bool), my_payoffs=np.zeros(game_description.n_rounds, dtype=float), opponent_actions=np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((game_description.n_rounds, game_description.n_players), dtype=float))
-
-    def __call__(self, state: GameState, history: PlayerHistory) -> Action:
-        if state.round_number == 0 and history is None:
-            return Action.C
-        current_round = state.round_number - 1
-        last_cooperators = sum(history.opponent_actions[current_round, :])
-        cooperate = last_cooperators >= self.cooperative_threshold
-        action = Action.C if cooperate else Action.D
-        payoff = 1 - int(action == Action.D) + self.game_description.k * (last_cooperators >= self.game_description.m)
-        self.history.my_payoffs[current_round] = payoff
-        self.history.my_actions[current_round] = int(action == Action.C)
-        if last_cooperators == self.game_description.m or last_cooperators > self.cooperative_threshold:
-            self.cooperative_threshold += 1
-        elif last_cooperators < self.cooperative_threshold - 1:
-            self.cooperative_threshold -= 1
         return action
 
 class Strategy_EXPLOITATIVE_14(BaseStrategy):
@@ -11865,43 +11210,6 @@ class Strategy_EXPLOITATIVE_64(BaseStrategy):
                 return Action.C
             return Action.D
 
-class Strategy_EXPLOITATIVE_65(BaseStrategy):
-    """
-    A Tit-for-Tat with Adaptation strategy for the Collective Risk Dilemma game.
-    This strategy cooperates initially and adapts its actions based on opponents' actions to maintain an exploitative mindset.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.t = math.ceil(game_description.n_players / 2)
-        self.adapted = False
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        opponent_actions = history.opponent_actions if history else np.zeros((state.round_number + 1, self.game_description.n_players), dtype=bool)
-        opponent_actions[state.round_number - 1] = np.where(history.my_actions[-1], 1, opponent_actions[state.round_number - 1]) if history else None
-        if self.adapted:
-            return Action.D if np.all(opponent_actions[:, -self.t:] == [0, 0] * self.t) else Action.C
-        cooperators = sum(opponent_actions[-1, :])
-        return Action.C if cooperators >= self.game_description.n_players // 2 and (not self.adapted) else Action.D
-
-    def update_history(self, state: GameState, action: Action, payoff: float) -> None:
-        if state.round_number == 0:
-            history = PlayerHistory(my_actions=np.array([[action == Action.C]]), my_payoffs=[[payoff]], opponent_actions=np.zeros((1, self.game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((1, self.game_description.n_players)))
-        else:
-            history = PlayerHistory(my_actions=history.my_actions[:state.round_number] if not self.adapted else np.vstack([history.my_actions[:state.round_number], np.array([[action == Action.C]])]), my_payoffs=[history.my_payoffs[:state.round_number] + [payoff]] if not self.adapted else np.vstack([history.my_payoffs[:state.round_number], [payoff]]))
-            opponent_actions = history.opponent_actions if not history.opponent_actions[-1].size == state.round_number else np.hstack((history.opponent_actions, np.array([[opponent_action] * self.game_description.n_players for opponent_action in opponent_actions[-1]])))
-            history = PlayerHistory(my_actions=history.my_actions, my_payoffs=history.my_payoffs, opponent_actions=opponent_actions, opponent_payoffs=[[0] * self.game_description.n_players for _ in range(state.round_number + 1)])
-            history.opponent_actions[state.round_number - 1] = np.where(history.my_actions[-1], 1, history.opponent_actions[state.round_number - 1]) if not self.adapted else None
-            history.opponent_payoffs[state.round_number][:self.game_description.n_players] = [1] * self.game_description.n_players if action == Action.D else [1 - history.my_actions[-1, -1] + self.game_description.k if history.opponent_payoffs[state.round_number][-1] == 0 else history.opponent_payoffs[state.round_number][-1]]
-        if action == Action.C:
-            cooperators = sum(history.my_actions[-1, :])
-            self.adapted = cooperators >= self.game_description.n_players // 2 and len(np.where(history.opponent_actions[:, -self.t:] == [0, 0] * self.t)[0]) >= self.t
-        else:
-            self.adapted = False
-        return history
-
 class Strategy_EXPLOITATIVE_66(BaseStrategy):
     """
     Strategy Name: Tit-for-Tat with Adaptive Cooperation Threshold (TFT-ACT)
@@ -11933,30 +11241,6 @@ class Strategy_EXPLOITATIVE_66(BaseStrategy):
         if payoff_expectation > 0:
             return Action.C
         return Action.D
-
-class Strategy_EXPLOITATIVE_67(BaseStrategy):
-    """
-    An adaptive Tit-for-Tat strategy for the Collective Risk Dilemma game.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(my_actions=np.zeros(self.game_description.n_rounds, dtype=bool), my_payoffs=np.zeros(self.game_description.n_rounds), opponent_actions=np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((self.game_description.n_rounds, self.game_description.n_players)))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        if not history:
-            history = self.history
-        action = Action.D
-        if history and state.round_number < self.game_description.n_rounds:
-            cooperators = sum(history.opponent_actions[state.round_number - 1, :])
-            if cooperators >= self.game_description.n_players // 2:
-                action = Action.C
-        else:
-            action = Action.C
-        self.history.my_actions[state.round_number] = action == Action.C
-        return action
 
 class Strategy_EXPLOITATIVE_68(BaseStrategy):
     """
@@ -13039,27 +12323,6 @@ class Strategy_EXPLOITATIVE_115(BaseStrategy):
             return Action.C
         return Action.D
 
-class Strategy_EXPLOITATIVE_116(BaseStrategy):
-    """
-    Tit-for-Tat with Adaptive Cooperation (TFTA) strategy for the Collective Risk Dilemma game.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.min_coop = math.ceil(game_description.n_players * game_description.m / 100)
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros(game_description.n_rounds))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0 and history is None:
-            return Action.C
-        self.history.my_actions[state.round_number] = True
-        cooperators = sum(self.history.opponent_actions[-1, :])
-        if cooperators < self.min_coop:
-            self.history.my_payoffs[state.round_number] = 1
-            return Action.D
-        self.history.my_payoffs[state.round_number] = 1 - len(np.where(self.history.opponent_actions[-1, :] == False)[0]) / len(self.history.opponent_actions[-1, :]) + self.game_description.k
-        return Action.C if cooperators >= self.min_coop else Action.D
-
 class Strategy_EXPLOITATIVE_117(BaseStrategy):
     """
     Tit-for-Tat with Adaptive Cooperation Threshold (TFT-ACT) strategy for the Collective Risk Dilemma game.
@@ -13555,33 +12818,6 @@ class Strategy_EXPLOITATIVE_134(BaseStrategy):
                 return Action.C
         else:
             return Action.D
-
-class Strategy_EXPLOITATIVE_136(BaseStrategy):
-    """
-    Implementation of the Tit-for-Tat with Risk Aversion (TFTRA) strategy for the Collective Risk Dilemma game.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros((game_description.n_rounds, game_description.n_players)))
-
-    def __call__(self, state: GameState, history: PlayerHistory) -> Action:
-        if state.round_number == 0:
-            self.history.my_actions[0] = True
-            return Action.C
-        cooperators = sum(history.opponent_actions[-1, :])
-        if cooperators >= self.game_description.m and cooperators < self.game_description.n_players - (2 * self.game_description.m - 3):
-            return Action.D
-        elif cooperators >= self.game_description.m and cooperators >= self.game_description.n_players - (2 * self.game_description.m - 1):
-            return Action.C
-        elif len(history.my_actions) < self.game_description.n_rounds:
-            self.history.my_actions[-1] = True
-            return Action.C
-        elif state.round_number == self.game_description.n_rounds - 1 and history.my_actions[-2][-self.game_description.m - 1:].sum() >= self.game_description.m:
-            return Action.C
-        else:
-            self.history.my_actions[-1] = True
-            return Action.C
 
 class Strategy_EXPLOITATIVE_137(BaseStrategy):
     """
@@ -15243,43 +14479,6 @@ class Strategy_EXPLOITATIVE_206(BaseStrategy):
         if state.round_number < self.game_description.n_rounds - 1:
             self.k_history[state.round_number] = payoff - 1
 
-class Strategy_EXPLOITATIVE_207(BaseStrategy):
-    """
-    A strategy that follows a cooperative approach, mimicking opponents' actions, but punishes uncooperative players by defecting.
-    It exploits opponents' cooperation when the cumulative cooperation ratio drops below 0.5 and continues cooperation if it exceeds 0.75.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.tcr_threshold = (0.5, 0.75)
-        self.round_number = 0
-        self.history = None
-        self.total_cooperators = 0
-        self.total_actions = 0
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if history is None and state.round_number == 0:
-            return Action.C
-        elif state.round_number > 0:
-            self.round_number = state.round_number
-            action = Action.C
-            self.total_cooperators += int(history.my_actions[-1])
-            self.total_actions += 1
-            tcr = self.total_cooperators / self.total_actions if self.total_actions > 0 else 0
-            if history is not None:
-                opponent_cooperators = sum(history.opponent_actions[-1, :])
-                if opponent_cooperators < self.game_description.m - 1:
-                    action = Action.D
-            if tcr < self.tcr_threshold[0]:
-                action = Action.D
-            elif tcr > self.tcr_threshold[1]:
-                action = Action.C
-            if history is not None:
-                history.my_actions[-1] = int(action == Action.C)
-                if action == Action.D and self.round_number > 1:
-                    history.opponent_actions[-2, :] = [int(x == Action.D) for x in history.opponent_actions[-1, :]]
-        return action
-
 class Strategy_EXPLOITATIVE_208(BaseStrategy):
     """
     A Tit-for-Tat strategy adapted for the Collective Risk Dilemma game.
@@ -15975,30 +15174,6 @@ class Strategy_EXPLOITATIVE_238(BaseStrategy):
         else:
             return Action.C
 
-class Strategy_EXPLOITATIVE_239(BaseStrategy):
-    """
-    Tit-for-Tat with Adaptive Cooperation Threshold (TFT-ACT) Strategy for Collective Risk Dilemma game.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.cooperation_threshold = game_description.m
-        self.w = int(np.ceil(game_description.n_rounds * 0.8))
-        self.t = int(np.floor(self.w * 0.15))
-        self.i = math.sqrt(2)
-        self.payoff_total = 0
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        if history is not None:
-            n_c = sum(history.my_actions[-self.w:]) / self.w
-            self.cooperation_threshold = self.cooperation_threshold if n_c <= self.game_description.m + self.t else self.cooperation_threshold + self.i
-            self.cooperation_threshold = self.game_description.m if self.cooperation_threshold > self.game_description.n_players // 2 else self.cooperation_threshold
-        payoff = 1 if history is None or (history.my_actions[-1] == Action.D and state.round_number > 1) else 1 - history.my_actions[-1] + self.game_description.k
-        self.payoff_total += payoff
-        return Action.C if payoff > self.payoff_total / (state.round_number - 1) else Action.D
-
 class Strategy_EXPLOITATIVE_240(BaseStrategy):
     """
     Strategy Name: Adaptive Tit-for-Tat (ATfT)
@@ -16275,27 +15450,6 @@ class Strategy_EXPLOITATIVE_250(BaseStrategy):
         cooperative_rounds = np.where(self.opponent_history.sum(axis=0) > self.game_description.m - 1)[0]
         if len(cooperative_rounds) > 0:
             self.cooperative_threshold = max(cooperative_rounds, key=lambda x: x / self.game_description.n_rounds * self.game_description.m)
-
-class Strategy_EXPLOITATIVE_251(BaseStrategy):
-    """
-    A Tit-for-Tat with Adaptive Cooperative Threshold (TFT-ACT) strategy.
-    This strategy follows the Tit-for-Tat rule set, with an additional adaptive cooperative threshold.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.cooperation_threshold = game_description.m
-        self.history = PlayerHistory(my_actions=None, my_payoffs=None, opponent_actions=np.zeros((1, game_description.n_players), dtype=bool), opponent_payoffs=np.zeros(1))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if history is not None:
-            self.history = history
-        if state.round_number == 0:
-            cooperators = np.count_nonzero(self.history.opponent_actions[-1])
-            return Action.C if cooperators >= self.cooperation_threshold else Action.D
-        else:
-            cooperation_count = np.count_nonzero(self.history.my_actions)
-            return Action.C if cooperation_count >= self.cooperation_threshold or state.round_number == 1 else Action.D
 
 class Strategy_EXPLOITATIVE_252(BaseStrategy):
     """
@@ -16637,30 +15791,6 @@ class Strategy_EXPLOITATIVE_267(BaseStrategy):
         else:
             self.consecutive_cooperations = 0
         return action
-
-class Strategy_EXPLOITATIVE_268(BaseStrategy):
-    """
-    Strategy Name: Adaptive Tit-for-Tat (ATfT)
-    Strategy Summary: Cooperates when group cooperation is beneficial, retaliates against defection.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(my_actions=np.zeros(game_description.n_rounds), my_payoffs=np.zeros(game_description.n_rounds), opponent_actions=np.zeros((game_description.n_rounds, game_description.n_players)), opponent_payoffs=np.zeros((game_description.n_rounds, game_description.n_players)))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory):
-        if history is None:
-            self.history.my_actions[0] = True
-        else:
-            rounds = min(state.round_number + 1, len(self.history.my_actions))
-            cooperators = np.sum(np.roll(self.history.my_actions, -rounds)[rounds:])
-            self.history.my_actions[state.round_number] = cooperators >= self.game_description.m
-        if state.round_number == len(self.history.my_actions) or state.round_number == state.round_number - 1:
-            if np.sum(self.history.my_actions[-self.game_description.n_rounds:]) >= self.game_description.m:
-                self.history.my_actions[state.round_number] = True
-            else:
-                self.history.my_actions[state.round_number] = False
-        return Action(int(self.history.my_actions[state.round_number]))
 
 class Strategy_EXPLOITATIVE_269(BaseStrategy):
     """
@@ -17644,31 +16774,6 @@ class Strategy_EXPLOITATIVE_313(BaseStrategy):
             self.act = max(0, self.act)
         return Action.C if cooperators >= self.act else Action.D
 
-class Strategy_EXPLOITATIVE_314(BaseStrategy):
-    """
-    Strategy Name: Tit-for-Tat with Adaptive Cooperation Threshold (TFT-ACT)
-
-    This strategy implements the Tit-for-Tat with Adaptive Cooperation Threshold strategy for the Collective Risk Dilemma game.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.alpha = int(math.ceil(game_description.m))
-        self.history = PlayerHistory(my_actions=np.zeros(game_description.n_rounds, dtype=bool), my_payoffs=np.zeros(game_description.n_rounds, dtype=float), opponent_actions=np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((game_description.n_rounds, game_description.n_players), dtype=float))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory):
-        if history is not None and state.round_number > 0:
-            self.history.my_actions[state.round_number - 1] = True
-            cooperators = np.sum(self.history.opponent_actions[-1, :])
-            if cooperators >= self.alpha:
-                self.alpha += 1
-        action = Action.D
-        if state.round_number == 0 or cooperators >= self.alpha:
-            action = Action.C
-            if state.round_number > 0:
-                self.history.my_actions[state.round_number - 1] = action.value
-        return action
-
 class Strategy_EXPLOITATIVE_316(BaseStrategy):
     """
     Adaptive Tit-for-Tat (ATfT) strategy for the Collective Risk Dilemma game.
@@ -17819,30 +16924,6 @@ class Strategy_EXPLOITATIVE_322(BaseStrategy):
             return Action.C
         return Action.D
 
-class Strategy_EXPLOITATIVE_323(BaseStrategy):
-    """Tit-for-Tat with Adaptive Cooperation Threshold (TFT-ACT)"""
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.act = math.ceil(game_description.n_players / 2)
-        self.history = PlayerHistory(my_actions=np.zeros(game_description.n_rounds, dtype=bool), my_payoffs=np.zeros(game_description.n_rounds), opponent_actions=np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((game_description.n_rounds, game_description.n_players)))
-
-    def __call__(self, state: GameState, history: PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        cooperators = sum(history.opponent_actions[-1])
-        self.history.my_actions[state.round_number] = cooperators >= self.act
-        if state.round_number < self.game_description.n_rounds:
-            half_rounds = math.ceil(self.game_description.n_rounds / 2)
-            if (state.round_number + half_rounds - 1) % self.game_description.n_rounds == 0:
-                if cooperators > self.game_description.m * (self.game_description.n_players - 1) // self.game_description.m:
-                    self.act += 1 if self.act < self.game_description.n_players else 0
-                elif cooperators < self.game_description.m:
-                    self.act -= 1 if self.act > 1 else 0
-        payoff = 1 - self.history.my_actions[state.round_number] * (cooperators >= self.game_description.m) * (self.game_description.k if cooperators >= self.game_description.m else 1)
-        self.history.my_payoffs[state.round_number] = payoff
-        return Action(int(self.history.my_actions[state.round_number]))
-
 class Strategy_EXPLOITATIVE_324(BaseStrategy):
     """
     Strategy Name: Tit-for-Tat with Adaptive Cooperation Threshold (TFT-ACT)
@@ -17882,32 +16963,6 @@ class Strategy_EXPLOITATIVE_325(BaseStrategy):
         if cooperators >= self.threshold_index:
             return Action.C
         return Action.D
-
-class Strategy_EXPLOITATIVE_326(BaseStrategy):
-    """
-    A cooperative strategy called Tit-for-Tat with Adaptive Cooperation Threshold (TFTAT).
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.alpha = 0.1
-        self.history = PlayerHistory(np.zeros((game_description.n_rounds,), dtype=bool), np.zeros((game_description.n_rounds,)), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros((game_description.n_rounds, game_description.n_players)))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if history is None:
-            self.history.my_actions[0] = True
-            return Action.C
-        self.history = history
-        cooperators_previous = sum(self.history.opponent_actions[-2:, -1])
-        if state.round_number == self.game_description.n_rounds or state.round_number == 1:
-            return Action.C
-        cooperators = sum(self.history.opponent_actions[-1, :])
-        if cooperators < self.game_description.m * (1 - self.alpha):
-            return Action.D
-        elif cooperators >= self.game_description.m or cooperators >= self.game_description.m * (1 + self.alpha) or cooperators_previous == self.game_description.m:
-            return Action.C
-        else:
-            return Action.C if cooperators == self.game_description.m else Action.D
 
 class Strategy_EXPLOITATIVE_327(BaseStrategy):
     """
@@ -18289,49 +17344,6 @@ class Strategy_EXPLOITATIVE_341(BaseStrategy):
             return Action.C
         return Action.D
 
-class Strategy_EXPLOITATIVE_342(BaseStrategy):
-    """
-    Tit-for-Tat with Adaptive Cooperation Threshold (TFT-ACT) strategy for the Collective Risk Dilemma game.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.n_players = self.game_description.n_players
-        self.n_rounds = self.game_description.n_rounds
-        self.m = self.game_description.m
-        self.k = self.game_description.k
-        self.r = self.game_description.n_rounds - 1
-        self.Δ = 0.01
-        self.m_min = math.ceil(self.m * 0.5)
-        self.m_max = math.floor(self.m * 1.5)
-        self.cooperation_threshold = self.m_min
-        self.history = PlayerHistory(np.zeros(self.r, dtype=bool), np.zeros(self.r, dtype=float), np.zeros((self.r, self.n_players), dtype=bool), np.zeros((self.r, self.n_players), dtype=float))
-
-    def __call__(self, state: GameState, history: PlayerHistory) -> Action:
-        if state.round_number == 0 or history is None:
-            self.history.my_actions[0] = True
-            return Action.C
-        if state.round_number == self.r:
-            return Action.C
-        self.update_cooperation_threshold(history)
-        percentage_cooperators = np.mean(history.opponent_actions[-1]) * self.n_players
-        if percentage_cooperators >= self.cooperation_threshold:
-            self.history.my_actions[state.round_number - 1] = True
-            return Action.C
-        self.history.my_actions[state.round_number - 1] = False
-        return Action.D
-
-    def update_cooperation_threshold(self, history: PlayerHistory):
-        cooperators = np.sum(history.opponent_actions[-1])
-        if cooperators > self.cooperation_threshold + self.Δ and self.cooperation_threshold < self.m_max:
-            self.cooperation_threshold += self.Δ
-        if cooperators < self.cooperation_threshold - self.Δ and self.cooperation_threshold > self.m_min:
-            self.cooperation_threshold -= self.Δ
-        if self.cooperation_threshold < self.m_min:
-            self.cooperation_threshold = self.m_min
-        if self.cooperation_threshold > self.m_max:
-            self.cooperation_threshold = self.m_max
-
 class Strategy_EXPLOITATIVE_344(BaseStrategy):
     """
     Tit-for-Tat with Adaptive Cooperative Threshold (TTAT-ACT) strategy for the Collective Risk Dilemma game.
@@ -18680,28 +17692,6 @@ class Strategy_EXPLOITATIVE_357(BaseStrategy):
         else:
             return Action.C
 
-class Strategy_EXPLOITATIVE_358(BaseStrategy):
-    """
-    Strategy Title: Tit-for-Tat with Gradual Cooperation (TFTGC)
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.m_over_n = game_description.m / game_description.n_players
-        self.history = PlayerHistory(None, None, np.zeros((game_description.n_players, 1)), np.zeros((1,)))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        self.history = history or self.history
-        cooperation_rate = np.mean(self.history.my_actions[-self.game_description.n_players:])
-        if cooperation_rate >= self.m_over_n:
-            return Action.C
-        elif cooperation_rate < self.m_over_n - 1 and cooperation_rate > self.m_over_n + 1:
-            return self.history.opponent_actions[-1, -1]
-        else:
-            return Action.D
-
 class Strategy_EXPLOITATIVE_359(BaseStrategy):
     """
     A strategy that implements the Tit-for-Tat with Adaptive Threshold (TFT-AT) in Collective Risk Dilemma games.
@@ -18957,34 +17947,6 @@ class Strategy_EXPLOITATIVE_372(BaseStrategy):
         if cooperators < self.threshold - self.game_description.n_players:
             self.recent_cooperators = 0
         return Action.C if self.recent_cooperators >= self.threshold else Action.D
-
-class Strategy_EXPLOITATIVE_373(BaseStrategy):
-    """
-    Strategy Name: Tit-for-Tat with Adaptive Cooperation Threshold (TFT-ACT)
-
-    A strategy that cooperates initially and adapts its cooperation threshold based on historical payoffs.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.cooperation_threshold = game_description.m
-        self.last_reward = 0.0
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros(game_description.n_rounds))
-
-    def __call__(self, state: GameState, history: PlayerHistory) -> Action:
-        if state.round_number == 0 or history is None:
-            return Action.C
-        self.history = history
-        cooperators_in_prev_round = sum(self.history.opponent_actions[-1])
-        reward_in_prev_round = 0.0 if cooperators_in_prev_round < self.game_description.m else self.game_description.k
-        self.last_reward = reward_in_prev_round
-        payoff = 1 if history.my_actions[-1] == Action.D else 1 + reward_in_prev_round
-        self.history.my_payoffs[-1] = payoff
-        if payoff > 1:
-            self.cooperation_threshold -= 1 if self.cooperation_threshold - 1 >= 1 else 0
-        elif payoff <= 1:
-            self.cooperation_threshold += 1 if self.cooperation_threshold + 1 < self.game_description.m else self.game_description.m - 1
-        return Action.C if cooperators_in_prev_round >= self.cooperation_threshold else Action.D
 
 class Strategy_EXPLOITATIVE_374(BaseStrategy):
     """
@@ -20049,35 +19011,6 @@ class Strategy_EXPLOITATIVE_426(BaseStrategy):
             return Action.C if cooperators >= self.majority_threshold else Action.D
         return Action.C if cooperators >= self.majority_threshold else Action.D
 
-class Strategy_EXPLOITATIVE_427(BaseStrategy):
-    """
-    Tit-for-Tat with Adaptive Cooperation Threshold (TFT-ACT) strategy in the Collective Risk Dilemma game.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.cooperators_threshold = math.floor(game_description.m / game_description.n_players)
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players - 1), dtype=bool), np.zeros(game_description.n_rounds))
-        self.num_cooperators = 0
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.D
-        if history is not None:
-            self.history.my_actions[-1] = Action.C in history.opponent_actions[-1]
-            self.history.my_payoffs[-1] = np.mean(history.opponent_payoffs[-1])
-            self.num_cooperators = sum(history.opponent_actions[-1])
-        if self.num_cooperators >= self.cooperators_threshold + 1:
-            payoff = (self.game_description.k if self.history.my_actions[-1] else 1) + np.mean(history.opponent_payoffs[-1])
-            if random.random() < (payoff - 1) / (2 * (1 - self.cooperators_threshold)) or self.cooperators_threshold == 1:
-                self.cooperators_threshold += 0.1 if self.cooperators_threshold < self.game_description.n_players // self.game_description.m else max(self.cooperators_threshold - 0.1, 1)
-            self.num_cooperators = sum(history.opponent_actions[-1])
-        elif self.num_cooperators < self.cooperators_threshold:
-            pass
-        else:
-            self.cooperators_threshold -= 0.1 if self.cooperators_threshold > 1 else 0
-        return Action.C if self.history.my_actions[-1] or self.cooperators_threshold == 0 else Action.D
-
 class Strategy_EXPLOITATIVE_428(BaseStrategy):
     """
     Tit-for-Tat Plus (TfT+) strategy for Collective Risk Dilemma.
@@ -21054,26 +19987,6 @@ class Strategy_EXPLOITATIVE_473(BaseStrategy):
             self.current_streak = 0
         return Action.D
 
-class Strategy_EXPLOITATIVE_474(BaseStrategy):
-    """
-    Strategy Name: Tit-for-Tat with Variable Cooperation (TFTV)
-    This strategy cooperates initially to build trust, then responds to opponent's actions in subsequent rounds.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros((1,), dtype=bool), np.zeros(1), np.zeros((1, game_description.n_players), dtype=bool), np.zeros(1))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        self.history = history if history else PlayerHistory(np.zeros((state.round_number + 1,), dtype=bool), np.zeros(state.round_number + 1), np.zeros((state.round_number + 1, self.game_description.n_players), dtype=bool), np.zeros(state.round_number + 1))
-        if state.round_number == 0:
-            return Action.C
-        else:
-            opponent_action = history.opponent_actions[state.round_number - 1, 0]
-            self.history.my_actions[-1] = opponent_action
-            self.history.my_payoffs[-1] = 1 if not opponent_action else 1 + self.game_description.k
-            return Action.C if opponent_action else Action.D
-
 class Strategy_EXPLOITATIVE_475(BaseStrategy):
     """
     Tit-for-Tat with Adaptive Cooperation Threshold (TFTAT) Strategy in Collective Risk Dilemma.
@@ -21922,28 +20835,6 @@ class Strategy_COLLECTIVE_2(BaseStrategy):
                 return Action.D
         return Action.C if cooperators >= self.adaptive_threshold else Action.D
 
-class Strategy_COLLECTIVE_4(BaseStrategy):
-    """
-    A simple tit-for-tat adaptive strategy for the Collective Risk Dilemma game.
-    The strategy aims to balance cooperation and punishment while being adaptive and robust to a wide range of opponent behaviors.
-    It encourages long-term relationships with opponents, promoting collective success in the Collective Risk Dilemma game.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(my_actions=np.zeros((1,), dtype=bool), my_payoffs=np.zeros((1,)), opponent_actions=np.zeros((1, self.game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((1, self.game_description.n_players)))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if history is None:
-            history = self.history
-            self.history.my_actions[0] = True
-        if state.round_number == 0 or len(history.opponent_actions) == 1:
-            return Action.C
-        opponent_cooperators = sum(history.opponent_actions[-1, :])
-        if opponent_cooperators >= self.game_description.n_players // 2:
-            return Action.C
-        return Action.D
-
 class Strategy_COLLECTIVE_5(BaseStrategy):
     """
     Adaptive Tit-for-Tat Strategy for the Collective Risk Dilemma Game.
@@ -22285,35 +21176,6 @@ class Strategy_COLLECTIVE_116(BaseStrategy):
             self.history_factor = self.total_cooperators_in_history / max(self.rounds_played - 1, 1)
             return Action.D
 
-class Strategy_COLLECTIVE_120(BaseStrategy):
-    """
-    Implementation of the Tit-for-Tat with Adaptive Cooperation (TFT-AC) strategy for the Collective Risk Dilemma game.
-    The strategy cooperates in the first round and adjusts its action based on the majority of players' actions from the previous round.
-    It also includes a forgiveness mechanism that encourages cooperation by switching to cooperation if a player who previously defected switches to cooperation.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.forgiven = False
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        my_actions = history.my_actions if history else np.zeros(self.game_description.n_rounds, dtype=bool)
-        my_actions[state.round_number - 1] = True
-        if history is None:
-            cooperators = 0
-        else:
-            cooperators = sum(history.opponent_actions[-1])
-        if cooperators >= self.game_description.m and (not self.forgiven or my_actions[-2] == Action.D):
-            self.forgiven = False
-            return Action.C
-        elif self.forgiven and my_actions[-1] == Action.C:
-            self.forgiven = True
-            return Action.C
-        else:
-            return Action.D
-
 class Strategy_COLLECTIVE_131(BaseStrategy):
     """
     A strategy that mimics opponents' actions from the previous round, encourages cooperation, and retaliates when necessary.
@@ -22582,29 +21444,6 @@ class Strategy_COLLECTIVE_214(BaseStrategy):
         historical_cooperators = sum(history.my_actions[-self.game_description.n_rounds:])
         probability_cooperate = 0.1 if state.round_number < math.floor(self.probability_threshold * self.game_description.n_rounds) else 0.5 if state.round_number <= self.game_description.n_rounds and historical_cooperators >= self.cooperation_threshold else 1 if historical_cooperators >= self.game_description.m else 0
         return Action(int(math.floor(random.random() * 2)) == 1) if random.random() < probability_cooperate else Action.D
-
-class Strategy_COLLECTIVE_216(BaseStrategy):
-    """
-    Adaptive Tit-for-Tat strategy for the Collective Risk Dilemma game.
-    The strategy cooperates initially and mimics the opponent's action from the previous round in subsequent rounds.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds, dtype=np.float64), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros((game_description.n_rounds, game_description.n_players), dtype=np.float64))
-        self.opponent_cooperators = 0
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        if history is not None:
-            self.history = history
-            self.opponent_cooperators = sum(self.history.opponent_actions[-1, :])
-        if state.round_number < self.game_description.n_rounds - 1:
-            return Action(self.opponent_cooperators >= self.game_description.n_players // 2)
-        self.history.my_actions[-1] = Action(self.opponent_cooperators >= self.game_description.n_players // 2).value
-        self.opponent_cooperators = sum(self.history.opponent_actions[-1, :])
-        return Action(self.opponent_cooperators >= self.game_description.n_players // 2)
 
 class Strategy_COLLECTIVE_224(BaseStrategy):
     """
@@ -23143,36 +21982,6 @@ class Strategy_COLLECTIVE_379(BaseStrategy):
                 cooperate = min(self.defection_count, self.game_description.n_players)
                 self.defection_count -= cooperate
             return Action(cooperate)
-
-class Strategy_COLLECTIVE_393(BaseStrategy):
-    """
-    A strategy that follows the Tit-for-Tat adaptive approach in Collective Risk Dilemma games.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history_buffer = np.zeros((self.game_description.n_players - 1, 2))
-        self.cooperation_count = 0
-        self.rounds_in_history = 0
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0 or history is None:
-            return Action.C
-        self.update_history(history)
-        cooperators = np.sum(self.history_buffer[:, 1])
-        average_cooperation = cooperators / self.rounds_in_history if self.rounds_in_history > 0 else 0
-        if average_cooperation >= self.game_description.m:
-            return Action.C if self.history[-1] == Action.C else Action.D
-        else:
-            return Action.D
-
-    def update_history(self, history: PlayerHistory) -> None:
-        self.rounds_in_history += 1
-        if self.rounds_in_history > self.game_description.n_players - 1:
-            self.cooperation_count -= self.history_buffer[0, 1]
-        self.history_buffer = np.roll(self.history_buffer, -1, axis=0)
-        self.history_buffer[-1, :] = [history.my_actions[-1], history.my_payoffs[-1] > 1]
-        self.cooperation_count += history.my_payoffs[-1] > 1
 
 class Strategy_COLLECTIVE_412(BaseStrategy):
     """
@@ -24201,28 +23010,6 @@ class Strategy_COLLECTIVE_202(BaseStrategy):
                 self.cooperation_threshold -= 1
         return Action.D if self.defection_counter > 0 else Action.C
 
-class Strategy_COLLECTIVE_260(BaseStrategy):
-    """
-    Strategy Name: Adaptive Tit-for-Tat (ATFT) for Collective Risk Dilemma
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros(game_description.n_rounds))
-
-    def __call__(self, state: GameState, history: PlayerHistory | None) -> Action:
-        if history is None:
-            self.history.my_actions[0] = True
-        else:
-            last_action = self.history.my_actions[-1]
-            cooperators = sum(self.history.opponent_actions[-1, :])
-            if state.round_number == 0 or (last_action and cooperators >= self.game_description.m):
-                self.history.my_actions[state.round_number] = True
-            elif not last_action:
-                self.history.my_payoffs[-1] += self.game_description.k if cooperators >= self.game_description.m else 1
-                self.history.my_actions[state.round_number] = False
-        return Action(int(self.history.my_actions[state.round_number]))
-
 class Strategy_COLLECTIVE_272(BaseStrategy):
     """
     Implementation of the Tit-for-Tat-Adaptive strategy for the Collective Risk Dilemma game.
@@ -24457,35 +23244,6 @@ class Strategy_COLLECTIVE_474(BaseStrategy):
     def punish(self):
         self.punishment_duration -= 1
 
-class Strategy_COLLECTIVE_476(BaseStrategy):
-    """Adaptive Tit-for-Tat (ATfT) Strategy for Collective Risk Dilemma"""
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(my_actions=np.array([[False]], dtype=bool), my_payoffs=np.array([0.0], dtype=float), opponent_actions=np.array([[False]], dtype=bool, ndmin=2), opponent_payoffs=np.array([0.0], dtype=float))
-
-    def __call__(self, state: GameState, history: PlayerHistory | None=None):
-        if history is None:
-            self.history = PlayerHistory(my_actions=np.array([[False]], dtype=bool), my_payoffs=np.array([0.0], dtype=float), opponent_actions=np.array([[False]], dtype=bool, ndmin=2), opponent_payoffs=np.array([0.0], dtype=float))
-        if state.round_number == 0:
-            self.history.my_actions[-1] = [True]
-            return Action.C
-        last_round = state.round_number == self.game_description.n_rounds
-        if last_round:
-            cooperators = np.sum(self.history.opponent_actions[:, -1])
-            if cooperators >= self.game_description.m and np.any(self.history.my_actions[-1]):
-                return Action.C
-            else:
-                return Action.D
-        predecessor = (self.history.opponent_actions.shape[0] - 1) % self.game_description.n_players
-        cooperators = np.sum(self.history.opponent_actions[:, predecessor])
-        if cooperators >= self.game_description.m:
-            self.history.my_actions[-1] = [self.history.opponent_actions[predecessor, -1]]
-            return Action.C
-        else:
-            self.history.my_actions[-1] = [False]
-            return Action.D
-
 class Strategy_COLLECTIVE_482(BaseStrategy):
     """
     Tit-for-Tat Adaptive (TfTA) for Collective Risk Dilemma
@@ -24703,35 +23461,6 @@ class Strategy_EXPLOITATIVE_343(BaseStrategy):
         self.cooperation_counter += int(player_cooperated and cooperators >= self.min_coop - 1)
         return Action.C if self.cooperation_counter >= self.game_description.m else Action.D
 
-class Strategy_EXPLOITATIVE_366(BaseStrategy):
-    """
-    Tit-for-Tat with Adaptive Cooperation Threshold (TFT-ACT) strategy for Collective Risk Dilemma game.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.cooperation_threshold = game_description.m - 1
-        self.history = None
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            self.history = PlayerHistory(np.zeros(self.game_description.n_rounds, dtype=bool), np.zeros(self.game_description.n_rounds), np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), np.zeros((self.game_description.n_rounds, self.game_description.n_players)))
-            return Action.C
-        self.history.my_actions[-1] = self.cooperation_threshold >= self.cooperation_threshold
-        self.history.my_payoffs[-1] = self.calculate_payoff()
-        cooperators = sum(self.history.opponent_actions[-1, :])
-        if cooperators < self.game_description.m:
-            self.cooperation_threshold = max(0, self.cooperation_threshold - 1)
-        elif cooperators >= self.game_description.n and cooperators <= self.game_description.m * self.game_description.n:
-            self.cooperation_threshold = min(self.cooperation_threshold + 1, self.game_description.n - 1)
-        return Action(int(self.cooperation_threshold >= self.history.my_actions[-1]))
-
-    def calculate_payoff(self):
-        if np.sum(self.history.opponent_actions[-1, :]) < self.game_description.m:
-            return 1 - self.history.my_actions[-1]
-        else:
-            return 1 - self.history.my_actions[-1] + self.game_description.k
-
 class Strategy_EXPLOITATIVE_376(BaseStrategy):
     """
     Tit-for-Tat Strategy with slight modifications for Collective Risk Dilemma.
@@ -24921,38 +23650,6 @@ class Strategy_EXPLOITATIVE_463(BaseStrategy):
 
     def _has_recently_defected(self):
         return self.prev_action_opponent == Action.D and self.count_cooperators > 0
-
-class Strategy_EXPLOITATIVE_464(BaseStrategy):
-    """
-    The Tit-for-Tat with Adaptation (TfTA) strategy for the Collective Risk Dilemma game.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.n = game_description.n_players
-        self.m = game_description.m
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros((game_description.n_rounds, game_description.n_players)))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if history is None:
-            self.history.my_actions[0] = True
-            return Action.C
-        if state.round_number == 0:
-            self.history.my_actions[0] = True
-            return Action.C
-        elif state.round_number == self.game_description.n_rounds:
-            num_defectors = np.sum(self.history.opponent_actions[:, -1])
-            if num_defectors > self.n - self.m:
-                return Action.D
-            else:
-                return Action.C
-        else:
-            num_defectors = np.sum(self.history.opponent_actions[:, -1])
-            if num_defectors > self.n - self.m:
-                return Action.D
-            else:
-                self.history.my_actions[state.round_number] = True
-                return Action.C
 
 class Strategy_EXPLOITATIVE_476(BaseStrategy):
     """
@@ -26134,30 +24831,6 @@ class Strategy_COLLECTIVE_558(BaseStrategy):
         else:
             return Action.C + (Action.C - Action.D) * self.game_description.k if cooperators >= self.m * 2 else Action.C
 
-class Strategy_COLLECTIVE_559(BaseStrategy):
-    """
-    A Tit-for-Tat Strategy for Collective Risk Dilemma game.
-    Follows the majority's actions, encourages reciprocity and forgiveness.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = None
-
-    def __call__(self, state: GameState, history: PlayerHistory | None) -> Action:
-        if history is None:
-            return Action.C
-        self.history = history if history else PlayerHistory(np.zeros(state.round_number + 1, dtype=bool), np.zeros(state.round_number + 1), np.zeros((state.round_number + 1, self.game_description.n_players), dtype=bool), np.zeros((state.round_number + 1, self.game_description.n_players)))
-        if state.round_number == len(self.history.my_actions):
-            self.history.my_payoffs[-1] = (np.sum(self.history.my_actions) > self.game_description.n_players // 2) * (1 + self.game_description.k) + (np.sum(self.history.my_actions) <= self.game_description.n_players // 2)
-        cooperators = np.sum(self.history.opponent_actions[-1, :])
-        if cooperators >= self.game_description.n_players // 2:
-            self.history.my_actions[-1] = True
-        else:
-            self.history.my_payoffs[-1] += 1 - self.history.my_actions[-1]
-            self.history.my_actions[-1] = False
-        return Action(int(self.history.my_actions[-1]))
-
 class Strategy_COLLECTIVE_560(BaseStrategy):
     """
     A simple Tit-for-Tat with Adaptive Cooperation (TFT-AC) strategy for the Collective Risk Dilemma game.
@@ -27059,28 +25732,6 @@ class Strategy_EXPLOITATIVE_517(BaseStrategy):
             return Action.C
         previous_cooperation = sum(history.opponent_actions[-1])
         return Action(previous_cooperation >= self.m)
-
-class Strategy_EXPLOITATIVE_518(BaseStrategy):
-    """
-    Tit-for-Tat with Adaptive Cooperation Threshold (TFT-ACT) strategy for the Collective Risk Dilemma game.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.min_coop_threshold = math.ceil(game_description.n_players * 0.5)
-        self.history = PlayerHistory(my_actions=np.zeros((game_description.n_rounds,), dtype=bool), my_payoffs=np.zeros(game_description.n_rounds, dtype=float), opponent_actions=np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((game_description.n_rounds, game_description.n_players), dtype=float))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        self.history.my_actions[state.round_number - 1] = True
-        cooperators = sum(history.opponent_actions[state.round_number - 1, :])
-        if self.history.my_actions[-1] and cooperators >= self.min_coop_threshold:
-            return Action.C
-        elif not self.history.my_actions[-1] or cooperators < self.min_coop_threshold - 1:
-            return Action.D
-        else:
-            return Action.C
 
 class Strategy_EXPLOITATIVE_519(BaseStrategy):
     """
@@ -28149,33 +26800,6 @@ class Strategy_EXPLOITATIVE_563(BaseStrategy):
         self.total_payoff_cooperate += np.sum(payoffs[history.my_actions[-1] == 1])
         self.total_payoff_defect += np.sum(payoffs[history.my_actions[-1] == 0])
 
-class Strategy_EXPLOITATIVE_564(BaseStrategy):
-    """
-    A Tit-for-Tat-Adaptive (TfT-A) strategy for the Collective Risk Dilemma game.
-    The strategy cooperates in the first round and adapts its cooperation threshold based on the opponent's behavior.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.m_threshold = int(game_description.n_players * 0.5)
-        self.history = PlayerHistory(np.zeros(self.game_description.n_rounds, dtype=bool), np.zeros(self.game_description.n_rounds), np.zeros((self.game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros(self.game_description.n_rounds))
-
-    def __call__(self, state: GameState, history: PlayerHistory | None) -> Action:
-        if history is None:
-            self.history.my_actions[0] = True
-            return Action.C
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.C
-        cooperators = sum(history.opponent_actions[-1, :])
-        if cooperators >= self.m_threshold:
-            self.history.my_payoffs[-1] = self.game_description.k - 1 if cooperators == self.game_description.n_players else 1 - self.history.my_actions[-1]
-            self.history.my_actions[state.round_number] = True
-            return Action.C
-        self.history.my_payoffs[-1] = self.history.my_actions[-1] if cooperators > 0 else 1 - self.history.my_actions[-1]
-        self.m_threshold += int(math.copysign(self.game_description.n_players / 2, history.opponent_payoffs[-1, -1] - self.history.my_payoffs[-1])) if state.round_number > self.game_description.n_rounds // 5 else self.m_threshold
-        self.history.my_actions[state.round_number] = False
-        return Action.D
-
 class Strategy_EXPLOITATIVE_565(BaseStrategy):
     """
     The Tit-for-Tat with Adaptive Cooperation Threshold (TACT) strategy.
@@ -28919,28 +27543,3 @@ class Strategy_EXPLOITATIVE_599(BaseStrategy):
             return Action(int(cooperation_ratio >= 1))
         self.last_round_coop = True
         return Action.C
-
-class Strategy_EXPLOITATIVE_600(BaseStrategy):
-    """
-    Tit-for-Tat with Adaptive Cooperation Threshold (TFTAT) strategy for the Collective Risk Dilemma game.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.cooperation_threshold = math.floor((game_description.m + 1) / 2) if game_description.n_players % 2 == 0 else game_description.m
-        self.history = []
-        self.round_payoff = 0
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if history is None or len(self.history) < self.game_description.n_rounds // 5:
-            return Action.C if math.ceil(len(self.history) / self.game_description.n_rounds * self.game_description.n_players // 2) >= self.cooperation_threshold else Action.D
-        opponents_cooperators = np.sum(history.opponent_actions[-self.game_description.n_rounds // 5:, :][-1, :])
-        average_opponents_cooperators = np.mean(history.opponent_actions[-self.game_description.n_rounds // 5:, :][:, self.cooperation_threshold].reshape(-1))
-        if opponents_cooperators >= self.cooperation_threshold:
-            self.cooperation_threshold = min(self.cooperation_threshold + 1, game_description.n_players)
-        elif opponents_cooperators < self.cooperation_threshold - 1 and self.cooperation_threshold > math.floor(game_description.m):
-            self.cooperation_threshold -= 1
-        action = Action.C if opponents_cooperators >= self.cooperation_threshold else Action.D
-        self.history.append((state.round_number, action))
-        self.round_payoff += 1 - self.cooperation_threshold + 1 if action == Action.C else 1
-        return action

@@ -355,42 +355,6 @@ class Strategy_COLLECTIVE_10(BaseStrategy):
         else:
             return Action.D
 
-class Strategy_COLLECTIVE_11(BaseStrategy):
-    """
-    A collective strategy that adapts to various opponent behaviors while promoting 
-    collective cooperation and robustness through initial cooperation, history-dependent 
-    cooperation, punishment, forgiveness, and reward escalation.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.history = []
-        self.cooperators = 0
-        self.punished_players = []
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        prev_actions = history.opponent_actions[-1] if history else []
-        self.cooperators = sum(prev_actions)
-        if self.cooperators >= self.game_description.m:
-            action = Action.C
-        elif self.cooperators > 0:
-            action = Action.D
-        else:
-            action = Action.C
-        for player, prev_action in enumerate(prev_actions):
-            if prev_action == False and self.cooperators >= self.game_description.m:
-                self.punished_players.append(player)
-            elif prev_action == True and player in self.punished_players:
-                self.punished_players.remove(player)
-        if len(self.history) > 1 and self.cooperators >= self.game_description.m and (sum(history.opponent_actions[-2, :]) >= self.game_description.m):
-            self.game_description.k += 0.1
-        if state.round_number == self.game_description.n_rounds - 1:
-            action = Action.C
-        self.history.append(action)
-        return action
-
 class Strategy_COLLECTIVE_12(BaseStrategy):
     """
     Adaptive Cooperation Strategy for Collective Risk Dilemma.
@@ -1687,37 +1651,6 @@ class Strategy_COLLECTIVE_55(BaseStrategy):
             if np.sum(prev_round_opponent_actions) >= self.game_description.m or (self.game_description.n_rounds == 2 and history.my_actions[0]):
                 return Action.C
         return Action.D
-
-class Strategy_COLLECTIVE_56(BaseStrategy):
-    """
-    A collective strategy that balances individual self-interest with group cooperation.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.cooperation_score = 0
-        self.rounds_since_last_success = 0
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0 or history is None:
-            return Action.C
-        previous_round_cooperations = sum(history.opponent_actions[-1, :]) + 1
-        previous_round_success = previous_round_cooperations >= self.game_description.m
-        if previous_round_success:
-            self.cooperation_score += previous_round_cooperations
-            self.rounds_since_last_success = 0
-        else:
-            self.rounds_since_last_success += 1
-        if self.cooperation_score > self.game_description.m and self.game_description.m < self.game_description.n_players - 1:
-            self.game_description.m += 1
-        elif self.cooperation_score < self.game_description.m and self.game_description.m > 1:
-            self.game_description.m -= 1
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.C
-        if previous_round_success or (state.round_number < self.game_description.n_rounds - 1 and random.random() > (1 - self.game_description.k / (self.game_description.k + 1)) ** self.rounds_since_last_success):
-            return Action.C
-        else:
-            return Action.D
 
 class Strategy_COLLECTIVE_57(BaseStrategy):
     """
@@ -10677,37 +10610,6 @@ class Strategy_COLLECTIVE_352(BaseStrategy):
         if state.round_number == n_rounds - 1:
             return Action.C
         return action
-
-class Strategy_COLLECTIVE_353(BaseStrategy):
-    """
-    This strategy is designed to balance individual self-interest with collective well-being,
-    while being robust to various opponent behaviors. It encourages cooperation and punishes defection.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.CR = 0
-        self.p = 1 - game_description.k / (game_description.k + 1)
-        self.cooperation_probability = 0.5
-        self.threshold_adjustment_rounds = math.ceil(game_description.n_rounds / 2)
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        opponent_actions = history.opponent_actions[-1, :] if history else []
-        cooperators = sum(opponent_actions)
-        self.CR = cooperators / self.game_description.n_players
-        if self.CR >= self.game_description.m / self.game_description.n_players:
-            return Action.C
-        elif len(history.my_payoffs) > self.threshold_adjustment_rounds and sum((self.CR for _ in range(-self.threshold_adjustment_rounds, 0))) < self.game_description.m * self.threshold_adjustment_rounds / self.game_description.n_players:
-            self.game_description.m -= 1
-        elif len(history.my_payoffs) > 0 and history.my_payoffs[-1] == 1 - self.cooperation_probability + self.game_description.k:
-            self.cooperation_probability = min(1, self.cooperation_probability + 0.05)
-        if random.random() < self.p:
-            return Action.D
-        elif random.random() < self.cooperation_probability:
-            return Action.C
-        return Action.D
 
 class Strategy_COLLECTIVE_354(BaseStrategy):
     """
@@ -20582,35 +20484,6 @@ class Strategy_EXPLOITATIVE_167(BaseStrategy):
                 return Action.C
         return Action.D
 
-class Strategy_EXPLOITATIVE_168(BaseStrategy):
-    """
-    An exploitative strategy for the Collective Risk Dilemma game.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.n_players = game_description.n_players
-        self.m = game_description.m
-        self.r = game_description.n_rounds
-        self.opponents_actions = None
-        self.num_cooperators_prev_round = 0
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return random.choice([Action.C, Action.D])
-        elif state.round_number < self.r - 1:
-            self.opponents_actions = history.opponent_actions[-1]
-            self.num_cooperators_prev_round = sum((1 for action in self.opponents_actions if action))
-            p_c = (self.m - self.num_cooperators_prev_round) / self.n_players
-            punishment_phase = False
-            for i, action in enumerate(self.opponents_actions):
-                if action and self.num_cooperators_prev_round < self.m:
-                    self.opponents_actions[i] = Action.D
-                    punishment_phase = True
-            return random.choices([Action.C, Action.D], weights=[p_c, 1 - p_c])[0]
-        else:
-            return Action.D
-
 class Strategy_EXPLOITATIVE_169(BaseStrategy):
     """
     Conditional Cooperation with Adaptive Threshold (CCAT) strategy for Collective Risk Dilemma.
@@ -25288,52 +25161,6 @@ class Strategy_EXPLOITATIVE_326(BaseStrategy):
             return Action.D
         else:
             return Action.C
-
-class Strategy_EXPLOITATIVE_327(BaseStrategy):
-    """
-    Adaptive Collective Risk Exploiter Strategy.
-
-    Balances individual self-interest with collective risk management,
-    while adapting to various opponent behaviors.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.n_players = game_description.n_players
-        self.m_initial = game_description.m
-        self.k = game_description.k
-        self.round_number = 0
-        self.opponent_behavior = {}
-        self.previous_action = None
-        self.previous_round_payoff = None
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            self.round_number += 1
-            return Action.C if self.m_initial <= self.n_players / 2 else Action.D
-        self.round_number += 1
-        opponent_actions = history.opponent_actions[-1, :]
-        for i in range(self.n_players):
-            if i != self.game_description.n_players - 1:
-                if i not in self.opponent_behavior:
-                    self.opponent_behavior[i] = []
-                self.opponent_behavior[i].append(opponent_actions[i])
-                if len(self.opponent_behavior[i]) >= 3:
-                    cooperation_rate = sum(self.opponent_behavior[i][-3:]) / 3
-                    if cooperation_rate > 0.7 and self.game_description.m < self.n_players - 1:
-                        self.game_description.m += 1
-                    elif cooperation_rate < 0.3 and self.game_description.m > 1:
-                        self.game_description.m -= 1
-        if self.previous_round_payoff is None or self.previous_round_payoff >= self.k * self.game_description.m:
-            action = Action.C if self.previous_action == Action.D else Action.C if self.previous_action is None else self.previous_action
-        else:
-            action = Action.D if self.previous_action == Action.C else Action.D
-        self.previous_action = action
-        if history.my_payoffs.size > 0:
-            self.previous_round_payoff = history.my_payoffs[-1]
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.D
-        return action
 
 class Strategy_EXPLOITATIVE_328(BaseStrategy):
     """

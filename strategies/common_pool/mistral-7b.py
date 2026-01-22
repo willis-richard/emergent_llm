@@ -247,30 +247,6 @@ class Strategy_COLLECTIVE_9(BaseStrategy):
                 action = Action.C if cooperation_rate > 0.5 else Action.D
         return action
 
-class Strategy_COLLECTIVE_11(BaseStrategy):
-    """Adaptive Tit-for-Tat with Stock Growth Awareness"""
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.EF = 2
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros((game_description.n_rounds, game_description.n_players)))
-
-    def __call__(self, state: CommonPoolState, history: PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        elif state.round_number == self.game_description.n_rounds - 1:
-            return Action.C
-        else:
-            last_round = history.my_actions[-1]
-            punishment_limit = min(self.game_description.capacity / self.game_description.n_players, state.current_stock * self.EF)
-            own_action = Action.C if last_round and history.opponent_actions[-1, -1] == Action.C.value else Action.D
-            if own_action == Action.D:
-                consumption = math.ceil(punishment_limit) if punishment_limit > 0 else self.game_description.capacity / self.game_description.n_players
-                history.my_actions[-1] = True
-                history.my_payoffs[-1] += state.current_stock - consumption
-                history.opponent_payoffs[-1, -1] -= consumption
-            return own_action
-
 class Strategy_COLLECTIVE_12(BaseStrategy):
     """
     Adaptive Tit-for-Tat Strategy for Common Pool Resource Game.
@@ -345,24 +321,6 @@ class Strategy_COLLECTIVE_14(BaseStrategy):
         if streak >= state.round_number:
             return Action.C
         return Action(not last_opponent_action)
-
-class Strategy_COLLECTIVE_15(BaseStrategy):
-    """
-    Implementation of the Tit-for-Tat Strategy for Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(my_actions=np.zeros((game_description.n_rounds, 1), dtype=bool), my_payoffs=np.zeros(game_description.n_rounds, dtype=float), opponent_actions=np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((game_description.n_rounds, game_description.n_players), dtype=float))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is None and state.round_number == 0:
-            return Action.C
-        else:
-            cooperators = sum(history.opponent_actions[state.round_number - 1, :])
-            action = Action.C if cooperators >= self.game_description.n_players // 2 else Action.D
-        self.history.my_actions[state.round_number] = [action == Action.C]
-        return action
 
 class Strategy_COLLECTIVE_16(BaseStrategy):
     """Adaptive Tit-for-Tat (ATFT) Strategy"""
@@ -1200,29 +1158,6 @@ class Strategy_COLLECTIVE_54(BaseStrategy):
             self.opponent_cooperated_last_round = True
         return self.opponent_cooperated_last_round
 
-class Strategy_COLLECTIVE_55(BaseStrategy):
-    """Adaptive Tit-for-Tat Strategy for the Common Pool Resource Game"""
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.threshold = 0.8
-        self.history = PlayerHistory(my_actions=np.empty((game_description.n_rounds,), dtype=bool), my_payoffs=np.empty(game_description.n_rounds), opponent_actions=np.empty((game_description.n_rounds, game_description.n_players), dtype=bool), opponent_payoffs=np.empty((game_description.n_rounds, game_description.n_players)))
-
-    def __call__(self, state: CommonPoolState, history: PlayerHistory | None) -> Action:
-        if history is None:
-            return Action.C
-        self.history.my_actions[state.round_number] = True
-        self.history.my_payoffs[state.round_number] = state.current_stock / (self.game_description.capacity * self.game_description.n_players)
-        opponent_cooperated = np.sum(history.opponent_actions[-1, :])
-        if opponent_cooperated > 0:
-            return Action.C
-        elif state.current_stock / (self.game_description.capacity * self.game_description.n_players) > self.threshold:
-            return Action.D
-        else:
-            return Action.C
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.C
-
 class Strategy_COLLECTIVE_56(BaseStrategy):
     """
     Adaptive Tit-for-Tat with Stock Growth (ATFSG) strategy for Common Pool Resource Game.
@@ -1398,29 +1333,6 @@ class Strategy_COLLECTIVE_64(BaseStrategy):
             consumption = min(state.current_stock - self.game_description.capacity * (1 - state.current_stock / self.game_description.capacity), np.sum(history.opponent_actions[previous_round]))
             return Action.D if np.sum(history.opponent_actions[previous_round]) > consumption else Action.C
 
-class Strategy_COLLECTIVE_65(BaseStrategy):
-    """
-    A simple Tit-for-Tat strategy for the Common Pool Resource game.
-    Cooperates in the first round, then mirrors the collective action of all players from the previous round.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(my_actions=None, my_payoffs=None, opponent_actions=None, opponent_payoffs=None)
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is not None:
-            self.history = history
-        if state.round_number == 0 or (state.round_number > 0 and history.my_actions[-1] is None):
-            return Action.C
-        cooperators = sum(self.history.opponent_actions[-1, :])
-        if cooperators >= self.game_description.n_players // 2:
-            self.history.my_actions[-1] = True
-            return Action.C
-        else:
-            self.history.my_actions[-1] = False
-            return Action.D
-
 class Strategy_COLLECTIVE_66(BaseStrategy):
     """
     The Tit-for-Tat with Adaptive Forgiveness (TFT-A) strategy for the Common Pool Resource Game.
@@ -1567,30 +1479,6 @@ class Strategy_COLLECTIVE_71(BaseStrategy):
             return Action.C
         else:
             return Action.D
-
-class Strategy_COLLECTIVE_72(BaseStrategy):
-    """
-    Adaptive Tit-for-Tat with Stock Growth Consideration (SG-ATFT) strategy for the Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.threshold = 0.75 * game_description.capacity
-        self.history = PlayerHistory(my_actions=None, my_payoffs=None, opponent_actions=np.zeros((1, game_description.n_players), dtype=bool), opponent_payoffs=np.zeros(game_description.n_rounds * game_description.n_players))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory):
-        self.history = history if history is not None else self.history
-        action = Action.D
-        if state.round_number == 0:
-            action = Action.C
-        elif state.round_number < self.game_description.n_rounds - 1:
-            cooperators = sum(self.history.opponent_actions[-1, :])
-            accumulated_depletion = self.history.my_payoffs.sum() * self.game_description.n_players / (2 * self.game_description.capacity)
-            if cooperators >= self.game_description.n_players // 2 or accumulated_depletion > self.threshold:
-                action = Action.C
-        elif state.round_number == self.game_description.n_rounds - 1:
-            action = Action.C
-        return action
 
 class Strategy_COLLECTIVE_73(BaseStrategy):
     """
@@ -2011,26 +1899,6 @@ class Strategy_COLLECTIVE_92(BaseStrategy):
 
     def _calculate_moving_average(self, data: NDArray[np.float64], window_size: int) -> float:
         return np.convolve(data, np.ones((window_size,)), mode='valid') / window_size
-
-class Strategy_COLLECTIVE_93(BaseStrategy):
-    """
-    Strategy Name: Adaptive Tit-for-Tat (ATFT)
-    Summary: A strategy that reciprocates opponent's actions while promoting long-term cooperation.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.opponent_history = PlayerHistory(my_actions=None, my_payoffs=None, opponent_actions=np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), opponent_payoffs=np.zeros(game_description.n_rounds, dtype=float))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is not None:
-            self.opponent_history = history
-        if state.round_number == 0:
-            return Action.C
-        cooperators = self.opponent_history.opponent_actions[-1, :].sum()
-        if cooperators >= self.game_description.n_players - 1:
-            return Action.C
-        return Action.D
 
 class Strategy_COLLECTIVE_94(BaseStrategy):
     """
@@ -2653,28 +2521,6 @@ class Strategy_COLLECTIVE_121(BaseStrategy):
         else:
             return Action.C
 
-class Strategy_COLLECTIVE_122(BaseStrategy):
-    """
-    Tit-for-Tat with Stock Adaptation (TFTSA) strategy for Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.optimal_stock = game_description.capacity / game_description.n_players
-        self.history = PlayerHistory(None, np.zeros(1), None, np.zeros(1))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if not history:
-            return Action.C
-        if state.round_number == len(history.my_actions):
-            return Action.C
-        total_consumption = np.sum(history.my_actions[-1]) * (self.game_description.n_players / 2)
-        if total_consumption > 2 * self.game_description.n_players:
-            return Action.D
-        if total_consumption <= self.optimal_stock and state.current_stock >= self.optimal_stock:
-            return Action.C
-        return history.my_actions[-1][self.__class__.__name__.replace('Strategy', '')]
-
 class Strategy_COLLECTIVE_124(BaseStrategy):
     """Adaptive Tit-for-Tat strategy for Common Pool Resource Game"""
 
@@ -2753,39 +2599,6 @@ class Strategy_COLLECTIVE_127(BaseStrategy):
         if totalPayoffs > (self.capacity - self.stock) / 2 * self.n_players:
             return Action.C
         return Action.D
-
-class Strategy_COLLECTIVE_128(BaseStrategy):
-    """
-    Implementation of the Adaptive Tit-for-Tat (ATFT) strategy for the Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros(game_description.n_rounds))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is None:
-            self.history = PlayerHistory(np.zeros(state.round_number + 1, dtype=bool), np.zeros(state.round_number + 1), np.zeros((state.round_number + 1, self.game_description.n_players), dtype=bool), np.zeros(state.round_number + 1))
-            return Action.C
-        round_number = state.round_number
-        if round_number == self.game_description.n_rounds or (history.my_actions[-1] != Action.D and round_number < self.game_description.n_rounds):
-            self.history.my_payoffs[-1] = state.current_stock / (2 * self.game_description.n_players)
-            return Action.C
-        if round_number == 0:
-            self.history.my_actions[0] = True
-            self.history.my_payoffs[0] = state.current_stock / (2 * self.game_description.n_players)
-            return Action.C
-        opponent_action = history.opponent_actions[-1, 0] if round_number == 1 else history.opponent_actions[-1, 1]
-        self.history.my_actions[round_number] = Action.C if opponent_action else Action.D
-        if opponent_action:
-            self.history.my_payoffs[round_number] = state.current_stock / (2 * self.game_description.n_players)
-        else:
-            self.history.my_payoffs[round_number] = state.current_stock / self.game_description.n_players
-        if round_number > 2 and len(history.opponent_actions[-2]) >= 2 and history.opponent_actions[-2, 1]:
-            probability_cooperate = 1 - (round_number - 2) / self.game_description.n_rounds
-            if random.random() <= probability_cooperate:
-                self.history.my_actions[round_number] = Action.C
-        return self.history.my_actions[-1]
 
 class Strategy_COLLECTIVE_129(BaseStrategy):
     """
@@ -3278,43 +3091,6 @@ class Strategy_COLLECTIVE_154(BaseStrategy):
         else:
             return Action.D
 
-class Strategy_COLLECTIVE_155(BaseStrategy):
-    """
-    Adaptive Tit-for-Tat (ATFT) Strategy for Common Pool Resource Game.
-    Cooperates most of the time and punishes defection only when necessary, promoting a more collective outcome in the long run.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.round_number = 0
-        self.history = PlayerHistory(my_actions=np.zeros(game_description.n_rounds, dtype=bool), my_payoffs=np.zeros(game_description.n_rounds, dtype=float), opponent_actions=np.full((game_description.n_rounds, game_description.n_players), False), opponent_payoffs=np.zeros((game_description.n_rounds, game_description.n_players)))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        self.round_number = state.round_number
-        if history is not None:
-            self.history = history
-        if state.round_number == 0:
-            return Action.C
-        last_round = self.round_number == self.game_description.n_rounds - 1 or self.round_number == self.game_description.n_rounds
-        second_last_round = self.round_number == self.game_description.n_rounds - 2
-        if last_round:
-            return Action.C
-        elif second_last_round:
-            opponent_defected = sum(self.history.opponent_actions[-1]) > 0
-            if opponent_defected:
-                self.history.my_actions[-2] = True
-            else:
-                self.history.my_actions[-2] = False
-        elif self.round_number > 1 and self.history.opponent_actions[self.round_number - 2].sum() == self.game_description.n_players:
-            self.history.my_actions[self.round_number - 2] = True
-        else:
-            opponent_defected = sum(self.history.opponent_actions[-1]) > 0
-            if opponent_defected:
-                self.history.my_actions[-1] = True
-            else:
-                self.history.my_actions[-1] = False
-        return Action(int(self.history.my_actions[-1]))
-
 class Strategy_COLLECTIVE_156(BaseStrategy):
     """
     Strategy Name: Adaptive Tit-for-Tat (ATFT) for Common Pool Resource Game
@@ -3644,58 +3420,6 @@ class Strategy_COLLECTIVE_170(BaseStrategy):
             return Action.C
         return Action.D
 
-class Strategy_COLLECTIVE_171(BaseStrategy):
-    """
-    Adaptive Resource-Conscious Strategy (ARCS) for the Common Pool Resource Game.
-    This strategy encourages conservation of resources and fosters a collective mindset for long-term survival.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.rounds_played = 0
-        self.total_stock_depletion = 0.0
-        self.average_stock_level = None
-        self.critical_threshold = self.game_description.capacity / (2 * self.game_description.n_players)
-        self.ct_adjustment_factor = 1.2
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        self.rounds_played += 1
-        if not history and state.round_number == 0:
-            return Action.C
-        if state.round_number == self.game_description.n_rounds:
-            return Action.D
-        current_stock = state.current_stock
-        history = PlayerHistory(np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), np.zeros(self.game_description.n_rounds), np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), np.zeros(self.game_description.n_rounds))
-        if not self.average_stock_level:
-            self.average_stock_level = current_stock
-            history.my_actions[self.rounds_played - 1] = True
-            return Action.C
-        if current_stock > self.critical_threshold:
-            action = Action.C
-        elif current_stock < self.critical_threshold / 2:
-            action = Action.D
-        else:
-            trend = self._get_trend(history)
-            if trend == 'increasing':
-                action = Action.C
-            elif trend == 'decreasing':
-                action = Action.D
-            else:
-                action = np.random.choice([Action.C, Action.D])
-        history.my_actions[self.rounds_played - 1] = action == Action.C
-        self.total_stock_depletion += current_stock / (2 * self.game_description.n_players)
-        if self.rounds_played > self.game_description.n_rounds // 5:
-            self.critical_threshold *= self.ct_adjustment_factor ** ((self.rounds_played - self.game_description.n_rounds // 5) / (self.game_description.n_rounds // 5))
-        return action
-
-    def _get_trend(self, history: PlayerHistory) -> str:
-        if len(history.my_actions) < self.game_description.n_rounds // 5:
-            return 'none'
-        average = np.mean(history.my_actions[self.game_description.n_rounds // 5:-1])
-        if np.abs(average - history.my_actions[-1][-1]) > 0.5:
-            return 'increasing' if average < history.my_actions[-1][-1] else 'decreasing'
-        return 'none'
-
 class Strategy_COLLECTIVE_172(BaseStrategy):
     """
     Strategy Name: Adaptive Tit-for-Tat (ATfT) for Common Pool Resource Game
@@ -3798,34 +3522,6 @@ class Strategy_COLLECTIVE_175(BaseStrategy):
 
     def update_history(self, history: PlayerHistory):
         self.opponent_history = history
-
-class Strategy_COLLECTIVE_176(BaseStrategy):
-    """
-    Adaptive Stock-Based Tit-for-Tat Strategy for Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.threshold = self.game_description.capacity * 0.8
-        self.minimum = self.game_description.capacity * 0.2
-        self.history = PlayerHistory(np.zeros(self.game_description.n_rounds, dtype=bool), np.zeros(self.game_description.n_rounds), np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), np.zeros((self.game_description.n_rounds, self.game_description.n_players)))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is None and state.round_number == 0:
-            return Action.C
-        self.history.my_actions[state.round_number] = True
-        stock_level = state.current_stock
-        opponent_last_action = self.history.opponent_actions[state.round_number - 1, (self.game_description.n_players - 1) % self.game_description.n_players]
-        if stock_level < self.minimum:
-            return Action.D
-        elif stock_level >= self.threshold and opponent_last_action:
-            return Action.C
-        elif stock_level >= self.threshold and (not opponent_last_action):
-            return Action.D
-        elif stock_level < self.threshold and opponent_last_action:
-            return Action.D
-        else:
-            return Action(opponent_last_action)
 
 class Strategy_COLLECTIVE_177(BaseStrategy):
     """
@@ -4023,30 +3719,6 @@ class Strategy_COLLECTIVE_185(BaseStrategy):
         self.defection_counter += 1 if current_action == Action.D else 0
         return current_action
 
-class Strategy_COLLECTIVE_186(BaseStrategy):
-    """
-    Strategy Name: Adaptive Tit-for-Tat (ATFT)
-    A strategy that cooperates initially, then responds to opponents' actions in a tit-for-tat fashion. Punishes defection and forgives after one act of punishment. Emphasizes long-term cooperation and forgiveness.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(self.game_description.n_rounds, dtype=bool), np.zeros(self.game_description.n_rounds), np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), np.zeros(self.game_description.n_rounds))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if not history:
-            return Action.C
-        previous_action = self.history.my_actions[-1] if len(self.history.my_actions) > 0 else Action.C
-        current_round = state.round_number + 1
-        current_action = previous_action if current_round != self.game_description.n_rounds and previous_action == Action.C else Action.D
-        self.history.my_actions[-1] = current_action
-        self.history.my_payoffs[-1] = state.current_stock / (2 * self.game_description.n_players) if current_action == Action.C else state.current_stock / self.game_description.n_players
-        if current_round == self.game_description.n_rounds:
-            return Action.C
-        next_opponent_action = Action.D if previous_action == Action.C and current_action == Action.D else Action.C if current_action == Action.D and previous_action == Action.C else current_action
-        self.history.opponent_actions[-1, :] = np.full(self.game_description.n_players, next_opponent_action == Action.C)
-        return current_action
-
 class Strategy_COLLECTIVE_187(BaseStrategy):
     """
     An adaptive tit-for-tat strategy that encourages long-term cooperation among players while being robust against various opponent behaviors.
@@ -4063,27 +3735,6 @@ class Strategy_COLLECTIVE_187(BaseStrategy):
             if cooperators >= self.threshold and state.round_number != self.game_description.n_rounds - 1:
                 return Action.C
             elif cooperators < self.threshold:
-                return Action.D
-        return Action.C
-
-class Strategy_COLLECTIVE_188(BaseStrategy):
-    """
-    Tit-for-Tat Adaptive (TFT-A) strategy for the Common Pool Resource Game.
-    The strategy cooperates unless all players defected in the most recent round or any previous round in history.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(my_actions=None, my_payoffs=None, opponent_actions=np.zeros((1, game_description.n_players), dtype=bool), opponent_payoffs=None)
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is None and state.round_number == 0:
-            return Action.C
-        elif state.round_number == 0:
-            self.history = PlayerHistory(my_actions=np.zeros(1), my_payoffs=np.zeros(1), opponent_actions=np.zeros((1, self.game_description.n_players)), opponent_payoffs=np.zeros(1))
-        else:
-            self.history = history
-            if np.all(self.history.opponent_actions[-1]) == Action.D.value:
                 return Action.D
         return Action.C
 
@@ -4523,34 +4174,6 @@ class Strategy_COLLECTIVE_209(BaseStrategy):
             if np.mean(self.history.my_payoffs[:-1]) >= self.acceptable_threshold:
                 return Action.C
 
-class Strategy_COLLECTIVE_210(BaseStrategy):
-    """
-    Adaptive Tit-for-Tat strategy that promotes cooperation while retaliating against defection.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros((1,), dtype=bool), np.zeros((1,)), np.zeros((1, self.game_description.n_players), dtype=bool), np.zeros((1,)))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if not history:
-            return Action.C
-        if state.round_number == self.history.my_actions.size - 1 and self.game_description.n_rounds > self.history.my_actions.size:
-            return Action.C
-        my_last_action = self.history.my_actions[-1]
-        opponent_last_action = history.opponent_actions[-1, int(not my_last_action)]
-        if opponent_last_action:
-            if my_last_action:
-                pass
-            else:
-                self.history.my_payoffs[-1] += state.current_stock / (2 * self.game_description.n_players)
-        elif my_last_action:
-            self.history.my_payoffs[-1] += state.current_stock / self.game_description.n_players
-        else:
-            pass
-        self.history = PlayerHistory(np.append(self.history.my_actions, [my_last_action]), np.append(self.history.my_payoffs, [state.current_stock / (not my_last_action)]), history.opponent_actions, history.opponent_payoffs)
-        return Action(int(my_last_action))
-
 class Strategy_COLLECTIVE_211(BaseStrategy):
     """
     Strategy Name: Tit-for-Tat with Stock Adaptation (TFT-SA)
@@ -4689,33 +4312,6 @@ class Strategy_COLLECTIVE_218(BaseStrategy):
         else:
             probability = math.floor((state.current_stock - self.threshold_defect) * (self.threshold_coop - self.threshold_defect) / (self.capacity * self.game_description.n_players)) / self.capacity
             return Action(1 if random.random() <= probability else 0)
-
-class Strategy_COLLECTIVE_219(BaseStrategy):
-    """
-    Adaptive Tit-for-Tat Strategy with Stock Growth Consideration for the Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.m = self.game_description.n_players // 2
-        self.T = self.game_description.capacity / self.game_description.n_players
-        self.history = PlayerHistory(None, None, None, None)
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory):
-        if history is None:
-            return Action.C if state.current_stock >= self.T else Action.D
-        if state.round_number == 0:
-            average_stock = state.current_stock
-        else:
-            average_stock = np.mean(history.my_payoffs[-self.m:])
-        return Action.C if average_stock >= self.T else Action.D
-
-    def update_history(self, state: CommonPoolState, action: Action, payoff: float):
-        if self.history.my_actions is None or self.history.my_payoffs is None:
-            self.history.my_actions = np.zeros(self.game_description.n_rounds)
-            self.history.my_payoffs = np.zeros(self.game_description.n_rounds)
-        self.history.my_actions[state.round_number] = int(action)
-        self.history.my_payoffs[state.round_number] = payoff
 
 class Strategy_COLLECTIVE_220(BaseStrategy):
     """
@@ -5231,32 +4827,6 @@ class Strategy_COLLECTIVE_244(BaseStrategy):
             return Action.D
         self.current_round += 1
 
-class Strategy_COLLECTIVE_245(BaseStrategy):
-    """
-    The Tit-for-Tat strategy for the Common Pool Resource Game.
-    This strategy cooperates initially and retaliates when opponents defect in subsequent rounds.
-    It prioritizes long-term sustainability of the common pool resource over short-term gains.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros((game_description.n_rounds, game_description.n_players)))
-        self.threshold = game_description.capacity // 20
-
-    def __call__(self, state: CommonPoolState, history: PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        cooperators = sum(history.opponent_actions[-1, :])
-        if self.game_description.n_players % 2 == 0 and cooperators >= self.game_description.n_players // 2:
-            action = Action.C
-        elif self.game_description.n_players % 2 != 0 and cooperators > self.game_description.n_players // 2:
-            action = Action.C
-        else:
-            action = Action.D
-        self.history.my_actions[state.round_number] = bool(action)
-        self.history.my_payoffs[state.round_number] = state.current_stock / (2 * self.game_description.n_players) if action == Action.C else state.current_stock / self.game_description.n_players
-        return action
-
 class Strategy_COLLECTIVE_247(BaseStrategy):
     """
     Tit-for-Tat Adaptive strategy in the Common Pool Resource Game.
@@ -5383,43 +4953,6 @@ class Strategy_COLLECTIVE_254(BaseStrategy):
         self.opponent_cooperation_count = sum(history.opponent_actions[-1, :])
         action = Action.C if self.opponent_cooperation_count >= self.game_description.n_players // 2 else Action.D
         return action
-
-class Strategy_COLLECTIVE_255(BaseStrategy):
-    """Adaptive Tit-for-Tat (ATFT) strategy for Common Pool Resource Game."""
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.k = int(self.game_description.n_players * self.game_description.n_rounds / 10)
-        self.m = int(self.game_description.n_rounds / 2)
-        self.T_cooperate = self.game_description.capacity / (2 * self.game_description.n_players * self.game_description.n_rounds)
-        self.T_defect = self.game_description.capacity / (self.game_description.n_players * self.game_description.n_rounds)
-        self.win_rate_threshold = 0.5
-        self.history = None
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory):
-        if history is None or len(history.opponent_actions) < self.k:
-            self.history = history
-            return Action.C
-        average_consumption = np.mean(self.calculateAverageConsumption())
-        if average_consumption < self.T_cooperate:
-            return Action.C
-        elif average_consumption > self.T_defect:
-            return Action.D
-        else:
-            win_rate = self.calculateWinRate()
-            if win_rate >= self.win_rate_threshold:
-                return Action.C
-            else:
-                return Action.D
-
-    def calculateAverageConsumption(self):
-        consumption = np.mean(self.history.opponent_actions[:, -self.k:] * (self.game_description.capacity / self.game_description.n_players), axis=1)
-        return consumption
-
-    def calculateWinRate(self):
-        cooperative_wins = sum(np.where(self.history.my_payoffs > self.history.opponent_payoffs, 1, 0))
-        total_rounds = len(self.history.my_payoffs)
-        return cooperative_wins / total_rounds
 
 class Strategy_COLLECTIVE_256(BaseStrategy):
     """
@@ -5652,38 +5185,6 @@ class Strategy_COLLECTIVE_265(BaseStrategy):
             total_cooperation = sum(payoffs.opponent_actions[-1, :])
             if total_cooperation == self.n_players and round_number < self.game_description.n_rounds - 1:
                 self.cooperation_counter[self.player_index] += 1
-
-class Strategy_COLLECTIVE_266(BaseStrategy):
-    """
-    Implementation of the Adaptive Tit-for-Tat (ATfT) strategy for Common Pool Resource Game.
-    Mimics opponent's action from previous round while maintaining resource sustainability over the long term.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.capacity = self.game_description.capacity / self.game_description.n_players
-        self.stock = None
-        self.round = 0
-        self.history = PlayerHistory(np.zeros(self.game_description.n_rounds, dtype=bool), np.zeros(self.game_description.n_rounds), np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), np.zeros((self.game_description.n_rounds, self.game_description.n_players)))
-
-    def __call__(self, state: CommonPoolState, history: PlayerHistory):
-        self.stock = state.current_stock
-        self.round = state.round_number
-        if state.round_number == 0:
-            self.history.my_actions[state.round_number] = True
-            self.history.opponent_actions[state.round_number, :] = np.zeros(self.game_description.n_players)
-            return Action.C
-        lastAction = history.my_actions[-1]
-        if lastAction:
-            self.history.my_actions[state.round_number] = True
-        else:
-            self.history.my_actions[state.round_number] = False
-        if self.stock < self.capacity or state.round_number == self.game_description.n_rounds - 1:
-            self.history.my_payoffs[state.round_number] = self.stock / self.game_description.n_players
-            return Action.D
-        else:
-            self.history.my_payoffs[state.round_number] = self.stock / (2 * self.game_description.n_players)
-            return Action.C
 
 class Strategy_COLLECTIVE_267(BaseStrategy):
     """
@@ -6294,27 +5795,6 @@ class Strategy_COLLECTIVE_298(BaseStrategy):
         self.last_action = history.my_actions[-1]
         return Action.C
 
-class Strategy_COLLECTIVE_300(BaseStrategy):
-    """
-    Strategy Name: Adaptive Tit-for-Tat (ATFT) for Common Pool Resource Game
-    This Adaptive Tit-for-Tat strategy aims to foster long-term cooperation by being cooperative initially and responsive to the opponent's moves. It punishes opponents who defect but quickly forgives them as well, encouraging potential future cooperation.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros((game_description.n_rounds, game_description.n_players)))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is None:
-            self.history.my_actions[0] = True
-            return Action.C
-        elif state.round_number == history.my_actions.size - 1:
-            return Action.C
-        else:
-            opponent_cooperators = sum(history.opponent_actions[-1, :])
-            self.history.my_actions[-1] = opponent_cooperators >= self.game_description.n_players // 2
-            return Action(self.history.my_actions[-1]) if history is not None else Action.C
-
 class Strategy_COLLECTIVE_301(BaseStrategy):
     """
     A strategy based on the Adaptive Tit-for-Tat (ATFT).
@@ -6876,30 +6356,6 @@ class Strategy_COLLECTIVE_327(BaseStrategy):
         else:
             return Action.D
 
-class Strategy_COLLECTIVE_328(BaseStrategy):
-    """
-    A Tit-for-Tat Adaptive Strategy (TFT-A) for the Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.forgiveness_factor = int(game_description.n_players // 3)
-        self.history = PlayerHistory(my_actions=None, my_payoffs=None, opponent_actions=np.zeros((self.game_description.n_rounds, game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((self.game_description.n_rounds, game_description.n_players), dtype=np.float64))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory):
-        if history is None and state.round_number == 0:
-            return Action.C
-        self.history = history or self.history
-        action = Action.C
-        last_round = state.round_number - 1
-        if last_round >= self.forgiveness_factor:
-            opponent_cooperators_last_round = sum(self.history.opponent_actions[last_round])
-            if opponent_cooperators_last_round >= self.game_description.n_players // 2:
-                pass
-            else:
-                action = Action.D
-        return action
-
 class Strategy_COLLECTIVE_329(BaseStrategy):
     """
     Tit-for-Tat Adaptive Cooperation strategy for Common Pool Resource Game.
@@ -7011,38 +6467,6 @@ class Strategy_COLLECTIVE_333(BaseStrategy):
         if state.round_number == self.game_description.n_rounds - 1:
             return Action.C
         return action
-
-class Strategy_COLLECTIVE_334(BaseStrategy):
-    """
-    Adaptive Tit-for-Tat Strategy for Common Pool Resource Game
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros((1,), dtype=bool), np.zeros((1,)), np.zeros((1, game_description.n_players), dtype=bool), np.zeros((1,)))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is None:
-            self.history = PlayerHistory(np.zeros((1,), dtype=bool), np.zeros((1,)), np.zeros((1, self.game_description.n_players), dtype=bool), np.zeros((1,)))
-            return Action.C
-        elif state.round_number == 0:
-            self.history = history
-            return Action.C
-        else:
-            last_round = len(self.history.opponent_actions) - 1
-            last_action = self.history.my_actions[-1] if len(self.history.my_actions) > 0 else Action.C
-            cooperators = sum(self.history.opponent_actions[last_round, :])
-            if cooperators >= self.game_description.n_players // 2 and last_action == Action.D:
-                self.history.my_payoffs[-1] = (state.current_stock - self.history.total_consumption[-1]) / (self.game_description.n_players * 2)
-            elif cooperators >= self.game_description.n_players // 2 and last_action == Action.C:
-                self.history.my_payoffs[-1] = (state.current_stock - self.history.total_consumption[-1]) / self.game_description.n_players
-            else:
-                self.history.my_payoffs[-1] = 0
-            self.history = PlayerHistory(np.append(self.history.my_actions, np.array([[last_action]], dtype=bool)), np.append(self.history.my_payoffs, [self.history.my_payoffs[-1]]), self.history.opponent_actions, self.history.opponent_payoffs)
-            if last_round == 0 or cooperators >= self.game_description.n_players // 2:
-                return Action.C
-            else:
-                return Action.D
 
 class Strategy_COLLECTIVE_335(BaseStrategy):
     """
@@ -9196,30 +8620,6 @@ class Strategy_COLLECTIVE_440(BaseStrategy):
         else:
             return Action.C
 
-class Strategy_COLLECTIVE_441(BaseStrategy):
-    """
-    Strategy that implements Tit-for-Tat-Growth for the Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.last_opponent_actions = np.zeros(game_description.n_players, dtype=bool)
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        if history is not None:
-            self.last_opponent_actions = history.opponent_actions[-1]
-        current_cooperators = np.sum(self.last_opponent_actions)
-        if current_cooperators >= self.game_description.n_players // 2:
-            return Action.C
-        for i, action in enumerate(self.last_opponent_actions):
-            if not action:
-                self.last_opponent_actions[i] = False
-                return Action.D
-        self.last_opponent_actions.fill(True)
-        return Action.C
-
 class Strategy_COLLECTIVE_442(BaseStrategy):
     """
     Tit-for-Tat Strategy for Common Pool Resource Game
@@ -9289,60 +8689,6 @@ class Strategy_COLLECTIVE_445(BaseStrategy):
             return Action.D
         else:
             return Action.C
-
-class Strategy_COLLECTIVE_447(BaseStrategy):
-    """
-    Adaptive Tit-for-Tat strategy for the Common Pool Resource game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.opponent_index = 1
-        self.history = PlayerHistory(my_actions=np.array([], dtype=bool), my_payoffs=np.array([], dtype=np.float64), opponent_actions=np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=np.float64))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is not None:
-            self.history.my_actions = np.append(self.history.my_actions, [state.round_number == state.round_number])
-            self.history.opponent_actions[state.round_number, self.opponent_index] = not history.opponent_actions[state.round_number - 1, self.opponent_index]
-        if state.round_number == 0 or (history is not None and len(history.my_actions) == 0):
-            return Action.C
-        opponent_action = self.history.opponent_actions[-1, self.opponent_index]
-        if opponent_action:
-            return Action.C
-        else:
-            return Action.D
-
-    def get_history(self) -> PlayerHistory:
-        """
-        Return the strategy's history object for analysis purposes.
-        """
-        return self.history
-
-class Strategy_COLLECTIVE_448(BaseStrategy):
-    """
-    A Tit-for-Tat strategy with adaptive behavior for the Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(self.game_description.n_rounds, dtype=bool), np.zeros(self.game_description.n_rounds), np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), np.zeros((self.game_description.n_rounds, self.game_description.n_players)))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is None or len(history.my_actions) == 0:
-            return Action.C
-        if state.round_number < len(history.my_actions):
-            last_action = history.my_actions[-1]
-        else:
-            last_action = None
-        if last_action is not None and last_action == Action.C:
-            return Action.C
-        elif last_action is not None and last_action == Action.D:
-            return Action.D
-        if state.round_number + 1 >= len(self.history.my_actions):
-            return Action.C
-        self.history.my_actions[:state.round_number] = np.zeros(state.round_number, dtype=bool)
-        self.history.my_payoffs[:state.round_number] = np.zeros(state.round_number)
-        return Action.C
 
 class Strategy_COLLECTIVE_449(BaseStrategy):
     """Adjustable Stock Conservation Strategy"""
@@ -10471,27 +9817,6 @@ class Strategy_COLLECTIVE_505(BaseStrategy):
                 return Action.C
             return Action.D
 
-class Strategy_COLLECTIVE_506(BaseStrategy):
-    """
-    Adaptive Tit-for-Tat strategy for the Common Pool Resource Game.
-    Prioritizes long-term group success over individual gain by balancing cooperation and defection.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = None
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        self.history = history if history is not None else PlayerHistory(np.zeros((1,), dtype=bool), np.zeros((1,)), np.zeros((state.round_number + 1, self.game_description.n_players), dtype=bool), np.zeros((state.round_number + 1,)))
-        if state.round_number == 0:
-            return Action.C
-        self.history.my_actions[-1] = Action.C
-        opponent_cooperators = np.sum(self.history.opponent_actions[-1, :])
-        if opponent_cooperators >= self.game_description.n_players // 2:
-            return Action.C
-        else:
-            return Action.D
-
 class Strategy_COLLECTIVE_508(BaseStrategy):
     """
     Implementation of the Adaptive Tit-for-Tat (ATFT) strategy for the Common Pool Resource Game.
@@ -11165,53 +10490,6 @@ class Strategy_EXPLOITATIVE_25(BaseStrategy):
             return Action.C
         return Action(last_opponent_action)
 
-class Strategy_EXPLOITATIVE_26(BaseStrategy):
-    """
-    Tit-for-Tat with Adaptive Threshold (TFTA) strategy for Common Pool Resource Game
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.threshold = math.ceil(game_description.n_players / 2)
-        self.history = PlayerHistory(np.zeros((1, game_description.n_rounds), dtype=bool), np.zeros(game_description.n_rounds, dtype=np.float64), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros((game_description.n_rounds, game_description.n_players), dtype=np.float64))
-        self.avg_consumption = 0
-        self.num_rounds = 0
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is None:
-            return Action.C
-        if self.num_rounds == 0:
-            self.history.my_actions[0] = True
-            self.history.opponent_actions[:, 0] = np.array([1 if a == Action.C else 0 for a in history.opponent_actions[:, -1]])
-            self.num_rounds += 1
-        cooperators = sum(history.opponent_actions[-1, :])
-        self.avg_consumption = (self.avg_consumption * (self.num_rounds - 1) + float(cooperators)) / self.num_rounds
-        self.num_rounds += 1
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.C if self.avg_consumption < self.threshold else self.choose_best_action(state, history)
-        if self.avg_consumption < self.threshold:
-            self.history.my_actions[-1] = True
-            return Action.C
-        self.history.my_actions[-1] = False
-        return Action.D
-
-    def choose_best_action(self, state: CommonPoolState, history: PlayerHistory) -> Action:
-        cooperators = sum(history.opponent_actions[-1, :])
-        if self.avg_consumption > self.threshold and cooperators < self.game_description.n_players // 2:
-            return Action.C
-        opponent_cooperators = sum(history.opponent_actions[-1, :])
-        if opponent_cooperators == 0:
-            return Action.D
-        else:
-            max_payoff = -np.inf
-            chosen_action = None
-            for action in [Action.C, Action.D]:
-                payoff = state.current_stock / (self.game_description.n_players if action == Action.D else 2 * self.game_description.n_players)
-                if payoff > max_payoff:
-                    max_payoff = payoff
-                    chosen_action = action
-            return chosen_action
-
 class Strategy_EXPLOITATIVE_29(BaseStrategy):
     """
     A strategy that cooperates in the first round and implements a Tit-for-Tat approach,
@@ -11403,39 +10681,6 @@ class Strategy_EXPLOITATIVE_36(BaseStrategy):
         else:
             return Action.C
 
-class Strategy_EXPLOITATIVE_37(BaseStrategy):
-    """
-    A Tit-for-Tat with Stock Adaptation (TFTSA) strategy for the Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(my_actions=None, my_payoffs=None, opponent_actions=np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), opponent_payoffs=np.zeros(game_description.n_rounds * game_description.n_players))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory):
-        if history is None:
-            self.history = PlayerHistory(my_actions=[False] if state.round_number == 0 else self.history.my_actions, my_payoffs=[0.0] if state.round_number == 0 else self.history.my_payoffs, opponent_actions=self.history.opponent_actions, opponent_payoffs=self.history.opponent_payoffs)
-        action = Action.D
-        if state.round_number > 0:
-            cooperators = self.history.opponent_actions[-1].sum()
-            action = Action.C if cooperators >= self.game_description.n_players // 2 else Action.D
-        if state.round_number == 0 or (state.round_number > 0 and history.my_actions[-1]):
-            payoff = self.calculate_payoff(state, action)
-            self.history = PlayerHistory(my_actions=self.history.my_actions + [action], my_payoffs=self.history.my_payoffs + [payoff], opponent_actions=self.history.opponent_actions, opponent_payoffs=self.history.opponent_payoffs)
-        return action
-
-    def calculate_payoff(self, state: CommonPoolState, action: Action) -> float:
-        if action == Action.C:
-            consumption = state.current_stock / (2 * self.game_description.n_players)
-        else:
-            consumption = state.current_stock / self.game_description.n_players
-        total_consumption = sum([self.history.opponent_actions[state.round_number - 1, i] * consumption for i in range(self.game_description.n_players) if self.history.opponent_actions[state.round_number - 1, i]])
-        remaining_stock = state.current_stock - total_consumption
-        growth = 2 * remaining_stock * (1 - remaining_stock / self.game_description.capacity)
-        new_stock = min(remaining_stock + growth, self.game_description.capacity)
-        payoff = new_stock / (2 * self.game_description.n_players) if action == Action.C else new_stock / self.game_description.n_players
-        return payoff
-
 class Strategy_EXPLOITATIVE_38(BaseStrategy):
     """
     Strategy Name: Tit-for-Tat with Stock Adjustment (TFT-SA)
@@ -11621,31 +10866,6 @@ class Strategy_EXPLOITATIVE_45(BaseStrategy):
             else:
                 return Action.D
 
-class Strategy_EXPLOITATIVE_46(BaseStrategy):
-    """
-    An exploitative strategy called "Adaptive Tit-for-Tat with Stock Awareness" (ATFS).
-    This strategy aims to maximize payoffs by being cooperative when it benefits the player and defecting in response to defections from opponents.
-    The strategy also considers the current stock level as a factor in decision-making.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.capacity_percentage_bounds = [0.2, 0.8]
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        self._update_history(state, history)
-        opponent_cooperated = sum(history.opponent_actions[-1]) >= self.game_description.n_players // 2
-        own_cooperation = (not history.my_actions[:-1].all() or opponent_cooperated) and (state.current_stock > self.game_description.capacity * self.capacity_percentage_bounds[0] or state.current_stock < self.game_description.capacity * self.capacity_percentage_bounds[1])
-        return Action(own_cooperation) if own_cooperation else Action.D
-
-    def _update_history(self, state: CommonPoolState, history: PlayerHistory):
-        new_action = state.round_number == 0 and Action.C or history.my_actions[-1] if history else None
-        self.last_action = new_action
-        history = history or PlayerHistory(np.zeros((self.game_description.n_rounds,), dtype=bool), np.zeros((self.game_description.n_rounds, 1)))
-        history.my_actions[-1] = self.last_action
-
 class Strategy_EXPLOITATIVE_47(BaseStrategy):
     """
     Ttit-for-Tat with Adaptive Stock-Aware Cooperation (TA-SC) Strategy for Common Pool Resource Game.
@@ -11703,37 +10923,6 @@ class Strategy_EXPLOITATIVE_48(BaseStrategy):
             return Action.C
         else:
             return Action.D
-
-class Strategy_EXPLOITATIVE_50(BaseStrategy):
-    """
-    Strategy name: Tit-for-Tat with Adaptive Cooperation (TfT-AC)
-    This strategy cooperates initially, then adjusts cooperation based on average historical actions of all players.
-    If the average cooperation rate is above 50%, it cooperates; otherwise, defects.
-    It punishes deviations by mirroring previous round's action for the next two rounds.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(my_actions=np.zeros((self.game_description.n_rounds,), dtype=bool), my_payoffs=np.zeros((self.game_description.n_rounds,), dtype=np.float64), opponent_actions=np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=np.float64))
-        self.punishment_counter = 0
-
-    def __call__(self, state: CommonPoolState, history: PlayerHistory | None) -> Action:
-        if history is None:
-            return Action.C
-        self.history.my_actions[-1] = Action.C == (state.current_stock - self.game_description.capacity) / (self.game_description.capacity * 2)
-        if not self.history:
-            return self.history.my_actions[-1]
-        t = int(self.game_description.n_rounds * 0.8)
-        cooperators = np.mean(self.history.my_actions[max(0, self.game_description.n_rounds - t):])
-        if state.round_number < self.game_description.n_rounds - 1:
-            cooperators += (self.punishment_counter > 0) * -2
-            self.punishment_counter = 0
-        if cooperators > 0.5:
-            return Action.C
-        if np.count_nonzero(self.history.my_actions[-2:] != self.history.my_actions[-1:]) > 1:
-            self.punishment_counter += 1
-            return self.history.my_actions[-1]
-        return Action.D
 
 class Strategy_EXPLOITATIVE_53(BaseStrategy):
     """
@@ -12038,34 +11227,6 @@ class Strategy_EXPLOITATIVE_64(BaseStrategy):
             return Action.D
         return Action(int(payoff > 0))
 
-class Strategy_EXPLOITATIVE_65(BaseStrategy):
-    """
-    A Tit-for-Tat strategy with an adaptive cooperation threshold, designed for the Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.cooperative_threshold = math.ceil((game_description.n_players + 1) / 2)
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros(game_description.n_rounds))
-        self.current_stock = game_description.capacity
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory):
-        if state.round_number == 0:
-            return Action.C
-        cooperators = sum(history.opponent_actions[-1, :])
-        self.history.my_payoffs[state.round_number] = self.current_stock / (2 * self.game_description.n_players) if history is not None else 0
-        if state.round_number < self.game_description.n_rounds - 1:
-            if cooperators >= self.cooperative_threshold:
-                self.cooperative_threshold = math.ceil((self.game_description.n_players + 1) / 2)
-                return Action.C
-            elif sum(history.opponent_actions[:, self.cooperative_threshold - 1] > self.cooperative_threshold // 2) and sum(history.opponent_actions[-1, :]) < self.cooperative_threshold:
-                self.cooperative_threshold -= 1
-            return Action.D
-        else:
-            if cooperators >= self.game_description.n_players // 2:
-                return Action.D
-            return Action.C
-
 class Strategy_EXPLOITATIVE_66(BaseStrategy):
     """
     Tit-for-Tat Exploitative Strategy for the Common Pool Resource Game.
@@ -12337,37 +11498,6 @@ class Strategy_EXPLOITATIVE_77(BaseStrategy):
             self.opponent_history.append(stock // self.n)
         self.first_round = False
         return action
-
-class Strategy_EXPLOITATIVE_78(BaseStrategy):
-    """
-    Tit-for-Tat with Stock Adaptation (TFTSA) strategy for Common Pool Resource Game.
-    This strategy cooperates when the average consumption per player is less than or equal to capacity/(2n).
-    It also punishes players who excessively deplete the common pool by temporarily switching to defection.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(self.game_description.n_rounds, dtype=bool), np.zeros(self.game_description.n_rounds), np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), np.zeros(self.game_description.n_rounds))
-        self.state = None
-
-    def __call__(self, state: CommonPoolState, history: PlayerHistory) -> Action:
-        if not self.state:
-            self.state = state
-            if state.current_stock / self.game_description.n_players <= 2:
-                return Action.D
-            else:
-                return Action.C
-        if state.round_number == self.state.round_number:
-            avg_consumption = np.mean(self.history.opponent_actions[self.state.round_number - 1]) * self.game_description.n_players
-            if avg_consumption <= self.game_description.capacity / (2 * self.game_description.n_players):
-                return Action.C
-        elif state.current_stock >= self.state.current_stock // 2 and state.current_stock / (self.game_description.capacity / 2) >= 1:
-            return Action.C
-        elif state.current_stock < self.game_description.capacity * 0.5:
-            for round_number in range(self.state.round_number, self.game_description.n_rounds):
-                self.history.my_actions[round_number] = Action.D
-            return Action.D
-        return Action.C
 
 class Strategy_EXPLOITATIVE_80(BaseStrategy):
     """
@@ -12703,29 +11833,6 @@ class Strategy_EXPLOITATIVE_94(BaseStrategy):
             random_decision = random.random()
             return Action(1 if random_decision <= 0.5 else 0)
 
-class Strategy_EXPLOITATIVE_95(BaseStrategy):
-    """
-    Tit-for-Tat with Adaptive Cooperation Threshold (TFTAT) strategy for Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.cooperation_threshold = None
-        self.opponent_history = PlayerHistory(my_actions=None, my_payoffs=None, opponent_actions=np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), opponent_payoffs=np.zeros(self.game_description.n_rounds, dtype=np.float64))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is None:
-            self.cooperation_threshold = int(math.ceil(2 * self.game_description.n_players / (self.opponent_history.opponent_actions.shape[0] + 1)))
-            return Action.C
-        if state.round_number == 0:
-            return Action.C
-        opponent_cooperation = sum(history.opponent_actions[-1, :])
-        overall_cooperation = sum([1 for i in range(state.round_number) if history.my_actions[i] == Action.C.value])
-        if opponent_cooperation >= self.cooperation_threshold or float(overall_cooperation) / state.round_number > np.mean(history.opponent_payoffs[:state.round_number]):
-            return Action.C
-        else:
-            return Action.D
-
 class Strategy_EXPLOITATIVE_96(BaseStrategy):
     """
     Tit-for-Tat with Adaptive Cooperation Threshold (TFT-ACT) strategy for the Common Pool Resource Game.
@@ -13027,28 +12134,6 @@ class Strategy_EXPLOITATIVE_108(BaseStrategy):
             return Action.C
         elif cooperators >= self.game_description.n_players - 1:
             return Action.C
-        return Action.D
-
-class Strategy_EXPLOITATIVE_109(BaseStrategy):
-    """
-    Tit-for-Tat with Adaptive Cooperation Threshold (TFT-ACT) Strategy for Common Pool Resource Game
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.cooperation_threshold = game_description.capacity / game_description.n_players
-        self.history = PlayerHistory(my_actions=None, my_payoffs=None, opponent_actions=np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), opponent_payoffs=np.zeros(game_description.n_rounds * game_description.n_players))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory):
-        self.history = history or self.history
-        if state.round_number == 0:
-            return Action.C
-        opp_action = self.history.opponent_actions[state.round_number - 1, 0]
-        stock_remaining = self.history.my_payoffs[-1] if state.round_number > 0 else state.current_stock
-        if opp_action and stock_remaining >= self.cooperation_threshold:
-            return Action.C
-        if stock_remaining < self.cooperation_threshold:
-            self.cooperation_threshold = max(self.cooperation_threshold * 0.95, 1)
         return Action.D
 
 class Strategy_EXPLOITATIVE_110(BaseStrategy):
@@ -14482,24 +13567,6 @@ class Strategy_EXPLOITATIVE_171(BaseStrategy):
         if state.current_stock <= self.punishment_threshold:
             return Action.D
 
-class Strategy_EXPLOITATIVE_172(BaseStrategy):
-    """
-    Tit-for-Tat Strategy (TFT) for Common Pool Resource Game
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(my_actions=np.empty((1, 1), dtype=bool), my_payoffs=np.empty((1,), dtype=np.float64), opponent_actions=None, opponent_payoffs=None)
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is not None:
-            self.history = history
-        if state.round_number == 0:
-            return Action.C
-        else:
-            last_opponent_action = self.history.opponent_actions[-1, -1]
-            return Action(last_opponent_action)
-
 class Strategy_EXPLOITATIVE_173(BaseStrategy):
     """
     Tit-for-Tat with Adaptive Cooperation Threshold strategy for Common Pool Resource Game.
@@ -14612,35 +13679,6 @@ class Strategy_EXPLOITATIVE_178(BaseStrategy):
         if previous_round_cooperation > self.game_description.n_players // 2:
             return current_stock * (self.game_description.n_players - previous_round_cooperation) / (2 * (self.game_description.n_players - 1))
         return self.CT_init
-
-class Strategy_EXPLOITATIVE_180(BaseStrategy):
-    """
-    A game theory strategy called Tit-for-Tat-Growth (TfT-G) for Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(my_actions=np.zeros((1, game_description.n_players), dtype=bool), my_payoffs=np.zeros(1, dtype=float), opponent_actions=np.zeros((game_description.n_rounds + 1, game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((game_description.n_rounds + 1, game_description.n_players), dtype=float))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory):
-        """
-        Implement the Tit-for-Tat-Growth strategy for the current state and history.
-        """
-        if history is None:
-            self.history = PlayerHistory(my_actions=np.array([[self.history.my_actions[-1, :]]]), my_payoffs=[self.history.my_payoffs[-1]], opponent_actions=self.history.opponent_actions, opponent_payoffs=self.history.opponent_payoffs)
-        else:
-            self.history = history
-        if state.round_number == 0:
-            action = Action.C
-        else:
-            num_cooperators = np.sum(self.history.opponent_actions[-self.game_description.n_rounds:, :] * (self.game_description.n_players - 1), axis=0)
-            if np.sum(num_cooperators > self.game_description.n_players // 2) > 0:
-                action = Action.C
-            else:
-                action = Action.D
-        if state.round_number == self.game_description.n_rounds:
-            action = Action.C
-        return action
 
 class Strategy_EXPLOITATIVE_181(BaseStrategy):
     """
@@ -14913,33 +13951,6 @@ class Strategy_EXPLOITATIVE_190(BaseStrategy):
             return Action.C
         else:
             return Action.D
-
-class Strategy_EXPLOITATIVE_191(BaseStrategy):
-    """
-    Tit-for-Tat with Adaptive Cooperation Threshold (TFT-ACT) strategy for Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.cooperation_threshold = int(math.ceil(game_description.n_players * 0.5))
-        self.forgiveness_period = int(math.floor(game_description.n_rounds * 0.9))
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros(game_description.n_rounds))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is None or state.round_number == 0:
-            self.history.my_actions[state.round_number] = True
-            return Action.C
-        current_cooperators = sum(history.opponent_actions[-1, :])
-        if current_cooperators >= self.cooperation_threshold:
-            self.history.my_payoffs[-1] = state.current_stock / (2 * self.game_description.n_players)
-            self.history.my_actions[state.round_number] = True
-        elif sum(self.history.my_actions[-self.forgiveness_period:-1]) >= self.cooperation_threshold:
-            self.history.my_payoffs[-1] = state.current_stock / (2 * self.game_description.n_players)
-            self.history.my_actions[state.round_number] = True
-        else:
-            self.history.my_payoffs[-1] = state.current_stock / self.game_description.n_players
-            self.history.my_actions[state.round_number] = False
-        return Action(int(self.history.my_actions[-1]))
 
 class Strategy_EXPLOITATIVE_192(BaseStrategy):
     """
@@ -15295,31 +14306,6 @@ class Strategy_EXPLOITATIVE_208(BaseStrategy):
         else:
             return Action.C
 
-class Strategy_EXPLOITATIVE_209(BaseStrategy):
-    """
-    Adaptive Tit-for-Tat with Stock Growth (ATFSG) Strategy for Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.threshold = game_description.n_players // 2
-        self.history = PlayerHistory(my_actions=np.zeros((self.game_description.n_rounds, 1), dtype=bool), my_payoffs=np.zeros(self.game_description.n_rounds, dtype=np.float64), opponent_actions=np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=np.float64))
-
-    def __call__(self, state: CommonPoolState, history: PlayerHistory | None) -> Action:
-        if history is None or state.round_number == 0:
-            return Action.C
-        self.history.my_actions[state.round_number - 1] = [self.history.my_actions[state.round_number - 1][-1]]
-        average_cp = np.mean(self.history.opponent_actions[:, -1])
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.D
-        if average_cp < self.threshold:
-            return Action.C
-        elif average_cp >= self.threshold:
-            self.threshold = min(self.threshold * 2, self.game_description.n_players)
-            return Action.D
-        if state.current_stock == 0:
-            return Action.D
-
 class Strategy_EXPLOITATIVE_210(BaseStrategy):
     """
     Tit-for-Tat with Adaptive Cooperative Threshold (TfT-ACT) strategy.
@@ -15456,36 +14442,6 @@ class Strategy_EXPLOITATIVE_215(BaseStrategy):
             return Action.C
         return Action.D
 
-class Strategy_EXPLOITATIVE_216(BaseStrategy):
-    """
-    A Tit-for-Tat strategy for the Common Pool Resource Game (TFT-CPRG)
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.current_round = 0
-        self.history = PlayerHistory(np.zeros((1, self.game_description.n_players), dtype=bool), np.zeros((1, self.game_description.n_players)), np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), np.zeros((self.game_description.n_rounds, self.game_description.n_players)))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is None:
-            self.current_round = 0
-            return Action.C
-        if self.current_round == 0:
-            self.history.my_actions[self.current_round] = [True] * self.game_description.n_players
-            self.history.my_payoffs[self.current_round] = np.zeros(self.game_description.n_players)
-            return Action.C
-        self.current_round += 1
-        for opponent in range(self.game_description.n_players):
-            past_cooperation = self.history.my_actions[-1][opponent]
-            last_defection = self.current_round < self.game_description.n_rounds - 1 and (not self.history.my_actions[self.current_round - 1][opponent])
-            if self.current_round == self.game_description.n_rounds or (past_cooperation and last_defection):
-                self.history.my_actions[self.current_round][opponent] = True
-            elif past_cooperation:
-                self.history.my_actions[self.current_round][opponent] = True
-            else:
-                self.history.my_actions[self.current_round][opponent] = False
-        self.history.my_payoffs[self.current_round] = state.current_stock / (2 * self.game_description.n_players) * np.array([True] * self.game_description.n_players) if np.all(self.history.my_actions[-1]) else state.current_stock / self.game_description.n_players * np.array([False] * self.game_description.n_players)
-
 class Strategy_EXPLOITATIVE_217(BaseStrategy):
     """
     Strategy Name: Tit-for-Tat with Adaptive Cooperative Threshold (TFT-ACT)
@@ -15578,24 +14534,6 @@ class Strategy_EXPLOITATIVE_220(BaseStrategy):
         elif not opponent_action and self.critical_stock_threshold <= state.current_stock < self.game_description.capacity:
             return Action.D
         return Action.C if random.random() > 0.5 else Action.D
-
-class Strategy_EXPLOITATIVE_222(BaseStrategy):
-    """
-    A Tit-for-Tat with Adaptive Forgiveness (TfTAF) strategy for the Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(my_actions=np.zeros((self.game_description.n_rounds,), dtype=np.bool_), my_payoffs=np.zeros((self.game_description.n_rounds,), dtype=np.float64), opponent_actions=np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=np.bool_), opponent_payoffs=np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=np.float64))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory):
-        action = Action.C
-        if state.round_number == 0:
-            self.history.my_actions[0] = True
-        else:
-            average_cooperation = np.mean(self.history.my_actions[state.round_number - self.game_description.n_rounds // 2:state.round_number])
-            action = Action.C if average_cooperation > self.game_description.n_players / 2 else Action.D
-        return action
 
 class Strategy_EXPLOITATIVE_223(BaseStrategy):
     """
@@ -16911,40 +15849,6 @@ class Strategy_EXPLOITATIVE_283(BaseStrategy):
     def on_game_end(self, new_state: CommonPoolState):
         self.last_round = True
 
-class Strategy_EXPLOITATIVE_284(BaseStrategy):
-    """
-    Adaptive Tit-for-Tat strategy for Common Pool Resource Game
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.n_players = game_description.n_players
-        self.capacity = game_description.capacity
-        self.min_consumption = 2 * self.n_players
-        self.stock_threshold = 2 * self.n_players - 1
-
-    def __call__(self, state: CommonPoolState, history: PlayerHistory) -> Action:
-        if state.round_number == 0 or history is None:
-            return Action.C
-        current_stock = state.current_stock
-        if current_stock < self.min_consumption:
-            consumption = self.min_consumption
-            payoff = current_stock / self.game_description.n_players
-        else:
-            cooperators = np.sum(history.opponent_actions[-1, :])
-            consumption = self.min_consumption if cooperators < self.n_players else current_stock // self.n_players
-            payoff = current_stock / self.game_description.n_players if history is not None and history.my_actions[-1] == Action.C else 0
-        total_consumption = sum([history.my_actions[t] * consumption for t in range(state.round_number)])
-        new_stock = max(current_stock - total_consumption, 0)
-        growth = 2 * new_stock * (1 - new_stock / self.capacity)
-        stock = min(new_stock + growth, self.capacity)
-        if stock < self.stock_threshold:
-            payoff += stock / self.game_description.n_players
-        else:
-            payoff += (stock - total_consumption) / self.game_description.n_players
-        history.my_payoffs[-1] = payoff
-        return Action(history.my_actions[-1].item() if history is not None else 0)
-
 class Strategy_EXPLOITATIVE_285(BaseStrategy):
     """
     Tit-for-Tat-Greed (TfT-G) Strategy for Common Pool Resource Game
@@ -17031,28 +15935,6 @@ class Strategy_EXPLOITATIVE_289(BaseStrategy):
             return Action.D
         cooperators = sum(history.opponent_actions[-1, :])
         return Action(cooperators >= self.game_description.n_players // 2) if state.round_number < self.game_description.n_rounds else Action.C
-
-class Strategy_EXPLOITATIVE_290(BaseStrategy):
-    """
-    A Tit-for-Tat with Adaptive Cooperation (TFTA) strategy for the Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(my_actions=np.zeros((1, 1)), my_payoffs=np.zeros(1), opponent_actions=np.zeros((self.game_description.n_players + 1, 1)), opponent_payoffs=np.zeros((self.game_description.n_players + 1, 1)))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is None and state.round_number == 0:
-            return Action.C
-        self.history.my_actions[-1] = [state.round_number == 1] if history is None else history.my_actions[-1]
-        self.history.my_payoffs = np.append(self.history.my_payoffs, state.current_stock / (2 * self.game_description.n_players) if self.history.my_actions[-1][0] else state.current_stock / self.game_description.n_players)
-        cooperators = sum(self.history.opponent_actions[-1, :])
-        if cooperators >= self.game_description.n_players // 2:
-            return Action.C
-        return Action.D
-
-    def finalize_round(self):
-        self.history.my_payoffs = np.append(self.history.my_payoffs, self.history.my_payoffs[-1]) if self.history.my_actions[-1][0] else 0
 
 class Strategy_EXPLOITATIVE_291(BaseStrategy):
     """
@@ -17867,34 +16749,6 @@ class Strategy_EXPLOITATIVE_328(BaseStrategy):
             return Action.C
         return Action.D
 
-class Strategy_EXPLOITATIVE_329(BaseStrategy):
-    """
-    Strategy Name: Tit-for-Tat with Adaptive Cooperation Threshold (TFT-ACT)
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.cooperation_threshold = math.floor(self.game_description.n_rounds / 2)
-        self.history = PlayerHistory(my_actions=np.zeros(self.game_description.n_rounds, dtype=bool), my_payoffs=np.zeros(self.game_description.n_rounds), opponent_actions=np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((self.game_description.n_rounds, self.game_description.n_players)))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is None and state.round_number == 0:
-            return Action.C
-        self.history.my_actions[state.round_number] = Action.C == self.__class__
-        self.update_cooperation_threshold(state)
-        opponent_cooperators = sum(self.history.opponent_actions[-1, :])
-        if state.round_number == self.game_description.n_rounds - 1 or opponent_cooperators >= self.cooperation_threshold:
-            return Action.C
-        if opponent_cooperators < self.cooperation_threshold - self.game_description.n_players:
-            return Action.D
-        return Action.C
-
-    def update_cooperation_threshold(self, state):
-        if state.round_number < self.game_description.n_rounds // 2:
-            self.cooperation_threshold += 1
-        elif sum(self.history.my_actions[:state.round_number]) < self.cooperation_threshold * (self.game_description.n_players - 1):
-            self.cooperation_threshold -= 1
-
 class Strategy_EXPLOITATIVE_331(BaseStrategy):
     """
     Strategy Name: Adaptive Tit-for-Tat with Stock Growth (ATTSG)
@@ -18205,31 +17059,6 @@ class Strategy_EXPLOITATIVE_348(BaseStrategy):
             return Action.C
         return Action.D
 
-class Strategy_EXPLOITATIVE_350(BaseStrategy):
-    """
-    A Tit-for-Tat with Adaptive Cooperation (TFT-AC) strategy for the Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros((game_description.n_rounds,), dtype=bool), np.zeros((game_description.n_rounds,), dtype=np.float64), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros((game_description.n_rounds, game_description.n_players), dtype=np.float64))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is None:
-            self.history.my_actions[0] = True
-        else:
-            my_last_action = self.history.my_actions[-1]
-            opponent_last_actions = history.opponent_actions[-1, :]
-            if state.round_number == 0:
-                self.history.my_actions[0] = True
-            elif state.round_number == self.game_description.n_rounds - 1:
-                self.history.my_actions[-1] = True
-            elif my_last_action:
-                self.history.my_actions[state.round_number] = opponent_last_actions.mean() > 0.5
-            else:
-                self.history.my_actions[state.round_number] = np.logical_not(opponent_last_actions).mean() > 0.5
-        return Action(int(self.history.my_actions[-1]))
-
 class Strategy_EXPLOITATIVE_351(BaseStrategy):
     """
     Tit-for-Tat with Adaptive Cooperation Threshold Strategy for the Common Pool Resource Game.
@@ -18514,34 +17343,6 @@ class Strategy_EXPLOITATIVE_363(BaseStrategy):
             return Action.D
         return history.opponent_actions[-1][state.round_number]
 
-class Strategy_EXPLOITATIVE_364(BaseStrategy):
-    """
-    Adaptive Tit-for-Tat with Stock Dynamics (A-TFTSD) strategy in the Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.threshold = game_description.capacity / 2
-        self.history = PlayerHistory(my_actions=None, my_payoffs=None, opponent_actions=None, opponent_payoffs=None)
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is None:
-            return Action.C
-        self.history = history
-        action = Action.C
-        if state.round_number == len(self.history.opponent_actions):
-            capacity_remaining = self.game_description.capacity - self.history.my_payoffs[-1]
-            if capacity_remaining < self.threshold:
-                action = Action.D
-        else:
-            current_stock = state.current_stock
-            previous_round_cooperators = sum(self.history.opponent_actions[-1])
-            if current_stock <= self.threshold and previous_round_cooperators < self.game_description.n_players - 1:
-                action = Action.D
-            elif current_stock > self.threshold:
-                action = Action.C
-        return action
-
 class Strategy_EXPLOITATIVE_365(BaseStrategy):
     """
     Tit-for-Tat with Adaptive Cooperation Rate (TFT-ACR) strategy for the Common Pool Resource Game.
@@ -18610,34 +17411,6 @@ class Strategy_EXPLOITATIVE_367(BaseStrategy):
             return Action.C
         else:
             return Action.D
-
-class Strategy_EXPLOITATIVE_368(BaseStrategy):
-    """
-    Tit-for-Tat with Stock Adaptation (TFTSA) strategy for Common Pool Resource Game.
-    Cooperates initially and adapts to opponent's behavior, punishing excessive defection.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.adaptive_parameter = 0
-        self.last_opponent_action = Action.C
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0 or state.round_number == self.game_description.n_rounds:
-            return Action.C
-        opponent_actions = history.opponent_actions if history is not None else np.zeros((self.game_description.n_rounds, 1), dtype=np.bool_)
-        opponent_actions[-1] = self.last_opponent_action
-        total_defections = sum(opponent_actions[:, 0])
-        adaptive_consumption = self.game_description.n_players // 2 if total_defections <= self.game_description.n_players // 2 else self.game_description.n_players // 4
-        if history is not None:
-            if opponent_actions[-1, 0] == Action.C:
-                self.adaptive_parameter += 1
-            elif opponent_actions[-1, 0] == Action.D:
-                self.adaptive_parameter -= 1
-            self.adaptive_parameter = max(self.adaptive_parameter, 0)
-            self.adaptive_parameter = min(self.adaptive_parameter, self.game_description.n_players - 1)
-        self.last_opponent_action = opponent_actions[-1, 0]
-        return Action.D if self.last_opponent_action == Action.C and opponent_actions[-1, 0] == Action.D else Action.C
 
 class Strategy_EXPLOITATIVE_370(BaseStrategy):
     """
@@ -18927,27 +17700,6 @@ class Strategy_EXPLOITATIVE_382(BaseStrategy):
                 else:
                     self.history.opponent_payoffs[-1, i] = state.current_stock / self.game_description.n_players
 
-class Strategy_EXPLOITATIVE_383(BaseStrategy):
-    """
-    Tit-for-Tat Strategy for Common Pool Resource Game
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.last_round = -1
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds + 1, dtype=bool), np.zeros(game_description.n_rounds + 1), np.zeros((game_description.n_rounds + 1, game_description.n_players), dtype=bool), np.zeros((game_description.n_rounds + 1, game_description.n_players)))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            self.last_round = -1
-            return Action.C
-        self.last_round += 1
-        self.history.my_actions[self.last_round] = Action.C if history is None else history.opponent_actions[self.last_round - 1, 0]
-        cooperators = sum(history.opponent_actions[self.last_round - 1, :])
-        if cooperators >= self.game_description.n_players // 2:
-            return Action.C
-        return Action.D
-
 class Strategy_EXPLOITATIVE_386(BaseStrategy):
     """
     Implementation of the Tit-for-Tat with Adaptive Cooperation Threshold (TFT-ACT) strategy for the Common Pool Resource Game.
@@ -19025,30 +17777,6 @@ class Strategy_EXPLOITATIVE_388(BaseStrategy):
         if state.current_stock < self.stock_threshold and state.round_number > self.round_threshold:
             return Action.D
         return Action.C if last_cooperators >= self.n_players // 2 else Action.D
-
-class Strategy_EXPLOITATIVE_389(BaseStrategy):
-    """Tit-for-Tat with Adaptive Cooperation Threshold (TFT-ACT) strategy for Common Pool Resource Game"""
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.memory_length = self.game_description.n_players // 2
-        self.cooperation_threshold = (2 * self.game_description.n_players - self.game_description.n_rounds) / (2 * self.game_description.n_players) if self.memory_length % 2 == 0 else (2 * self.game_description.n_rounds + 1) / (2 * self.game_description.n_players * 2)
-        self.punishment_duration = math.ceil(self.cooperation_threshold * self.memory_length)
-        self.history = PlayerHistory(np.zeros((self.game_description.n_rounds,), dtype=bool), np.zeros((self.game_description.n_rounds,)), np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=np.float64))
-
-    def __call__(self, state: CommonPoolState, history: PlayerHistory):
-        if state.round_number == 0:
-            self.history.my_actions[0] = True
-            return Action.C
-        cooperation_level = np.mean(history.opponent_actions[:, -self.memory_length:])
-        if cooperation_level > self.cooperation_threshold:
-            self.history.my_actions[-1] = True
-            return Action.C
-        self.history.my_actions[-1] = False
-        punishment_rounds = min(self.punishment_duration, state.round_number - 1)
-        for round_num in range(state.round_number - 1, state.round_number - punishment_rounds - 1, -1):
-            self.history.my_actions[round_num] = False
-        return Action.D
 
 class Strategy_EXPLOITATIVE_390(BaseStrategy):
     """
@@ -20356,25 +19084,6 @@ class Strategy_EXPLOITATIVE_448(BaseStrategy):
         else:
             return Action.D
 
-class Strategy_EXPLOITATIVE_449(BaseStrategy):
-    """
-    Tit-for-Tat Strategy for Common Pool Resource Game (CFR)
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros(game_description.n_rounds))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory):
-        action = Action.C
-        self.history.my_actions[state.round_number] = True if action == Action.C else False
-        if state.round_number > 0:
-            last_round = min(state.round_number - 1, self.history.my_payoffs.size - 1)
-            last_opponent_action = self.history.opponent_actions[last_round, (self.game_description.n_players - 1) % self.game_description.n_players] if history is not None else False
-            action = Action.C if last_opponent_action else Action.D
-        self.history.my_payoffs[state.round_number] = state.current_stock / (2 * self.game_description.n_players) if action == Action.C else state.current_stock / self.game_description.n_players
-        return action
-
 class Strategy_EXPLOITATIVE_450(BaseStrategy):
     """
     Tit-for-Tat with Adaptive Cooperation Threshold (TTAT-CT) strategy for the Common Pool Resource Game.
@@ -20776,36 +19485,6 @@ class Strategy_EXPLOITATIVE_467(BaseStrategy):
             elif self.random.randint(1, 20) < 5:
                 return Action.C
         return Action.D
-
-class Strategy_EXPLOITATIVE_469(BaseStrategy):
-    """
-    Strategy Name: Tit-for-Tat with Stock Adaptation (TFTSA)
-
-    Implementation of the Tit-for-Tat strategy with stock adaptation for the Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros((game_description.n_rounds, game_description.n_players)))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is None:
-            self.history.my_actions[0] = True
-            return Action.C
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.C
-        my_action = self.history.my_actions[-1]
-        opponents_cooperated = sum(self.history.opponent_actions[-1, :])
-        action_prev = self.history.my_actions[-2] if state.round_number > 0 else None
-        last_few_rounds = self.game_description.n_rounds - state.round_number <= self.game_description.n_players * 2
-        if my_action and opponents_cooperated == self.game_description.n_players:
-            return Action.C
-        elif my_action and (not opponents_cooperated) and (not action_prev or last_few_rounds):
-            return Action.D
-        elif not my_action and opponents_cooperated > 0 and action_prev:
-            return Action.D
-        elif not my_action:
-            return Action.C
 
 class Strategy_EXPLOITATIVE_470(BaseStrategy):
     """
@@ -22350,42 +21029,6 @@ class Strategy_COLLECTIVE_232(BaseStrategy):
                 action = Action.D if last_opponent_action else Action.C
         return action
 
-class Strategy_COLLECTIVE_236(BaseStrategy):
-    """
-    Adaptive Tit-for-Tat (ATfT) strategy in Common Pool Resource Game.
-    This strategy encourages cooperation and reciprocity, promoting a collective mindset.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(my_actions=np.zeros((1, self.game_description.n_players), dtype=bool), my_payoffs=np.zeros(self.game_description.n_players, dtype=float), opponent_actions=np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=float))
-
-    def __call__(self, state: CommonPoolState, history: PlayerHistory) -> Action:
-        if history is None:
-            return Action.C
-        self._update_history(state, history)
-        if state.round_number == self.game_description.n_rounds - 1:
-            if np.all(history.opponent_actions[-1]) == 1:
-                return Action.C
-            else:
-                return Action.D
-        else:
-            last_round = len(history.opponent_actions) - 1
-            if history.opponent_actions[last_round][self._get_opponent_index()] == 1:
-                return Action.C
-            elif history.opponent_actions[last_round][self._get_opponent_index()] == 0:
-                return Action.D
-        return Action.C
-
-    def _update_history(self, state: CommonPoolState, history: PlayerHistory) -> None:
-        self.history.my_actions[0] = [state.round_number == 0]
-        self.history.my_payoffs[self._get_opponent_index()] = np.interp(state.current_stock / (2 * self.game_description.n_players), np.array([0, self.game_description.capacity]), np.array([0, 1]))
-        self.history.opponent_actions[state.round_number - 1] = history.my_actions[state.round_number - 1]
-        self.history.opponent_payoffs[state.round_number - 1][self._get_opponent_index()] = np.interp(state.current_stock / (2 * self.game_description.n_players), np.array([0, self.game_description.capacity]), np.array([history.my_payoffs[self._get_opponent_index()] * 2, history.my_payoffs[self._get_opponent_index()]]))
-
-    def _get_opponent_index(self) -> int:
-        return 1 if self.__class__ == self.__module__.split('.')[-1] else 0
-
 class Strategy_COLLECTIVE_243(BaseStrategy):
     """
     Adaptive Tit-for-Tat strategy for Common Pool Resource Game
@@ -22594,30 +21237,6 @@ class Strategy_COLLECTIVE_296(BaseStrategy):
         if cooperators >= self.game_description.n_players // 2:
             return Action.C
         return Action.D
-
-class Strategy_COLLECTIVE_306(BaseStrategy):
-    """
-    Fischer's Tit-for-Tat Strategy with Stock Growth Adaptation for Common Pool Resource Game
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = None
-        self.average_consumption = np.array([0.0])
-        self.rounds_played = 0
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is None and state.round_number == 0:
-            return Action.C
-        self.history = history or PlayerHistory(np.zeros((1, self.game_description.n_players), dtype=bool), np.array([0.0]), np.zeros((state.round_number + 1, self.game_description.n_players), dtype=bool), np.array([0.0]))
-        self.history.my_actions[-1] = True if state.round_number == 0 else history.my_actions[-1]
-        self.history.my_payoffs[-1] = state.current_stock / (2 * self.game_description.n_players)
-        self.average_consumption = np.append(self.average_consumption, np.mean(history.opponent_actions[:, :self.rounds_played + 1]))
-        self.rounds_played += 1
-        if self.rounds_played == self.game_description.n_rounds:
-            return Action.C if np.mean(self.average_consumption) < self.game_description.n_players * 2 / (2 * self.game_description.n_rounds + 1) else Action.D
-        last_average = self.average_consumption[-1]
-        return Action.C if last_average < self.game_description.n_players * 2 / (2 * self.game_description.n_rounds + 1) else Action.D
 
 class Strategy_COLLECTIVE_312(BaseStrategy):
     """
@@ -22857,33 +21476,6 @@ class Strategy_COLLECTIVE_384(BaseStrategy):
             self.opponent_history.append(opponent_action)
             return Action(int(opponent_action) if opponent_action is not None else 1)
 
-class Strategy_COLLECTIVE_387(BaseStrategy):
-    """
-    Adaptive Tit-for-Tat with Stock Growth Consideration (ATFC-SG) strategy in the Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.min_threshold = 0.5
-        self.max_threshold = 1.0
-        self.history = PlayerHistory(my_actions=None, my_payoffs=None, opponent_actions=None, opponent_payoffs=None)
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory):
-        if not history:
-            return Action.C
-        self.history.opponent_actions = history.opponent_actions if history else np.zeros((state.round_number + 1, self.game_description.n_players))
-        self.history.my_actions = [Action.C] if state.round_number == 0 else self.history.my_actions
-        self.history.my_payoffs = np.array([0.0] * (state.round_number + 1))
-        self.history.opponent_payoffs = np.array([0.0] * ((state.round_number + 1) * self.game_description.n_players))
-        if state.round_number == self.game_description.n_rounds or state.current_stock < self.game_description.capacity * 0.5:
-            return Action.C
-        avg_consumption = np.mean(self.history.opponent_actions[-self.game_description.n_players:])
-        stock_fraction = state.current_stock / self.game_description.capacity
-        t = self.min_threshold + (self.max_threshold - self.min_threshold) * (1 - math.exp(-stock_fraction))
-        if avg_consumption < t:
-            return Action.C
-        return Action.D
-
 class Strategy_COLLECTIVE_396(BaseStrategy):
     """
     A self-reinforcing adaptive cooperative strategy called Tit-for-Tat (TFT).
@@ -23039,34 +21631,6 @@ class Strategy_COLLECTIVE_424(BaseStrategy):
         EAP_total = payoff + (1 - P_cap) * self._calculate_EAP_total(self.n_players, current_stock, growth, P_cap)
         return Action.C if EAP_total > history.my_payoffs[-1] / 2 else Action.D
 
-class Strategy_COLLECTIVE_428(BaseStrategy):
-    """
-    Fitness-Proportionate Tit-For-Tat (FP-TFT) strategy for the Common Pool Resource Game
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.forgiveness_period = int(self.game_description.n_players * 0.75)
-        self.history = PlayerHistory(my_actions=np.zeros((1, self.game_description.n_rounds), dtype=bool), my_payoffs=np.zeros(self.game_description.n_rounds), opponent_actions=np.zeros((self.game_description.n_rounds + 1, self.game_description.n_players + 1), dtype=bool), opponent_payoffs=np.zeros((self.game_description.n_rounds + 1, self.game_description.n_players + 1)))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if not history:
-            return Action.C
-        current_round = state.round_number
-        self.history.my_actions[0, current_round] = True
-        if current_round == 1:
-            return Action.C
-        cooperation_sum = np.sum(history.opponent_actions[:, :current_round], axis=0).sum()
-        defection_sum = np.count_nonzero(np.logical_not(history.opponent_actions[:, :current_round].T).sum(axis=0))
-        if cooperation_sum == self.game_description.n_players:
-            return Action.C
-        elif defection_sum > 0:
-            return Action.D
-        elif self.history.my_actions[-1, current_round - 1] == False:
-            if current_round - self.history.my_actions.shape[0] > self.forgiveness_period:
-                return Action.C
-        return Action.D
-
 class Strategy_COLLECTIVE_429(BaseStrategy):
     """
     Tit-for-Tat strategy for the Common Pool Resource game.
@@ -23218,40 +21782,6 @@ class Strategy_COLLECTIVE_478(BaseStrategy):
         else:
             self.last_opponent_action = current_opponent_action
             return current_opponent_action
-
-class Strategy_COLLECTIVE_507(BaseStrategy):
-    """
-    A strategy that implements Tit-for-Tat with Adaptive Cooperation (TFTA).
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.window_size = min(int(game_description.n_players / 2), game_description.n_rounds)
-        self.threshold = 0.5
-        self.cooperation_rate = np.zeros(self.window_size, dtype=np.float64)
-        self.history = PlayerHistory(None, None, None, None)
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory):
-        if history is not None:
-            self.update_cooperation_rate(history)
-        if state.round_number == 0:
-            return Action.C
-        opponent_cooperators = sum(history.opponent_actions[-self.window_size:, :].sum(axis=1))
-        cooperation_rate = opponent_cooperators / self.window_size
-        if cooperation_rate > self.threshold:
-            self.window_size = max(1, self.window_size - 1)
-            self.threshold += 0.05
-        elif cooperation_rate < 1 - self.threshold:
-            self.window_size = min(self.game_description.n_rounds, self.window_size + 1)
-            self.threshold -= 0.05
-        if cooperation_rate >= self.threshold:
-            return Action.C
-        return Action.D
-
-    def update_cooperation_rate(self, history):
-        self.history = history
-        self.cooperation_rate = np.roll(self.cooperation_rate, -1)
-        self.cooperation_rate[-1] = sum(history.opponent_actions[:, :].sum(axis=0)) / self.window_size
 
 class Strategy_COLLECTIVE_509(BaseStrategy):
     """
@@ -23871,48 +22401,6 @@ class Strategy_COLLECTIVE_278(BaseStrategy):
                 return Action.D
         return Action.C
 
-class Strategy_COLLECTIVE_281(BaseStrategy):
-    """
-    A simple implementation of the Adaptive Tit-for-Tat (ATFT) strategy for the Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.threshold = 0.7
-        self.punishment_rounds = 3
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros(game_description.n_rounds))
-        self.current_stock = game_description.capacity
-
-    def __call__(self, state: CommonPoolState, history: PlayerHistory):
-        if history is None or state.round_number == 0:
-            self.history = PlayerHistory(np.zeros(state.round_number + 1, dtype=bool), np.zeros(state.round_number + 1), np.zeros((state.round_number + 1, self.game_description.n_players), dtype=bool), np.zeros(state.round_number + 1))
-            return Action.C
-        current_opponent_cooperators = sum(history.opponent_actions[-1, :])
-        if state.round_number == len(self.history.my_payoffs) - 1:
-            total_depletion = self.current_stock / self.game_description.capacity * 100
-            if total_depletion > self.threshold:
-                return Action.D
-            else:
-                return Action.C
-        self.history = history
-        self.current_stock = state.current_stock
-        if current_opponent_cooperators >= self.game_description.n_players // 2:
-            action = Action.C
-        else:
-            total_depletion_average = np.mean(self.history.my_payoffs[-self.punishment_rounds:])
-            if total_depletion_average > self.current_stock / (2 * self.game_description.capacity):
-                action = Action.D
-            elif current_opponent_cooperators == 1 and self.history.my_actions[-1] == Action.D:
-                action = Action.C
-            else:
-                action = Action.D
-        self.history.my_actions[-1] = action
-        if action == Action.C:
-            self.history.my_payoffs[-1] = self.current_stock / (2 * self.game_description.n_players)
-        else:
-            self.history.my_payoffs[-1] = self.current_stock / self.game_description.n_players
-        return action
-
 class Strategy_COLLECTIVE_283(BaseStrategy):
     """
     Adaptive Stock Conservation (ASC) Strategy for Common Pool Resource Game.
@@ -24373,35 +22861,6 @@ class Strategy_COLLECTIVE_518(BaseStrategy):
             action = Action.D
         return action
 
-class Strategy_COLLECTIVE_519(BaseStrategy):
-    """
-    Adaptive Tit-for-Tat with Stock Growth (ATFSG) strategy for the Common Pool Resource Game.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.n, self.r, self.capacity = (game_description.n_players, game_description.n_rounds, game_description.capacity)
-        self.min_stock = 2 * self.n / 3
-        self.cooperatively_streak = math.ceil(self.capacity / self.r)
-        self.revenge_streak = lambda defective_streak: int(defective_streak / (self.r - self.cooperatively_streak) * self.cooperatively_streak)
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0 and history is None:
-            return Action.C
-        opponent_actions = np.mean(history.opponent_actions, axis=0)
-        streak_start = np.argmax((opponent_actions >= self.cooperatively_streak).astype(int))
-        current_streak = len(history.opponent_actions[:, streak_start])
-        if state.round_number == self.r - 1:
-            payoff_c, payoff_d = (state.current_stock / (2 * self.n), state.current_stock / self.n)
-            return Action.C if payoff_c > payoff_d else Action.D
-        if current_streak >= self.cooperatively_streak:
-            stock_level = state.current_stock / self.capacity
-            if stock_level < self.min_stock:
-                return Action.C
-        elif current_streak >= self.revenge_streak(current_streak - streak_start):
-            return Action.D
-        return Action.C
-
 class Strategy_COLLECTIVE_520(BaseStrategy):
     """
     The Titan Strategy for the Common Pool Resource Game.
@@ -24680,39 +23139,6 @@ class Strategy_COLLECTIVE_534(BaseStrategy):
         else:
             return Action.D
 
-class Strategy_COLLECTIVE_535(BaseStrategy):
-    """
-    Strategy Name: Adaptive Tit-for-Tat (A-TFT)
-    Strategy Description: Adapts to opponent behavior, promotes cooperation, and conserves resources.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.threshold = int(game_description.n_players * 2 / 3)
-        self.strategy = 'A-TFT'
-        self.stock_state = None
-        self.history = None
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        if not self.history:
-            self.stock_state = [state]
-            self.history = PlayerHistory(my_actions=[[False]], my_payoffs=[], opponent_actions=history.opponent_actions, opponent_payoffs=history.opponent_payoffs)
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.C
-        if not self.stock_state or len(self.stock_state) < state.round_number + 1:
-            self.stock_state.append(state)
-        action = Action.C if self.history.my_actions[-1][-1] == Action.D else Action.D
-        if state.current_stock < self.threshold and state.round_number != self.game_description.n_rounds:
-            self.strategy = 'AC'
-        elif self.stock_state[-1].current_stock > self.threshold:
-            self.strategy = 'A-TFT'
-        if state.current_stock == 0:
-            self.strategy = 'AC'
-        self.history.my_actions.append([action])
-        return action
-
 class Strategy_COLLECTIVE_537(BaseStrategy):
     """
     Strategy Name: Adaptive Tit-for-Tat (ATFT) with Stock Growth Awareness (SG-ATFT)
@@ -24813,32 +23239,6 @@ class Strategy_COLLECTIVE_540(BaseStrategy):
             return Action.D
         self.opponents_history.append(opponents_actions)
         return Action.C
-
-class Strategy_COLLECTIVE_542(BaseStrategy):
-    """
-    Adaptive Tit-for-Tat (ATfT) strategy for the Common Pool Resource Game
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = None
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if not history and state.round_number == 0:
-            return Action.C
-        if self.history is None or state.round_number == self.game_description.n_rounds - 1:
-            self.history = PlayerHistory(np.zeros((self.game_description.n_rounds, 1), dtype=bool), np.zeros(self.game_description.n_rounds), np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), np.zeros(self.game_description.n_rounds))
-        if state.round_number == 1:
-            self.history.my_actions[0] = True
-            return Action.C
-        past_opponent_actions = self.history.opponent_actions[:, -1]
-        my_action = self.history.my_actions[-1]
-        if all(past_opponent_actions == my_action):
-            self.history.my_actions[-1] = True
-            return Action.C
-        else:
-            self.history.my_actions[-1] = False
-            return Action.D
 
 class Strategy_COLLECTIVE_543(BaseStrategy):
     """
@@ -25653,32 +24053,6 @@ class Strategy_COLLECTIVE_583(BaseStrategy):
         else:
             return Action.C
 
-class Strategy_COLLECTIVE_585(BaseStrategy):
-    """
-    Adaptive Tit-for-Tat (ATfT) Strategy for the Common Pool Resource Game.
-    Promotes long-term stability in the common pool resource game by creating a balance between cooperation and punishment, adapting its actions based on the collective behavior of opponents.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(my_actions=np.zeros((game_description.n_rounds, 1), dtype=bool), my_payoffs=np.zeros(game_description.n_rounds, dtype=float), opponent_actions=np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((game_description.n_rounds, game_description.n_players), dtype=float))
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is None:
-            return Action.C
-        self._update_history(state, history)
-        if state.round_number == 0 or state.round_number == self.game_description.n_rounds - 1:
-            return Action.C
-        cooperators = sum(history.opponent_actions[-1, :])
-        if cooperators >= self.game_description.n_players // 2:
-            return Action.C
-        return Action.D
-
-    def _update_history(self, state: CommonPoolState, history: PlayerHistory):
-        round_number = state.round_number
-        action = self.__class__.__name__.lower() + '_' + str(round_number) if history is not None else 'initial'
-        self.history.my_actions[round_number] = [action == action]
-
 class Strategy_COLLECTIVE_586(BaseStrategy):
     """
     Implementation of the Adaptive Tit-for-Tat (ATfT) strategy for the Common Pool Resource game.
@@ -25936,41 +24310,6 @@ class Strategy_COLLECTIVE_596(BaseStrategy):
                 return Action.C
         return Action.D
 
-class Strategy_COLLECTIVE_597(BaseStrategy):
-    """
-    Implementation of the Adaptive Tit-for-Tat strategy for Common Pool Resource Games.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(my_actions=np.zeros((1, 1), dtype=bool), my_payoffs=np.zeros(1), opponent_actions=np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), opponent_payoffs=np.zeros((self.game_description.n_rounds, self.game_description.n_players)))
-
-    def __call__(self, state: CommonPoolState, history: PlayerHistory) -> Action:
-        if state.round_number == 0 or history is None:
-            return Action.C
-        current_round = state.round_number - 1
-        opponent_cooperated_last = sum(history.opponent_actions[current_round, :]) > len(history.opponent_actions) // 2
-        if opponent_cooperated_last:
-            self.history.my_actions[-1] = True
-            return Action.C
-        else:
-            self.history.my_actions[-1] = False
-            if current_round < self.game_description.n_rounds - 1:
-                return Action.D
-
-    def get_payoffs(self, state: CommonPoolState) -> np.ndarray:
-        """
-        Calculate and return the payoff for this strategy in the given state and history.
-        """
-        current_round = state.round_number - 1
-        stock = state.current_stock / self.game_description.n_players
-        if np.all(self.history.my_actions[-1]):
-            my_payoff = stock / (2 * len(self.history.opponent_actions))
-        else:
-            my_payoff = stock / len(self.history.opponent_actions)
-        self.history.my_payoffs[current_round + 1] = my_payoff
-        return np.array([my_payoff])
-
 class Strategy_COLLECTIVE_598(BaseStrategy):
     """
     Adaptive Tit-for-Tat (ATFT) for Common Pool Resource Game
@@ -25992,34 +24331,6 @@ class Strategy_COLLECTIVE_598(BaseStrategy):
         else:
             self.opponent_history = np.roll(self.opponent_history, -1)
             return Action.D
-
-class Strategy_COLLECTIVE_599(BaseStrategy):
-    """
-    Strategy Name: Adaptive Tit-for-Tat with Resource Consideration (ATfT-RC)
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.threshold = math.floor(self.game_description.capacity / 2)
-        self.history = None
-
-    def __call__(self, state: CommonPoolState, history: PlayerHistory | None) -> Action:
-        if not history and state.round_number == 0:
-            return Action.D
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.C
-        if not history:
-            history = PlayerHistory(np.zeros((self.game_description.n_rounds,), dtype=bool), np.zeros(self.game_description.n_rounds), np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), np.zeros(self.game_description.n_rounds))
-        if len(history.opponent_actions) == 0:
-            return Action.D
-        last_round = len(history.opponent_actions) - 1
-        if all(history.opponent_actions[last_round, :]) and state.current_stock >= self.threshold:
-            history.my_actions[-1] = True
-        elif (state.current_stock < self.threshold or last_round == 0) and any(history.opponent_actions[last_round, :]):
-            history.my_actions[-1] = False
-        else:
-            history.my_actions[-1] = True if state.current_stock > self.threshold * 0.9 else False
-        return Action(history.my_actions[-1])
 
 class Strategy_COLLECTIVE_600(BaseStrategy):
     """
@@ -26691,36 +25002,6 @@ class Strategy_EXPLOITATIVE_337(BaseStrategy):
             self.threshold += (self.threshold - 0.5) / self.game_description.n_rounds
         return action
 
-class Strategy_EXPLOITATIVE_338(BaseStrategy):
-    """
-    A strategy that plays the Common Pool Resource Game using the Tit-for-Tat with Adjustable Cooperation Threshold (TFT-ACT) approach.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.stock_threshold = math.floor(game_description.capacity / game_description.n_players * 0.75)
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        actions = np.zeros(self.game_description.n_players, dtype=np.bool_)
-        payoffs = np.zeros(self.game_description.n_players, dtype=np.float64)
-        for i in range(self.game_description.n_players):
-            if history is None or len(history.opponent_actions) <= state.round_number:
-                actions[i] = Action.C
-            else:
-                actions[i] = history.opponent_actions[state.round_number - 1, i]
-                payoffs[i] = state.current_stock / (2 * self.game_description.n_players) if actions[i] else state.current_stock / self.game_description.n_players
-        total_consumption = np.sum(payoffs)
-        remaining_stock = state.current_stock - total_consumption
-        growth = 2 * remaining_stock * (1 - remaining_stock / self.game_description.capacity)
-        new_stock = min(self.game_description.capacity, remaining_stock + growth)
-        state.current_stock = new_stock
-        cooperators = sum(actions)
-        if cooperators >= self.game_description.n_players // 2 or (state.current_stock < self.stock_threshold and actions[-1]):
-            return Action.C
-        return Action.D
-
 class Strategy_EXPLOITATIVE_339(BaseStrategy):
     """
     A Tit-for-Tat strategy with stock adjustment for the Common Pool Resource Game.
@@ -26995,24 +25276,6 @@ class Strategy_EXPLOITATIVE_385(BaseStrategy):
             else:
                 return Action.D
 
-class Strategy_EXPLOITATIVE_394(BaseStrategy):
-    """
-    A Tit-for-Tat-Adaptive (TFTA) strategy for the Common Pool Resource Game.
-    This strategy cooperates initially to foster a cooperative environment, and then follows the TFTA rules in subsequent rounds.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_rounds, game_description.n_players), dtype=bool), np.zeros(game_description.n_rounds))
-
-    def __call__(self, state: CommonPoolState, history: PlayerHistory):
-        if state.round_number == 0:
-            self.history.my_actions[0] = True
-        else:
-            opponent_cooperators = sum(history.opponent_actions[-1])
-            self.history.my_actions[state.round_number] = opponent_cooperators > (self.game_description.n_players - 1) // 2
-        return Action(int(self.history.my_actions[-1]))
-
 class Strategy_EXPLOITATIVE_400(BaseStrategy):
     """
     Adaptive Tit-for-Tat strategy for the Common Pool Resource Game.
@@ -27037,40 +25300,6 @@ class Strategy_EXPLOITATIVE_400(BaseStrategy):
             return Action.D
         else:
             return Action.C
-
-class Strategy_EXPLOITATIVE_403(BaseStrategy):
-    """
-    Tit-for-Tat with Adaptive Cooperation Threshold Strategy
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.cooperation_threshold = 0.5
-        self.history = None
-        self.current_round = 0
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if self.history is None:
-            self.history = PlayerHistory(np.zeros(self.game_description.n_rounds, dtype=bool), np.zeros(self.game_description.n_rounds), np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), np.zeros(self.game_description.n_rounds))
-            self.current_round += 1
-            return Action.C
-        if history is None:
-            self.history = history
-            self.current_round += 1
-            return self.history.opponent_actions[-1][-1]
-        self.history.my_actions[self.current_round - 1] = self.__class__.__name__ == history.my_actions[-1]
-        self.history.my_payoffs[self.current_round - 1] = state.current_stock / (2 * self.game_description.n_players) if self.history.my_actions[-1] else state.current_stock / self.game_description.n_players
-        self.current_round += 1
-        cooperation_level = sum(self.history.opponent_actions[:, -1]) / self.current_round
-        self.cooperation_threshold = max(min(cooperation_level * 0.8, 1), min(cooperation_level * 0.2, 0))
-        if self.current_round == self.game_description.n_rounds:
-            return Action.C
-        if self.current_round == 1:
-            return Action.C
-        if cooperation_level > self.cooperation_threshold:
-            return Action.C
-        else:
-            return Action.D
 
 class Strategy_EXPLOITATIVE_417(BaseStrategy):
     """
@@ -29061,24 +27290,6 @@ class Strategy_EXPLOITATIVE_590(BaseStrategy):
         update = (average_consumption_rate - self.cooperation_threshold) * self.learning_rate
         self.cooperation_threshold += update if len(self.round_history) < self.game_description.n_rounds else 0
         return Action.D if average_consumption_rate >= self.cooperation_threshold else Action.C
-
-class Strategy_EXPLOITATIVE_591(BaseStrategy):
-    """
-    Tit-for-Tat with Adaptive Cooperation Threshold strategy
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.history_length = int(math.ceil(game_description.n_rounds * 0.8))
-        self.cooperation_threshold = 0.75
-        self.history = PlayerHistory(my_actions=np.zeros(game_description.n_rounds, dtype=bool), my_payoffs=np.zeros(game_description.n_rounds, dtype=float), opponent_actions=None, opponent_payoffs=None)
-
-    def __call__(self, state: CommonPoolState, history: None | PlayerHistory) -> Action:
-        if history is not None and state.round_number > self.history_length:
-            average_stock = np.mean(self.history.my_actions[-self.history_length:].sum(axis=0))
-            if state.round_number == self.game_description.n_rounds or average_stock < self.cooperation_threshold:
-                return Action.D
-        return Action.C
 
 class Strategy_EXPLOITATIVE_592(BaseStrategy):
     """
