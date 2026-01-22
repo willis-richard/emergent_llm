@@ -39,7 +39,7 @@ from emergent_llm.players import (
     SpecialRounds,
 )
 
-FIGSIZE, FORMAT = setup('3_col_paper')
+FIGSIZE, FORMAT = setup('fullscreen')
 # Increase due to legend
 FIGSIZE = (FIGSIZE[0], FIGSIZE[1] * 1.25)
 
@@ -365,7 +365,7 @@ def compute_between_set_metrics(X_collective: np.ndarray,
 # =============================================================================
 
 # Baselines with labels on the left (defector-ish strategies)
-BASELINE_LABELS_LEFT = {"All-D", "All-D,LR-C"}
+BASELINE_LABELS_LEFT = {"All-D", "All-D,LR-C", "CD(1)", "CC(3)"}
 
 
 def plot_covariance_ellipse(ax, mean, cov, n_std=1.0, **kwargs):
@@ -442,8 +442,8 @@ def plot_pca(ax, X_pca, genes, labels, baseline_pca, baseline_labels, title,
                bbox_to_anchor=(0.4, 1.05), ncol=2)
 
 
-def plot_combined_pca_grid(pca_data, X_pca_combined, labels_all, game_labels,
-                           baseline_pca, baseline_labels, games, pca, output_dir):
+def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
+                         baseline_pca, baseline_labels, games, pca, output_dir):
     """
     Create a 2×3 grid: rows=attitudes, columns=games.
     Each subplot shows all models for that game/attitude combination.
@@ -523,10 +523,105 @@ def plot_combined_pca_grid(pca_data, X_pca_combined, labels_all, game_labels,
                bbox_to_anchor=(0.4, 1.05), ncol=len(registry.available_models))
 
     plt.tight_layout(rect=[0, 0, 0.95, 1])  # Leave space for legend
-    plt.savefig(output_dir / f"pca_combined_grid.{FORMAT}", format=FORMAT, bbox_inches='tight')
+    plt.savefig(output_dir / f"pca_by_game.{FORMAT}", format=FORMAT, bbox_inches='tight')
     plt.close()
-    logger.info(f"Saved combined PCA grid to {output_dir / f'pca_combined_grid.{FORMAT}'}")
+    logger.info(f"Saved combined PCA grid to {output_dir / f'pca_by_game.{FORMAT}'}")
 
+
+def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
+                      baseline_pca, baseline_labels, games, pca, output_dir):
+    """
+    Create a grid with one subplot per model.
+    Each subplot shows all games and attitudes for that model.
+    """
+    # Extract unique models
+    all_genes = []
+    for g in games:
+        all_genes.extend(pca_data[g]['genes'])
+    models = sorted(set(gene.model for gene in all_genes))
+
+    # Grid layout based on number of models
+    n_models = len(models)
+    n_cols = 3
+    n_rows = (n_models + n_cols - 1) // n_cols
+
+    # Color by game, marker style by attitude
+    game_colors = dict(zip(games, plt.colormaps.get_cmap('Set1')(np.linspace(0, 1, len(games)))))
+    attitude_markers = {Attitude.COLLECTIVE: 'o', Attitude.EXPLOITATIVE: 's'}
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(FIGSIZE[0] * n_cols, FIGSIZE[1] * n_rows),
+                             sharex=True, sharey=True)
+    axes = np.atleast_2d(axes)
+
+    for idx, model in enumerate(models):
+        row, col = divmod(idx, n_cols)
+        ax = axes[row, col]
+
+        for game in games:
+            game_mask = game_labels == game
+            genes_for_game = pca_data[game]['genes']
+            color = game_colors[game]
+
+            for attitude in [Attitude.COLLECTIVE, Attitude.EXPLOITATIVE]:
+                matching_genes = [g for g in genes_for_game
+                                  if g.model == model and g.attitude == attitude]
+                if not matching_genes:
+                    continue
+                gene = matching_genes[0]
+
+                mask = game_mask & (labels_all == str(gene))
+                points = X_pca_combined[mask, :2]
+
+                if len(points) == 0:
+                    continue
+
+                marker = attitude_markers[attitude]
+                ax.scatter(points[:, 0], points[:, 1],
+                           alpha=0.3, s=10, color=color, marker=marker)
+
+                # Centroid
+                mean_pt = points.mean(axis=0)
+                ax.scatter(mean_pt[0], mean_pt[1], marker=marker, s=100,
+                           color=color, edgecolors='black', linewidths=1.5, zorder=5)
+
+                # Ellipse
+                if len(points) > 2:
+                    cov = np.cov(points.T)
+                    plot_covariance_ellipse(ax, mean_pt, cov, n_std=1.0,
+                                            facecolor=color, alpha=0.15,
+                                            edgecolor=color, linewidth=1.5)
+
+        plot_baselines(ax, baseline_pca, baseline_labels, marker_size=60)
+        ax.set_title(model, fontsize=12)
+
+        if col == 0:
+            ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})')
+        if row == n_rows - 1:
+            ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
+
+    # Hide unused subplots
+    for idx in range(n_models, n_rows * n_cols):
+        row, col = divmod(idx, n_cols)
+        axes[row, col].set_visible(False)
+
+    # Legend: games (colors) + attitudes (markers)
+    legend_handles = []
+    for game in games:
+        legend_handles.append(plt.Line2D([0], [0], marker='o', color='w',
+                                         markerfacecolor=game_colors[game],
+                                         markersize=10, label=game))
+    legend_handles.append(plt.Line2D([0], [0], marker='o', color='gray',
+                                     markersize=8, label='Collective'))
+    legend_handles.append(plt.Line2D([0], [0], marker='s', color='gray',
+                                     markersize=8, label='Exploitative'))
+
+    fig.legend(handles=legend_handles, loc='upper center', frameon=False,
+               bbox_to_anchor=(0.5, 1.02), ncol=len(games) + 2)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.savefig(output_dir / f"pca_by_model_grid.{FORMAT}", format=FORMAT, bbox_inches='tight')
+    plt.close()
+    logger.info(f"Saved per-model PCA grid to {output_dir / f'pca_by_model_grid.{FORMAT}'}")
 
 # =============================================================================
 # EXTREMA ANALYSIS
@@ -760,9 +855,13 @@ if __name__ == "__main__":
         plt.close()
 
     # Combined 2x3 grid plot (attitudes × games)
-    plot_combined_pca_grid(pca_data, X_pca_combined, labels_all, game_labels,
-                           baseline_pca_combined, baseline_labels, args.games,
-                           pca_combined, output_dir)
+    plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
+                     baseline_pca_combined, baseline_labels, args.games,
+                     pca_combined, output_dir)
+
+    plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
+                      baseline_pca_combined, baseline_labels, args.games,
+                      pca_combined, output_dir)
 
     # ==========================================================================
     # PHASE 4: Compute and display metrics
