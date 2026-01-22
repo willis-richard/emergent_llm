@@ -4450,34 +4450,6 @@ class Strategy_COLLECTIVE_224(BaseStrategy):
     def update_round_history(self, round_number: int):
         self.round_history.append(round_number)
 
-class Strategy_COLLECTIVE_225(BaseStrategy):
-    """
-    A strategy inspired by the Tit-for-Tat Evolution in the Common Pool Resource Game.
-    Cooperates initially, and mimics opponents' actions in subsequent rounds. Forgives opponents after a series of defections.
-    """
-
-    def __init__(self, game_description: CommonPoolDescription):
-        self.game_description = game_description
-        self.forgiveness_count = 0
-
-    def __call__(self, state: CommonPoolState, history: PlayerHistory | None) -> Action:
-        if not history and state.round_number == 0:
-            return Action.C
-        if not history:
-            history = PlayerHistory(np.zeros(self.game_description.n_rounds, dtype=bool), np.zeros(self.game_description.n_rounds), np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=bool), np.zeros(self.game_description.n_rounds))
-        if state.round_number == 1:
-            history.my_actions[0] = True
-            return Action.C
-        last_action = history.my_actions[-1]
-        if not last_action:
-            self.forgiveness_count += 1
-            if self.forgiveness_count >= state.round_number - 1:
-                self.forgiveness_count = state.round_number
-        opponents_cooperated = sum(history.opponent_actions[-1, :])
-        if last_action and opponents_cooperated >= self.game_description.n_players // 2:
-            return Action.C
-        return Action.D
-
 class Strategy_COLLECTIVE_228(BaseStrategy):
     """Adaptive Tit-for-Tat with Growth (ATfTG) strategy"""
 
