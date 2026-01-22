@@ -89,7 +89,7 @@ def run_fair_tournament(game_description):
     # Create population (36 players = 6 matches)
     c_p, a_p = create_test_population(game_description)
 
-    config = BaseTournamentConfig(game_description, repetitions=2, processes=2)
+    config = BaseTournamentConfig(game_description, repetitions=2, n_processes=2)
 
     # Create and run tournament
     tournament = FairTournament(
@@ -105,7 +105,7 @@ def run_mixture_tournament(game_description):
     c_p, a_p = create_test_population(game_description)
 
 
-    config = BaseTournamentConfig(game_description, repetitions=2, processes=2)
+    config = BaseTournamentConfig(game_description, repetitions=2, n_processes=2)
 
     # Create and run tournament
     tournament = MixtureTournament(
@@ -122,9 +122,11 @@ def run_batch_fair_tournament(generator_name):
         group_sizes=[2,4,8],
         repetitions=2,
         generator_name=generator_name,
-        processes=2,
-        output_dir="./test/self_play",
+        n_processes=2,
+        results_dir="./test",
         output_style="full",
+        game_name="DummyGame",
+        model_name="DummyModel",
     )
 
     strategies = [CollectiveStrategy] * 16 + [ExploitativeStrategy] * 16
@@ -144,9 +146,11 @@ def run_batch_mixture_tournament(generator_name):
         group_sizes=[2,4,8],
         repetitions=2,
         generator_name=generator_name,
-        processes=2,
-        output_dir="./test/self_play",
+        n_processes=2,
+        results_dir="./test",
         output_style="compressed",
+        game_name="DummyGame",
+        model_name="DummyModel",
     )
 
     # Create and run tournament
@@ -242,7 +246,7 @@ def main():
     print(b_cpr_results)
     b_cpr_results.save()
 
-    check = BatchFairTournamentResults.load("./test/self_play")
+    check = BatchFairTournamentResults.load("./test/self_play/DummyGame/DummyModel/rep2")
     print(check)
 
     print("\n=== BATCH MIXTURE CPR ===")
@@ -250,7 +254,7 @@ def main():
     print(b_cpr_results)
     b_cpr_results.save()
 
-    check = BatchMixtureTournamentResults.load("./test/self_play")
+    check = BatchMixtureTournamentResults.load("./test/self_play/DummyGame/DummyModel/rep2")
     print(check)
 
     b_cpr_results.create_schelling_diagrams()
