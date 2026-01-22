@@ -4719,46 +4719,6 @@ class Strategy_COLLECTIVE_158(BaseStrategy):
             p_C = 0.9
         return Action.C if random.random() < p_C else Action.D
 
-class Strategy_COLLECTIVE_159(BaseStrategy):
-    """
-    Adaptive Collective Cooperation (ACC) Strategy.
-
-    This strategy adapts to the evolving game dynamics by adjusting its threshold for cooperation.
-    It prioritizes cooperation when others cooperate, and decreases the threshold if average cooperation rates are low.
-    In the endgame, it ensures that players do not miss opportunities for reward in the final round.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.m_prev = 0
-        self.avg_m = 0
-        self.total_payoff = 0
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        if history is not None:
-            self.m_prev = sum(history.opponent_actions[-1, :])
-            self.total_payoff += self.calculate_payoff(Action.D, self.m_prev, self.game_description.k)
-            if state.round_number % 5 == 0:
-                self.avg_m = np.mean([sum(history.opponent_actions[t, :]) for t in range(max(0, state.round_number - 5), state.round_number)])
-                if self.avg_m < 0.5 * self.game_description.m:
-                    self.game_description.m -= 1
-            if state.round_number == self.game_description.n_rounds - 1:
-                if self.total_payoff <= self.game_description.k:
-                    return Action.C
-                else:
-                    return Action.D
-        if self.m_prev >= self.game_description.m:
-            return Action.C
-        return Action.D
-
-    def calculate_payoff(self, action: Action, m_prev: int, k: float) -> float:
-        if m_prev < self.game_description.m:
-            return 1 - (action == Action.C)
-        else:
-            return 1 - (action == Action.C) + k
-
 class Strategy_COLLECTIVE_160(BaseStrategy):
     """
     Adaptive Collective Optimism Strategy.
@@ -14596,46 +14556,6 @@ class Strategy_COLLECTIVE_488(BaseStrategy):
         recent_history = history.opponent_actions[-self.w:]
         coop_count = sum((1 for round in recent_history if sum(round) > 0))
         return coop_count / (len(recent_history) * (self.n_players - 1))
-
-class Strategy_COLLECTIVE_489(BaseStrategy):
-    """
-    Adaptive Collective Cooperation (ACC) strategy for the Collective Risk Dilemma.
-    
-    This strategy aims to balance individual self-interest with collective cooperation, 
-    adapting to the game's history and parameters.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        if state.round_number < self.game_description.n_rounds // 2:
-            cooperators = sum(history.opponent_actions[-1, :])
-            if cooperators < self.game_description.m:
-                return Action.D
-            else:
-                return Action.C
-        elif self.game_description.n_rounds // 2 <= state.round_number < 3 * self.game_description.n_rounds // 4:
-            avg_payoff = np.mean(history.my_payoffs[-5:]) if len(history.my_payoffs) >= 5 else history.my_payoffs[-1]
-            if avg_payoff < 1.5:
-                return Action.D
-            elif sum(history.opponent_actions[-1, :]) + (history.my_actions[-1] == True) >= self.game_description.m - 1:
-                return Action.C
-        elif 3 * self.game_description.n_rounds // 4 <= state.round_number < self.game_description.n_rounds:
-            avg_payoff = np.mean(history.my_payoffs[-5:]) if len(history.my_payoffs) >= 5 else history.my_payoffs[-1]
-            cooperators = sum(history.opponent_actions[-1, :])
-            if cooperators + (history.my_actions[-1] == True) >= self.game_description.m - 1 and avg_payoff > 1.5:
-                return Action.C
-            else:
-                return Action.D
-        elif state.round_number == self.game_description.n_rounds:
-            all_cooperated = np.all(history.opponent_payoffs[-1, :] >= self.game_description.k)
-            if all_cooperated:
-                return Action.C
-            else:
-                return Action.D
 
 class Strategy_COLLECTIVE_490(BaseStrategy):
     """
