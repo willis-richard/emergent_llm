@@ -619,9 +619,9 @@ def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
                bbox_to_anchor=(0.5, 1.02), ncol=len(games) + 2)
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])
-    plt.savefig(output_dir / f"pca_by_model_grid.{FORMAT}", format=FORMAT, bbox_inches='tight')
+    plt.savefig(output_dir / f"pca_by_model.{FORMAT}", format=FORMAT, bbox_inches='tight')
     plt.close()
-    logger.info(f"Saved per-model PCA grid to {output_dir / f'pca_by_model_grid.{FORMAT}'}")
+    logger.info(f"Saved per-model PCA grid to {output_dir / f'pca_by_model.{FORMAT}'}")
 
 # =============================================================================
 # EXTREMA ANALYSIS
