@@ -29,12 +29,19 @@ from emergent_llm.common import (
 from emergent_llm.games import STANDARD_GENERATORS, get_game_type
 from emergent_llm.generation import StrategyRegistry
 from emergent_llm.players import (
+    Altenator,
     BasePlayer,
     ConditionalCooperator,
     Cooperator,
     Defector,
+    GradualDefector,
+    Grim,
     HistoricalCooperator,
     LLMPlayer,
+    PeriodicDefector,
+    Random,
+    RandomCooperator,
+    RandomDefector,
     SimplePlayer,
     SpecialRounds,
 )
@@ -42,6 +49,15 @@ from emergent_llm.players import (
 FIGSIZE, FORMAT = setup('fullscreen')
 
 OpponentActions = tuple[tuple[Action, ...], ...]
+
+
+@dataclass(frozen=True)
+class BaselineSpec:
+    name: str
+    factory: callable
+
+
+combo_keys: list[tuple[str, ...]] | None = None
 
 # =============================================================================
 # ARGUMENT PARSING
@@ -70,6 +86,11 @@ def parse_args():
                         type=int,
                         default=None,
                         help="Limit the analysis to this many strategies")
+    parser.add_argument("--feature_mode",
+                        type=str,
+                        default="fixed_actions",
+                        choices=["fixed_actions", "baseline_opponents"],
+                        help="Feature computation method")
 
     # Game parameters
     parser.add_argument("--n_players",
@@ -122,7 +143,10 @@ def get_output_dir(args) -> Path:
 def get_cache_path(game_name: str, gene: Gene, args) -> Path:
     cache_dir = get_output_dir(args) / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"{game_name}_{gene}_p{args.n_players}_r{args.n_rounds}_g{args.n_games}"
+    if args.feature_mode == "baseline_opponents":
+        filename = f"{game_name}_{gene}_{args.feature_mode}_p{args.n_players}_r{args.n_rounds}_g{args.n_games}"
+    else:
+        filename = f"{game_name}_{gene}_p{args.n_players}_r{args.n_rounds}_g{args.n_games}"
     if args.n_strategies:
         filename += f"_s{args.n_strategies}"
     return cache_dir / f"{filename}.pkl"
@@ -137,7 +161,7 @@ def save_features(features_dict, game_name: str, gene: Gene, args):
 
 def load_features(
         game_name: str, gene: Gene,
-        args) -> dict[str, dict[OpponentActions, float]] | None:
+        args) -> dict[str, dict[tuple, float]] | None:
     cache_path = get_cache_path(game_name, gene, args)
     if not cache_path.exists():
         logger.info(f"Could not find existing cache at {cache_path}")
@@ -166,6 +190,29 @@ def context_to_key(arr: list[list[Action]]) -> OpponentActions:
     return tuple(map(tuple, arr))
 
 
+def build_baseline_pool(n_rounds: int) -> list[BaselineSpec]:
+    return [
+        BaselineSpec("All-C", lambda: Cooperator),
+        BaselineSpec("All-D", lambda: Defector),
+        BaselineSpec("Random-50", lambda: Random),
+        BaselineSpec("RandomCoop-90", lambda: RandomCooperator),
+        BaselineSpec("RandomDefect-90", lambda: RandomDefector),
+        BaselineSpec("Alternator-C", lambda: Altenator(C)),
+        BaselineSpec("Periodic-D-2", lambda: PeriodicDefector(2)),
+        BaselineSpec("Gradual-3", lambda: GradualDefector(3)),
+        BaselineSpec("Conditional-1", lambda: ConditionalCooperator(C, 1)),
+        BaselineSpec("Historical-1", lambda: HistoricalCooperator(C, 1)),
+        BaselineSpec("Grim-1", lambda: Grim(C, 1)),
+        BaselineSpec("LR-All-C",
+                     lambda: SpecialRounds(Cooperator, Defector,
+                                           [n_rounds - 1])),
+    ]
+
+
+def combo_key(combo: tuple[BaselineSpec, ...]) -> tuple[str, ...]:
+    return tuple(spec.name for spec in combo)
+
+
 def play_games(player: LLMPlayer, n_games: int,
                combo: OpponentActions) -> list[GameHistory]:
     # last round action of opponents does not matter
@@ -174,6 +221,17 @@ def play_games(player: LLMPlayer, n_games: int,
         for i, actions in enumerate(combo)
     ]
 
+    players = [player] + opponents
+    histories = [
+        game_class(players, description).play_game().history
+        for _ in range(n_games)
+    ]
+    return histories
+
+
+def play_games_against_opponents(player: BasePlayer,
+                                 opponents: list[SimplePlayer],
+                                 n_games: int) -> list[GameHistory]:
     players = [player] + opponents
     histories = [
         game_class(players, description).play_game().history
@@ -196,7 +254,28 @@ def compute_features(player: BasePlayer, n_games: int) -> dict[OpponentActions, 
     return features
 
 
-def compute_gene(gene: Gene) -> dict[str, dict[OpponentActions, float]]:
+def compute_features_baseline_opponents(player: BasePlayer,
+                                        n_games: int) -> dict[tuple, float]:
+    features: dict[tuple, float] = {}
+    for combo in unique_combos:
+        opponents = [
+            SimplePlayer(f"opponent_{i+1}", spec.factory())
+            for i, spec in enumerate(combo)
+        ]
+        try:
+            histories = play_games_against_opponents(player, opponents, n_games)
+        except Exception as exc:
+            print(f"  !! Failed on combo {combo_key(combo)}: {exc}")
+            continue
+
+        key = combo_key(combo)
+        for r in range(args.n_rounds):
+            actions = [Action(history.actions[r, 0]) for history in histories]
+            features[(key, r)] = float(Action.to_bool_array(actions).mean())
+    return features
+
+
+def compute_gene(gene: Gene) -> dict[str, dict[tuple, float]]:
     # try cache first
     if not args.recompute:
         cached_data = load_features(game_name, gene, args)
@@ -208,7 +287,10 @@ def compute_gene(gene: Gene) -> dict[str, dict[OpponentActions, float]]:
         algo = strategy_spec.strategy_class
         player = LLMPlayer("testing", gene, description, algo)
 
-        features = compute_features(player, args.n_games)
+        if args.feature_mode == "baseline_opponents":
+            features = compute_features_baseline_opponents(player, args.n_games)
+        else:
+            features = compute_features(player, args.n_games)
         strategy_features[algo.__name__] = features
 
         logger.info(
@@ -246,16 +328,32 @@ def create_baseline_players(n_players: int, n_rounds: int) -> list[SimplePlayer]
 
 
 def compute_baselines(n_players: int,
-                      n_rounds: int) -> dict[str, dict[OpponentActions, float]]:
+                      n_rounds: int) -> dict[str, dict[tuple, float]]:
     baseline_players = create_baseline_players(n_players, n_rounds)
     baseline_features = {}
+    n_games = args.n_games if args.feature_mode == "baseline_opponents" else 1
     for player in baseline_players:
-        features = compute_features(player, 1)
+        if args.feature_mode == "baseline_opponents":
+            features = compute_features_baseline_opponents(player, n_games)
+        else:
+            features = compute_features(player, n_games)
         baseline_features[player.id.name] = features
 
         mean = np.mean(list(features.values()))
         logger.info(f"{player.id.name}: {mean:.3f}")
     return baseline_features
+
+
+def build_feature_vector(feature_dict: dict[tuple, float]) -> list[float]:
+    if args.feature_mode == "baseline_opponents":
+        if combo_keys is None:
+            raise RuntimeError("combo_keys is not set for baseline opponents")
+        vector = []
+        for ck in combo_keys:
+            for r in range(args.n_rounds):
+                vector.append(feature_dict.get((ck, r), 0.0))
+        return vector
+    return list(feature_dict.values())
 
 
 # =============================================================================
@@ -474,7 +572,13 @@ def extrema_analysis(tl):
     logger.info(f"EXTREMA ANALYSIS")
     logger.info(f"{'='*60}")
     features = tl['features']
-    logger.info(f"Behavior by context (showing first 10 contexts):")
+    if args.feature_mode == "baseline_opponents":
+        logger.info("Behavior by opponent pool (showing first 10 entries):")
+        for i, (context, coop_prob) in enumerate(list(features.items())[:20]):
+            combo, round_idx = context
+            logger.info(f"  {combo} @ r{round_idx}: {coop_prob:.1%} coop)")
+        return
+    logger.info("Behavior by context (showing first 10 contexts):")
     for i, (context, coop_prob) in enumerate(list(features.items())[:20]):
         # Context is tuple of tuples, flatten and convert to string
         if len(context) == 0:
@@ -518,9 +622,15 @@ if __name__ == "__main__":
     logger.info(f"Running diversity.py for games: {args.games}")
 
     # Globals shared across all games
-    all_actions = tuple(product([D, C], repeat=args.n_rounds - 1))
-    unique_combos: tuple[OpponentActions, ...] = tuple(
-        combinations_with_replacement(all_actions, args.n_players - 1))
+    if args.feature_mode == "baseline_opponents":
+        baseline_specs = build_baseline_pool(args.n_rounds)
+        unique_combos = tuple(
+            combinations_with_replacement(baseline_specs, args.n_players - 1))
+        combo_keys = [combo_key(c) for c in unique_combos]
+    else:
+        all_actions = tuple(product([D, C], repeat=args.n_rounds - 1))
+        unique_combos = tuple(
+            combinations_with_replacement(all_actions, args.n_players - 1))
 
     # ==========================================================================
     # PHASE 1: Load/compute features for each game (with caching)
@@ -547,7 +657,7 @@ if __name__ == "__main__":
         metadata_game = []
         for gene, strategy_features in results_dict.items():
             for strategy_name, feature_dict in strategy_features.items():
-                X_game.append(list(feature_dict.values()))
+                X_game.append(build_feature_vector(feature_dict))
                 labels_game.append(str(gene))
                 metadata_game.append((gene, strategy_name, feature_dict))
 
@@ -572,12 +682,16 @@ if __name__ == "__main__":
 
     baseline_features = compute_baselines(args.n_players, args.n_rounds)
     baseline_labels = list(baseline_features.keys()) + ['Random 0.5']
-    baseline_X = [list(d.values()) for d in baseline_features.values()]
+    baseline_X = [build_feature_vector(d) for d in baseline_features.values()]
     n_features = len(baseline_X[0])
     baseline_X = np.array(baseline_X + [[0.5] * n_features])
 
-    logger.info(f"Features:\n{len(unique_combos)} unique opponent action combinations of length {args.n_rounds - 1}\nGiving rise to {n_features} features in total (including histories of shorter length)."
-    )
+    if args.feature_mode == "baseline_opponents":
+        logger.info(f"Features:\n{len(unique_combos)} unique opponent pools\n"
+                    f"Giving rise to {n_features} features in total (combos * rounds).")
+    else:
+        logger.info(f"Features:\n{len(unique_combos)} unique opponent action combinations of length {args.n_rounds - 1}\nGiving rise to {n_features} features in total (including histories of shorter length)."
+        )
 
 
     # ==========================================================================
@@ -610,7 +724,8 @@ if __name__ == "__main__":
     plt.ylabel('Cumulative Explained Variance')
     plt.title('Combined PCA Scree Plot')
     plt.legend()
-    plt.savefig(output_dir / f"scree_combined.{FORMAT}", format=FORMAT)
+    suffix = f"_{args.feature_mode}"
+    plt.savefig(output_dir / f"scree_combined{suffix}.{FORMAT}", format=FORMAT)
     plt.close()
 
     # Individual plots per game (using combined PCA)
@@ -631,7 +746,7 @@ if __name__ == "__main__":
             plot_extrema(extrema_info, ax)
 
         plt.tight_layout()
-        plt.savefig(output_dir / f"pca_{game_name}.{FORMAT}", format=FORMAT, bbox_inches='tight')
+        plt.savefig(output_dir / f"pca_{game_name}{suffix}.{FORMAT}", format=FORMAT, bbox_inches='tight')
         plt.close()
 
     # ==========================================================================
