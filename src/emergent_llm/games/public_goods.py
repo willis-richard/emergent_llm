@@ -12,7 +12,7 @@ from emergent_llm.games.base_game import BaseGame
 from emergent_llm.players import BasePlayer
 
 
-@dataclass
+@dataclass(frozen=True)
 class PublicGoodsDescription(GameDescription):
     """Description for Public Goods Game."""
     k: float  # Cooperation multiplier

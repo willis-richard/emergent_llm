@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, fields
 
 
-@dataclass
+@dataclass(frozen=True)
 class GameState:
     """Base state information available to all games."""
     round_number: int  # Current round number (0-indexed)
@@ -12,7 +12,7 @@ class GameState:
     @classmethod
     def print_definition(cls) -> str:
         """Print the definition, for use in the prompts"""
-        definition = "@dataclass\n"
+        definition = "@dataclass(frozen=True)\n"
         definition += f"class {cls.__name__}:\n"
 
         for field in fields(cls):
@@ -23,7 +23,7 @@ class GameState:
         return definition
 
 
-@dataclass
+@dataclass(frozen=True)
 class GameDescription(ABC):
     """Base class for all game descriptions."""
     n_players: int
@@ -39,7 +39,7 @@ class GameDescription(ABC):
     @classmethod
     def print_definition(cls) -> str:
         """Print the definition, for use in the prompts"""
-        definition = "@dataclass\n"
+        definition = "@dataclass(frozen=True)\n"
         definition += f"class {cls.__name__}:\n"
 
         for field in fields(cls):

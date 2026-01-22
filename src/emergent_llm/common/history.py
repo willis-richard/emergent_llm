@@ -11,10 +11,15 @@ from emergent_llm.common.actions import Action
 class PlayerHistory:
     my_actions: NDArray[np.bool_]  # This player's actions, indexed [round]
     my_payoffs: NDArray[np.float64]  # This player's payoffs, indexed [round]
-    opponent_actions: NDArray[
-        np.bool_]  # Opponents' actions, indexed [round, opponent]
-    opponent_payoffs: NDArray[
-        np.float64]  # Opponents' payoffs, indexed [round, opponent]
+    opponent_actions: NDArray[np.bool_]  # Opponents' actions, indexed [round, opponent]
+    opponent_payoffs: NDArray[np.float64]  # Opponents' payoffs, indexed [round, opponent]
+
+    def __post_init__(self):
+        """Make all arrays read-only."""
+        self.my_actions.flags.writeable = False
+        self.my_payoffs.flags.writeable = False
+        self.opponent_actions.flags.writeable = False
+        self.opponent_payoffs.flags.writeable = False
 
 
 @dataclass

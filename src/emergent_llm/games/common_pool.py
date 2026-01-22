@@ -12,12 +12,12 @@ from emergent_llm.games.base_game import BaseGame
 from emergent_llm.players import BasePlayer
 
 
-@dataclass
+@dataclass(frozen=True)
 class CommonPoolState(GameState):
     current_stock: float
 
 
-@dataclass
+@dataclass(frozen=True)
 class CommonPoolDescription(GameDescription):
     """Description for Public Goods Game."""
     capacity: int  # capacity of the resource

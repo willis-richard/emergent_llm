@@ -12,7 +12,7 @@ from emergent_llm.games.base_game import BaseGame
 from emergent_llm.players import BasePlayer
 
 
-@dataclass
+@dataclass(frozen=True)
 class CollectiveRiskDescription(GameDescription):
     """Description for Collective Risk Dilemma."""
     m: int  # Minimum cooperators needed to avoid disaster
