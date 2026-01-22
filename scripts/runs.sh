@@ -59,30 +59,26 @@ for pm in "${PROVIDER_MODELS[@]}"; do
     read provider model <<< "$pm"
 
     for game in "${GAMES[@]}"; do
-        if [[ "$model" == *"gemini"* ]]; then
-            python scripts/run_tournament.py \
-                   --strategies "$STRATEGIES_DIR/$game/${model}.py" \
-                   --game "$game" \
-                   --matches 200 \
-                   --group-sizes 4 16 64 256 \
-                   --n_processes 1 \
-                   --results_dir "$RESULTS_DIR" \
-                   --output_style summary \
-                   --verbose &
+        # Gemini uses Enum which sometimes gives pickle errors, so it needs single processing
+        # llama is the slow model
+        if [[ "$model" == *"llama"* ]]; then
+            n_proc=$(((N_PROCESSES - 15) / 3))
         else
-            python scripts/run_tournament.py \
-                   --strategies "$STRATEGIES_DIR/$game/${model}.py" \
-                   --game "$game" \
-                   --matches 200 \
-                   --group-sizes 4 16 64 256 \
-                   --n_processes $N_PROCESSES \
-                   --results_dir "$RESULTS_DIR" \
-                   --output_style summary \
-                   --verbose
+            n_proc=1
         fi
+
+        python scripts/run_tournament.py \
+                --strategies "$STRATEGIES_DIR/$game/${model}.py" \
+                --game "$game" \
+                --matches 2 \
+                --group-sizes 4 16 64 256 \
+                --n_processes $N_PROCESSES \
+                --results_dir "$RESULTS_DIR" \
+                --output_style summary \
+                --verbose &
     done
-    [[ "$model" == *"gemini"* ]] && wait
 done
+wait
 
 for game in "${GAMES[@]}"; do
     for n_players in "${EVOLUTION_PLAYERS[@]}"; do

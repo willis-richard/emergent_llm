@@ -115,7 +115,8 @@ class CulturalEvolution:
         # Run fair tournament
         fair_config = BaseTournamentConfig(
             game_description=self.config.game_description,
-            repetitions=self.config.repetitions_per_generation)
+            repetitions=self.config.repetitions_per_generation,
+            n_processes=1)
         tournament = FairTournament(players, fair_config)
         results = tournament.run_tournament()
         self.generation_results.append(results)
