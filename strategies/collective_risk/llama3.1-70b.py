@@ -27853,42 +27853,6 @@ class Strategy_EXPLOITATIVE_411(BaseStrategy):
         else:
             return Action.D
 
-class Strategy_EXPLOITATIVE_412(BaseStrategy):
-    """
-    The Adaptive Threshold Hunter strategy seeks to exploit opponents' behavior while ensuring a stable, cooperative outcome when possible.
-    """
-
-    def __init__(self, game_description: CollectiveRiskDescription):
-        self.game_description = game_description
-        self.w = 5
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0 or history is None:
-            return Action.C
-        m_t = sum(history.opponent_actions[-1, :]) + (history.my_actions[-1] == Action.C)
-        if m_t >= self.game_description.m:
-            action = Action.C
-        else:
-            opponent_cooperation_rates = []
-            for i in range(self.game_description.n_players - 1):
-                cooperation_count = sum(history.opponent_actions[max(0, state.round_number - self.w):, i])
-                cooperation_rate = cooperation_count / min(state.round_number + 1, self.w)
-                opponent_cooperation_rates.append(cooperation_rate)
-            if all((rate >= 0.5 for rate in opponent_cooperation_rates)):
-                action = Action.C
-            else:
-                action = Action.D
-        if state.round_number > 1:
-            current_payoff = history.my_payoffs[-1]
-            previous_payoff = history.my_payoffs[-2]
-            if current_payoff > previous_payoff:
-                self.w += 1
-            elif current_payoff < previous_payoff:
-                self.w -= 1
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.D
-        return action
-
 class Strategy_EXPLOITATIVE_414(BaseStrategy):
     """
     Exploits opponents' generosity in the Collective Risk Dilemma by adapting to their cooperation rate.
