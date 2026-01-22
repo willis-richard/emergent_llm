@@ -72,7 +72,7 @@ for pm in "${PROVIDER_MODELS[@]}"; do
                 --game "$game" \
                 --matches 2 \
                 --group-sizes 4 16 64 256 \
-                --n_processes $N_PROCESSES \
+                --n_processes $n_proc \
                 --results_dir "$RESULTS_DIR" \
                 --output_style summary \
                 --verbose &
