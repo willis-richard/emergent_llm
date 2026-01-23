@@ -24,7 +24,7 @@ DIAGRAMS=("social_welfare.svg" "schelling_difference.svg")
 for diagram in "${DIAGRAMS[@]}"; do
     find "$SOURCE_DIR" -name $diagram -type f | while read -r file; do
         # Extract the path components
-        # file will be like: results/game_name/provider_model/batch_mixture/social_welfare.svg
+        # file will be like: results/self_play/game_name/provider_model/rep_n/social_welfare.svg
         # Get the relative path from SOURCE_DIR/
         rel_path="${file#${SOURCE_DIR%/}/}"
 

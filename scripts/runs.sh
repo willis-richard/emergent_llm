@@ -60,9 +60,9 @@ for pm in "${PROVIDER_MODELS[@]}"; do
 
     for game in "${GAMES[@]}"; do
         # Gemini uses Enum which sometimes gives pickle errors, so it needs single processing
-        # llama is the slow model
-        if [[ "$model" == *"llama"* ]]; then
-            n_proc=$(((N_PROCESSES - 15) / 3))
+        # gpt-mini and llama are the slow model
+        if [[ "$model" == *"llama"* || "$model" == *"gpt"* ]]; then
+            n_proc=$(((N_PROCESSES - 12) / 6))
         else
             n_proc=1
         fi
@@ -70,7 +70,7 @@ for pm in "${PROVIDER_MODELS[@]}"; do
         python scripts/run_tournament.py \
                 --strategies "$STRATEGIES_DIR/$game/${model}.py" \
                 --game "$game" \
-                --matches 2 \
+                --matches 200 \
                 --group-sizes 4 16 64 256 \
                 --n_processes $n_proc \
                 --results_dir "$RESULTS_DIR" \
