@@ -1,7 +1,6 @@
-# pylint: disable=redefined-outer-name,missing-function-docstring,missing-class-docstring,possibly-used-before-assignment
-
 import argparse
 import logging
+from scipy.spatial.distance import pdist, cdist
 from dataclasses import dataclass
 from itertools import combinations_with_replacement, product
 from multiprocessing import Pool
@@ -11,7 +10,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Ellipse
-from scipy.spatial.distance import pdist, cdist
+from scipy.spatial.distance import pdist
 from sklearn.decomposition import PCA
 
 from emergent_llm.common import (
@@ -28,22 +27,35 @@ from emergent_llm.common import (
 from emergent_llm.games import STANDARD_GENERATORS, get_game_type
 from emergent_llm.generation import StrategyRegistry
 from emergent_llm.players import (
+    Altenator,
     BasePlayer,
     ConditionalCooperator,
-    ConditionalDefector,
     Cooperator,
     Defector,
+    GradualDefector,
+    Grim,
     HistoricalCooperator,
     LLMPlayer,
+    PeriodicDefector,
+    Random,
+    RandomCooperator,
+    RandomDefector,
     SimplePlayer,
     SpecialRounds,
 )
 
 FIGSIZE, FORMAT = setup('fullscreen')
-# Increase due to legend
-FIGSIZE = (FIGSIZE[0], FIGSIZE[1] * 1.25)
 
 OpponentActions = tuple[tuple[Action, ...], ...]
+
+
+@dataclass(frozen=True)
+class BaselineSpec:
+    name: str
+    factory: callable
+
+
+combo_keys: list[tuple[str, ...]] | None = None
 
 # =============================================================================
 # ARGUMENT PARSING
@@ -58,7 +70,8 @@ def parse_args():
                         type=str,
                         nargs='+',
                         default=["public_goods", "collective_risk", "common_pool"],
-                        choices=["public_goods", "collective_risk", "common_pool"],
+                        choices=["public_goods", "public_goods_prompt",
+                                 "collective_risk", "common_pool"],
                         help="Game type(s) to analyse")
     parser.add_argument("--strategies_dir",
                         type=str,
@@ -72,6 +85,11 @@ def parse_args():
                         type=int,
                         default=None,
                         help="Limit the analysis to this many strategies")
+    parser.add_argument("--feature_mode",
+                        type=str,
+                        default="fixed_actions",
+                        choices=["fixed_actions", "baseline_opponents"],
+                        help="Feature computation method")
 
     # Game parameters
     parser.add_argument("--n_players",
@@ -119,7 +137,7 @@ def setup_logging(log_file: Path, loglevel=logging.INFO):
 # =============================================================================
 
 def get_output_dir(args) -> Path:
-    return Path(args.results_dir) / "diversity"
+    return Path(args.results_dir) / "diversity" / args.feature_mode
 
 def get_cache_path(game_name: str, gene: Gene, args) -> Path:
     cache_dir = get_output_dir(args) / "cache"
@@ -139,14 +157,14 @@ def save_features(features_dict, game_name: str, gene: Gene, args):
 
 def load_features(
         game_name: str, gene: Gene,
-        args) -> dict[str, dict[OpponentActions, float]] | None:
+        args) -> dict[str, dict[tuple, float]] | None:
     cache_path = get_cache_path(game_name, gene, args)
     if not cache_path.exists():
         logger.info(f"Could not find existing cache at {cache_path}")
         return None
     with open(cache_path, 'rb') as f:
         features_dict = pickle.load(f)
-    logger.info(f"Loaded features for {len(features_dict.keys())} strategies from {cache_path}")
+    logger.info(f"Loaded features from {cache_path}")
     return features_dict
 
 
@@ -168,6 +186,29 @@ def context_to_key(arr: list[list[Action]]) -> OpponentActions:
     return tuple(map(tuple, arr))
 
 
+def build_baseline_pool(n_rounds: int) -> list[BaselineSpec]:
+    return [
+        BaselineSpec("All-C", lambda: Cooperator),
+        BaselineSpec("All-D", lambda: Defector),
+        BaselineSpec("Random-50", lambda: Random),
+        BaselineSpec("RandomCoop-90", lambda: RandomCooperator),
+        BaselineSpec("RandomDefect-90", lambda: RandomDefector),
+        BaselineSpec("Alternator-C", lambda: Altenator(C)),
+        BaselineSpec("Periodic-D-2", lambda: PeriodicDefector(2)),
+        BaselineSpec("Gradual-3", lambda: GradualDefector(3)),
+        BaselineSpec("Conditional-1", lambda: ConditionalCooperator(C, 1)),
+        BaselineSpec("Historical-1", lambda: HistoricalCooperator(C, 1)),
+        BaselineSpec("Grim-1", lambda: Grim(C, 1)),
+        BaselineSpec("LR-All-C",
+                     lambda: SpecialRounds(Cooperator, Defector,
+                                           [n_rounds - 1])),
+    ]
+
+
+def combo_key(combo: tuple[BaselineSpec, ...]) -> tuple[str, ...]:
+    return tuple(spec.name for spec in combo)
+
+
 def play_games(player: LLMPlayer, n_games: int,
                combo: OpponentActions) -> list[GameHistory]:
     # last round action of opponents does not matter
@@ -176,6 +217,17 @@ def play_games(player: LLMPlayer, n_games: int,
         for i, actions in enumerate(combo)
     ]
 
+    players = [player] + opponents
+    histories = [
+        game_class(players, description).play_game().history
+        for _ in range(n_games)
+    ]
+    return histories
+
+
+def play_games_against_opponents(player: BasePlayer,
+                                 opponents: list[SimplePlayer],
+                                 n_games: int) -> list[GameHistory]:
     players = [player] + opponents
     histories = [
         game_class(players, description).play_game().history
@@ -198,27 +250,50 @@ def compute_features(player: BasePlayer, n_games: int) -> dict[OpponentActions, 
     return features
 
 
-def chunk_indices(n_items: int, n_chunks: int) -> list[list[int]]:
-    """Split indices into approximately equal chunks."""
-    chunk_size = (n_items + n_chunks - 1) // n_chunks
-    return [list(range(i, min(i + chunk_size, n_items)))
-            for i in range(0, n_items, chunk_size)]
+def compute_features_baseline_opponents(player: BasePlayer,
+                                        n_games: int) -> dict[tuple, float]:
+    features: dict[tuple, float] = {}
+    for combo in unique_combos:
+        opponents = [
+            SimplePlayer(f"opponent_{i+1}", spec.factory())
+            for i, spec in enumerate(combo)
+        ]
+        try:
+            histories = play_games_against_opponents(player, opponents, n_games)
+        except Exception as exc:
+            print(f"  !! Failed on combo {combo_key(combo)}: {exc}")
+            continue
+
+        key = combo_key(combo)
+        for r in range(args.n_rounds):
+            actions = [Action(history.actions[r, 0]) for history in histories]
+            features[(key, r)] = float(Action.to_bool_array(actions).mean())
+    return features
 
 
-def compute_strategy_chunk(strategy_indices: list[int]) -> list[tuple[str, dict[OpponentActions, float]]]:
-    """Compute features for a chunk of strategies. Runs in worker process."""
-    worker_registry = StrategyRegistry(args.strategies_dir, game_name, [gene.model])
-    specs = worker_registry.get_all_specs(gene)
+def compute_gene(gene: Gene) -> dict[str, dict[tuple, float]]:
+    # try cache first
+    if not args.recompute:
+        cached_data = load_features(game_name, gene, args)
+        if cached_data is not None:
+            return cached_data
 
-    results = []
-    for idx in strategy_indices:
-        spec = specs[idx]
-        player = LLMPlayer("testing", gene, description, spec.strategy_class)
-        features = compute_features(player, args.n_games)
-        results.append((spec.strategy_class.__name__, features))
-        logger.info(f"{gene.model} {spec.strategy_class.__name__}: {np.mean(list(features.values())):.3f}")
+    strategy_features = {}
+    for strategy_spec in registry.get_all_specs(gene)[0:args.n_strategies]:
+        algo = strategy_spec.strategy_class
+        player = LLMPlayer("testing", gene, description, algo)
 
-    return results
+        if args.feature_mode == "baseline_opponents":
+            features = compute_features_baseline_opponents(player, args.n_games)
+        else:
+            features = compute_features(player, args.n_games)
+        strategy_features[algo.__name__] = features
+
+        logger.info(
+            f"{gene.model} {algo.__name__}: {np.mean(list(features.values()))}")
+
+    save_features(strategy_features, game_name, gene, args)
+    return strategy_features
 
 
 # =============================================================================
@@ -230,29 +305,51 @@ def create_baseline_players(n_players: int, n_rounds: int) -> list[SimplePlayer]
     baseline_players = [
         SimplePlayer("All-D", Defector),
         SimplePlayer("All-C", Cooperator),
+        SimplePlayer("All-C,LR-D",
+                     SpecialRounds(Cooperator, Defector, [n_rounds - 1])),
+        SimplePlayer("All-D,LR-C",
+                     SpecialRounds(Defector, Cooperator, [n_rounds - 1])),
     ]
     baseline_players += [
-        SimplePlayer(f"CC({i})", ConditionalCooperator(C, i))
-        for i in range(1, args.n_players)
+        SimplePlayer(f"CC-{i}", ConditionalCooperator(C, i))
+        for i in [2]
     ]
     baseline_players += [
-        SimplePlayer(f"CD({i})", ConditionalDefector(D, i))
-        for i in range(1, args.n_players)
+        SimplePlayer(
+            f"CC-{i},LR-D",
+            SpecialRounds(ConditionalCooperator(C, i), Defector,
+                          [n_rounds - 1])) for i in [2]
     ]
     return baseline_players
 
 
 def compute_baselines(n_players: int,
-                      n_rounds: int) -> dict[str, dict[OpponentActions, float]]:
+                      n_rounds: int) -> dict[str, dict[tuple, float]]:
     baseline_players = create_baseline_players(n_players, n_rounds)
     baseline_features = {}
+    n_games = args.n_games if args.feature_mode == "baseline_opponents" else 1
     for player in baseline_players:
-        features = compute_features(player, 1)
+        if args.feature_mode == "baseline_opponents":
+            features = compute_features_baseline_opponents(player, n_games)
+        else:
+            features = compute_features(player, n_games)
         baseline_features[player.id.name] = features
 
         mean = np.mean(list(features.values()))
         logger.info(f"{player.id.name}: {mean:.3f}")
     return baseline_features
+
+
+def build_feature_vector(feature_dict: dict[tuple, float]) -> list[float]:
+    if args.feature_mode == "baseline_opponents":
+        if combo_keys is None:
+            raise RuntimeError("combo_keys is not set for baseline opponents")
+        vector = []
+        for ck in combo_keys:
+            for r in range(args.n_rounds):
+                vector.append(feature_dict.get((ck, r), 0.0))
+        return vector
+    return list(feature_dict.values())
 
 
 # =============================================================================
@@ -364,9 +461,6 @@ def compute_between_set_metrics(X_collective: np.ndarray,
 # PLOTTING HELPERS
 # =============================================================================
 
-# Baselines with labels on the left (defector-ish strategies)
-BASELINE_LABELS_LEFT = {"All-D", "All-D,LR-C", "CD(1)", "CC(3)"}
-
 
 def plot_covariance_ellipse(ax, mean, cov, n_std=1.0, **kwargs):
     eigenvalues, eigenvectors = np.linalg.eigh(cov)
@@ -375,23 +469,6 @@ def plot_covariance_ellipse(ax, mean, cov, n_std=1.0, **kwargs):
     ellipse = Ellipse(mean, width, height, angle=angle, **kwargs)
     ax.add_patch(ellipse)
     return ellipse
-
-
-def plot_baselines(ax, baseline_pca, baseline_labels, marker_size=120):
-    """Plot baseline strategies with positioned labels."""
-    for i, name in enumerate(baseline_labels):
-        ax.scatter(baseline_pca[i, 0],
-                   baseline_pca[i, 1],
-                   marker='X',
-                   s=marker_size,
-                   color='gray',
-                   edgecolors='black',
-                   linewidths=1,
-                   zorder=6)
-        ha = 'right' if name in BASELINE_LABELS_LEFT else 'left'
-        offset = -5 if name in BASELINE_LABELS_LEFT else 5
-        ax.annotate(name, (baseline_pca[i, 0], baseline_pca[i, 1]),
-                    ha=ha, xytext=(offset, 0), textcoords='offset points')
 
 
 def plot_pca(ax, X_pca, genes, labels, baseline_pca, baseline_labels, title,
@@ -433,195 +510,22 @@ def plot_pca(ax, X_pca, genes, labels, baseline_pca, baseline_labels, title,
                                         linewidth=1.5)
         handles.append((scatter, str(gene)))
 
-    plot_baselines(ax, baseline_pca, baseline_labels)
+    # Plot baselines
+    for i, name in enumerate(baseline_labels):
+        ax.scatter(baseline_pca[i, 0],
+                   baseline_pca[i, 1],
+                   marker='X',
+                   s=120,
+                   edgecolors='black',
+                   linewidths=1,
+                   zorder=6)
+        ax.annotate(name, (baseline_pca[i, 0], baseline_pca[i, 1]), fontsize=6)
 
     ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
     ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})')
     ax.set_title(title)
-    ax.legend([h[0] for h in handles], [h[1] for h in handles], loc='upper center', frameon=False,
-               bbox_to_anchor=(0.4, 1.05), ncol=2)
+    ax.legend([h[0] for h in handles], [h[1] for h in handles], fontsize=6)
 
-
-def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
-                         baseline_pca, baseline_labels, games, pca, output_dir):
-    """
-    Create a 2×3 grid: rows=attitudes, columns=games.
-    Each subplot shows all models for that game/attitude combination.
-    """
-    attitudes = [Attitude.COLLECTIVE, Attitude.EXPLOITATIVE]
-    attitude_names = {Attitude.COLLECTIVE: "Collective", Attitude.EXPLOITATIVE: "Exploitative"}
-
-    # Extract unique models across all genes
-    all_genes = []
-    for g in games:
-        all_genes.extend(pca_data[g]['genes'])
-    models = sorted(set(gene.model for gene in all_genes))
-    model_colors = dict(zip(models, plt.colormaps.get_cmap('tab10')(np.linspace(0, 1, len(models)))))
-
-    fig, axes = plt.subplots(2, 3, figsize=(FIGSIZE[0] * 3, FIGSIZE[1] * 2),
-                             sharex=True, sharey=True)
-
-    for col, game in enumerate(games):
-        game_mask = game_labels == game
-        genes_for_game = pca_data[game]['genes']
-
-        for row, attitude in enumerate(attitudes):
-            ax = axes[row, col]
-
-            # Filter genes for this attitude
-            genes_this_attitude = [g for g in genes_for_game if g.attitude == attitude]
-            handles = []
-
-            for model in models:
-                # Find the gene for this model+attitude (if exists)
-                matching_genes = [g for g in genes_this_attitude if g.model == model]
-                if not matching_genes:
-                    continue
-                gene = matching_genes[0]
-
-                mask = game_mask & (labels_all == str(gene))
-                points = X_pca_combined[mask, :2]
-
-                if len(points) == 0:
-                    continue
-
-                color = model_colors[model]
-                scatter = ax.scatter(points[:, 0], points[:, 1],
-                                     alpha=0.3, s=10, color=color)
-
-                # Centroid
-                mean_pt = points.mean(axis=0)
-                ax.scatter(mean_pt[0], mean_pt[1], marker='o', s=100,
-                           color=color, edgecolors='black', linewidths=1.5, zorder=5)
-
-                # Ellipse
-                if len(points) > 2:
-                    cov = np.cov(points.T)
-                    plot_covariance_ellipse(ax, mean_pt, cov, n_std=1.0,
-                                            facecolor=color, alpha=0.15,
-                                            edgecolor=color, linewidth=1.5)
-
-                handles.append((scatter, model))
-
-            # Baselines (smaller markers for grid)
-            plot_baselines(ax, baseline_pca, baseline_labels, marker_size=60)
-
-            # Labels
-            if row == 0:
-                ax.set_title(game, fontsize=12)
-            if col == 0:
-                ax.set_ylabel(f"{attitude_names[attitude]}\nPC2 ({pca.explained_variance_ratio_[1]:.1%})",
-                              fontsize=10)
-            if row == 1:
-                ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})', fontsize=10)
-
-    # Shared legend for models (outside the grid on the right)
-    legend_handles = [plt.Line2D([0], [0], marker='o', color='w',
-                                  markerfacecolor=model_colors[m], markersize=10,
-                                  label=m) for m in models]
-    fig.legend(handles=legend_handles, loc='upper center', frameon=False,
-               bbox_to_anchor=(0.4, 1.05), ncol=len(registry.available_models))
-
-    plt.tight_layout(rect=[0, 0, 0.95, 1])  # Leave space for legend
-    plt.savefig(output_dir / f"pca_by_game.{FORMAT}", format=FORMAT, bbox_inches='tight')
-    plt.close()
-    logger.info(f"Saved combined PCA grid to {output_dir / f'pca_by_game.{FORMAT}'}")
-
-
-def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
-                      baseline_pca, baseline_labels, games, pca, output_dir):
-    """
-    Create a grid with one subplot per model.
-    Each subplot shows all games and attitudes for that model.
-    """
-    # Extract unique models
-    all_genes = []
-    for g in games:
-        all_genes.extend(pca_data[g]['genes'])
-    models = sorted(set(gene.model for gene in all_genes))
-
-    # Grid layout based on number of models
-    n_models = len(models)
-    n_cols = 3
-    n_rows = (n_models + n_cols - 1) // n_cols
-
-    # Color by game, marker style by attitude
-    game_colors = dict(zip(games, plt.colormaps.get_cmap('Set1')(np.linspace(0, 1, len(games)))))
-    attitude_markers = {Attitude.COLLECTIVE: 'o', Attitude.EXPLOITATIVE: 's'}
-
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(FIGSIZE[0] * n_cols, FIGSIZE[1] * n_rows),
-                             sharex=True, sharey=True)
-    axes = np.atleast_2d(axes)
-
-    for idx, model in enumerate(models):
-        row, col = divmod(idx, n_cols)
-        ax = axes[row, col]
-
-        for game in games:
-            game_mask = game_labels == game
-            genes_for_game = pca_data[game]['genes']
-            color = game_colors[game]
-
-            for attitude in [Attitude.COLLECTIVE, Attitude.EXPLOITATIVE]:
-                matching_genes = [g for g in genes_for_game
-                                  if g.model == model and g.attitude == attitude]
-                if not matching_genes:
-                    continue
-                gene = matching_genes[0]
-
-                mask = game_mask & (labels_all == str(gene))
-                points = X_pca_combined[mask, :2]
-
-                if len(points) == 0:
-                    continue
-
-                marker = attitude_markers[attitude]
-                ax.scatter(points[:, 0], points[:, 1],
-                           alpha=0.3, s=10, color=color, marker=marker)
-
-                # Centroid
-                mean_pt = points.mean(axis=0)
-                ax.scatter(mean_pt[0], mean_pt[1], marker=marker, s=100,
-                           color=color, edgecolors='black', linewidths=1.5, zorder=5)
-
-                # Ellipse
-                if len(points) > 2:
-                    cov = np.cov(points.T)
-                    plot_covariance_ellipse(ax, mean_pt, cov, n_std=1.0,
-                                            facecolor=color, alpha=0.15,
-                                            edgecolor=color, linewidth=1.5)
-
-        plot_baselines(ax, baseline_pca, baseline_labels, marker_size=60)
-        ax.set_title(model, fontsize=12)
-
-        if col == 0:
-            ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})')
-        if row == n_rows - 1:
-            ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
-
-    # Hide unused subplots
-    for idx in range(n_models, n_rows * n_cols):
-        row, col = divmod(idx, n_cols)
-        axes[row, col].set_visible(False)
-
-    # Legend: games (colors) + attitudes (markers)
-    legend_handles = []
-    for game in games:
-        legend_handles.append(plt.Line2D([0], [0], marker='o', color='w',
-                                         markerfacecolor=game_colors[game],
-                                         markersize=10, label=game))
-    legend_handles.append(plt.Line2D([0], [0], marker='o', color='gray',
-                                     markersize=8, label='Collective'))
-    legend_handles.append(plt.Line2D([0], [0], marker='s', color='gray',
-                                     markersize=8, label='Exploitative'))
-
-    fig.legend(handles=legend_handles, loc='upper center', frameon=False,
-               bbox_to_anchor=(0.5, 1.02), ncol=len(games) + 2)
-
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
-    plt.savefig(output_dir / f"pca_by_model.{FORMAT}", format=FORMAT, bbox_inches='tight')
-    plt.close()
-    logger.info(f"Saved per-model PCA grid to {output_dir / f'pca_by_model.{FORMAT}'}")
 
 # =============================================================================
 # EXTREMA ANALYSIS
@@ -635,10 +539,6 @@ def find_extrema(X_pca, metadata):
         'top_right': np.argmax(X_pca[:, 0] + X_pca[:, 1]),
         'bottom_left': np.argmin(X_pca[:, 0] + X_pca[:, 1]),
         'bottom_right': np.argmax(X_pca[:, 0] - X_pca[:, 1]),
-        'top': np.argmin(X_pca[:, 0]),
-        'right': np.argmax(X_pca[:, 1]),
-        'bottom': np.argmin(X_pca[:, 0]),
-        'left': np.argmin(X_pca[:, 1]),
     }
 
     results = {}
@@ -668,7 +568,13 @@ def extrema_analysis(tl):
     logger.info(f"EXTREMA ANALYSIS")
     logger.info(f"{'='*60}")
     features = tl['features']
-    logger.info(f"Behavior by context (showing first 20 contexts):")
+    if args.feature_mode == "baseline_opponents":
+        logger.info("Behavior by opponent pool (showing first 10 entries):")
+        for i, (context, coop_prob) in enumerate(list(features.items())[:20]):
+            combo, round_idx = context
+            logger.info(f"  {combo} @ r{round_idx}: {coop_prob:.1%} coop)")
+        return
+    logger.info("Behavior by context (showing first 10 contexts):")
     for i, (context, coop_prob) in enumerate(list(features.items())[:20]):
         # Context is tuple of tuples, flatten and convert to string
         if len(context) == 0:
@@ -712,9 +618,15 @@ if __name__ == "__main__":
     logger.info(f"Running diversity.py for games: {args.games}")
 
     # Globals shared across all games
-    all_actions = tuple(product([D, C], repeat=args.n_rounds - 1))
-    unique_combos: tuple[OpponentActions, ...] = tuple(
-        combinations_with_replacement(all_actions, args.n_players - 1))
+    if args.feature_mode == "baseline_opponents":
+        baseline_specs = build_baseline_pool(args.n_rounds)
+        unique_combos = tuple(
+            combinations_with_replacement(baseline_specs, args.n_players - 1))
+        combo_keys = [combo_key(c) for c in unique_combos]
+    else:
+        all_actions = tuple(product([D, C], repeat=args.n_rounds - 1))
+        unique_combos = tuple(
+            combinations_with_replacement(all_actions, args.n_players - 1))
 
     # ==========================================================================
     # PHASE 1: Load/compute features for each game (with caching)
@@ -730,44 +642,18 @@ if __name__ == "__main__":
                                     models=args.models)
         genes = sorted(list(registry.available_genes), key=str)
 
-        results_dict = {}
+        with Pool(processes=args.n_processes) as pool:
+            results = pool.map(compute_gene, genes)
+            results_dict = dict(zip(genes, results))
 
-        for gene in genes:
-            # Check cache first
-            if not args.recompute:
-                cached_data = load_features(game_name, gene, args)
-                if cached_data is not None:
-                    results_dict[gene] = cached_data
-                    continue
-
-            all_specs = registry.get_all_specs(gene)
-            n_strategies = len(all_specs) if args.n_strategies is None else min(len(all_specs), args.n_strategies)
-            chunks = chunk_indices(n_strategies, args.n_processes)
-
-            logger.info(f"Computing {n_strategies} strategies for {gene} in {len(chunks)} chunks")
-
-            with Pool(processes=args.n_processes) as pool:
-                chunk_results = pool.map(compute_strategy_chunk, chunks)
-
-            # Aggregate results
-            strategy_features = {}
-            for chunk_result in chunk_results:
-                for strategy_name, features in chunk_result:
-                    strategy_features[strategy_name] = features
-
-            save_features(strategy_features, game_name, gene, args)
-            results_dict[gene] = strategy_features
-
-        logger.info(f"Results for {len(results_dict)} genes, with "
-                    f"{sum(len(v) for v in results_dict.values())} strategies "
-                    f"in total for {game_name}")
+        logger.info(f"Results for {len(results_dict.values())} genes, with {sum([len(v) for v in results_dict.values()])} strategies in total for {game_name}")
 
         X_game = []
         labels_game = []
         metadata_game = []
         for gene, strategy_features in results_dict.items():
             for strategy_name, feature_dict in strategy_features.items():
-                X_game.append(list(feature_dict.values()))
+                X_game.append(build_feature_vector(feature_dict))
                 labels_game.append(str(gene))
                 metadata_game.append((gene, strategy_name, feature_dict))
 
@@ -792,12 +678,16 @@ if __name__ == "__main__":
 
     baseline_features = compute_baselines(args.n_players, args.n_rounds)
     baseline_labels = list(baseline_features.keys()) + ['Random 0.5']
-    baseline_X = [list(d.values()) for d in baseline_features.values()]
+    baseline_X = [build_feature_vector(d) for d in baseline_features.values()]
     n_features = len(baseline_X[0])
     baseline_X = np.array(baseline_X + [[0.5] * n_features])
 
-    logger.info(f"Features:\n{len(unique_combos)} unique opponent action combinations of length {args.n_rounds - 1}\nGiving rise to {n_features} features in total (including histories of shorter length)."
-    )
+    if args.feature_mode == "baseline_opponents":
+        logger.info(f"Features:\n{len(unique_combos)} unique opponent pools\n"
+                    f"Giving rise to {n_features} features in total (combos * rounds).")
+    else:
+        logger.info(f"Features:\n{len(unique_combos)} unique opponent action combinations of length {args.n_rounds - 1}\nGiving rise to {n_features} features in total (including histories of shorter length)."
+        )
 
 
     # ==========================================================================
@@ -853,15 +743,6 @@ if __name__ == "__main__":
         plt.tight_layout()
         plt.savefig(output_dir / f"pca_{game_name}.{FORMAT}", format=FORMAT, bbox_inches='tight')
         plt.close()
-
-    # Combined 2x3 grid plot (attitudes × games)
-    plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
-                     baseline_pca_combined, baseline_labels, args.games,
-                     pca_combined, output_dir)
-
-    plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
-                      baseline_pca_combined, baseline_labels, args.games,
-                      pca_combined, output_dir)
 
     # ==========================================================================
     # PHASE 4: Compute and display metrics
