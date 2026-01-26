@@ -11,6 +11,8 @@ import random"""
 
 def format_game_description(game_name: str) -> str:
     """Format game description for prompts."""
+    if game_name == "public_goods_prompt":
+        game_name = "public_goods"
     if game_name == "public_goods":
         return """GAME SPECIFICATION: N-Player Public Goods Game
 
@@ -155,9 +157,55 @@ Note: Payoffs depend on both current actions and accumulated stock depletion fro
     assert False, "GameDescription not recognised"
 
 
+def create_piedrahita_pgg_prompt(attitude: Attitude) -> str:
+    return f"""PUBLIC GOODS GAME (PGG) - STRATEGY DESCRIPTION
+
+OVERVIEW
+Public goods games capture the tension between individual incentives and
+collective welfare. Each player decides whether to contribute a private
+endowment to a shared project that benefits all players.
+
+GAME RULES (STANDARD PGG)
+- n players, r rounds, multiplier k with 1 < k < n
+- Each round has a single stage with simultaneous actions
+- Action set: C (contribute 1 token) or D (contribute 0 tokens and keep it)
+- There is no institution choice and no reward/punishment stage
+
+PAYOFF (PER ROUND)
+Let c_i in {{0,1}} be player i's contribution (1 if C, 0 if D).
+Total contributions = sum_j c_j.
+Each player receives (k / n) * total_contributions.
+So player i's payoff is:
+  pi_i = (1 - c_i) + (k / n) * sum_j c_j
+
+INFORMATION AVAILABLE
+- After each round, all players observe every player's past actions and payoffs
+- No communication, no signaling, and no coordination channel
+
+TASK
+Design a {attitude} strategy for this repeated game that depends only on the
+game parameters and history. Your strategy should be adaptive and robust to a
+wide range of opponent behaviors.
+
+1. Specify decision rules - When do you cooperate vs defect?
+2. Handle edge cases - What do you do in the first round, last round, etc.?
+3. Be {attitude} - Clearly align with the {attitude} mindset
+
+Your strategy will play in a tournament against independent strategies
+developed by other AI systems. Do not assume shared norms or coordination.
+
+OUTPUT FORMAT
+- Return only a natural language strategy description (pseudocode is OK)
+- Do not output JSON or code
+"""
+
+
 def create_strategy_user_prompt(
         attitude: Attitude, game_name: str) -> str:
     """Create user prompt for strategy description generation."""
+
+    if game_name == "public_goods_prompt":
+        return create_piedrahita_pgg_prompt(attitude)
 
     state = ", state" if game_name == "common_pool" else ""
 
@@ -264,12 +312,8 @@ def get_interface_description(
 
 {game_description_class.game_state_type().print_definition()}
 
-@dataclass(frozen=True)
+@dataclass
 class PlayerHistory:
-    \"\"\"
-    Game history from this player's perspective.
-    All arrays are READ-ONLY.
-    \"\"\"
     my_actions: NDArray[np.bool_]    # This player's actions, indexed [round]
     my_payoffs: NDArray[np.float64]  # This player's payoffs, indexed [round]
     opponent_actions: NDArray[np.bool_]    # Opponents' actions, indexed [round, player]

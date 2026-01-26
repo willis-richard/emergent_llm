@@ -723,7 +723,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--model_name", type=str, required=True)
     parser.add_argument(
         "--game_name",
-        choices=["public_goods", "collective_risk", "common_pool"],
+        choices=["public_goods", "public_goods_prompt", "collective_risk", "common_pool"],
         required=True)
     parser.add_argument("--strategies_dir", type=str, default="strategies")
 

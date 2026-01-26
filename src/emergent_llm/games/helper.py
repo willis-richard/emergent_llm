@@ -7,7 +7,7 @@ from emergent_llm.games.public_goods import PublicGoodsDescription, PublicGoodsG
 
 
 def get_game_type(game_type: str) -> tuple[type[BaseGame], type[GameDescription]]:
-    if game_type == "public_goods":
+    if game_type in ("public_goods", "public_goods_prompt"):
         return PublicGoodsGame, PublicGoodsDescription
     elif game_type == "collective_risk":
         return CollectiveRiskGame, CollectiveRiskDescription
@@ -30,6 +30,9 @@ def get_description_type(description_type: str) -> type[GameDescription]:
 
 STANDARD_GENERATORS: dict[str, Callable[..., GameDescription]] = {
     'public_goods_default':
+        lambda n_players, n_rounds=20: PublicGoodsDescription(
+            n_players=n_players, n_rounds=n_rounds, k=2.0),
+    'public_goods_prompt_default':
         lambda n_players, n_rounds=20: PublicGoodsDescription(
             n_players=n_players, n_rounds=n_rounds, k=2.0),
     'collective_risk_default':
