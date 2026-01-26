@@ -1,3 +1,5 @@
+# pylint: disable=redefined-outer-name,missing-function-docstring,missing-class-docstring,possibly-used-before-assignment
+
 import argparse
 import logging
 from scipy.spatial.distance import pdist, cdist
@@ -250,8 +252,9 @@ def compute_features(player: BasePlayer, n_games: int) -> dict[OpponentActions, 
     return features
 
 
-def compute_features_baseline_opponents(player: BasePlayer,
-                                        n_games: int) -> dict[tuple, float]:
+def compute_features_baseline_opponents(
+        player: BasePlayer,
+        n_games: int) -> dict[tuple, float] | None:
     features: dict[tuple, float] = {}
     for combo in unique_combos:
         opponents = [
@@ -261,8 +264,9 @@ def compute_features_baseline_opponents(player: BasePlayer,
         try:
             histories = play_games_against_opponents(player, opponents, n_games)
         except Exception as exc:
-            print(f"  !! Failed on combo {combo_key(combo)}: {exc}")
-            continue
+            logger.warning(
+                f"Failed on combo {combo_key(combo)} for {player.id.name}: {exc}")
+            return None
 
         key = combo_key(combo)
         for r in range(args.n_rounds):
@@ -283,10 +287,21 @@ def compute_gene(gene: Gene) -> dict[str, dict[tuple, float]]:
         algo = strategy_spec.strategy_class
         player = LLMPlayer("testing", gene, description, algo)
 
-        if args.feature_mode == "baseline_opponents":
-            features = compute_features_baseline_opponents(player, args.n_games)
-        else:
-            features = compute_features(player, args.n_games)
+        try:
+            if args.feature_mode == "baseline_opponents":
+                features = compute_features_baseline_opponents(player,
+                                                               args.n_games)
+            else:
+                features = compute_features(player, args.n_games)
+        except Exception:
+            logger.exception(
+                f"Error while computing features for {gene.model} {algo.__name__}"
+            )
+            continue
+        if features is None:
+            logger.warning(
+                f"Skipping {gene.model} {algo.__name__} due to failed combo")
+            continue
         strategy_features[algo.__name__] = features
 
         logger.info(
@@ -329,10 +344,18 @@ def compute_baselines(n_players: int,
     baseline_features = {}
     n_games = args.n_games if args.feature_mode == "baseline_opponents" else 1
     for player in baseline_players:
-        if args.feature_mode == "baseline_opponents":
-            features = compute_features_baseline_opponents(player, n_games)
-        else:
-            features = compute_features(player, n_games)
+        try:
+            if args.feature_mode == "baseline_opponents":
+                features = compute_features_baseline_opponents(player, n_games)
+            else:
+                features = compute_features(player, n_games)
+        except Exception:
+            logger.exception(
+                f"Error while computing baseline features for {player.id.name}")
+            continue
+        if features is None:
+            logger.warning(f"Skipping baseline {player.id.name} due to failed combo")
+            continue
         baseline_features[player.id.name] = features
 
         mean = np.mean(list(features.values()))
@@ -527,6 +550,56 @@ def plot_pca(ax, X_pca, genes, labels, baseline_pca, baseline_labels, title,
     ax.legend([h[0] for h in handles], [h[1] for h in handles], fontsize=6)
 
 
+def plot_pca_by_model(ax, X_pca, model_labels, models, baseline_pca,
+                      baseline_labels, title, pca):
+    colors = plt.colormaps.get_cmap("tab20")(np.linspace(0, 1, len(models)))
+    handles = []
+
+    for i, model in enumerate(models):
+        mask = model_labels == model
+        points = X_pca[mask, :2]
+        scatter = ax.scatter(points[:, 0],
+                             points[:, 1],
+                             alpha=0.3,
+                             s=10,
+                             color=colors[i])
+        if len(points) > 0:
+            mean_pt = points.mean(axis=0)
+            ax.scatter(mean_pt[0],
+                       mean_pt[1],
+                       marker="o",
+                       s=100,
+                       color=colors[i],
+                       edgecolors="black",
+                       linewidths=1.5,
+                       zorder=5)
+            if len(points) > 2:
+                cov = np.cov(points.T)
+                plot_covariance_ellipse(ax,
+                                        mean_pt,
+                                        cov,
+                                        n_std=1.0,
+                                        facecolor=colors[i],
+                                        alpha=0.15,
+                                        edgecolor=colors[i],
+                                        linewidth=1.5)
+        handles.append((scatter, model))
+
+    for i, name in enumerate(baseline_labels):
+        ax.scatter(baseline_pca[i, 0],
+                   baseline_pca[i, 1],
+                   marker="X",
+                   s=120,
+                   edgecolors="black",
+                   linewidths=1,
+                   zorder=6)
+        ax.annotate(name, (baseline_pca[i, 0], baseline_pca[i, 1]), fontsize=6)
+
+    ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]:.1%})")
+    ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]:.1%})")
+    ax.set_title(title)
+    ax.legend([h[0] for h in handles], [h[1] for h in handles], fontsize=6)
+
 # =============================================================================
 # EXTREMA ANALYSIS
 # =============================================================================
@@ -650,16 +723,22 @@ if __name__ == "__main__":
 
         X_game = []
         labels_game = []
+        labels_model = []
+        labels_attitude = []
         metadata_game = []
         for gene, strategy_features in results_dict.items():
             for strategy_name, feature_dict in strategy_features.items():
                 X_game.append(build_feature_vector(feature_dict))
                 labels_game.append(str(gene))
+                labels_model.append(gene.model)
+                labels_attitude.append(str(gene.attitude))
                 metadata_game.append((gene, strategy_name, feature_dict))
 
         pca_data[game_name] = {
             'X': np.array(X_game),
             'labels': np.array(labels_game),
+            'labels_model': np.array(labels_model),
+            'labels_attitude': np.array(labels_attitude),
             'metadata': metadata_game,
             'genes': genes,
         }
@@ -700,6 +779,10 @@ if __name__ == "__main__":
     # Stack all games
     X_all = np.vstack([pca_data[g]['X'] for g in args.games])
     labels_all = np.concatenate([pca_data[g]['labels'] for g in args.games])
+    labels_all_model = np.concatenate(
+        [pca_data[g]['labels_model'] for g in args.games])
+    labels_all_attitude = np.concatenate(
+        [pca_data[g]['labels_attitude'] for g in args.games])
     game_labels = np.concatenate([[g] * len(pca_data[g]['X']) for g in args.games])
 
     # Fit combined PCA
@@ -743,6 +826,61 @@ if __name__ == "__main__":
         plt.tight_layout()
         plt.savefig(output_dir / f"pca_{game_name}.{FORMAT}", format=FORMAT, bbox_inches='tight')
         plt.close()
+
+    # Per-game plots (by model, attitudes merged)
+    for game_name in args.games:
+        mask = game_labels == game_name
+        if not mask.any():
+            continue
+        X_game_pca = X_pca_combined[mask]
+        labels_model_game = labels_all_model[mask]
+        models_game = sorted(list(set(labels_model_game)))
+        if not models_game:
+            continue
+
+        fig, ax = plt.subplots(figsize=FIGSIZE)
+        plot_pca_by_model(ax, X_game_pca, labels_model_game, models_game,
+                          baseline_pca_combined, baseline_labels,
+                          f"{game_name} (by model)", pca_combined)
+        plt.tight_layout()
+        plt.savefig(output_dir / f"pca_{game_name}_models.{FORMAT}",
+                    format=FORMAT,
+                    bbox_inches='tight')
+        plt.close()
+
+    # Per-game plots (by model, split by attitude)
+    for game_name in args.games:
+        mask = game_labels == game_name
+        if not mask.any():
+            continue
+        for attitude in (Attitude.COLLECTIVE, Attitude.EXPLOITATIVE):
+            attitude_mask = mask & (labels_all_attitude == str(attitude))
+            if not attitude_mask.any():
+                continue
+            X_game_pca = X_pca_combined[attitude_mask]
+            labels_model_game = labels_all_model[attitude_mask]
+            models_game = sorted(list(set(labels_model_game)))
+            if not models_game:
+                continue
+
+            fig, ax = plt.subplots(figsize=FIGSIZE)
+            plot_pca_by_model(
+                ax,
+                X_game_pca,
+                labels_model_game,
+                models_game,
+                baseline_pca_combined,
+                baseline_labels,
+                f"{game_name} ({attitude})",
+                pca_combined,
+            )
+            plt.tight_layout()
+            plt.savefig(
+                output_dir / f"pca_{game_name}_models_{attitude}.{FORMAT}",
+                format=FORMAT,
+                bbox_inches='tight',
+            )
+            plt.close()
 
     # ==========================================================================
     # PHASE 4: Compute and display metrics
