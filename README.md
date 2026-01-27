@@ -2,7 +2,7 @@
 
 A benchmark for assessing LLM behaviour in multi-player social dilemma games, investigating whether large language models exhibit differential capabilities with exploitative vs collective strategies.
 
-This repository is under active development, and aims to extend the paper ["Will Systems of LLM Agents Lead to Cooperation: An Investigation into a Social Dilemma"](https://ifaamas.csc.liv.ac.uk/Proceedings/aamas2025/pdfs/p2786.pdf) from my earlier repo [evo_llm](github.com/willis-richard/evo_llm). to multi-player games.
+<!-- This repository is under active development, and aims to extend the paper ["Will Systems of LLM Agents Lead to Cooperation: An Investigation into a Social Dilemma"](https://ifaamas.csc.liv.ac.uk/Proceedings/aamas2025/pdfs/p2786.pdf) from my earlier repo [evo_llm](github.com/willis-richard/evo_llm). to multi-player games. -->
 
 ## Overview
 
