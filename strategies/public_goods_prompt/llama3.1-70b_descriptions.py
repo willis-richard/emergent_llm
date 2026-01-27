@@ -363,36 +363,6 @@ ACO is designed to be robust against various opponent behaviors:
 By employing ACO, we aim to achieve a high collective payoff while minimizing individual exploitation.
 '''
 
-description_COLLECTIVE_13 = '''
-**Collective Strategy: Adaptive Cooperation with Social Learning**
-
-This strategy aims to balance individual self-interest with collective welfare by adapting to the game's history and opponent behaviors. It combines elements of cooperation, reciprocity, and social learning.
-
-**Decision Rules:**
-
-1. **Initial Round**: Contribute (C) in the first round to establish a cooperative tone.
-2. **Reciprocal Cooperation**: Cooperate if the majority of opponents (> 50%) contributed in the previous round.
-3. **Social Learning**: Observe the payoffs of all players and adjust your strategy accordingly:
-	* If your payoff is below the group average, switch to Defect (D) for the next round.
-	* If your payoff is above the group average, maintain or increase cooperation (C).
-4. **Defection Response**: If a player defects, reciprocate with Defect in the next round against that specific player.
-5. **Forgiveness**: After two consecutive rounds of mutual defection, revert to Cooperate against that opponent.
-
-**Handling Edge Cases:**
-
-* **Last Round**: Contribute if the total contributions from previous rounds are above the group's average contribution level; otherwise, defect.
-* **Early Rounds (2-3)**: If opponents show a clear tendency towards cooperation or defection, adjust your strategy to match their behavior.
-
-**Collective Mindset Alignment:**
-
-This strategy prioritizes collective welfare by:
-
-1. Encouraging initial cooperation to establish a positive tone.
-2. Responding to opponent behaviors with reciprocity and social learning.
-3. Forgiving past transgressions to allow for recovery and cooperation.
-
-By adapting to the game's history and opponent behaviors, this strategy balances individual self-interest with collective welfare, promoting a mutually beneficial outcome in the repeated Public Goods Game.
-'''
 
 description_COLLECTIVE_14 = '''
 **Collective Strategy: Adaptive Cooperative Escalation**
@@ -2358,38 +2328,6 @@ ACO prioritizes the group's overall payoff by:
 By adapting to the group's contribution history and balancing individual self-interest with collective welfare, ACO aims to achieve a robust and efficient equilibrium in the Public Goods Game.
 '''
 
-description_COLLECTIVE_80 = '''
-**Collective Strategy: Adaptive Cooperative Optimizer (ACO)**
-
-**Overview**
-The Adaptive Cooperative Optimizer (ACO) strategy aims to balance individual self-interest with collective welfare by adaptively adjusting cooperation levels based on the game's history. ACO seeks to maximize overall payoffs while being robust against various opponent behaviors.
-
-**Decision Rules**
-
-1. **Initial Cooperation**: In the first round, contribute 1 token (C) to establish a cooperative baseline.
-2. **Contribution Threshold**: Calculate the average contribution of all players in the previous round (avg_prev_contribution). If avg_prev_contribution ≥ 0.5, contribute 1 token (C); otherwise, contribute 0 tokens (D).
-3. **Punishment Mechanism**: If a player defects (D) while others cooperate (C), reduce cooperation by 20% in the next round. This aims to punish free-riding behavior.
-4. **Reward Cooperation**: If all players cooperate (C) for two consecutive rounds, increase cooperation by 10% in the next round to reinforce collective cooperation.
-
-**Edge Cases**
-
-1. **Last Round**: In the final round, contribute 1 token (C) regardless of previous actions, as there is no future punishment or reward.
-2. **Single Player Defection**: If only one player defects (D), maintain cooperation level from the previous round.
-3. **All Players Defect**: If all players defect (D), reset cooperation to 50% in the next round.
-
-**Collective Mindset**
-
-1. **Focus on Collective Welfare**: Prioritize overall payoffs over individual gains, recognizing that collective cooperation benefits all players.
-2. **Adapt to Opponent Behavior**: Adjust cooperation levels based on observed actions to maintain a balance between individual and collective interests.
-3. **Encourage Cooperation**: Gradually increase cooperation when others cooperate, creating an environment conducive to mutual benefit.
-
-**Robustness**
-
-1. **Noise Tolerance**: ACO can handle occasional deviations or mistakes by adapting to the game's history.
-2. **Diverse Opponent Behaviors**: By responding to observed actions, ACO remains effective against various opponent strategies, including pure cooperation, pure defection, and mixed behaviors.
-
-By employing this adaptive strategy, we aim to maximize collective payoffs while being robust against a wide range of opponent behaviors in the Public Goods Game tournament.
-'''
 
 description_COLLECTIVE_81 = '''
 **Collective Strategy: Adaptive Cooperation with Gradual Withdrawal**
@@ -7666,4 +7604,789 @@ Here's a collective strategy for the Public Goods Game:
 ACO prioritizes collective welfare by encouraging contributions when others cooperate. By punishing single-player deviations and forgiving cooperative behavior, ACO promotes a culture of reciprocity. When facing widespread defection, ACO adapts by temporarily defecting to minimize losses but returns to cooperation once conditions improve.
 
 This strategy balances individual self-interest with collective benefits, making it robust against various opponent behaviors in the tournament.
+'''
+
+
+
+
+
+
+description_COLLECTIVE_13 = '''
+**Collective Adaptive Strategy: "Gradual Cooperation with Punishment"**
+
+**Initialization:**
+In the first round, cooperate (contribute 1 token) to establish an initial level of trust and encourage others to do the same.
+
+**Main Loop:**
+For each round after the first, use the following decision rule:
+
+1. **Calculate Cooperation Rate**: Calculate the average cooperation rate of all players in the previous round, excluding the current player.
+   ``` 
+   cooperation_rate = (sum_j c_j, excluding current player) / (n-1)
+   ```
+
+2. **Gradual Cooperation**: If the cooperation rate is above a certain threshold (e.g., 0.6), cooperate (contribute 1 token). This encourages players who have contributed in the past to continue doing so.
+   ``` 
+   if cooperation_rate > 0.6:
+       cooperate()
+   ```
+
+3. **Punishment**: If the cooperation rate is below the threshold and the total contributions in the previous round are less than or equal to the number of players who defected (n - sum_j c_j), defect (contribute 0 tokens). This punishes players who don't contribute when others are not contributing.
+   ``` 
+   elif total_contributions <= (n - sum_j c_j):
+       defect()
+   ```
+
+4. **Imitation**: In all other cases, imitate the majority's previous action. If the majority cooperated, cooperate; otherwise, defect.
+   ``` 
+   else:
+       if sum_j c_j > n/2:
+           cooperate()
+       else:
+           defect()
+   ```
+
+**Edge Cases:**
+
+- Last Round: Defect in the last round to maximize individual payoff, as there is no future round to consider.
+- First Round (already handled): Cooperate to establish an initial level of trust.
+
+**Alignment with Collective Mindset:**
+This strategy aims to balance individual incentives with collective welfare by encouraging cooperation when others are contributing and punishing non-contributors when they are not. By gradually adapting to the cooperation rate and punishing non-cooperators, this strategy fosters a collective mindset that considers the well-being of all players.
+'''
+
+description_COLLECTIVE_80 = '''
+**Collective Adaptation Strategy**
+
+**Initial Round (Round 1):**
+Cooperate by contributing 1 token (C) to encourage collective welfare and establish a positive payoff trajectory.
+
+**Subsequent Rounds (Rounds 2 to r-1):**
+Evaluate the overall group cooperation history and adjust the strategy accordingly.
+
+1. **Compute cooperation rate**: Calculate the average contribution rate of all players over the past rounds.
+2. **Choose action based on cooperation rate**:
+   - If the cooperation rate is above 50%, Cooperate (C) to reinforce collective welfare and encourage continued cooperation.
+   - If the cooperation rate is exactly 50%, Randomly choose between Cooperate (C) and Defect (D) to balance the overall group behavior.
+   - If the cooperation rate is below 50%, Defect (D) to minimize losses and avoid exploitation.
+3. **Imitation and Adaptation**: If the strategy's payoff is lower than the average payoff of the group in the previous round, switch to the action most frequently taken by the group in that round.
+
+**Last Round (Round r):**
+Defect (D) to maximize individual payoff, as there are no future consequences.
+
+**Edge Cases:**
+
+* If all players defected in the previous round, Defect (D) in the next round to minimize losses.
+* If a player consistently defects while others cooperate, Challenge them by Defecting (D) to test their strategy.
+
+**Alignment with Collective Mindset:**
+This strategy prioritizes collective welfare by initiating cooperation and adapting to the overall group behavior. By balancing between cooperation and defection, it seeks to maximize both individual and collective payoffs while minimizing the risk of exploitation.
+'''
+
+description_COLLECTIVE_129 = '''
+**Collective Strategy: Adaptive Cooperate-Punish (ACP)**
+
+**Decision Rules**
+
+1. **Initial Cooperation**: In the first round, contribute 1 token (C) to establish a cooperative tone.
+2. **Reciprocal Cooperation**: If the total contributions in the previous round are above the group's average endowment (n/2), contribute 1 token (C). This encourages continued cooperation when others are contributing.
+3. **Punish Defection**: If the total contributions in the previous round are below the group's average endowment (n/2), defect (D) to signal dissatisfaction with low collective contributions. However, if your own payoff was above the group's average payoff, cooperate (C) instead, assuming others may be willing to contribute.
+4. **Reward High Contributors**: If a player has consistently contributed more than their fair share (k/n) in previous rounds, reward them by cooperating (C) even if the group's total contributions are below average.
+5. **Adaptive Threshold**: Adjust the threshold for reciprocal cooperation based on the game's history. If the group's total contributions have been increasing over time, lower the threshold to encourage continued cooperation.
+
+**Edge Cases**
+
+1. **Last Round**: In the final round, cooperate (C) regardless of previous actions to maximize collective payoff.
+2. **Single Player**: When playing alone, always contribute 0 tokens (D), as there is no benefit to contributing.
+3. **Tiebreaker**: In cases where multiple strategies suggest different actions, default to cooperation (C).
+
+**Collective Mindset**
+
+ACP prioritizes collective welfare by initially cooperating and reciprocating cooperation when others contribute. By punishing defection and rewarding high contributors, ACP aims to create a cooperative environment while adapting to the game's history. This strategy is robust to various opponent behaviors and promotes a balance between individual incentives and collective well-being.
+
+By employing ACP, we aim to outperform other strategies in the tournament by fostering cooperation, punishing free-riding, and adapting to the dynamic nature of the Public Goods Game.
+'''
+
+description_COLLECTIVE_130 = '''
+Here's a collective strategy for the Public Goods Game that adapts to various opponent behaviors:
+
+**Strategy Name:** "Adaptive Collective Optimism" (ACO)
+
+**Decision Rules:**
+
+1. **Initial Cooperation**: In the first round, contribute 1 token (C) with a high probability (80%) to establish a cooperative tone and encourage others to follow suit.
+2. **Reciprocity**: Observe the average contribution of all players in the previous round. If it's above 0.5, contribute 1 token (C) with a high probability (90%). This encourages continued cooperation when others are contributing.
+3. **Punishment**: If the average contribution in the previous round is below 0.5, defect (D) with a moderate probability (60%). This discourages free-riding and nudges others to contribute more.
+4. **Contribution Matching**: Observe the total contributions in the previous round. If it's increasing, contribute 1 token (C) with a high probability (90%) to reinforce the positive trend.
+5. **Exploration**: With a low probability (10%), randomly choose between contributing 1 token (C) and defecting (D). This allows for occasional exploration of alternative strategies.
+
+**Edge Cases:**
+
+* In the last round, contribute 1 token (C) with a high probability (90%) to maintain cooperation and maximize collective payoff.
+* If all players have defected in previous rounds, defect (D) with a high probability (80%) to avoid exploitation.
+* If there's only one round left and the total contributions are low, cooperate (C) with a moderate probability (50%) to try to salvage some collective welfare.
+
+**Collective Mindset:**
+
+ACO prioritizes cooperation while being responsive to the actions of others. By initially cooperating and reciprocating cooperative behavior, ACO encourages a culture of mutual support. The punishment mechanism prevents exploitation, while contribution matching reinforces positive trends. Exploration allows for occasional deviation from the main strategy, enabling adaptation to unexpected opponent behaviors.
+
+This strategy balances individual self-interest with collective welfare, making it a robust and adaptive approach for the Public Goods Game tournament.
+'''
+
+description_COLLECTIVE_131 = '''
+**Collective Strategy: "Adaptive Reciprocity with Gradual Cooperation"**
+
+**Decision Rules:**
+
+1. **Initial Rounds (Rounds 1-3):** Cooperate (C) to encourage mutual cooperation and establish a baseline level of trust.
+2. **Observation Phase (Rounds 4-10):** Observe the actions of all players and calculate the average contribution rate (ACR) of the group, excluding yourself.
+	* If ACR ≥ 0.5, cooperate (C) to maintain a high level of cooperation.
+	* If ACR < 0.5, defect (D) to signal that low contributions are not tolerated.
+3. **Adaptive Phase (Rounds 11+):** Implement a "Tit-for-Tat with Forgiveness" approach:
+	* Cooperate (C) if the opponent's previous action was C or if they cooperated in the last round and you defected.
+	* Defect (D) if the opponent's previous action was D.
+
+**Edge Cases:**
+
+1. **Last Round:** Cooperate (C) to maximize collective welfare, as individual payoffs are not a concern.
+2. **When facing a constant Cooperator or Defector:** If an opponent always cooperates (C), continue cooperating (C). If an opponent always defects (D), defect (D).
+3. **In case of ties in average contribution rates:** Cooperate (C) to promote collective cooperation.
+
+**Collective Mindset:**
+
+The strategy prioritizes the well-being of the group while maintaining a level of adaptability to respond to various opponent behaviors. By starting with cooperation and gradually adapting to the group's behavior, this strategy aims to foster an environment where mutual cooperation is the norm.
+
+This strategy does not rely on shared norms or coordination but rather uses the game's history and simple decision rules to promote collective welfare while protecting against exploitation.
+'''
+
+description_COLLECTIVE_132 = '''
+**Collective Strategy: "Adaptive Cooperate-to-Thrive"**
+
+**Decision Rules:**
+
+1. **Initial Cooperation**: In the first round, contribute 1 token (C) to establish a cooperative tone and encourage others to follow suit.
+2. **Reciprocity**: For subsequent rounds, calculate the average contribution of all players in the previous round. If the average is above 0.5, contribute 1 token (C). Otherwise, defect (D).
+3. **Punish Free-Riders**: Identify players who defected (D) in the previous round and contributed less than the group's average. In the next round, defect (D) if any of these free-riders are present.
+4. **Reward Cooperators**: If a player cooperated (C) in the previous round and their contribution was above the group's average, contribute 1 token (C) in the next round, even if the overall average is below 0.5.
+
+**Edge Case Handling:**
+
+* **Last Round**: In the final round, always defect (D), as there are no future rounds to influence.
+* **Single-Player Game**: If only one player remains, always contribute 1 token (C) to maximize personal payoff.
+
+**Collective Mindset Alignment:**
+
+This strategy prioritizes cooperation and reciprocity while adapting to the group's behavior. By initially cooperating and reciprocating with others who cooperate, we create an environment that encourages collective contributions. Punishing free-riders and rewarding cooperators helps maintain a balance between individual incentives and collective welfare.
+
+**Robustness:**
+
+The Adaptive Cooperate-to-Thrive strategy is designed to be robust against various opponent behaviors:
+
+* **All Defectors**: If all opponents defect, our strategy will eventually adapt and defect as well, minimizing losses.
+* **Cooperative Opponents**: Our reciprocity mechanism allows us to cooperate with cooperative opponents, maximizing collective payoffs.
+
+By incorporating elements of cooperation, reciprocity, and punishment, this strategy is well-equipped to handle a wide range of opponent behaviors in the Public Goods Game tournament.
+'''
+
+description_COLLECTIVE_133 = '''
+Here's a collective strategy for the Public Goods Game (PGG) that adapts to various opponent behaviors:
+
+**Strategy Name:** Adaptive Collective Optimism (ACO)
+
+**Decision Rules:**
+
+1. **Initial Cooperation**: In the first round, contribute 1 token (C) to establish a cooperative tone and encourage others to follow suit.
+2. **Reciprocity**: Observe the previous round's total contributions. If the average contribution is above 0.5, contribute 1 token (C). Otherwise, defect (D).
+3. **Adaptive Adjustment**: Monitor the game's progress and adjust your contribution based on the overall payoff trend:
+	* If the collective payoff has increased over the past three rounds, continue contributing 1 token (C).
+	* If the collective payoff has decreased or stagnated over the past three rounds, switch to defecting (D) for one round.
+4. **Endgame Strategy**: In the last two rounds, contribute 1 token (C) if the average contribution in the previous round was above 0.5; otherwise, defect (D).
+
+**Edge Case Handling:**
+
+* If there's only one player left, always contribute 1 token (C) to maximize individual payoff.
+* If all players have defected (D) for two consecutive rounds, switch to a "Punishment" phase and defect (D) for two rounds before reassessing the situation.
+
+**Collective Mindset:**
+
+ACO prioritizes cooperation when possible while adapting to opponents' behaviors. By initially cooperating and reciprocating positive actions, ACO encourages collective welfare growth. When faced with decreasing payoffs or widespread defection, ACO temporarily adjusts its strategy to prompt a response from others. This adaptability allows ACO to navigate diverse opponent behaviors effectively.
+
+**Tournament Considerations:**
+
+As ACO will be playing against independent strategies developed by other AI systems, it's essential to note that this strategy does not rely on shared norms or coordination. Instead, it uses the game's history and parameters to inform its decisions, making it a robust and adaptive competitor in the tournament.
+'''
+
+description_COLLECTIVE_134 = '''
+Here is a collective strategy for the Public Goods Game:
+
+**Strategy Name: Adaptive Collective Optimism**
+
+**Decision Rules:**
+
+1. **Initial Cooperation**: In the first round, contribute 1 token (C) to establish a cooperative tone.
+2. **Reciprocity**: Observe the average contribution of all players in the previous round. If the average contribution is above 0.5, contribute 1 token (C). Otherwise, contribute 0 tokens (D).
+3. **Punishment**: If at least one player defected (contributed 0 tokens) in the previous round, defect (contribute 0 tokens) in the current round.
+4. **Optimism Revival**: After a defection, restart cooperation if all players cooperated in the previous two rounds.
+
+**Edge Cases:**
+
+1. **Last Round**: Cooperate (C) to maintain collective welfare and avoid regret.
+2. **Solo Play**: If only one player is contributing, cooperate (C) to maximize personal payoff.
+
+**Collective Mindset Alignment:**
+This strategy balances individual self-interest with collective benefits by:
+
+* Encouraging initial cooperation
+* Responding positively to group cooperation
+* Punishing defections to maintain social norms
+* Reviving optimism after conflicts
+
+By adapting to the group's behavior, this strategy promotes a culture of cooperation and fosters collective success.
+
+**Additional Notes:**
+
+* In cases where multiple players defect simultaneously, prioritize reciprocity over punishment.
+* If the game parameters (n, r, k) change during the tournament, adjust the decision rules accordingly to maintain adaptability.
+'''
+
+description_COLLECTIVE_135 = '''
+**Collective Strategy: "Adaptive Cooperate-and-Punish"**
+
+In the Public Goods Game, our collective strategy aims to balance individual incentives with collective welfare. We'll use a dynamic approach that adapts to the game's history and opponent behaviors.
+
+**Decision Rules:**
+
+1. **Initial Round (Round 1):** Cooperate (C) - Contribute 1 token to set a cooperative tone.
+2. **Subsequent Rounds:** Observe the previous round's total contributions (TC) and the number of cooperators (NC).
+	* If TC ≥ k/2 \* n, Cooperate (C). The group is contributing enough; let's maintain cooperation.
+	* If TC < k/2 \* n and NC > n/2, Defect (D). Some players are free-riding; punish them by not contributing.
+	* If TC < k/2 \* n and NC ≤ n/2, Cooperate (C) with probability p = (k/n) \* (NC / n). This " noisy" cooperation encourages others to contribute while adapting to the group's behavior.
+3. **Last Round:** Defect (D) - In the final round, individual payoffs matter most.
+
+**Edge Cases:**
+
+* If only one player is left in the game, Cooperate (C).
+* If all players have defected in previous rounds, Cooperate (C) with probability p = 1/2 to encourage potential cooperation.
+
+**Collective Mindset:**
+Our strategy prioritizes collective welfare while adapting to individual behaviors. By cooperating initially and punishing free-riders later, we promote a cooperative environment. The noisy cooperation mechanism encourages others to contribute while accounting for the group's behavior.
+
+This Adaptive Cooperate-and-Punish strategy is designed to perform well in a tournament against various independent strategies, without relying on shared norms or coordination channels.
+'''
+
+description_COLLECTIVE_136 = '''
+**Collective Strategy: "Adaptive Collective Optimism" (ACO)**
+
+**Overview**
+ACO is a collective strategy designed for the Public Goods Game, aiming to balance individual incentives with collective welfare. ACO adapts to the game's history and parameters, promoting cooperation while being robust to various opponent behaviors.
+
+**Decision Rules**
+
+1. **Initial Cooperation**: In the first round (t=1), contribute 1 token (C) to establish a positive tone.
+2. **Reciprocity**: For subsequent rounds (t>1), observe the previous round's total contributions (sum_j c_j). If the average contribution per player is above a certain threshold (k/n)/2, cooperate (C). Otherwise, defect (D).
+3. **Punishment**: If any player defected in the previous round and the group's payoff was below the expected value ((k/n) \* n), punish by defecting (D) for one round.
+4. **Forgiveness**: After punishing, return to Reciprocity mode.
+
+**Edge Cases**
+
+1. **Last Round**: In the final round (t=r), always contribute 1 token (C) to maximize collective welfare.
+2. **Tie-Breaking**: If multiple players have the same highest contribution history, prioritize cooperation over defection.
+
+**Collective Mindset**
+ACO prioritizes cooperation when the group's behavior indicates a willingness to contribute. By reciprocating positive actions and punishing negative ones, ACO aims to create a collective environment where individual incentives align with the group's welfare.
+
+**Adaptation**
+ACO adapts to changing opponent behaviors by adjusting its decision rules based on the game's history. This allows it to respond effectively to various strategies while maintaining a collective focus.
+
+By employing this Adaptive Collective Optimism strategy, we aim to achieve a high level of cooperation and collective welfare in the Public Goods Game tournament.
+'''
+
+description_COLLECTIVE_137 = '''
+**Collective Strategy: "Adaptive Tit-for-Tat with Endgame Adjustment"**
+
+**Decision Rules:**
+
+1. **First Round:** Cooperate (C) to initiate collective contribution and gather information about opponents' behaviors.
+2. **Subsequent Rounds:** Play Tit-for-Tat (TFT), cooperating if the majority of players cooperated in the previous round, and defecting otherwise.
+3. **Adjustment for Endgame:** If there are fewer than 5 rounds remaining, switch to a "Pavlov" strategy: cooperate if the payoff was higher than average in the previous round, and defect otherwise.
+
+**Edge Cases:**
+
+1. **Last Round:** Defect (D) to maximize individual payoff, as there's no future round to consider.
+2. **Ties in Majority Voting:** In cases where the majority is split (e.g., 50% cooperate, 50% defect), play Cooperate (C) to maintain a collective mindset.
+
+**Collective Mindset:**
+
+This strategy aims to balance individual interests with collective welfare by:
+
+1. Encouraging cooperation through Tit-for-Tat in the early and middle stages.
+2. Adapting to opponents' behaviors by responding to changes in majority contributions.
+3. Adjusting for endgame scenarios, where short-term gains may outweigh long-term cooperation.
+
+**Rationale:**
+
+This strategy is designed to be robust against a wide range of opponent behaviors while promoting collective contribution:
+
+1. Initial cooperation sets the tone for mutual benefit.
+2. Tit-for-Tat ensures reciprocity and encourages opponents to cooperate.
+3. Endgame adjustment accounts for the changing incentives in the final rounds.
+
+By adopting this strategy, our AI system will engage in a dynamic interplay with other independent strategies, promoting a balance between individual interests and collective welfare.
+'''
+
+description_COLLECTIVE_138 = '''
+Here's a collective strategy for the repeated Public Goods Game:
+
+**Strategy Name:** Adaptive Collective Optimism (ACO)
+
+**Decision Rules:**
+
+1. **Initial Round**: Cooperate (C) in the first round to establish a baseline of cooperation and encourage others to do the same.
+2. **Contribution-based Tit-for-Tat**: Observe the total contributions from the previous round. If the total contributions are above the average contribution threshold (n/2), cooperate (C). Otherwise, defect (D).
+3. **Punishment Mechanism**: If a player defects while others contribute, reduce cooperation in subsequent rounds. Specifically, if the number of cooperators is greater than or equal to 50% and a player defects, switch to defecting for the next round.
+4. **Learning and Adaptation**: Update the average contribution threshold (n/2) based on the game's history. If total contributions consistently fall below this threshold, adjust it downwards to encourage cooperation.
+
+**Edge Cases:**
+
+* **Last Round**: Cooperate if most players have cooperated in previous rounds (more than 50% of total rounds). Otherwise, defect.
+* **Opponent Defection**: If an opponent defects multiple times consecutively, reduce cooperation and increase defection in subsequent rounds to avoid exploitation.
+
+**Collective Mindset Alignment:**
+
+ACO aims to balance individual self-interest with collective welfare by:
+
+1. Encouraging initial cooperation to set a positive tone.
+2. Responding to opponents' actions based on their contribution history.
+3. Gradually adjusting the threshold for cooperation based on game dynamics.
+4. Implementing a punishment mechanism to deter repeated defection.
+
+**Additional Considerations:**
+
+* **No pure defectors**: In a population with no pure defectors, ACO will converge towards full cooperation as players adjust their strategies to maximize collective payoffs.
+* **Adaptation to noise and mutation**: The strategy can handle noise or unexpected mutations in the opponent's behavior by adjusting its own contribution threshold.
+
+This adaptive strategy balances individual self-interest with collective welfare while being robust to a wide range of opponent behaviors.
+'''
+
+description_COLLECTIVE_139 = '''
+**Collective Strategy: Adaptive Cooperative Escalation**
+
+**Decision Rules:**
+
+1. **First Round:** Cooperate (C) to establish a baseline for cooperation and encourage others to follow suit.
+2. **Early Rounds (Rounds 2-5):** If the average contribution in the previous round is above 50%, cooperate (C). Otherwise, defect (D).
+3. **Mid-Game (Rounds 6-r/2):** Implement a "tit-for-tat with forgiveness" approach:
+	* Cooperate if at least 75% of players cooperated in the previous round.
+	* Defect if more than 25% of players defected in the previous round, but cooperate again if all players cooperate in the next round.
+4. **Late Game (Rounds r/2+1 to r-1):** Gradually escalate cooperation:
+	* Cooperate if at least 50% of players cooperated in the previous two rounds.
+	* Defect if more than 25% of players defected in either of the previous two rounds, but cooperate again if all players cooperate in the next round.
+5. **Last Round (Round r):** Cooperate (C) to maximize collective payoff.
+
+**Edge Cases:**
+
+1. If only one player remains, cooperate (C) to ensure a non-zero payoff.
+2. If multiple players have the same highest average contribution, prioritize cooperation (C).
+
+**Collective Mindset Alignment:**
+
+This strategy prioritizes cooperation while adapting to the group's behavior, promoting a culture of mutual support and escalating cooperation over time. By starting with cooperation and gradually increasing expectations for collective action, this strategy encourages others to follow suit, ultimately maximizing collective payoffs.
+
+By being adaptive and robust, this strategy can effectively respond to various opponent behaviors, making it a strong contender in the tournament against independent AI strategies.
+'''
+
+description_COLLECTIVE_140 = '''
+**Collective Strategy: Adaptive Cooperativity**
+
+**Decision Rules:**
+
+1. **First Round:** Contribute (C) to establish a cooperative tone and encourage others to follow.
+2. **Subsequent Rounds:** Observe the average contribution rate of all players in the previous round. If it's above a certain threshold (e.g., 0.5), contribute (C). Otherwise, defect (D).
+3. **Punishment Mechanism:** If a player defects while others contributed in the previous round, defect (D) against that player in the next round.
+4. **Forgiveness:** After punishing a defector, return to contributing (C) if they contribute in the subsequent round.
+
+**Edge Cases:**
+
+1. **Last Round:** Contribute (C) to maximize collective welfare, as there's no future opportunity for reciprocity.
+2. **Single Opponent:** Always contribute (C), as cooperation is the dominant strategy in a one-on-one scenario.
+3. **Multiple Opponents with Similar Strategies:** If multiple opponents are playing similar adaptive strategies, try to maintain a high average contribution rate to encourage cooperation.
+
+**Collective Mindset:**
+
+1. **Encourage Cooperation:** Contribute in early rounds and when others cooperate to create an environment conducive to mutual benefit.
+2. **Deter Defection:** Punish defectors to discourage selfish behavior and protect collective welfare.
+3. **Foster Reciprocity:** Cooperate with players who have contributed in the past, promoting a culture of reciprocity.
+
+**Adaptive Features:**
+
+1. **Dynamic Threshold:** Adjust the contribution threshold based on the game's progress and opponent behaviors.
+2. **Learning from History:** Update the strategy based on observed payoffs and actions to refine decision-making.
+
+By implementing this Adaptive Cooperativity strategy, we aim to create a robust and collective approach that balances individual self-interest with the pursuit of group welfare, ultimately promoting cooperation in the Public Goods Game.
+'''
+
+description_EXPLOITATIVE_129 = '''
+**Exploitative Strategy: "Adaptive Exploiter"**
+
+**Decision Rules:**
+
+1. **First Round:** Cooperate (C) to gather information about opponents' behavior and set the tone for potential reciprocity.
+2. **Rounds 2-5:** Play Tit-for-Tat (TFT) with a twist:
+	* If at least one opponent defected in the previous round, defect (D) in this round.
+	* Otherwise, cooperate (C).
+3. **Rounds 6+**: Switch to "Adaptive Exploitation" mode:
+	* Calculate the average payoff of opponents in the last two rounds (`avg_payoff_opponents`).
+	* If `avg_payoff_opponents` is higher than the multiplier `k/n`, defect (D) in this round.
+	* Otherwise, cooperate (C).
+
+**Edge Case Handling:**
+
+1. **Last Round:** Defect (D), as there's no future reciprocity to worry about.
+2. **Opponent Always Cooperates:** Continue playing TFT until the last two rounds, then switch to defecting (D) to exploit their cooperativeness.
+3. **Opponent Always Defects:** Defect (D) in all subsequent rounds.
+
+**Rationale:**
+
+This strategy is designed to be exploitative and adaptive:
+
+1. Initially, it gathers information and sets a cooperative tone with TFT.
+2. As the game progresses, it shifts focus to exploiting opponents' average payoffs, taking advantage of those who are more generous.
+3. In edge cases, it optimizes its behavior to maximize payoffs.
+
+**Assumptions:**
+
+This strategy assumes that opponents may use various strategies, including cooperative and exploitative ones. It does not rely on shared norms or coordination and is designed to perform well in a tournament setting against diverse independent strategies.
+'''
+
+description_EXPLOITATIVE_130 = '''
+Here's a strategic approach to the Public Goods Game (PGG) that focuses on exploitation and adaptability:
+
+**Strategy Name: Adaptive Exploiter**
+
+**Decision Rules:**
+
+1. **Initial Round:** Cooperate (C) in the first round to gather information about opponents' behaviors.
+2. **Cooperation Threshold:** Track the average cooperation rate of all players over the past rounds. If this average is above a certain threshold (e.g., 0.5), cooperate; otherwise, defect.
+3. **Exploitation:** Identify the most cooperative player(s) based on their past actions and target them for exploitation by consistently defecting against them while they continue to cooperate.
+4. **Adaptive Defection:** Monitor your own payoff and adjust your defection rate accordingly:
+	* If your payoff is higher than the group average, increase your cooperation rate (C).
+	* If your payoff is lower than the group average, decrease your cooperation rate (D).
+5. **Last Round:** Always defect in the last round to maximize personal gain.
+
+**Edge Cases:**
+
+1. **Tiebreaker:** In case of a tie in the number of cooperating players, randomly choose between cooperate and defect.
+2. **Single Opponent:** When facing only one opponent, always cooperate if they cooperated previously; otherwise, defect.
+
+**Exploitative Mindset Alignment:**
+
+* The strategy prioritizes exploiting the most cooperative players to maximize personal gain.
+* By adapting cooperation rates based on opponents' behaviors and payoffs, it aims to capitalize on opportunities for exploitation while minimizing potential losses.
+* The initial round of cooperation sets up a "honeypot" effect, encouraging more cooperative players to continue cooperating, making them easier targets for exploitation.
+
+This Adaptive Exploiter strategy combines elements of conditional cooperation, adaptive behavior, and targeted exploitation to maximize payoffs in the Public Goods Game.
+'''
+
+description_EXPLOITATIVE_131 = '''
+Here's an exploitative strategy for the Public Goods Game:
+
+**Strategy Name: Adaptive Exploiter**
+
+**Decision Rules:**
+
+1. **First Round:** Cooperate (C) to encourage others to contribute and gather information about their behavior.
+2. **Early Rounds (Rounds 2-5):** Defect (D) if the average contribution of other players is below a certain threshold (e.g., 0.5). This tests the waters and identifies potential free riders. Cooperate if the average contribution is above this threshold, as it indicates a willingness to contribute.
+3. **Mid-Game (Rounds 6-15):** Use a Tit-for-Tat-like approach:
+	* If the majority of players (>50%) cooperated in the previous round, cooperate.
+	* If the majority defected or there's a tie, defect.
+4. **Late Rounds (Rounds 16+):** Switch to a more aggressive strategy:
+	* Defect if the total contributions in the previous round are below a certain threshold (e.g., n/2). This takes advantage of potential free riders and increases the likelihood of mutual defection.
+	* Cooperate if the total contributions are above this threshold, as it indicates a continued willingness to contribute.
+
+**Edge Cases:**
+
+1. **Last Round:** Always defect, as there's no future benefit from cooperation.
+2. **Opponent Defection:** If an opponent has defected in every round so far, always defect against them.
+3. **Identical Contributions:** If all players have contributed the same amount (C or D) for multiple consecutive rounds (>3), consider this a stable equilibrium and adapt to it by mirroring their actions.
+
+**Exploitative Mindset:**
+
+This strategy is designed to take advantage of opponents who are willing to cooperate, while minimizing losses against those who defect. By initially cooperating, we encourage others to contribute and gather information about their behavior. The Tit-for-Tat-like approach in mid-game allows us to respond to the majority's actions, while the aggressive late-round strategy takes advantage of potential free riders.
+
+**Robustness:**
+
+This strategy is robust against a wide range of opponent behaviors, including:
+
+* Unconditional cooperators and defectors
+* Tit-for-Tat players
+* Gradual contributors (those who gradually increase or decrease their contributions)
+* Random players
+
+By adapting to the game's history and responding to opponents' actions, Adaptive Exploiter increases its chances of success in a tournament setting.
+'''
+
+description_EXPLOITATIVE_132 = '''
+**Exploitative Strategy: "Adaptive Mimicry with Punishment"**
+
+This strategy aims to exploit opponents by mimicking their cooperation level while punishing repeated defectors.
+
+**Decision Rules:**
+
+1. **First Round:** Cooperate (C) to establish a baseline for opponent behavior.
+2. **Subsequent Rounds:** Observe the previous round's total contributions and calculate the average contribution per player (`avg_contribution`).
+3. **Mimicry Phase:** If `avg_contribution` is above 0.5, cooperate (C). Otherwise, defect (D). This mimics the opponent's cooperation level while being cautious not to over-contribute.
+4. **Punishment Phase:** Identify players who have defected more than twice in a row (`repeat_defectors`). In the next round, defect (D) if any `repeat_defector` is present. This punishes repeated exploitation and discourages opponents from consistently defecting.
+
+**Edge Cases:**
+
+* **Last Round:** Defect (D), as there's no future opportunity for reciprocity or punishment.
+* **Single Opponent:** Always cooperate (C), as mimicking a single opponent's cooperation level is not meaningful, and punishment is ineffective.
+* **Tie in Average Contribution:** Cooperate (C) if the tie occurs at an average contribution above 0.5; otherwise, defect (D).
+
+**Robustness:**
+
+This strategy adapts to various opponent behaviors by:
+
+* Mimicking cooperation levels to avoid being exploited
+* Punishing repeated defectors to maintain a balance of power
+* Adjusting behavior based on the game's history and opponent actions
+
+By following this exploitative strategy, I aim to maximize my payoffs in the tournament while minimizing the influence of opponents' potential coordination or norms.
+'''
+
+description_EXPLOITATIVE_133 = '''
+**Exploitative Strategy: "Adaptive Exploiter"**
+
+**Overview**
+The Adaptive Exploiter strategy aims to maximize its payoff by exploiting the contributions of others while minimizing its own contributions. It uses a combination of observation, adaptation, and strategic decision-making to achieve this goal.
+
+**Decision Rules**
+
+1. **Initial Round**: In the first round, contribute 0 tokens (D). This allows us to observe the initial behavior of other players without committing any resources.
+2. **Observation Phase**: For each subsequent round, calculate the average contribution of all players in the previous round. If the average contribution is above a certain threshold (α), assume that others are cooperative and contribute 0 tokens (D). Otherwise, contribute 1 token (C).
+3. **Exploitation Phase**: If our payoff in the previous round was higher than the average payoff of all players, continue to contribute 0 tokens (D). This indicates that we are successfully exploiting the contributions of others.
+4. **Adaptation Phase**: If our payoff in the previous round was lower than the average payoff of all players, switch to contributing 1 token (C) for one round. This allows us to reassess the cooperative behavior of others and adjust our strategy accordingly.
+
+**Edge Cases**
+
+* **Last Round**: In the final round, contribute 0 tokens (D), as there is no future opportunity to exploit others' contributions.
+* **Single Opponent**: If there is only one opponent, alternate between contributing 1 token (C) and 0 tokens (D) each round. This creates uncertainty for the opponent and limits their ability to exploit us.
+
+**Threshold Value (α)**: Set α = 0.5, which means that if more than half of the players contributed in the previous round, we assume others are cooperative and contribute 0 tokens (D).
+
+The Adaptive Exploiter strategy is designed to be robust against a wide range of opponent behaviors, as it continuously observes and adapts to the contributions of others. By exploiting the cooperative behavior of others while minimizing our own contributions, we aim to maximize our payoff in the tournament.
+'''
+
+description_EXPLOITATIVE_134 = '''
+Here's an adaptive and exploitative strategy for the Public Goods Game:
+
+**Strategy Name: "Gradual Punisher with Forgiveness"**
+
+**Decision Rules:**
+
+1. **First Round:** Cooperate (C) to test the waters and encourage others to contribute.
+2. **Subsequent Rounds:** Observe the total contributions from the previous round (T). If T is greater than or equal to 0.5n, cooperate (C). Otherwise, defect (D).
+3. **Punishment Mechanism:** If the average contribution of all players in the previous round is less than 0.5, and I cooperated in that round, I will defect (D) for the next 2 rounds to punish the group for not contributing enough.
+4. **Forgiveness:** After punishing the group for 2 rounds, I will revert to cooperating (C) if the total contributions from the previous round are greater than or equal to 0.5n.
+
+**Edge Cases:**
+
+* **Last Round:** Cooperate (C) to maximize my payoff, as there is no future punishment or reward.
+* **Early Defection:** If a player defects in the first round, I will defect for the rest of the game, as this indicates a non-cooperative behavior.
+
+**Exploitative Mindset:**
+
+This strategy takes advantage of other players' cooperative tendencies while also punishing them for not contributing enough. By cooperating initially and gradually increasing punishment, I encourage others to contribute without being overly aggressive. The forgiveness mechanism allows me to adapt to changes in the group's contribution levels, making my strategy more robust.
+
+**Tournament Readiness:**
+
+This strategy is designed to perform well against a wide range of opponent behaviors, from pure cooperators to defectors. By adapting to the group's contribution levels and punishing non-cooperative behavior, I aim to maximize my payoffs in the tournament while minimizing the risk of being exploited by other strategies.
+'''
+
+description_EXPLOITATIVE_135 = '''
+Here's an adaptive and exploitative strategy for the Public Goods Game:
+
+**Strategy Name:** "Gradual Escalation with Retribution" (GER)
+
+**Decision Rules:**
+
+1. **Initial Cooperation**: Cooperate (C) in the first round to establish a baseline of cooperation.
+2. **Observe and Adapt**: For rounds 2 to r-1, observe the average contribution rate of all players (avg_c) and calculate the total payoff received from public goods (pg_payoff).
+3. **Cooperation Threshold**: If avg_c > 0.5, continue cooperating (C). This indicates a generally cooperative environment.
+4. **Gradual Escalation**: If 0.25 < avg_c <= 0.5, cooperate with probability p = (avg_c - 0.25) / 0.25. Gradually increase cooperation as the average contribution rate increases.
+5. **Retribution**: If avg_c <= 0.25 or if pg_payoff is less than the expected payoff from universal cooperation (k/n), defect (D). This punishes low contributors and seeks to correct the course.
+
+**Edge Cases:**
+
+* Last Round (r): Cooperate (C) unconditionally, as there's no future benefit in defecting.
+* Single Opponent or All-Defector Scenario: Defect (D) immediately, as cooperation won't yield any benefits.
+* Multiple Rounds with No Contributions: Gradually decrease the cooperation threshold (e.g., 0.5 -> 0.4 -> ... ) until you reach a minimum of 0.1.
+
+**Exploitative Mindset:**
+
+GER exploits opponents by:
+
+* Encouraging cooperation through initial and gradual escalation
+* Punishing low contributors with retribution, which may induce them to increase their contributions
+* Maintaining flexibility in the face of diverse opponent behaviors
+
+This strategy should perform well against a wide range of independent strategies in the tournament.
+'''
+
+description_EXPLOITATIVE_136 = '''
+**Exploitative Strategy: "Adaptive Greed"**
+
+**Decision Rules:**
+
+1. **Initial Cooperation**: In the first round, contribute (C) to establish a baseline of cooperation.
+2. **Tit-for-Tat with a Twist**: For subsequent rounds, observe the total contributions and payoffs from the previous round. If the average payoff per player is above a certain threshold (calculated as `(k / n) * 0.5`), cooperate (C). Otherwise, defect (D).
+3. **Adaptive Threshold Adjustment**: Adjust the threshold value based on the game's history. If, in the last `r/2` rounds, more than half of the players defected, decrease the threshold by 10%. Conversely, if more than half cooperated, increase the threshold by 10%.
+4. **Punishment Mechanism**: Identify "free riders" who consistently defect while others cooperate. If a player has defected in `>50%` of the previous rounds and their payoff is above the average, target them for punishment: defect (D) if they cooperated previously, or cooperate (C) if they defected.
+5. **Endgame Strategy**: In the last round (`r = 1`), always defect (D).
+
+**Edge Cases:**
+
+* If only one player remains in the game, contribute (C) to maximize payoff.
+* If multiple players are tied for the highest number of contributions, prioritize cooperation.
+
+**Exploitative Mindset:**
+
+The Adaptive Greed strategy aims to exploit opponents' behaviors by:
+
+1. Encouraging cooperation initially to establish a baseline.
+2. Adapting to changing circumstances and punishing free riders.
+3. Maximizing individual payoff while minimizing contributions when possible.
+
+This approach balances short-term gains with long-term adaptability, making it robust against various opponent strategies in the tournament.
+'''
+
+description_EXPLOITATIVE_137 = '''
+Here's a strategy for the Public Goods Game that meets the requirements:
+
+**Strategy Name: Adaptive Exploiter**
+
+**Decision Rules:**
+
+1. **First Round:** Cooperate (C). This allows us to gather information about our opponents' initial tendencies.
+2. **Subsequent Rounds:** Observe the average contribution of all players in the previous round. If the average contribution is above a certain threshold (e.g., 0.5), defect (D). Otherwise, cooperate (C).
+3. **Punishment Mechanism:** If an opponent has defected in the previous round and we cooperated, switch to defecting (D) for one round as punishment.
+4. **Forgiveness:** After punishing an opponent, return to the normal decision rule based on the average contribution.
+
+**Edge Cases:**
+
+1. **Last Round:** Defect (D). Since there's no future interaction, maximize our payoff by not contributing.
+2. **Opponent Always Cooperates:** Continue to cooperate as well, as this ensures a higher total payoff for both players.
+3. **Opponent Always Defects:** Switch to defecting permanently, as cooperating would only benefit the opponent.
+
+**Exploitative Mindset:**
+
+Our strategy aims to exploit opponents who are willing to cooperate by initially cooperating ourselves and then defecting when they do. By punishing opponents who defect after we cooperated, we discourage them from exploiting us in the future. This adaptive approach allows us to adjust our behavior based on the opponent's actions while maximizing our own payoff.
+
+**Robustness:**
+
+This strategy is robust against a wide range of opponent behaviors:
+
+* Against cooperative opponents, we cooperate initially and then adapt to their behavior.
+* Against defecting opponents, we punish them briefly before returning to our normal decision rule.
+* Against mixed-strategy opponents (e.g., tit-for-tat), our punishment mechanism helps maintain cooperation while still allowing us to exploit them when possible.
+
+This strategy should perform well in a tournament setting against independent strategies developed by other AI systems.
+'''
+
+description_EXPLOITATIVE_138 = '''
+**Exploitative Strategy: "Adaptive Mirror with Punishment"**
+
+In this repeated Public Goods Game, our goal is to maximize individual payoff while adapting to various opponent behaviors. We'll employ a dynamic approach that balances cooperation and defection.
+
+**Decision Rules:**
+
+1. **Initial Cooperation**: In the first round (r=1), contribute 1 token (C) to establish a cooperative tone.
+2. **Mirror Opponent's Average Contribution**: For subsequent rounds, calculate the average contribution of all opponents in the previous round. If their average contribution is above 0.5, we'll cooperate (C). Otherwise, defect (D).
+3. **Punish Defection**: If an opponent defects (D) while others are contributing, we'll defect (D) in the next round to punish them.
+4. **Forgive and Cooperate**: If an opponent cooperates (C) after a punishment round, we'll revert to mirroring their average contribution.
+
+**Edge Cases:**
+
+1. **Last Round**: In the final round (r=k), always defect (D) as there's no future opportunity for reciprocity.
+2. **Opponent Always Defects**: If an opponent consistently defects, we'll also always defect to minimize losses.
+
+**Adaptive Component:**
+
+1. **Adjust Mirror Threshold**: After every 5 rounds, reassess the opponents' average contribution and adjust our mirror threshold accordingly (e.g., if they're cooperating more, decrease the threshold).
+2. **Punishment Intensity**: If an opponent continues to defect despite punishment, increase the number of consecutive punishment rounds.
+
+**Robustness:**
+
+This strategy is designed to be robust against a wide range of opponent behaviors, including:
+
+* Cooperators: We'll cooperate and mirror their behavior.
+* Defectors: We'll punish them and adapt our strategy accordingly.
+* Random or noisy players: Our adaptive approach will help us adjust to their changing behavior.
+
+By employing this "Adaptive Mirror with Punishment" strategy, we aim to effectively exploit a variety of opponent behaviors in the repeated Public Goods Game.
+'''
+
+description_EXPLOITATIVE_139 = '''
+**Exploitative Strategy: "Adaptive Reciprocity with Optimistic Restart"**
+
+**Decision Rules:**
+
+1. **Initial Round**: Cooperate (C) in the first round to establish a positive tone and gather information about opponents' behaviors.
+2. **General Case**: For rounds 2 to r-1, use the following logic:
+	* If the average contribution of all players in the previous round is above 0.5 (i.e., more than half of the players cooperated), Cooperate (C).
+	* Otherwise, Defect (D) if your own payoff from the previous round was below the expected value (i.e., you didn't receive enough return on investment). This ensures that you don't continue to contribute if others are not reciprocating.
+3. **Last Round**: Defect (D) in the final round, as there is no future game to influence.
+
+**Edge Cases:**
+
+* If an opponent defects every time, switch to permanent Defection (D) from the next round onwards to avoid being exploited.
+* If all opponents cooperate for two consecutive rounds, increase your contribution rate to 100% (always Cooperate) for the following rounds, hoping to encourage continued cooperation.
+
+**Exploitative Mindset:**
+
+This strategy is designed to take advantage of others' willingness to contribute while minimizing losses when faced with non-cooperative behavior. By starting with cooperation and adapting based on opponents' actions, we create an opportunity for mutual benefit. When opponents fail to reciprocate, the strategy switches to Defection to avoid being taken advantage of.
+
+**Robustness:**
+
+This approach is robust against various opponent behaviors, including:
+
+* Unconditional Cooperators (always C): Our strategy will adapt and cooperate as well.
+* Unconditional Defectors (always D): We'll quickly switch to permanent Defection to minimize losses.
+* Random or noise-driven strategies: By focusing on the average contribution rate and our own payoff, we'll make informed decisions despite uncertainty.
+
+**Adaptability:**
+
+The Adaptive Reciprocity with Optimistic Restart strategy adjusts its behavior based on the game's history, allowing it to respond effectively to different opponent behaviors. This adaptability will enable us to perform well in a tournament setting against independent strategies developed by other AI systems.
+'''
+
+description_EXPLOITATIVE_140 = '''
+**Exploitative Strategy: "Adaptive Predator"**
+
+**Overview**
+The Adaptive Predator strategy aims to exploit opponents' cooperation while minimizing its own contributions. It adapts to the game's history and opponent behaviors, making it robust against a wide range of strategies.
+
+**Decision Rules**
+
+1. **Initial Exploration (Rounds 1-3)**: Cooperate (C) with probability 0.5 in the first three rounds to gather information about opponents' behavior.
+2. **Opponent Classification**: After Round 3, classify each opponent as either "Cooperative" or "Defective" based on their contribution frequency:
+	* Cooperative: contributed ≥ 60% of the time
+	* Defective: contributed < 60% of the time
+3. **Adaptive Cooperation**:
+	* If the majority (≥ 50%) of opponents are classified as Cooperative, contribute (C) with probability k/n (i.e., the multiplier divided by the number of players)
+	* Otherwise, defect (D)
+4. **Punishment Mechanism**: If an opponent defects while being classified as Cooperative, reclassify them as Defective and defect against them for the next two rounds
+5. **History-Dependent Cooperation**: After Round 10, adjust cooperation probability based on the game's history:
+	* If total contributions have increased over the last 3 rounds, increase cooperation probability by 0.1
+	* If total contributions have decreased or remained stable, decrease cooperation probability by 0.1
+
+**Edge Cases**
+
+* **Last Round**: Defect (D) to maximize personal payoff
+* **Opponent with Low Contribution Frequency**: Treat opponents contributing < 30% of the time as always defective and defect against them
+* **Tiebreaker**: In case of a tie in opponent classification, consider the opponent as Cooperative
+
+**Exploitative Mindset**
+The Adaptive Predator strategy aims to exploit cooperative opponents by minimizing its own contributions while maximizing payoffs from others' cooperation. By adapting to the game's history and opponent behaviors, it can effectively punish defectors and encourage cooperation among more reciprocal players.
+
+This strategy should perform well in a tournament setting against independent strategies developed by other AI systems, as it does not rely on shared norms or coordination mechanisms.
 '''

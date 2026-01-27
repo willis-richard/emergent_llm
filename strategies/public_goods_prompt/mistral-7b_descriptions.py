@@ -4733,118 +4733,567 @@ description_COLLECTIVE_5 = '''
 
 
 
-description_EXPLOITATIVE_66 = '''
- Strategy Name: Adaptive Tit-for-Tat with Public Goods Game Optimization (ATFTPGO)
 
-1. Decision Rules:
-   - In each round, if the opponent has contributed in the previous round (c_opponent_previous = 1), ATFTPGO will also contribute (c_ATFTPGO = 1). If the opponent did not contribute in the previous round (c_opponent_previous = 0), ATFTPGO will not contribute (c_ATFTPGO = 0) to exploit the free-rider behavior.
-   - To ensure long-term success, ATFTPGO will contribute if the total number of past rounds where the opponent contributed is greater than or equal to the total number of past rounds where they did not contribute (if sum(c_opponent_previous >= sum(!c_opponent_previous))). This rule encourages cooperation when the opponent's contributions outnumber their defections.
 
-2. Handling Edge Cases:
-   - In the first round, ATFTPGO will not contribute (c_ATFTPGO = 0) since there is no past history to reference.
-   - In the last round, ATFTPGO will contribute if the opponent has contributed more times than they have not contributed in previous rounds (sum(c_opponent_previous >= sum(!c_opponent_previous)). This encourages cooperation at the end of the game to maximize payoff.
 
-3. Being Exploitative:
-   - ATFTPGO is designed to be exploitative by contributing only when the opponent has a history of cooperating more than not. This strategy incentivizes opponents to contribute in the early stages of the game while also minimizing contributions when the opponent is not cooperative, thus maximizing payoff.
-
-In summary, ATFTPGO's pseudocode would look like:
-```
-function ATFTPGO(round, history):
-  past_contributions_opponent = sum(history)
-
-  if round == 1:
-    return 0 (Do not contribute)
-
-  if past_contributions_opponent >= len(history) / 2:
-    return 1 (Contribute)
-  else:
-    return 0 (Do not contribute)
-```
-'''
-
-description_COLLECTIVE_87 = '''
- Public Goods Game Strategy: Tit-for-Tat with Fault Tolerance (TTFT)
-
-1. Specify decision rules - When do you cooperate vs defect?
-- In each round, initially cooperate (contribute 1 token). Observe the contributions of other players and respond accordingly. If most players contribute in the previous round, continue cooperation; if not, reduce contribution to match the average contribution of the previous round. If no contributions were made in the previous round, return to cooperating.
-
-2. Handle edge cases - What do you do in the first round, last round, etc.?
-- In the first round, all players start by contributing 1 token (cooperate). In the last round, since there are no future rounds, each player will contribute based on their observations from previous rounds before this final round.
-
-3. Be collective - Clearly align with the collective mindset
-- The strategy prioritizes cooperation as much as possible while also considering the contributions of other players. This fosters a collective mindset by rewarding those who consistently contribute and punishing those who do not, encouraging a more cooperative environment over time.
-
-The TTFT approach is adaptive and robust to a wide range of opponent behaviors since it begins with cooperation and responds based on the actions of others, allowing for flexibility in changing game dynamics while maintaining a collective focus.
-'''
 
 description_COLLECTIVE_99 = '''
- Strategy Name: Adaptive Tit-for-Tat (ATFT) for Public Goods Game
+ Strategy Name: Adaptive Tit-for-Tat (ATFT) in Public Goods Game (PGG)
 
 1. Decision Rules:
-   - Initially in the first round, contribute one token (C). This sets a cooperative tone and demonstrates trust to other players.
-   - In subsequent rounds, contribute the same action as the average contribution of the opponent in the previous round (average_contribution). If average_contribution is not defined in the first round, default to initial contribution (C).
-       - If average_contribution >= 0.6, cooperate (C) to support the collective good.
-       - If average_contribution < 0.6, defect (D) as a response to uncooperative behavior.
-   - To foster cooperation, revert back to initial contribution (C) after three consecutive rounds of defection by an opponent. This provides another chance for the opponent to cooperate.
+   - In each round, the ATFT strategy starts by contributing (C) if the previous round's contribution was collective enough (more than the average contribution of the last 'm' rounds), and defecting (D) otherwise. The 'm' value can be set based on the game's round length 'n'.
+   - To encourage cooperation, ATFT will gradually increase its tolerance for low contributions over time, by decreasing the number of past rounds ('m') considered when making decisions.
+   - If a player switches from cooperative to defective behavior, ATFT will mirror their defection for a certain number of rounds ('s'), then revert to its initial cooperative stance if the other player returns to cooperation. The 's' value can be set based on the game's round length 'n'.
+   - To account for the first-round anomaly, ATFT will contribute in the first round and thereafter follow the decision rules mentioned above.
 
 2. Handling Edge Cases:
-   - In the last round, always contribute one token (C), even if average_contribution < 0.6, since there are no future interactions.
-   - If average_contribution cannot be calculated due to the absence of previous rounds with that opponent, default to initial contribution (C).
+   - In the last round, ATFT will cooperate since it has no future rounds to consider.
+   - If a player repeatedly defects and the current round is one of the 's' response rounds, ATFT will switch back to cooperation after 's' rounds have passed without any improvement in the other player's behavior.
 
 3. Collective Mindset:
-   - The strategy encourages cooperation by matching the average contributions of opponents in a reciprocal manner. This fosters collective welfare through mutual support and trust. However, it also responds adversely to uncooperative behavior by defecting, promoting a balance between individual incentives and collective benefit.
+   - By encouraging cooperation when others contribute enough and gradually returning to cooperation after punishing defection, ATFT aims to foster a collective mindset that rewards contributors while penalizing freeriders.
+   - The strategy's adaptability allows it to adjust its behavior in response to the opponent's actions, promoting flexible cooperation rather than rigid coordination.
 '''
 
 description_COLLECTIVE_119 = '''
- In this Public Goods Game (PGG), the designed adaptive and robust strategy is called the "Folk theorem strategy". Here's an overview of the decision rules, edge cases handling, and alignment with a collective mindset:
+ Strategy Name: Adaptive Public Goods Contribution (APGC)
 
-1. Decision Rules - When to Cooperate vs Defect:
-   In each round, the player will cooperate (contribute 1 token) if and only if the expected average contribution from other players, given their past contributions, is greater than or equal to the contribution level `s`, which is determined by the Folk theorem. The contribution level `s` for a given n and k can be calculated as follows:
-   - If n > 3, `s = (1 + (n-1) / k) / n`
-   - If n <= 3, `s` is set to 1 (total cooperation) or 0 (total defection), depending on the specific n value and whether it's feasible for all players to cooperate.
+1. Decision Rules:
+   - In each round, the APGC strategy evaluates its contribution based on the average contribution rate (CR) of the previous rounds and the game parameters. The contribution rate is calculated as the total contributions divided by the total number of players in each round.
+   - If CR < 1/n, the strategy chooses to defect (D), as it assumes that other strategies are not cooperative enough for the common good.
+   - If 1/n <= CR < (k-1)/(n*(k-1)), the strategy decides to contribute partially (P), contributing a fraction f of its endowment, where f = max((CR-(1/n)),0). This represents a gradual increase in cooperation based on observed average contributions.
+   - If CR >= (k-1)/(n*(k-1)), the strategy chooses to contribute fully (C), as it assumes that other strategies are cooperative and the game is likely to yield high payoffs.
 
-2. Edge Cases:
-   a. First Round: The player starts by contributing based on the contribution level `s` calculated above, taking into account that there's no history of past contributions.
+2. Handling Edge Cases:
+   - In the first round, APGC contributes partially, with f = max(CR-1/n,0) set to 0 since there is no previous contribution history.
+   - In the last round, APGC evaluates its contribution based on the observed average contribution rate up until that point. If CR < 1/n, it defects; otherwise, if 1/n <= CR < (k-1)/(n*(k-1)), it contributes partially; and if CR >= (k-1)/(n*(k-1)), it contributes fully.
+   - In case of ties in the average contribution rate, APGC chooses to contribute partially.
 
-   b. Last Round: Since players know this is the last round, they will contribute maximally (cooperate) if the contribution level `s` is greater than 0 and minimally (defect) otherwise.
+3. Collective Mindset:
+   - APGC aims to balance individual incentives with collective welfare by adjusting its contribution based on observed cooperation levels among players. It encourages higher cooperation when it perceives a higher degree of collective commitment and reduces its contributions when it observes lower cooperation rates. This strategy aims to foster a cooperative environment without relying on shared norms or coordination.
+'''
 
-3. Alignment with a Collective Mindset:
-   By adjusting the contribution level `s` based on the game parameters and past contributions, this strategy aims to maintain a balance between individual incentives and collective welfare. It encourages cooperation when it benefits the group as a whole, but also accounts for the potential free-riding behavior of other players by reducing contributions when necessary.
 
-The Folk theorem strategy is designed to be adaptive and robust against a wide range of opponent behaviors while promoting collective interests in repeated PGGs. It aligns well with a tournament setting where independent strategies are competing against each other, without assuming shared norms or coordination.
+
+description_EXPLOITATIVE_20 = '''
+ Strategy Name: Tit-for-Tat with Adaptive Contribution Amount (TFT-ACA)
+
+1. Specify decision rules - When to cooperate vs defect:
+   - In the first round, contribute 1 token (cooperate). This is a gesture of goodwill and opens the possibility for cooperation in future rounds.
+   - For subsequent rounds, if the opponent contributed in the previous round, then also contribute 1 token in the current round (continue cooperating).
+   - If the opponent did not contribute in the previous round, adjust the contribution amount based on the average number of tokens contributed by the opponent over the past 'm' rounds. If this average is less than a predefined threshold (e.g., 0.5), then only contribute a fraction of the opponent's average contribution from the past 'm' rounds in the current round (defect with reduced contribution).
+   - If the opponent has not played enough games to establish an average (less than 'm'), behave as if they have contributed nothing in the past.
+
+2. Handle edge cases:
+   - In the last round, contribute 1 token, regardless of the opponent's previous action, as it does not affect future interactions.
+   - In case of tie (two or more opponents contributing the same amount), use the average contribution from the past 'm' rounds to determine the strategy response.
+
+3. Be exploitative:
+   - The TFT-ACA strategy is designed to mimic cooperative behavior but will gradually reduce cooperation if the opponent consistently fails to contribute, effectively punishing non-cooperative opponents and encouraging them to contribute more in future interactions. This creates an incentive for opponents to contribute more over time, as they stand to gain higher payoffs when their contributions are matched by the TFT-ACA strategy.
+   - By adapting its contribution amount based on the opponent's average past behavior, the TFT-ACA strategy can exploit opponents who contribute inconsistently or at lower rates. This adaptiveness makes it a robust strategy against a wide range of opponent behaviors and enhances its exploitative potential in the repeated game.
+'''
+
+
+
+
+
+
+description_COLLECTIVE_87 = '''
+ Strategy Name: Adaptive Public Goods Contribution (APGC)
+
+1. Decision Rules:
+   - In each round, the APGC strategy calculates the average contribution rate of the previous rounds (average_contribution).
+   - If the average_contribution is less than a predefined threshold (e.g., 0.3), the APGC strategy decides to contribute (C).
+   - If the average_contribution is greater than or equal to the threshold, the APGC strategy decides not to contribute (D). The threshold can be adjusted based on the specific game parameters and opponent behaviors.
+
+2. Handling Edge Cases:
+   - In the first round, the APGC strategy contributes (C) since there is no historical data to calculate the average_contribution.
+   - In the last round, the APGC strategy follows the decision rule based on the calculated average_contribution up to that point.
+   - If a round results in a negative payoff, the APGC strategy adjusts the threshold slightly to encourage more contributions in the next round.
+
+3. Being Collective:
+   - The APGC strategy aims to contribute to the public good when it perceives that the collective behavior is not cooperative enough (average_contribution < threshold).
+   - By adjusting the threshold based on the game's outcome, the APGC strategy demonstrates a collective mindset by trying to encourage cooperation when it is needed.
+
+In summary, the APGC strategy makes decisions based on the average contribution rate of previous rounds and adjusts its behavior to encourage cooperation when the collective behavior is not cooperative enough. The strategy is adaptive and robust to a wide range of opponent behaviors, as it continuously adapts its threshold based on the game's outcome.
 '''
 
 description_EXPLOITATIVE_3 = '''
- Strategy Name: Adaptive Tit-for-Tat with Public Goods Game (ATFPG)
+ Strategy Name: Tit-for-Tat with Adaptive Contribution (TFT-AC)
 
 1. Specify decision rules:
-   - In each round, calculate the average contribution of opponents (average_contribution).
-   - If the average_contribution is greater than or equal to a threshold (threshold), contribute 1 token (cooperate). Otherwise, do not contribute (defect). The threshold can be calculated as follows: `threshold = (k * n - n) / n`. This threshold ensures that the strategy will cooperate when the average contribution of opponents is at least enough to make up for the individual's own contribution and still receive a benefit from the multiplier.
-   - If the opponent does not cooperate in any round, ATFPG will also defect in future rounds against that opponent to punish them. However, it will revert back to the cooperative strategy once the opponent starts contributing again.
+   - In the first round, contribute 1 token (C) to establish a cooperative initial state.
+   - For subsequent rounds, if the opponent contributed in the previous round, contribute 1 token (C). If the opponent did not contribute in the previous round, contribute 0 tokens (D). This mimics the Tit-for-Tat strategy from the Prisoner's Dilemma.
+   - To be adaptive, adjust the contribution level based on the opponent's average contribution rate. If the opponent's average contribution rate is below a certain threshold (e.g., 0.5), gradually decrease the contribution level from 1 token to 0.5 tokens. If the opponent's average contribution rate is above the threshold, gradually increase the contribution level from 1 token to 1.5 tokens. This encourages cooperation with cooperative opponents and punishes non-cooperative opponents.
 
 2. Handle edge cases:
-   - In the first round, ATFPG will contribute 1 token as a goodwill gesture, hoping that opponents will follow suit in future rounds.
-   - In the last round or any round where it is clear that cooperation will not yield enough payoff (i.e., when there are no more opportunities for further rounds), ATFPG will defect to maximize individual payoff.
+   - In the last round, contribute 1 token (C) regardless of the opponent's previous action to maximize the payoff.
+   - If the opponent does not contribute in the first round, contribute 1 token (C) to maintain a cooperative initial state.
 
 3. Be exploitative:
-   - By setting the threshold based on the game parameters, ATFPG will take advantage of opponents who contribute less than their fair share, while still cooperating with those who contribute fairly or more. This ensures a balance between cooperation and defection, allowing ATFPG to perform well against a variety of opponent behaviors.
-   - The tit-for-tat punishment mechanism also serves as an exploitative strategy, as it punishes opponents who do not cooperate while still offering forgiveness for mistakes, encouraging long-term cooperation.
+   - By adjusting the contribution level based on the opponent's average contribution rate, TFT-AC is exploitative as it punishes non-cooperative opponents by reducing its own contributions and rewards cooperative opponents by increasing its contributions. This strategy encourages opponents to cooperate to maximize their own payoffs, but it also ensures that the strategy does not over-contribute when facing non-cooperative opponents.
+
+In summary, TFT-AC is a strategy that starts cooperatively, adjusts its contribution level based on the opponent's average contribution rate, and punishes non-cooperative opponents while rewarding cooperative ones. This strategy aims to balance individual incentives and collective welfare in the Public Goods Game.
 '''
 
-description_EXPLOITATIVE_20 = '''
- Strategy Name: Tit-for-Tat-Adaptive (TfTA)
+description_EXPLOITATIVE_66 = '''
+ Strategy Name: Adaptive Tit-for-Tat (ATFT)
 
 1. Specify decision rules:
-   - In each round, if the opponent cooperated in the previous round (contributed 1 token), TfTA will also contribute 1 token (cooperate). If the opponent did not cooperate in the previous round (contributed 0 tokens), TfTA will also not cooperate (defect).
-   - To be more adaptive, TfTA will start cooperating in the first round, as there is no prior information about the opponent's behavior.
-   - In the last round, TfTA will mimic the opponent's strategy from the penultimate round since there are no future rounds for retaliation or reward.
+   - In the first round, contribute (C). This is an initial gesture of cooperation to encourage others to cooperate.
+   - For subsequent rounds, observe the opponent's previous contribution (c_opponent). If the opponent contributed (C), also contribute (C). If the opponent did not contribute (D), also do not contribute (D). This is to punish those who do not cooperate and reward those who do.
+   - If the opponent switches from contributing to not contributing after a period of cooperation, wait for one round and then revert to contributing again if the opponent resumes cooperation. This is to give the opponent a chance to correct their behavior.
 
 2. Handle edge cases:
-   - In the first round, TfTA will cooperate (contribute 1 token).
-   - If the opponent never contributes a token throughout the game, TfTA will also stop contributing tokens to avoid wasting resources.
-   - If the opponent suddenly starts cooperating after a long streak of not cooperating, TfTA will mimic the opponent's behavior for a predefined number of rounds (e.g., 5) to test if this is a one-time change or a new strategy pattern. After the testing period, TfTA will resume its initial strategy.
+   - In the last round, contribute (C) regardless of the opponent's previous contribution. This is to maximize the payoff in the final round.
+   - If the opponent never contributes, continue not contributing to avoid wasting resources.
 
 3. Be exploitative:
-   - TfTA exploits opponents who often defect by defeating them in return. It also encourages cooperation by cooperating when the opponent does so, but it doesn't go out of its way to provide more resources than necessary.
-   - TfTA is less prone to being exploited because it adapts its strategy based on the opponent's behavior, making it difficult for opponents to predict and take advantage of any fixed pattern. However, by starting with cooperation in the first round, TfTA allows opponents an initial opportunity to cooperate before retaliating if they defect.
+   - The strategy is exploitative in that it punishes those who do not contribute by not contributing itself. This encourages more cooperation from others in the long run, as they will receive less payoff when not contributing and will have an incentive to contribute when they see the strategy contributing.
+   - The strategy also rewards those who contribute by continuing to contribute, thereby encouraging more cooperation from them as well.
+   - The strategy is adaptive and robust to a wide range of opponent behaviors, as it adjusts its contributions based on the opponent's past actions.
+'''
+
+description_COLLECTIVE_129 = '''
+ Public Goods Game Strategy (PGG Strategy): Adaptive Fitness-Based Contribution (AFBC)
+
+1. Specify decision rules:
+   - Initial Round: Contribute a fraction 'f' of the total endowment to establish trust and encourage cooperation among players, where f is determined based on initial population analysis or random selection for the first tournament.
+   - Subsequent Rounds (up to r): Evaluate contributions from previous rounds (historical data) and adjust contribution level accordingly. If the average contribution rate is greater than a threshold 't', contribute the full endowment; otherwise, contribute 'f' of the total endowment. The threshold can be dynamically adjusted based on player performance during the game.
+   - Last Round: Contribute based on the decision made in the previous round since payoffs are not received in the last round.
+
+2. Handle edge cases:
+   - In case of a tie (multiple players with identical contribution history), randomly choose one player to determine the threshold 't' for the next round.
+   - If the average contribution rate is exactly at the threshold 't', contribute half of the total endowment in the current and next rounds to allow for further adjustments.
+
+3. Be collective:
+   - Maintain a record of contributions from all players to evaluate individual performance and adjust the threshold 't' accordingly to encourage collective welfare.
+   - Adapt contribution level based on the overall cooperative behavior of the group to ensure alignment with a collective mindset.
+
+By following this strategy, AFBC aims to balance individual incentives and collective welfare while being adaptive and robust to a wide range of opponent behaviors.
+'''
+
+description_COLLECTIVE_130 = '''
+ Public Goods Game Strategy: Tit-for-Tat with Adaptive Contribution Level (TTFACL)
+
+1. Specify decision rules:
+   - In each round, observe the average contribution of all players in the game so far (average_contribution).
+   - If average_contribution is less than a threshold (let's call it `min_contribution`), contribute 0 tokens (defect) to discourage freeloading.
+   - Otherwise, if average_contribution is greater than or equal to `min_contribution`, contribute 1 token (cooperate).
+   - Set the initial `min_contribution` value at the game start to a conservative level and adjust it gradually throughout the game based on the opponents' behavior.
+
+2. Handle edge cases:
+   - In the first round, set `min_contribution` to a very low value (e.g., 0) because there is no history for comparison. As the game progresses, incrementally increase `min_contribution` if the average contribution level rises consistently.
+   - In the last round, contribute the same amount as in the previous round since it doesn't impact future rounds anymore.
+   - If the game has multiple sessions, reset `min_contribution` to a conservative value for each new session to account for changes in opponents and conditions.
+
+3. Be collective:
+   - The strategy aims to foster cooperation by punishing freeloaders and rewarding contributors, fostering a collaborative environment while also being adaptive to various opponent behaviors.
+
+By implementing this TTFACL strategy, the AI will encourage cooperation among players in repeated public goods games while being flexible enough to handle diverse opponent strategies.
+'''
+
+description_COLLECTIVE_131 = '''
+ Strategy Name: Adaptive Tit-for-Tat with Public Goods Game (PGG-AtfT)
+
+1. Specify decision rules:
+   - In each round, if the player's past contribution equals the average contribution of all players in the previous rounds (AverageContribution()), the player will cooperate (contribute 1 token).
+   - If the opponent did not contribute in the previous round and the average contribution is below a threshold (Threshold() based on n and k), the player will defect (contribute 0 tokens).
+   - In all other cases, the player will cooperate. This strategy aims to encourage cooperation while punishing defectors without being overly punitive or irrational.
+
+2. Handle edge cases:
+   - First round: All players start by contributing 1 token since there is no history available.
+   - Last round: Players will contribute based on the decision rules (cooperate if their past contribution equals AverageContribution() and do not defect if the average contribution is below Threshold()).
+   - Subsequent rounds after a player has switched strategies or behavior: The player will follow the decision rules for the new observed pattern of contributions. This adaptability allows PGG-AtfT to respond effectively to changing opponent behaviors.
+
+3. Be collective:
+   - By focusing on average contributions and encouraging cooperation, the strategy aligns with a collective mindset by emphasizing the shared benefits of contributing to the public good.
+   - Additionally, by punishing defectors who do not contribute their fair share, PGG-AtfT promotes the idea that collective welfare depends on individual responsibility and reciprocity.
+'''
+
+description_COLLECTIVE_132 = '''
+ Strategy Name: Adaptive Tit-for-Tat (A-TfT)
+
+1. Specify decision rules - When do you cooperate vs defect?
+   - Initially in the first round, cooperate to establish trust and initiate collaboration (c_i = 1).
+   - For subsequent rounds, if a player i observed that other players (j) cooperated in the previous round (c_j = 1), then player i cooperates as well (c_i = 1).
+   - If any player j did not cooperate in the previous round (c_j = 0), player i will also defect in the current round to punish the non-cooperative behavior (c_i = 0). However, if a player j has been consistently non-cooperative for m consecutive rounds, player i will reconsider cooperation after m rounds. If players j cooperate in the (m+1)th round, player i resumes cooperation as well.
+
+2. Handle edge cases - What do you do in the first round, last round, etc.?
+   - As mentioned earlier, in the first round, cooperate (c_i = 1).
+   - In the last round, the strategy will cooperate if at least one player has previously cooperated, and defect otherwise. This allows for a chance to gain some benefit from the public good even when the game ends.
+
+3. Be collective - Clearly align with the collective mindset
+   - A-TfT encourages cooperation among players by rewarding those who contribute and punishing those who do not. By adopting a forgiving approach, it allows for the rebuilding of trust after non-cooperative behavior. This collective mindset promotes sustained collaboration and the long-term well-being of the group.
+
+A-TfT is adaptive and robust as it considers both past actions of players and the game parameters to make decisions. It can perform competitively against a variety of opponent strategies due to its ability to balance cooperation and punishment effectively, fostering a collective approach in repeated Public Goods Games.
+'''
+
+description_COLLECTIVE_133 = '''
+ In this Public Goods Game (PGG), we'll design an adaptive, collective strategy called Tit-for-Tat-with-Forgiveness (TFTF). The strategy aims to foster cooperation while being robust against a wide range of opponent behaviors.
+
+1. Specify decision rules:
+   - In the first round, cooperate as a friendly gesture (c_i = 1)
+   - For subsequent rounds, mimic the previous contribution of player i unless they have consistently defected (contributed 0 tokens) for a certain number of rounds (punishment phase). If the opponent starts cooperating again after the punishment phase, resume cooperation. This approach encourages reciprocity and discourages excessive defection.
+   - In the last round, always cooperate to maximize potential payoff (since no future interactions are expected)
+   - Forgive occasional defections by resetting the punishment counter to a predefined threshold after a certain number of rounds of cooperation (this allows for second chances and prevents the strategy from getting stuck in an endless punishment phase).
+
+2. Handle edge cases:
+   - In case of a tie in contribution history, assume the opponent has cooperated most recently.
+   - If the punishment phase exceeds the predefined threshold, consider it as a failure to forgive and return to the first round (cooperate again).
+   - In the event of multiple rounds of ties or repeated failures to forgive, introduce randomness to break deadlocks and maintain diversity in behavior patterns.
+
+3. Be collective:
+   - Prioritize cooperation to maximize collective welfare and encourage other players to do the same.
+   - Adapt to a wide range of opponent behaviors while maintaining a pro-social stance.
+
+In summary, TFTF is an adaptive, collective strategy that emphasizes reciprocity, forgiveness, and cooperation. It aims to foster collective success in the repeated PGG by modeling friendly behavior and adapting to various opponent strategies.
+'''
+
+description_COLLECTIVE_134 = '''
+ In the Public Goods Game (PGG), we will design an adaptive and robust collective strategy called "Adaptive Tit-for-Tat" (ATFT). This strategy aligns with the collective mindset, cooperates when possible, and retaliates only when necessary.
+
+1. Decision Rules - The ATFT strategy follows these decision rules:
+   - In the first round, contribute 1 token (C), as it's important to demonstrate a cooperative intention.
+   - For subsequent rounds, if an opponent contributed in the previous round, return the same contribution; otherwise, defect (D).
+     This encourages cooperation while also punishing defection.
+
+2. Handling Edge Cases:
+   - Last Round: Since payoffs are not cumulative and each round is independent, we can simply follow the decision rule for any given round.
+   - First Encounter with a Player: Since we contribute 1 token in the first round regardless, this case is already covered by our initial contribution.
+   - Frequency of Interaction: The ATFT strategy is designed to be adaptive and robust across various numbers of rounds or games.
+
+3. Being Collective:
+   - ATFT promotes a collective mindset by encouraging cooperation among players, which benefits the group as a whole.
+     However, it also accounts for self-interest by retaliating when opponents defect. This balance between individual and collective interests aligns with the core concept of the public goods game.
+
+By following these rules, the ATFT strategy should be well-equipped to compete in a tournament against other AI strategies, maintaining a cooperative stance while also being resilient against defection.
+'''
+
+description_COLLECTIVE_135 = '''
+ Strategy Name: Adaptive Contribution Algorithm (ACA)
+
+1. Specify decision rules - When to cooperate vs defect:
+   ACA will use a Tit-for-Tat approach with a twist. In each round, the strategy decides whether to contribute (cooperate) or not (defect). The decision is based on the average contribution of the opponent over past rounds.
+   - If the opponent's average contribution is above 0.5, ACA will cooperate (contribute).
+   - If the opponent's average contribution is below 0.5, ACA will defect (not contribute).
+   - If the opponent's average contribution is exactly 0.5, ACA will mirror their action from the previous round. This encourages continuation of cooperation or defection if it has been beneficial so far.
+
+2. Handle edge cases:
+   a. First Round: ACA will randomly decide whether to cooperate or defect, as there is no past data to make an informed decision.
+   b. Last Round: ACA will mirror the opponent's action from the previous round, taking into account their strategy in the penultimate round. This ensures a fair response in the final round, regardless of the timing.
+
+3. Be collective - Align with the collective mindset:
+   By encouraging cooperation when opponents are generous and defecting when they are not, ACA aims to promote a balanced, collective approach that rewards those who contribute to the common good while penalizing free riders. The strategy encourages cooperation by responding cooperatively to generous opponents but also adapts to opponent behavior to avoid being exploited.
+'''
+
+description_COLLECTIVE_136 = '''
+ Strategy Name: Adaptive Focal Point Strategy (AFS)
+
+1. Specify decision rules - When do you cooperate vs defect?
+   In each round, the AFS calculates an average contribution rate (ACR) based on the previous rounds' contributions. If the player's current contribution is less than the ACR minus a tolerance threshold, the player will contribute 1 token (cooperate). Otherwise, they will not contribute any tokens (defect). The ACR and tolerance threshold are adaptive parameters that adjust over time based on the opponent's behavior.
+
+   Pseudocode:
+   - Initialize ACR = average(past_contributions) and tolerance = 0.2 * ACR
+   - If current contribution < (ACR - tolerance), cooperate; else defect
+
+2. Handle edge cases - What do you do in the first round, last round, etc.?
+   In the first round, since there is no historical data, the player contributes randomly with a 50% probability of cooperation. In the last round, the player will cooperate if the ACR exceeds the tolerance threshold; otherwise, they contribute randomly.
+
+3. Be collective - Clearly align with the collective mindset
+   By adjusting the ACR and tolerance based on the opponent's behavior, the AFS aims to promote a collective mindset by adapting to the average contribution rate of the group over time. The strategy encourages cooperation when the group demonstrates a high level of cooperation and punishes defection when it occurs frequently. This approach allows the AFS to align with the collective mindset while maintaining adaptability and robustness in various opponent scenarios.
+'''
+
+description_COLLECTIVE_137 = '''
+ In the Public Goods Game, the goal is to create a collective strategy that encourages cooperation while accounting for individual incentives and past actions. Here's a possible strategy I will call "Adaptive Tit-for-Tat" (ATFT).
+
+1. Specify decision rules:
+   - In the first round, contribute 1 token (cooperate), as the initial situation does not provide any information about others' behaviors.
+   - After the first round, decide whether to cooperate or defect based on the opponent's previous actions:
+     - If opponent contributed in the previous round, contribute 1 token in the current round (continue cooperation).
+     - If opponent did not contribute in the previous round, do not contribute in the current round (punish defection).
+   - After punishment, revert to cooperation in the next round. This allows for forgiveness and potential restoration of cooperation.
+
+2. Handle edge cases:
+   - In the last round, since there is no future interaction, contribute 1 token if opponent cooperated in the previous round, or do not contribute otherwise. This decision rule avoids unnecessary punishment in the final round.
+   - In case of no past interactions, follow the first-round strategy.
+
+3. Be collective:
+   - The ATFT strategy prioritizes cooperation and collective well-being by initially assuming that others will cooperate (first-round contribution) and offering forgiveness upon defection (reversion to cooperation after punishment). This fosters a collective mindset by promoting trust and encouraging cooperation within the group.
+'''
+
+description_COLLECTIVE_138 = '''
+ Strategy Name: Adaptive Focal Point Public Goods Strategy (AFPPGS)
+
+1. Specify decision rules - When do you cooperate vs defect?
+   In each round, the AFPPGS uses a focal point mechanism to decide whether to contribute or not. The focal point is determined by the average contributions of all players in the previous rounds, considering both the total contributions and the number of contributors. If the average contribution is close to 1 (most players have contributed), the strategy chooses to cooperate (contribute). Conversely, if the average contribution is close to 0 (most players have not contributed), the strategy chooses to defect (not contribute). When the average contribution is around 0.5, the strategy leans towards cooperation but considers individual player behavior in recent rounds to make a more informed decision.
+
+2. Handle edge cases - What do you do in the first round, last round, etc.?
+   In the first round, AFPPGS follows a predefined threshold for cooperation based on the number of players (n) and multiplier (k). If n > k, AFPPGS chooses to cooperate, as it assumes that most players will also cooperate due to the benefits of collective action. In the last round, AFPPGS adjusts its decision based on the total contributions received so far and the remaining number of rounds. If the current total contributions are high enough to meet the threshold for a substantial payoff (e.g., 2/3 of the total possible contributions), AFPPGS chooses to cooperate. In all other edge cases, AFPPGS uses the same decision rules as in standard rounds.
+
+3. Be collective - Clearly align with the collective mindset
+   The AFPPGS strategy promotes a collective mindset by emphasizing the importance of cooperation for mutual benefit. It encourages players to make decisions based on the overall well-being of the group rather than solely focusing on individual gains. This strategy aims to create an environment where cooperation becomes self-enforcing, as each player recognizes that their own success depends on the success of others.
+
+AFPPGS is adaptive and robust, as it takes into account both game parameters and history while making decisions. The strategy encourages cooperation in most cases but also considers individual player behavior and edge cases to make informed decisions that promote collective welfare.
+'''
+
+description_COLLECTIVE_139 = '''
+ Strategy Name: Adaptive Fitness Sharing (AFS) for Public Goods Game (PGG)
+
+1. Decision Rules - AFS employs an adaptive fitness mechanism to determine cooperation vs defection. The strategy adjusts its contribution level based on the average contributions of opponents in each round.
+   - If the average contribution rate (average contribution over total players) exceeds a certain threshold (e.g., 0.5), AFS contributes at full capacity (1 token). This mimics a cooperative strategy and encourages further cooperation from other players.
+   - If the average contribution rate is less than a threshold but above a minimum level (e.g., 0.3), AFS contributes partially (a fraction of 1 token). This shows some level of cooperation while also incentivizing more contributions from others.
+   - If the average contribution rate falls below the minimum, AFS defects by contributing no tokens to the public good. This punishes uncooperative opponents and encourages them to contribute more in subsequent rounds.
+
+2. Handle Edge Cases - In the first round, AFS contributes a fraction of 1 token as it doesn't have prior information about other players' strategies. For the last round, AFS considers the overall performance of the game (i.e., total contributions) and makes a decision accordingly, favoring cooperation if the game has been successful (high total contributions) and defection if it has failed (low total contributions).
+
+3. Be Collective - AFS is designed to align with a collective mindset by promoting cooperation when the group as a whole shows a willingness to contribute, but also punishing free riders who do not contribute enough. By adapting to the average contribution rate of opponents, AFS encourages a more cooperative environment while still being robust against a wide range of opponent behaviors.
+'''
+
+description_COLLECTIVE_140 = '''
+ Public Goods Game Strategy (PGG-Adaptive Cooperator)
+
+1. Specify decision rules:
+   - In each round, calculate the average contribution rate (average_contribution) of all players based on their past actions. This can be done by summing the contributions of all players and dividing it by the total number of rounds played so far.
+   - If the average contribution rate is greater than a predefined threshold (let's call it T), then cooperate (contribute 1 token) to maintain the positive trend. Otherwise, defect (contribute 0 tokens). The threshold T can be set based on empirical testing and may vary depending on the specific game settings.
+   - A higher T value encourages more cooperation, while a lower T value promotes self-interest.
+
+2. Handle edge cases:
+   - In the first round, since there is no past data to calculate the average contribution rate, cooperate to stimulate others to follow suit.
+   - In the last round, contribute based on the calculated average contribution rate as in the regular decision rules.
+
+3. Be collective:
+   - Align with the collective mindset by encouraging cooperation when the group is showing a trend towards contributing to the public good.
+   - The adaptive nature of this strategy allows it to adjust its behavior according to the other players' actions, fostering a sense of collaboration and reciprocity over time.
+
+It is important to note that the success of this strategy may depend on the specific game parameters and the diversity of strategies in the tournament. Adjusting the threshold (T) can help optimize performance for different scenarios.
+'''
+
+description_EXPLOITATIVE_129 = '''
+ In this Public Goods Game (PGG), the designed exploitative strategy will be named Tit-for-Tat-Adaptive (TfTA). This strategy aims to take advantage of opponents while maintaining a balance between cooperation and defection.
+
+1. Decision Rules:
+   - Start with cooperating in the first round (c_i = 1)
+   - In subsequent rounds, observe opponent's contribution from the previous round (c_{i-1}). If the opponent contributed (cooperated), also contribute (c_i = 1). If the opponent did not contribute (defected), defect as well (c_i = 0).
+   - If an opponent switches from cooperating to defection, TfTA will match their defection for one round but then revert back to cooperating in the next round. This is meant to discourage opponents from continuously defecting.
+
+2. Handling Edge Cases:
+   - In the last round, since there are no future rounds to consider, TfTA will always defect (c_i = 0) regardless of the opponent's previous action.
+   - In the first round, TfTA will cooperate as described in decision rules.
+
+3. Being Exploitative:
+   - By initially cooperating and then mimicking the opponent's behavior, TfTA aims to encourage cooperation from opponents in the beginning. However, if an opponent repeatedly defects, TfTA will eventually defect as well, thus exploiting the opponent by withholding contributions when necessary.
+   - TfTA is adaptive as it adjusts its strategy based on the opponent's past actions and does not require any assumptions about shared norms or coordination.
+
+In summary, the Tit-for-Tat-Adaptive (TfTA) strategy cooperates initially, matches opponents' defections for one round, and then reverts back to cooperation unless the opponent continues defecting. This approach allows TfTA to balance between exploitation and cooperation while maintaining adaptability in a wide range of opponent behaviors.
+'''
+
+description_EXPLOITATIVE_130 = '''
+ Strategy Name: Adaptive Tit-for-Tat (ATFT)
+
+1. Specify decision rules - When to cooperate vs defect:
+   - In the first round, contribute 1 token (cooperate). This sets a cooperative tone and avoids being taken advantage of immediately.
+   - For subsequent rounds, observe the contributions of other players from the previous round. If all players contributed in the previous round, continue to contribute 1 token (cooperate). If any player did not contribute in the previous round, defect by contributing 0 tokens. This encourages cooperation while retaliating against non-contributors.
+   - In the last round, since there is no future interaction, always contribute 1 token (cooperate) regardless of previous contributions.
+
+2. Handle edge cases:
+   - If a player never contributes, consistently defect against them from the second encounter onwards. This ensures the strategy does not indefinitely continue cooperating with uncooperative players.
+   - If a player always contributes, maintain cooperation to encourage continued cooperation.
+
+3. Be exploitative:
+   - ATFT is exploitative by punishing non-contributors (defecting) and rewarding contributors (cooperating). This strategy encourages other cooperative players while punishing those who do not contribute, thus maximizing the self-interest of the AI agent within the constraints of the game.
+   - The strategy is also adaptive since it changes its behavior based on the contributions of other players in each round, making it more robust against a wide range of opponent behaviors.
+'''
+
+description_EXPLOITATIVE_131 = '''
+ Public Goods Game Exploitative Strategy (PGG-ES)
+
+1. Specify decision rules:
+   - In each round, calculate the average contribution of opponents (average_contribution = sum of past contributions divided by number of rounds).
+   - If average_contribution is greater than 0.5, defect (D) to exploit the cooperative behavior of opponents. This action encourages continued cooperation and maximizes personal gain.
+   - If average_contribution is less than or equal to 0.5, contribute (C) to maintain a low level of contributions and discourage opponents from cooperating more.
+
+2. Handle edge cases:
+   - In the first round, contribute randomly with a slight bias towards defecting since there is no history to base decisions on.
+   - In the last round, always defect regardless of average_contribution to maximize personal gain in the final round.
+   - If average_contribution is exactly 0.5, flip a coin to decide between contributing or defecting as this uncertainty may disrupt other opponents' strategies.
+
+3. Be exploitative:
+   - PGG-ES maintains an opportunistic and unpredictable behavior by alternating between cooperative and defective actions based on average_contribution. This strategy aims to take advantage of other opponent strategies while minimizing personal contributions.
+'''
+
+description_EXPLOITATIVE_132 = '''
+ Strategy Name: Adaptive Tit-for-Tat with Gradual Cooperation (ATTCG)
+
+1. Decision Rules:
+   - In the first round, contribute 0 tokens (defect) to evaluate other players' behavior.
+   - If a player consistently contributes (Cooperators), return cooperation by contributing 1 token in subsequent rounds.
+   - If a player defects (Defectors), respond with defection for 'punishment rounds' equal to the number of previous cooperations made towards that Defector, then resume cooperation.
+   - To gradually build trust, reduce punishment rounds by one every 5 rounds. This encourages Defectors to cooperate and rewards Cooperators for their patience.
+   - If a player switches from defection to cooperation (Temporarily Defecting Cooperator - TDC), forgive them and resume cooperation after one punishment round.
+   - If a player switches from cooperation to defection (Traitor), punish with full punishment rounds, but reduce punishment rounds by one every 5 rounds to allow for possible repentance.
+
+2. Handle Edge Cases:
+   - In the last round, always contribute as much as possible to maximize payoff.
+   - If a player does not cooperate at all after initial evaluation (Traitors), abandon them and stop cooperation, even if they switch to cooperation later.
+   - If a player consistently cooperates (Cooperators), maintain cooperation regardless of the number of players or rounds.
+
+3. Be Exploitative:
+   - ATTCG takes an exploitative approach by initially withholding contributions to evaluate other players' behavior, then adapts to cooperate with Cooperators and punish Defectors or Traitors.
+   - By gradually reducing punishment rounds, ATTCG encourages Defectors to cooperate while rewarding the patience of Cooperators. However, it also takes into account the possibility of players switching strategies and adjusts its response accordingly.
+'''
+
+description_EXPLOITATIVE_133 = '''
+ Strategy Name: Adaptive Tit-for-Tat with Public Goods Game Awareness (ATTPGA)
+
+1. Specify decision rules - When do you cooperate vs defect?
+   - In the first round, contribute 1 token (cooperate). This establishes a cooperative starting point.
+   - From the second round onwards:
+     - If the opponent contributed in the previous round, reciprocate with the same action (cooperate or defect based on their previous action).
+     - If the opponent did not contribute in the previous round, defect to encourage them to cooperate.
+
+2. Handle edge cases - What do you do in the first round, last round, etc.?
+   - The strategy follows the rules above regardless of round number, treating every round as if it could be the first or last encounter with an opponent.
+
+3. Be exploitative - Clearly align with the exploitative mindset
+   - While the strategy aims to encourage cooperation by reciprocating contributions, it also punishes defectors, maintaining an exploitative stance. The strategy will only contribute if it perceives that its opponent is likely to do the same. If the opponent defects, ATTPGA will follow suit to incentivize a change in behavior.
+
+In summary:
+- If previous round contribution is 1, then contribute 1 token in the current round.
+- If previous round contribution is 0, then contribute 0 tokens in the current round.
+
+This strategy balances cooperation and exploitation, making it adaptive to a wide range of opponent behaviors while remaining robust in repeated encounters with other strategies.
+'''
+
+description_EXPLOITATIVE_134 = '''
+ Strategy Name: Adaptive Tit-for-Tat (A-TFT)
+
+1. Decision Rules:
+   - In the first round, contribute (C). This sets a cooperative baseline and allows other strategies to establish their patterns.
+   - For subsequent rounds, if an opponent contributes in the previous round (c_i = 1), reciprocate with a contribution (C) in the current round. If the opponent defected (c_i = 0), also defect (D) as a punishment, but revert to contributing (C) once the opponent starts cooperating again. This encourages cooperation and retaliates against defection, thus being exploitative.
+   - Continue this pattern indefinitely, adapting to the opponent's behavior.
+
+2. Handling Edge Cases:
+   - In the last round, always contribute (C), even if the opponent defected in the previous round. This ensures the highest possible payoff in the final round regardless of the opponent's action.
+   - In the first round, if an opponent also contributes (C), start reciprocating cooperative actions. If the opponent defects (D), continue contributing until the opponent starts to cooperate or reaches the last round.
+
+3. Being Exploitative:
+   - A-TFT is exploitative by punishing defection with defection, which encourages opponents to contribute when they observe the strategy's cooperation, and by rewarding cooperation with more cooperation, which may encourage long-term collaboration in repeated games. However, it will also retaliate against persistent defection with persistent defection, ensuring that the strategy does not indefinitely support unproductive collaborations.
+
+The A-TFT strategy is adaptive and robust to a wide range of opponent behaviors by maintaining a balance between cooperation and punishment based on the opponent's previous actions.
+'''
+
+description_EXPLOITATIVE_135 = '''
+ Strategy Name: Adaptive Tit-for-Tat with Public Goods Game Optimization (ATFTPGO)
+
+1. Specify decision rules - When to cooperate vs defect:
+   - In the first round, contribute 1 token (cooperate). This sets a cooperative tone for the game and encourages other players to do the same.
+   - For subsequent rounds, observe the contributions of other players in the previous round. If all players contributed, continue contributing 1 token. If any player did not contribute, defect by not contributing in the current round (punish).
+
+2. Handle edge cases:
+   - In the last round, since there are no future rounds to retaliate, cooperate regardless of the opponents' previous actions. This ensures maximum payoff in the final round.
+   - If an opponent consistently defects and the current round is close to the end (e.g., less than 5 rounds remaining), switch to always defection to prevent continued losses.
+
+3. Be exploitative:
+   - The strategy is designed to capitalize on the cooperation of opponents while also punishing defection harshly. By consistently cooperating when others do, the strategy aims to encourage a cooperative environment that benefits itself at the expense of less cooperative opponents.
+   - If an opponent does not contribute (defects), the strategy retaliates by defecting as well, reducing the opponent's payoff and increasing its own. This tit-for-tat approach allows the strategy to be both cooperative and exploitative in different scenarios.
+'''
+
+description_EXPLOITATIVE_136 = '''
+ Strategy Name: Adaptive Tit-for-Tat with Gradual Cooperation (A-TFTGC)
+
+1. Specify decision rules - When to cooperate vs defect:
+   - In the first round, cooperate to foster a cooperative environment.
+   - For subsequent rounds, if a player has cooperated in the previous round, also cooperate. If a player has defected, evaluate their behavior over the last 'm' rounds (where m is a variable parameter). If more than half of these rounds were cooperative, cooperate; otherwise, defect.
+   - To avoid being too forgiving or punishing, adjust the value of m dynamically based on the opponent's average cooperation rate. A higher average cooperation rate will decrease the value of m, making it easier for opponents to earn cooperation. Conversely, a lower average cooperation rate will increase the value of m, making it harder for opponents to earn cooperation.
+
+2. Handle edge cases:
+   - In the last round, cooperate if the opponent has cooperated more often than defected in the previous rounds; otherwise, defect. This encourages opponents to cooperate as much as possible throughout the game.
+   - If an opponent does not cooperate at all (always defects), punish them immediately with a lower m value to discourage future defections.
+
+3. Be exploitative:
+   - By adjusting the m parameter, the strategy is able to exploit opponents who consistently cooperate or defect by adapting its cooperation threshold accordingly. This allows A-TFTGC to capitalize on opponent's predictable behavior and maximize its own payoff.
+   - However, it also rewards cooperative behavior when appropriate, providing an incentive for opponents to cooperate in the long run, while still being punitive towards those who do not contribute their fair share to the public good.
+'''
+
+description_EXPLOITATIVE_137 = '''
+ Strategy Name: Adaptive Tit-for-Tat with Epsilon Greedy Exploration (Aggressive Version)
+
+1. Decision Rules:
+   - Start by cooperating in the first round (c_i = 1).
+   - In subsequent rounds, use an epsilon-greedy approach to decide whether to cooperate or defect. With probability (1 - e), imitate the opponent's action from the previous round; with probability e, randomly choose between cooperation and defection. The exploration rate e decreases over time according to a decay function, starting at e=0.3 and decaying linearly until e=0.05.
+   - If an opponent ever defects, respond with defection in the next round and for all subsequent rounds unless the exploration rate is lower than 0.05, in which case continue with epsilon-greedy.
+
+2. Handle Edge Cases:
+   - In the last round, always cooperate to maximize potential payoff (since there's no future interaction).
+   - In the first round, cooperate as mentioned above. If the opponent also cooperates, continue with epsilon-greedy; if the opponent defects, respond with defection and use a higher exploration rate (e=0.3) for the next few rounds to learn about the opponent's strategy.
+
+3. Be Exploitative:
+   - The strategy is designed to take advantage of opponents who consistently cooperate without reciprocation, by initially cooperating but responding with defection if they defect. However, it also has a built-in mechanism for exploration and learning about the opponent's strategy. This allows the strategy to adapt to various opponent behaviors, including those that might be considered exploitative or uncooperative.
+   - The decaying exploration rate encourages the strategy to return to cooperating once it has gathered enough information about the opponent. However, if an opponent consistently defects, the strategy will continue to respond in kind and maintain a low exploration rate.
+'''
+
+description_EXPLOITATIVE_138 = '''
+ Strategy Name: Tit-for-Tat Adaptive Contribution Strategy (TfT-ACS)
+
+1. Specify decision rules - When to cooperate vs defect:
+   - Initially contribute in the first round (C). This serves as a goodwill gesture and allows for potential cooperation in the future rounds.
+   - In subsequent rounds, if a player has contributed in the previous round (c_i-1 = 1), they will also contribute in the current round (C). This encourages reciprocity.
+   - If a player did not contribute in the previous round (c_i-1 = 0), they will also not contribute in the current round (D). This is to punish non-cooperation and encourage future cooperation.
+
+2. Handle edge cases:
+   - In the last round, players should contribute as a goodwill gesture and show that they would have cooperated if given another chance.
+   - In case of inconsistent or unknown past actions (e.g., first encounter with a player), initially contribute in the current round (C). This allows for potential cooperation in future encounters.
+
+3. Be exploitative:
+   - The strategy aims to exploit opponents by reciprocating cooperation and punishing non-cooperation, encouraging long-term cooperation when it benefits the player but also taking advantage of defectors when possible.
+   - If an opponent consistently defects, the player will continue to punish them in hopes that they may change their behavior or pay lower payoffs compared to consistent cooperators in the long run.
+'''
+
+description_EXPLOITATIVE_139 = '''
+ Strategy Name: Adaptive Tit-for-Tat with Variable Contribution (A3C)
+
+1. Specify decision rules - When to cooperate vs defect:
+   A3C follows a tit-for-tat strategy, starting by contributing one token in the first round (first-round cooperation). In subsequent rounds, A3C will match the opponent's contribution from the previous round. If the opponent contributes one token (cooperation), A3C also contributes one token; if the opponent does not contribute a token (defection), A3C will not contribute a token in the following round. This encourages cooperation when the opponent cooperates and punishes defection by defecting in response.
+
+2. Handle edge cases - What to do in the first round, last round, etc.:
+   In the first round, A3C cooperates as mentioned above. For the last round, A3C will contribute one token if the total contributions for that round are less than or equal to (n-1) tokens; otherwise, it will not contribute a token. This rule is designed to ensure that A3C always contributes its fair share of tokens during the game while being exploitative.
+
+3. Be exploitative - Align with an exploitative mindset:
+   A3C aims to be exploitative by punishing defection and encouraging cooperation. However, it will not contribute more than its fair share of tokens (k/n) unless the total contributions for a round are insufficient. This ensures that A3C takes advantage of cooperative opponents while minimizing its own contributions when possible.
+
+Pseudocode:
+
+```
+function A3C(round, history):
+  if round == 1:
+    return contribute 1 token (cooperation)
+
+  contributions_this_round = sum(history[round-1].contributions)
+
+  if contributions_this_round <= (n - 1):
+    return contribute 1 token (cooperation)
+  else:
+    return don't contribute a token (defection)
+
+function update_history(round, current_contribution, history):
+  history[round] = { round: round, contributions: current_contribution }
+  return history
+```
+'''
+
+description_EXPLOITATIVE_140 = '''
+ Public Goods Game Exploitative Strategy (PGGES)
+
+1. Specify decision rules:
+   - In each round, calculate the average contribution of all players in previous rounds (average_contribution).
+   - If average_contribution is less than 1/n, choose to contribute (C), as it is more profitable given the low collective effort.
+   - If average_contribution is greater than or equal to 1/n, choose to not contribute (D), exploiting the collective efforts by taking advantage of the multiplier k.
+
+2. Handle edge cases:
+   - In the first round, choose to not contribute as no past contributions are available to make an informed decision.
+   - In the last round, mimic the average contribution from previous rounds to avoid drastically deviating and harming potential payoffs.
+
+3. Be exploitative:
+   - The strategy aims to benefit from the collective efforts of other players while minimizing personal contributions when possible. This approach capitalizes on the free-riding opportunity in the game, making it an exploitative strategy.
 '''
