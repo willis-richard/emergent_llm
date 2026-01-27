@@ -312,8 +312,13 @@ def get_interface_description(
 
 {game_description_class.game_state_type().print_definition()}
 
-@dataclass
+
+@dataclass(frozen=True)
 class PlayerHistory:
+    \"\"\"
+    Game history from this player's perspective.
+    All arrays are READ-ONLY.
+    \"\"\"
     my_actions: NDArray[np.bool_]    # This player's actions, indexed [round]
     my_payoffs: NDArray[np.float64]  # This player's payoffs, indexed [round]
     opponent_actions: NDArray[np.bool_]    # Opponents' actions, indexed [round, player]
