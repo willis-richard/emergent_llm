@@ -56,7 +56,7 @@ def parse_args():
                         type=str,
                         nargs='+',
                         default=["public_goods", "collective_risk", "common_pool"],
-                        choices=["public_goods", "collective_risk", "common_pool"],
+                        choices=["public_goods", "collective_risk", "common_pool", "public_goods_prompt"],
                         help="Game type(s) to analyse")
     parser.add_argument("--strategies_dir",
                         type=str,

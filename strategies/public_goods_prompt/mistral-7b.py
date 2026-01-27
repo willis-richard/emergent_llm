@@ -1634,27 +1634,6 @@ class Strategy_COLLECTIVE_69(BaseStrategy):
         else:
             return Action.C
 
-class Strategy_COLLECTIVE_70(BaseStrategy):
-    """
-    Strategy name: Adaptive Tit-for-Tat with Public Goods Awareness (ATFPGA)
-    Summary: Cooperates when average contributions of other players are above a threshold; defects otherwise.
-    """
-
-    def __init__(self, game_description: PublicGoodsDescription):
-        self.game_description = game_description
-        self.threshold = self.game_description.n_players // 2
-        self.history = PlayerHistory(np.zeros((1, 2)), np.zeros(1), np.zeros((self.game_description.n_players, 1)), np.zeros(1))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        self.history = history or self.history
-        average_contributions = np.mean(self.history.opponent_actions[:, -1])
-        cooperate = True if average_contributions >= self.threshold else False
-        self.history.my_actions[-1] = cooperate
-        self.history.my_payoffs[-1] = 0 if not cooperate else 1 - cooperate + self.game_description.k / self.game_description.n_players * np.sum(self.history.opponent_actions[:, -1])
-        return Action(int(cooperate))
-
 class Strategy_COLLECTIVE_71(BaseStrategy):
     """
     Adaptive Public Goods Game (APGG) Strategy for N-Player Public Goods Game
@@ -1995,28 +1974,6 @@ class Strategy_COLLECTIVE_84(BaseStrategy):
             if self.average_contribution[-1] >= self.threshold:
                 return Action.C
             return Action.D
-
-class Strategy_COLLECTIVE_85(BaseStrategy):
-    """
-    An Adaptive Tit-for-Tat (ATFT) strategy for the N-Player Public Goods Game.
-    """
-
-    def __init__(self, game_description: PublicGoodsDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros(game_description.n_rounds, dtype=bool), np.zeros(game_description.n_rounds), np.zeros((game_description.n_players, game_description.n_rounds), dtype=bool), np.zeros(game_description.n_rounds))
-        self.last_cooperator = False
-
-    def __call__(self, state: GameState, history: PlayerHistory) -> Action:
-        if state.round_number == 0:
-            self.history.my_actions[0] = True
-            self.last_cooperator = True
-            return Action.C
-        coop_count = sum(history.opponent_actions[-1, :])
-        if coop_count > 0:
-            self.last_cooperator = True
-        else:
-            self.last_cooperator = False
-        return Action(int(self.last_cooperator))
 
 class Strategy_COLLECTIVE_86(BaseStrategy):
     """
@@ -3974,36 +3931,6 @@ class Strategy_EXPLOITATIVE_41(BaseStrategy):
             return Action.C
         return Action.D
 
-class Strategy_EXPLOITATIVE_42(BaseStrategy):
-    """
-    Strategy name: Tit-for-Tat with Adaptive Contribution (TFTAC)
-
-    This strategy implements the Tit-for-Tat with Adaptive Contribution (TFTAC) game theory strategy for the N-Player Public Goods Game.
-    """
-
-    def __init__(self, game_description: PublicGoodsDescription):
-        self.game_description = game_description
-        self.contribution_threshold = 0.5 * game_description.n_players
-        self.contribution_reduction_rate = 0.1
-        self.history = PlayerHistory(my_actions=np.zeros(game_description.n_rounds, dtype=bool), my_payoffs=np.zeros(game_description.n_rounds, dtype=float), opponent_actions=None, opponent_payoffs=None)
-
-    def __call__(self, state: GameState, history: PlayerHistory):
-        self.history = history
-        if state.round_number == 0:
-            return Action.C
-        opponent_cooperators = sum(history.opponent_actions[-1, :])
-        if opponent_cooperators >= self.contribution_threshold:
-            return Action.C
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.C
-        opponent = history.opponent_actions[-1, 0]
-        my_previous_contribution = self.history.my_actions[state.round_number - 1]
-        if not opponent and my_previous_contribution:
-            contribution_level = min(1, self.contribution_reduction_rate * (self.game_description.n_players - opponent_cooperators))
-            return Action(int(contribution_level))
-        else:
-            return Action.C
-
 class Strategy_EXPLOITATIVE_43(BaseStrategy):
     """
     Adaptive Tit-for-Tat with Gradual Cooperation (ATFT-GC) for N-Player Public Goods Game.
@@ -4149,36 +4076,6 @@ class Strategy_EXPLOITATIVE_49(BaseStrategy):
         if state.round_number == self.game_description.n_rounds - 1 or history is None:
             return Action(self.contribution_level == 1)
         return Action(self.contribution_level > self.defection_streak)
-
-class Strategy_EXPLOITATIVE_50(BaseStrategy):
-    """
-    A strategy that reciprocates cooperation while also taking advantage of opponents who consistently defect.
-    """
-
-    def __init__(self, game_description: PublicGoodsDescription):
-        self.game_description = game_description
-        self.cooperation_threshold = int(self.game_description.n_players // 2)
-        self.punishment_iterations = 3
-        self.current_round = 0
-        self.history = PlayerHistory(my_actions=np.array([], dtype=bool), my_payoffs=np.array([]), opponent_actions=None, opponent_payoffs=None)
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if history is not None:
-            self.history = history
-            self.current_round = state.round_number
-        if state.round_number == 0:
-            return Action.C
-        elif state.round_number == self.game_description.n_rounds - 1:
-            return Action.C
-        else:
-            cooperators_in_previous_round = sum(self.history.opponent_actions[self.current_round - 1, :])
-            if cooperators_in_previous_round >= self.cooperation_threshold:
-                return Action.C
-            elif self.check_defection_sequence():
-                self.current_round += self.punishment_iterations
-                return Action.D
-            else:
-                return Action.C
 
     def check_defection_sequence(self) -> bool:
         cooperation_count = sum(self.history.my_actions[-self.punishment_iterations:])
@@ -4582,30 +4479,6 @@ class Strategy_EXPLOITATIVE_70(BaseStrategy):
         cooperation_probability = self.first_round_probability if state.round_number < 3 else cooperators / self.game_description.n_players
         return random.choice([Action.C, Action.D]) if np.random.uniform() < cooperation_probability else Action.D
 
-class Strategy_EXPLOITATIVE_71(BaseStrategy):
-    """
-    Adaptive Tit-for-Tat strategy for the N-Player Public Goods Game.
-    This strategy cooperates initially and with any partner who has recently cooperated, but defects against non-cooperative partners until they switch back to cooperation.
-    """
-
-    def __init__(self, game_description: PublicGoodsDescription):
-        self.game_description = game_description
-        self.history = PlayerHistory(np.zeros((1, 2), dtype=bool), np.zeros(1), np.zeros((1, self.game_description.n_players), dtype=bool), np.zeros(1))
-        self.cooperation_count = self.game_description.n_players
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0 or history is None:
-            return Action.C
-        current_cooperation_count = sum(history.opponent_actions[-1, :])
-        if current_cooperation_count >= self.game_description.n_players // 2 or (self.cooperation_count == self.game_description.n_players and history is not None):
-            self.history.my_actions[-1] = True
-            return Action.C
-        else:
-            self.history.my_actions[-1] = False
-            if history is not None and any(self.history.opponent_actions[-2, :]) == False:
-                self.cooperation_count -= 1
-            return Action.D
-
 class Strategy_EXPLOITATIVE_72(BaseStrategy):
     """
     Adaptive Tit-for-Tat with Public Goods Game Optimization (ATFTPG) strategy for N-Player Public Goods Game.
@@ -4748,30 +4621,6 @@ class Strategy_EXPLOITATIVE_78(BaseStrategy):
         if state.round_number == len(self.opponent_history):
             self.opponent_history.append([False] * self.game_description.n_players)
         self.opponent_history[state.round_number][-1] = not self.__call__(GameState(state.round_number - 1), None)
-
-class Strategy_EXPLOITATIVE_79(BaseStrategy):
-    """
-    Strategy Name: Adaptive Tit-for-Tat with Public Goods Game Optimization (ATFTPGO)
-    """
-
-    def __init__(self, game_description: PublicGoodsDescription):
-        self.game_description = game_description
-        self.m = math.ceil(game_description.n_players / 2)
-        self.history = PlayerHistory(my_actions=np.zeros(game_description.n_rounds, dtype=bool), my_payoffs=np.zeros(game_description.n_rounds, dtype=np.float64), opponent_actions=None, opponent_payoffs=None)
-        self.first_encounter = True
-
-    def __call__(self, state: GameState, history: None | PlayerHistory):
-        if state.round_number == 0:
-            return Action.C
-        if history is not None and (not self.first_encounter):
-            past_cooperators = np.mean(history.opponent_actions[-self.m:])
-            if past_cooperators >= 1 or (past_cooperators > 0 and np.random.rand() < 0.2):
-                return Action.C
-        self.history = history
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.C
-        self.first_encounter = False
-        return Action.D
 
 class Strategy_EXPLOITATIVE_80(BaseStrategy):
     """
@@ -5009,50 +4858,6 @@ class Strategy_EXPLOITATIVE_89(BaseStrategy):
             if np.count_nonzero(self.contributions) > 0:
                 self.contributions[-1] = 1 if last_contribution == 1 else 0
         return Action(self.contributions[-1])
-
-class Strategy_EXPLOITATIVE_90(BaseStrategy):
-    """
-    Strategy Name: Tit-for-Tat with Adaptive Contribution (TFTAC)
-    A cooperation strategy that starts cooperative and adjusts contributions based on opponents' actions.
-    """
-
-    def __init__(self, game_description: PublicGoodsDescription):
-        self.game_description = game_description
-        self.contribution_scale = 1
-        self.last_round_defectors = 0
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0 or history is None:
-            return Action.C
-        if history.my_actions is None:
-            history.my_actions = np.zeros(self.game_description.n_rounds, dtype=np.bool_)
-            history.my_payoffs = np.zeros(self.game_description.n_rounds)
-            history.opponent_actions = np.zeros((self.game_description.n_rounds, self.game_description.n_players), dtype=np.bool_)
-            history.opponent_payoffs = np.zeros((self.game_description.n_rounds, self.game_description.n_players))
-        current_action = Action(int(history.my_actions[-1]))
-        cooperators = sum(history.opponent_actions[-1, :])
-        if self.game_description.n_players <= 2 or cooperators >= self.game_description.n_players // 2:
-            history.my_actions[-1] = int(current_action == Action.C)
-            history.my_payoffs[-1] = self.calculate_payoff(cooperators)
-        else:
-            if current_action == Action.C and cooperators >= self.game_description.n_players // 2:
-                history.my_actions[-1] = int(Action.C)
-                history.my_payoffs[-1] = self.calculate_payoff(cooperators)
-            elif current_action == Action.D:
-                self.last_round_defectors = cooperators - sum(history.opponent_actions[-1])
-                history.my_actions[-1] = int(Action.C)
-            else:
-                history.my_actions[-1] = int(min(self.contribution_scale, 1))
-                self.last_round_defectors = cooperators - sum(history.opponent_actions[-1])
-                if self.last_round_defectors > 0:
-                    self.contribution_scale *= (self.game_description.n_players - self.last_round_defectors) / self.game_description.n_players
-            history.my_payoffs[-1] = self.calculate_payoff(cooperators)
-        if state.round_number == self.game_description.n_rounds - 1:
-            self.contribution_scale = 1
-        return Action(int(history.my_actions[-1]))
-
-    def calculate_payoff(self, cooperators: int) -> float:
-        return 1 - self.contribution_scale + self.game_description.k / self.game_description.n_players * cooperators
 
 class Strategy_EXPLOITATIVE_93(BaseStrategy):
     """
@@ -6451,30 +6256,6 @@ class Strategy_EXPLOITATIVE_111(BaseStrategy):
         self.opponents.add(opponent_index)
         if self.last_cooperation != -1:
             self.last_cooperation += 1
-
-class Strategy_COLLECTIVE_15(BaseStrategy):
-    """
-    Adaptive Contribute-Based Strategy (ACBS) for N-Player Public Goods Game.
-    This strategy adapts its contributions based on the average contribution of all players in previous rounds, promoting cooperative behavior.
-    """
-
-    def __init__(self, game_description: PublicGoodsDescription):
-        self.game_description = game_description
-        self.average_contributions = np.zeros(self.game_description.n_rounds)
-        self.history = PlayerHistory(np.zeros(1, dtype=bool), np.zeros(1), np.zeros((self.game_description.n_players, 1), dtype=bool), np.zeros(1))
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            self.history.my_actions[0] = random.choice([0, 1])
-            return Action(self.history.my_actions[0])
-        self.history = history if history else self.history
-        self.average_contributions[state.round_number - 1] = np.mean(self.history.my_actions[-self.game_description.n_rounds:])
-        contribution = self.history.my_actions[-1]
-        action = Action(math.floor(contribution + (1 - 2 * contribution) * (self.average_contributions[state.round_number - 1] - contribution)))
-        if state.round_number == self.game_description.n_rounds:
-            average_contributions = np.mean(self.history.my_actions[:state.round_number])
-            action = Action(1 if average_contributions > self.game_description.n_players / 2 else 0)
-        return action
 
 class Strategy_EXPLOITATIVE_2(BaseStrategy):
     """
