@@ -11,7 +11,7 @@ def setup(configuration: str) -> tuple[tuple[float, float], str]:
     elif configuration == '1_col_slide':
         FIGSIZE, SIZE, FORMAT = (5, 1.2), 8, 'svg'
     elif configuration == 'fullscreen':
-        FIGSIZE, SIZE, FORMAT = (5, 3), 8, 'svg'
+        FIGSIZE, SIZE, FORMAT = (7, 4), 8, 'svg'
     else:
         assert False, f"Unknown configuration: {configuration}"
 

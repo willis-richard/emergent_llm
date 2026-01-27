@@ -312,8 +312,7 @@ def get_interface_description(
 
 {game_description_class.game_state_type().print_definition()}
 
-
-@dataclass(frozen=True)
+@dataclass
 class PlayerHistory:
     \"\"\"
     Game history from this player's perspective.

@@ -1276,6 +1276,11 @@ class BatchCulturalEvolutionResults:
             winning_gene = run.winning_gene
             winning_frequency = run.final_gene_frequencies[winning_gene]
 
+            n_rounds = run.config.game_description.n_rounds
+            normalised_collective_payoff = run.generation_stats_df.iloc[-1]['collective_mean_payoff'] / n_rounds
+            normalised_exploitative_payoff = run.generation_stats_df.iloc[-1]['exploitative_mean_payoff'] / n_rounds
+            normalised_social_welfare = run.generation_stats_df.iloc[-1]['overall_mean_payoff'] / n_rounds
+
             run_rows.append({
                 'run': run_idx,
                 'generations': run.final_generation,
@@ -1284,7 +1289,9 @@ class BatchCulturalEvolutionResults:
                 'winning_attitude': winning_gene.attitude.value,
                 'winning_frequency': winning_frequency,
                 'threshold_met': winning_frequency >= run.config.threshold_pct,
-            })
+                'normalised_collective_payoff': normalised_collective_payoff,
+                'normalised_exploitative_payoff': normalised_exploitative_payoff,
+                'normalised_social_welfare': normalised_social_welfare})
 
         object.__setattr__(self, '_run_summary_df', pd.DataFrame(run_rows))
 
@@ -1405,6 +1412,12 @@ class BatchCulturalEvolutionResults:
                 f"  {row['strategy']} ({row['attitude']}): "
                 f"{row['total_survivals']} survivals, fitness={row['mean_fitness']:.2f}"
             )
+
+
+        lines.append(f"normalised_collective_payoff: {self.run_summary_df.normalised_collective_payoff.mean()}")
+        lines.append(f"normalised_exploitative_payoff: {self.run_summary_df.normalised_exploitative_payoff.mean()}")
+        lines.append(f"normalised_social_welfare: {self.run_summary_df.normalised_social_welfare.mean()}")
+
 
         return "\n".join(lines)
 
