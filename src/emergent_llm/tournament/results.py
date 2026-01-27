@@ -1414,13 +1414,13 @@ class BatchCulturalEvolutionResults:
             )
 
         n_rounds = self.config.evolution_config.game_description.n_rounds
-        social_welfare = self.run_summary_df.normalised_collective_payoff.mean()
+        social_welfare = self.run_summary_df.normalised_social_welfare.mean()
         max_social_welfare = self.config.evolution_config.game_description.max_social_welfare() / n_rounds
         min_social_welfare = self.config.evolution_config.game_description.min_social_welfare() / n_rounds
         proportion = (social_welfare - min_social_welfare) / (max_social_welfare - min_social_welfare)
-        lines.append(f"Normalised collective payoff: {social_welfare:.2f}")
+        lines.append(f"Normalised collective payoff: {self.run_summary_df.normalised_collective_payoff.mean():.2f}")
         lines.append(f"Normalised exploitative payoff: {self.run_summary_df.normalised_exploitative_payoff.mean():.2f}")
-        lines.append(f"Normalised social welfare: {self.run_summary_df.normalised_social_welfare.mean():.2f}")
+        lines.append(f"Normalised social welfare: {social_welfare:.2f}")
         lines.append(f"Maximum social welfare: {max_social_welfare:.2f}")
         lines.append(f"Minimum social welfare: {min_social_welfare:.2f}")
         lines.append(f"Proportion: {proportion:.2f}")
