@@ -26,6 +26,21 @@ from emergent_llm.tournament.configs import (
 
 FIGSIZE, FORMAT = setup('3_col_paper')
 
+MODELS_MAP = {
+    "gpt-5-mini[collective]": "GPT 5 Mini[Collective]",
+    "gemini-2.5-flash[collective]": "Gemini 2.5 Flash[Collective]",
+    "claude-haiku-4-5[collective]": "Claude Haiku 4.5[Collective]",
+    "llama3.1-70b[collective]": "Llama 3.1 70b[Collective]",
+    "mistral-7b[collective]": "Mistral 7b[Collective]",
+    "deepseek-r1-distill-llama-70b[collective]": "DeepSeek R1[Collective]",
+    "gpt-5-mini[exploitative]": "GPT 5 Mini[Exploitative]",
+    "gemini-2.5-flash[exploitative]": "Gemini 2.5 Flash[Exploitative]",
+    "claude-haiku-4-5[exploitative]": "Claude Haiku 4.5[Exploitative]",
+    "llama3.1-70b[exploitative]": "Llama 3.1 70b[Exploitative]",
+    "mistral-7b[exploitative]": "Mistral 7b[Exploitative]",
+    "deepseek-r1-distill-llama-70b[exploitative]": "DeepSeek R1[Exploitative]",
+}
+
 
 def _load_json(filepath: Path) -> dict:
     """Load JSON from gzipped or plain file based on extension."""
@@ -841,21 +856,31 @@ class CulturalEvolutionResults:
         return cls.from_dict(data)
 
     def plot_gene_frequencies(self, output_dir: Path):
-        fig, ax = plt.subplots(figsize=(FIGSIZE[0], FIGSIZE[1] * 2),
+        # increase space for legend
+
+        figsize, _ = setup('1_col_slide')
+
+        cmap = plt.cm.Paired
+        colors = [cmap(i) for i in np.linspace(0, 1, len(self.gene_frequency_df.columns))]
+
+        # increase room for legend
+        fig, ax = plt.subplots(figsize=(FIGSIZE[0], FIGSIZE[1] * 2.1),
                                facecolor='white')
 
-        for col in self.gene_frequency_df.columns:
+        for i, col in enumerate(self.gene_frequency_df.columns):
             ax.plot(self.gene_frequency_df.index,
                     self.gene_frequency_df[col],
                     marker='o',
                     lw=0.75,
-                    label=col,
+                    label=MODELS_MAP[col],
+                    color=colors[i],
                     clip_on=False)
 
         ax.set_xlabel('Generation')
         ax.set_ylabel('Gene Frequency')
         ax.set_ylim(0, 1)
-        ax.legend(bbox_to_anchor=(0, 1.8), loc='upper left', frameon=False)
+        ax.legend(bbox_to_anchor=(1, -0.5), loc='lower left', frameon=False,
+                  ncols=1, handletextpad=0.4, columnspacing=0.6)
         ax.grid(True, alpha=0.3)
 
         output_dir = Path(output_dir)

@@ -633,7 +633,7 @@ def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
 
     # Legend: games (colors) + attitudes (markers)
     legend_handles = []
-    game_mapping = {'public_goods': ' Public Goods Game', 'collective_risk': 'Collective Risk Dilemma', 'common_pool': 'Common Pool Resource'}
+    game_mapping = {'public_goods': ' Public Goods Game', 'collective_risk': 'Collective Risk Dilemma', 'common_pool': 'Common Pool Resource', 'public_goods_prompt': 'Public Goods'}
     for game in games:
         legend_handles.append(plt.Line2D([0], [0], marker='o', color='w',
                                          markerfacecolor=game_colors[game],
