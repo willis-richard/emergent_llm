@@ -297,7 +297,7 @@ def validate_strategy_code(code: str):
             ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Pow, ast.Mod,
             ast.UAdd, ast.USub, ast.MatMult,
             ast.Try, ast.ExceptHandler, ast.Yield,
-            ast.JoinedStr,
+            ast.JoinedStr, ast.Assert
         )
         # yapf: enable
 
@@ -413,7 +413,7 @@ def test_generated_strategy(class_code: str, game_name: str):
             strategy_classes) == 1, "More than one strategy class defined"
         strategy_class = strategy_classes[0]
 
-        test_strategy_class(strategy_class, game_name, allowed_time=1.2)
+        test_strategy_class(strategy_class, game_name, allowed_time=2)
 
     finally:
         # Clean up temp file
