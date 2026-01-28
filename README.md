@@ -42,18 +42,21 @@ conda activate emergent_llm
 export PYTHONPATH="${PYTHONPATH}:$(pwd)/src"
 ```
 
-## Results
+## Strategy generation
 
 The generated strategies are in [strategies](./strategies). To generate new ones use:
 
 ```bash
-python3 src/emergent_llm/generation/create_strategies.py --llm_provider <provider> --model_name <model_name> --n 16 --game <game>
+python3 src/emergent_llm/generation/create_strategies.py --llm_provider <provider> --model_name <model_name> --game <game> descriptions --n <number_of_strategies>
+python3 src/emergent_llm/generation/create_strategies.py --llm_provider <provider> --model_name <model_name> --game <game> implementations --n <number_of_strategies>
 ```
+
+## Results
 
 Results can be generated with:
 
 ```bash
-python scripts/run_tournament.py --strategies strategies/<game>/e<provider>_<model>.py --game <game>  --matches 200 --group-sizes 4 16 64 --verbose
+bash scripts/runs.sh
 ```
 
-The output directory is ./results.
+The default output directory is ./results.
