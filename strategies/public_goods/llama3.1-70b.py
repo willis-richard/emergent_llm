@@ -8543,28 +8543,6 @@ class Strategy_COLLECTIVE_275(BaseStrategy):
                 return Action.C
         return Action.D
 
-class Strategy_COLLECTIVE_276(BaseStrategy):
-    """
-    Adaptive Cooperation with Conditional Defection (ACCD) strategy.
-    
-    Balances individual self-interest with collective well-being by adapting cooperation levels based on the game's history and parameters.
-    """
-
-    def __init__(self, game_description: PublicGoodsDescription):
-        self.game_description = game_description
-        self.threshold = game_description.k / game_description.n_players * (game_description.n_players / 2)
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0:
-            return Action.C
-        prev_coops = sum(history.opponent_actions[-1, :]) + (history.my_actions[-1] == True)
-        if prev_coops >= self.threshold:
-            return Action.C
-        p_defect = ((game_description.n_players - prev_coops) / game_description.n_players) ** 2
-        return Action.D if random.random() < p_defect else Action.C
-        if state.round_number == self.game_description.n_rounds - 1:
-            return Action.D
-
 class Strategy_COLLECTIVE_277(BaseStrategy):
     """
     A strategy that adapts to the cooperation level of opponents and retaliates against defectors.
@@ -12711,32 +12689,6 @@ class Strategy_COLLECTIVE_414(BaseStrategy):
         if state.round_number == self.game_description.n_rounds - 1:
             return Action.C
         return action
-
-class Strategy_COLLECTIVE_415(BaseStrategy):
-    """
-    A collective strategy that balances individual self-interest with contributions to the public good while adapting to opponent behaviors.
-    """
-
-    def __init__(self, game_description: PublicGoodsDescription):
-        self.game_description = game_description
-        self.defection_threshold = 0
-
-    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
-        if state.round_number == 0 or state.round_number == self.game_description.n_rounds - 1:
-            return Action.C
-        opponent_cooperators = sum(history.opponent_actions[-1, :])
-        average_payoff_per_cooperator = np.mean(history.my_payoffs[-1] if history.my_actions[-1] else 0 + self.game_description.k / self.game_description.n_players * opponent_cooperators)
-        if opponent_cooperators >= self.game_description.n_players // 2:
-            return Action.C
-        elif average_payoff_per_cooperator > 1:
-            return random.choice([Action.C, Action.D], p=[self.game_description.k / self.game_description.n_players, 1 - self.game_description.k / self.game_description.n_players])
-        else:
-            self.defection_threshold += 1
-            if self.defection_threshold > 3:
-                return Action.D
-            elif history.my_actions[-1] and (not all(history.opponent_actions[-1, :])):
-                self.defection_threshold += 1
-            return random.choice([Action.C, Action.D])
 
 class Strategy_COLLECTIVE_416(BaseStrategy):
     """
