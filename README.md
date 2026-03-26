@@ -11,10 +11,9 @@ This project investigates the emergent behaviour of LLM-driven autonomous agents
 ### Key Features
 
 - **Strategy Generation**: LLMs generate strategies in natural language, then implement them as Python functions
-- **Multiple Games**: Support for Public Goods Game (PGG), with plans for Collective Risk Dilemma (CRD) and Common Pool Resource (CPR) games
-- **Fair Tournaments**: All players participate in equal numbers of games via random permutation
+- **Multiple Games**: Support for Public Goods Game (PGG), Collective Risk Dilemma (CRD) and Common Pool Resource (CPR)
 - **Comprehensive Logging**: Detailed game histories and strategy performance metrics
-- **Attitude-Based Analysis**: Compare cooperative vs. aggressive strategy performance
+- **Attitude-Based Analysis**: Compare collective vs exploitative strategy performance
 - **Code Safety**: Restricted execution environment for LLM-generated strategies
 
 ## Installation

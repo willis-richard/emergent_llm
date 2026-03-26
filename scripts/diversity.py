@@ -43,6 +43,22 @@ FIGSIZE, FORMAT = setup('fullscreen')
 
 OpponentActions = tuple[tuple[Action, ...], ...]
 
+GAME_MAPPING = {
+    'public_goods': ' Public Goods Game',
+    'collective_risk': 'Collective Risk Dilemma',
+    'common_pool': 'Common Pool Resource',
+    'public_goods_prompt': 'Public Goods'
+}
+
+MODELS_MAPPING = {
+    "gpt-5-mini": "GPT 5 Mini",
+    "gemini-2.5-flash": "Gemini 2.5 Flash",
+    "claude-haiku-4-5": "Claude Haiku 4.5",
+    "llama3.1-70b": "Llama 3.1 70b",
+    "mistral-7b": "Mistral 7b",
+    "deepseek-r1-distill-llama-70b": "DeepSeek R1"
+}
+
 # =============================================================================
 # ARGUMENT PARSING
 # =============================================================================
@@ -52,12 +68,16 @@ def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Run PCA for strategies")
 
-    parser.add_argument("--games",
-                        type=str,
-                        nargs='+',
-                        default=["public_goods", "collective_risk", "common_pool"],
-                        choices=["public_goods", "collective_risk", "common_pool", "public_goods_prompt"],
-                        help="Game type(s) to analyse")
+    parser.add_argument(
+        "--games",
+        type=str,
+        nargs='+',
+        default=["public_goods", "collective_risk", "common_pool"],
+        choices=[
+            "public_goods", "collective_risk", "common_pool",
+            "public_goods_prompt"
+        ],
+        help="Game type(s) to analyse")
     parser.add_argument("--strategies_dir",
                         type=str,
                         default="strategies",
@@ -82,7 +102,7 @@ def parse_args():
                         help="Number of rounds per game")
     parser.add_argument("--n_games",
                         type=int,
-                        default=20,
+                        default=50,
                         help="Number of games for each trajectory")
 
     # Execution parameters
@@ -96,9 +116,7 @@ def parse_args():
     parser.add_argument("--plot_extrema",
                         action='store_true',
                         help="Label the corner strategies")
-    parser.add_argument("--results_dir",
-                        type=str,
-                        default="results")
+    parser.add_argument("--results_dir", type=str, default="results")
 
     return parser.parse_args()
 
@@ -116,8 +134,10 @@ def setup_logging(log_file: Path, loglevel=logging.INFO):
 # CACHING
 # =============================================================================
 
+
 def get_output_dir(args) -> Path:
     return Path(args.results_dir) / "diversity"
+
 
 def get_cache_path(game_name: str, gene: Gene, args) -> Path:
     cache_dir = get_output_dir(args) / "cache"
@@ -135,16 +155,17 @@ def save_features(features_dict, game_name: str, gene: Gene, args):
     logger.info(f"Saved features to {cache_path}")
 
 
-def load_features(
-        game_name: str, gene: Gene,
-        args) -> dict[str, dict[OpponentActions, float]] | None:
+def load_features(game_name: str, gene: Gene,
+                  args) -> dict[str, dict[OpponentActions, float]] | None:
     cache_path = get_cache_path(game_name, gene, args)
     if not cache_path.exists():
         logger.info(f"Could not find existing cache at {cache_path}")
         return None
     with open(cache_path, 'rb') as f:
         features_dict = pickle.load(f)
-    logger.info(f"Loaded features for {len(features_dict.keys())} strategies from {cache_path}")
+    logger.info(
+        f"Loaded features for {len(features_dict.keys())} strategies from {cache_path}"
+    )
     return features_dict
 
 
@@ -182,7 +203,8 @@ def play_games(player: LLMPlayer, n_games: int,
     return histories
 
 
-def compute_features(player: BasePlayer, n_games: int) -> dict[OpponentActions, float]:
+def compute_features(player: BasePlayer,
+                     n_games: int) -> dict[OpponentActions, float]:
     features = {}
     for combo in unique_combos:
         histories = play_games(player, n_games, combo)
@@ -199,13 +221,18 @@ def compute_features(player: BasePlayer, n_games: int) -> dict[OpponentActions, 
 def chunk_indices(n_items: int, n_chunks: int) -> list[list[int]]:
     """Split indices into approximately equal chunks."""
     chunk_size = (n_items + n_chunks - 1) // n_chunks
-    return [list(range(i, min(i + chunk_size, n_items)))
-            for i in range(0, n_items, chunk_size)]
+    return [
+        list(range(i, min(i + chunk_size, n_items)))
+        for i in range(0, n_items, chunk_size)
+    ]
 
 
-def compute_strategy_chunk(strategy_indices: list[int]) -> list[tuple[str, dict[OpponentActions, float]]]:
+def compute_strategy_chunk(
+    strategy_indices: list[int]
+) -> list[tuple[str, dict[OpponentActions, float]]]:
     """Compute features for a chunk of strategies. Runs in worker process."""
-    worker_registry = StrategyRegistry(args.strategies_dir, game_name, [gene.model])
+    worker_registry = StrategyRegistry(args.strategies_dir, game_name,
+                                       [gene.model])
     specs = worker_registry.get_all_specs(gene)
 
     results = []
@@ -214,7 +241,9 @@ def compute_strategy_chunk(strategy_indices: list[int]) -> list[tuple[str, dict[
         player = LLMPlayer("testing", gene, description, spec.strategy_class)
         features = compute_features(player, args.n_games)
         results.append((spec.strategy_class.__name__, features))
-        logger.info(f"{gene.model} {spec.strategy_class.__name__}: {np.mean(list(features.values())):.3f}")
+        logger.info(
+            f"{gene.model} {spec.strategy_class.__name__}: {np.mean(list(features.values())):.3f}"
+        )
 
     return results
 
@@ -224,7 +253,8 @@ def compute_strategy_chunk(strategy_indices: list[int]) -> list[tuple[str, dict[
 # =============================================================================
 
 
-def create_baseline_players(n_players: int, n_rounds: int) -> list[SimplePlayer]:
+def create_baseline_players(n_players: int,
+                            n_rounds: int) -> list[SimplePlayer]:
     baseline_players = [
         SimplePlayer("A-D", Defector),
         SimplePlayer("A-C", Cooperator),
@@ -288,14 +318,16 @@ class BetweenSetMetrics:
                 f"Cohen's d={self.cohens_d:.2f}")
 
 
-def compute_random_baseline_distance(n_features: int, n_samples: int = 500) -> float:
+def compute_random_baseline_distance(n_features: int,
+                                     n_samples: int = 500) -> float:
     """Compute mean pairwise distance for random [0,1] vectors."""
     random_X = np.random.uniform(0, 1, (n_samples, n_features))
     distances = pdist(random_X, metric='euclidean')
     return float(np.mean(distances))
 
 
-def compute_within_set_metrics(X: np.ndarray, random_baseline: float) -> tuple[float, float]:
+def compute_within_set_metrics(X: np.ndarray,
+                               random_baseline: float) -> tuple[float, float]:
     """
     Compute within-set diversity metrics.
 
@@ -326,11 +358,12 @@ def compute_participation_ratio(X: np.ndarray) -> float:
     if len(eigenvalues) == 0:
         return 1.0
 
-    return (eigenvalues.sum() ** 2) / (eigenvalues ** 2).sum()
+    return (eigenvalues.sum()**2) / (eigenvalues**2).sum()
 
 
-def compute_between_set_metrics(X_collective: np.ndarray,
-                                X_exploitative: np.ndarray) -> tuple[float, float]:
+def compute_between_set_metrics(
+        X_collective: np.ndarray,
+        X_exploitative: np.ndarray) -> tuple[float, float]:
     """
     Compute between-set metrics.
 
@@ -347,18 +380,22 @@ def compute_between_set_metrics(X_collective: np.ndarray,
     # Cohen's d: centroid distance / pooled within-set std
     # Pooled std: sqrt of average variance across both sets
     var_c = np.var(X_collective, axis=0).mean() if len(X_collective) > 1 else 0
-    var_e = np.var(X_exploitative, axis=0).mean() if len(X_exploitative) > 1 else 0
+    var_e = np.var(X_exploitative,
+                   axis=0).mean() if len(X_exploitative) > 1 else 0
 
     n_c, n_e = len(X_collective), len(X_exploitative)
-    pooled_var = ((n_c - 1) * var_c + (n_e - 1) * var_e) / (n_c + n_e - 2) if (n_c + n_e) > 2 else 1
-    pooled_std = np.sqrt(pooled_var * X_collective.shape[1])  # scale by sqrt(dimensions)
+    pooled_var = ((n_c - 1) * var_c +
+                  (n_e - 1) * var_e) / (n_c + n_e - 2) if (n_c + n_e) > 2 else 1
+    pooled_std = np.sqrt(pooled_var *
+                         X_collective.shape[1])  # scale by sqrt(dimensions)
 
     cohens_d = centroid_distance / pooled_std if pooled_std > 0 else np.nan
 
     return centroid_distance, cohens_d
 
 
-def compute_game_variance_explained(X: np.ndarray, game_labels: np.ndarray) -> float:
+def compute_game_variance_explained(X: np.ndarray,
+                                    game_labels: np.ndarray) -> float:
     """
     Compute proportion of variance explained by game membership.
 
@@ -368,7 +405,7 @@ def compute_game_variance_explained(X: np.ndarray, game_labels: np.ndarray) -> f
     global_centroid = X.mean(axis=0)
 
     # Total sum of squares
-    ss_total = np.sum((X - global_centroid) ** 2)
+    ss_total = np.sum((X - global_centroid)**2)
 
     # Between-group sum of squares
     ss_between = 0.0
@@ -376,7 +413,7 @@ def compute_game_variance_explained(X: np.ndarray, game_labels: np.ndarray) -> f
         mask = game_labels == game
         n_game = mask.sum()
         game_centroid = X[mask].mean(axis=0)
-        ss_between += n_game * np.sum((game_centroid - global_centroid) ** 2)
+        ss_between += n_game * np.sum((game_centroid - global_centroid)**2)
 
     return ss_between / ss_total if ss_total > 0 else 0.0
 
@@ -412,7 +449,9 @@ def plot_baselines(ax, baseline_pca, baseline_labels, marker_size=120):
         ha = 'right' if name in BASELINE_LABELS_LEFT else 'left'
         offset = -5 if name in BASELINE_LABELS_LEFT else 5
         ax.annotate(name, (baseline_pca[i, 0], baseline_pca[i, 1]),
-                    ha=ha, xytext=(offset, 0), textcoords='offset points')
+                    ha=ha,
+                    xytext=(offset, 0),
+                    textcoords='offset points')
 
 
 def plot_pca(ax, X_pca, genes, labels, baseline_pca, baseline_labels, title,
@@ -449,7 +488,7 @@ def plot_pca(ax, X_pca, genes, labels, baseline_pca, baseline_labels, title,
                                         cov,
                                         n_std=1.0,
                                         facecolor=colors[i],
-                                        alpha=0.15,
+                                        alpha=0.25,
                                         edgecolor=colors[i],
                                         linewidth=1.5)
         handles.append((scatter, str(gene)))
@@ -459,8 +498,11 @@ def plot_pca(ax, X_pca, genes, labels, baseline_pca, baseline_labels, title,
     ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
     ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})')
     ax.set_title(title)
-    ax.legend([h[0] for h in handles], [h[1] for h in handles], loc='upper center', frameon=False,
-               bbox_to_anchor=(0.4, 1.05), ncol=2)
+    ax.legend([h[0] for h in handles], [h[1] for h in handles],
+              loc='upper center',
+              frameon=False,
+              bbox_to_anchor=(0.4, 1.05),
+              ncol=2)
 
 
 def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
@@ -470,17 +512,21 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
     Each subplot shows all models for that game/attitude combination.
     """
     attitudes = [Attitude.COLLECTIVE, Attitude.EXPLOITATIVE]
-    attitude_names = {Attitude.COLLECTIVE: "Collective", Attitude.EXPLOITATIVE: "Exploitative"}
+    attitude_names = {
+        Attitude.COLLECTIVE: "Collective",
+        Attitude.EXPLOITATIVE: "Exploitative"
+    }
 
     # Extract unique models across all genes
     all_genes = []
     for g in games:
         all_genes.extend(pca_data[g]['genes'])
     models = sorted(set(gene.model for gene in all_genes))
-    model_colors = dict(zip(models, plt.colormaps.get_cmap('tab10')(np.linspace(0, 1, len(models)))))
+    # models = sorted(set(['claude-haiku-4-5', 'gemini-2.5-flash', 'gpt-5-mini']))
+    cmap = plt.colormaps.get_cmap('tab10')
+    model_colors = {model: cmap(i) for i, model in enumerate(models)}
 
-    fig, axes = plt.subplots(2, 3, figsize=FIGSIZE,
-                             sharex=True, sharey=True)
+    fig, axes = plt.subplots(2, 3, figsize=FIGSIZE, sharex=True, sharey=True)
 
     for col, game in enumerate(games):
         game_mask = game_labels == game
@@ -490,12 +536,16 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
             ax = axes[row, col]
 
             # Filter genes for this attitude
-            genes_this_attitude = [g for g in genes_for_game if g.attitude == attitude]
+            genes_this_attitude = [
+                g for g in genes_for_game if g.attitude == attitude
+            ]
             handles = []
 
             for model in models:
                 # Find the gene for this model+attitude (if exists)
-                matching_genes = [g for g in genes_this_attitude if g.model == model]
+                matching_genes = [
+                    g for g in genes_this_attitude if g.model == model
+                ]
                 if not matching_genes:
                     continue
                 gene = matching_genes[0]
@@ -507,20 +557,34 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
                     continue
 
                 color = model_colors[model]
-                scatter = ax.scatter(points[:, 0], points[:, 1],
-                                     alpha=0.3, s=10, color=color)
+                scatter = ax.scatter(points[:, 0],
+                                     points[:, 1],
+                                     alpha=0.3,
+                                     s=10,
+                                     color=color)
 
                 # Centroid
                 mean_pt = points.mean(axis=0)
-                ax.scatter(mean_pt[0], mean_pt[1], marker='o', s=100,
-                           color=color, edgecolors='black', linewidths=1.5, zorder=5)
+                ax.scatter(mean_pt[0],
+                           mean_pt[1],
+                           marker='o',
+                           s=100,
+                           color=color,
+                           edgecolors='black',
+                           linewidths=1.5,
+                           zorder=5)
 
                 # Ellipse
                 if len(points) > 2:
                     cov = np.cov(points.T)
-                    plot_covariance_ellipse(ax, mean_pt, cov, n_std=1.0,
-                                            facecolor=color, alpha=0.15,
-                                            edgecolor=color, linewidth=1.5)
+                    plot_covariance_ellipse(ax,
+                                            mean_pt,
+                                            cov,
+                                            n_std=1.0,
+                                            facecolor=color,
+                                            alpha=0.25,
+                                            edgecolor=color,
+                                            linewidth=1.5)
 
                 handles.append((scatter, model))
 
@@ -529,23 +593,36 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
 
             # Labels
             if row == 0:
-                ax.set_title(game)
+                ax.set_title(GAME_MAPPING[game])
             if col == 0:
-                ax.set_ylabel(f"{attitude_names[attitude]}\nPC2 ({pca.explained_variance_ratio_[1]:.1%})")
+                ax.set_ylabel(
+                    f"{attitude_names[attitude]}\nPC2 ({pca.explained_variance_ratio_[1]:.1%})"
+                )
             if row == 1:
                 ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
 
     # Shared legend for models (outside the grid on the right)
-    legend_handles = [plt.Line2D([0], [0], marker='o', color='w',
-                                  markerfacecolor=model_colors[m], markersize=10,
-                                  label=m) for m in models]
-    fig.legend(handles=legend_handles, loc='upper center', frameon=False,
-               bbox_to_anchor=(0.4, 1.05), ncol=len(registry.available_models))
+    legend_handles = [
+        plt.Line2D([0], [0],
+                   marker='o',
+                   color='w',
+                   markerfacecolor=model_colors[m],
+                   markersize=10,
+                   label=m) for m in models
+    ]
+    fig.legend(handles=legend_handles,
+               loc='upper center',
+               frameon=False,
+               bbox_to_anchor=(0.4, 1.05),
+               ncol=len(registry.available_models))
 
     plt.tight_layout(rect=[0, 0, 0.95, 1])  # Leave space for legend
-    plt.savefig(output_dir / f"pca_by_game.{FORMAT}", format=FORMAT, bbox_inches='tight')
+    plt.savefig(output_dir / f"pca_by_game.{FORMAT}",
+                format=FORMAT,
+                bbox_inches='tight')
     plt.close()
-    logger.info(f"Saved combined PCA grid to {output_dir / f'pca_by_game.{FORMAT}'}")
+    logger.info(
+        f"Saved combined PCA grid to {output_dir / f'pca_by_game.{FORMAT}'}")
 
 
 def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
@@ -560,24 +637,22 @@ def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
         all_genes.extend(pca_data[g]['genes'])
     models = sorted(set(gene.model for gene in all_genes))
 
-    models_map = {"gpt-5-mini": "GPT 5 Mini",
-                  "gemini-2.5-flash": "Gemini 2.5 Flash",
-                  "claude-haiku-4-5": "Claude Haiku 4.5",
-                  "llama3.1-70b": "Llama 3.1 70b",
-                  "mistral-7b": "Mistral 7b",
-                  "deepseek-r1-distill-llama-70b": "DeepSeek R1"}
-
     # Grid layout based on number of models
     n_models = len(models)
     n_cols = 3
     n_rows = (n_models + n_cols - 1) // n_cols
 
     # Color by game, marker style by attitude
-    game_colors = dict(zip(games, plt.colormaps.get_cmap('Set1')(np.linspace(0, 1, len(games)))))
+    game_colors = dict(
+        zip(games,
+            plt.colormaps.get_cmap('Set1')(np.linspace(0, 1, len(games)))))
     attitude_markers = {Attitude.COLLECTIVE: 'o', Attitude.EXPLOITATIVE: 's'}
 
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=FIGSIZE,
-                             sharex=True, sharey=True)
+    fig, axes = plt.subplots(n_rows,
+                             n_cols,
+                             figsize=FIGSIZE,
+                             sharex=True,
+                             sharey=True)
     axes = np.atleast_2d(axes)
 
     for idx, model in enumerate(models):
@@ -590,8 +665,10 @@ def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
             color = game_colors[game]
 
             for attitude in [Attitude.COLLECTIVE, Attitude.EXPLOITATIVE]:
-                matching_genes = [g for g in genes_for_game
-                                  if g.model == model and g.attitude == attitude]
+                matching_genes = [
+                    g for g in genes_for_game
+                    if g.model == model and g.attitude == attitude
+                ]
                 if not matching_genes:
                     continue
                 gene = matching_genes[0]
@@ -603,23 +680,38 @@ def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
                     continue
 
                 marker = attitude_markers[attitude]
-                ax.scatter(points[:, 0], points[:, 1],
-                           alpha=0.3, s=10, color=color, marker=marker)
+                ax.scatter(points[:, 0],
+                           points[:, 1],
+                           alpha=0.3,
+                           s=10,
+                           color=color,
+                           marker=marker)
 
                 # Centroid
                 mean_pt = points.mean(axis=0)
-                ax.scatter(mean_pt[0], mean_pt[1], marker=marker, s=100,
-                           color=color, edgecolors='black', linewidths=1.5, zorder=5)
+                ax.scatter(mean_pt[0],
+                           mean_pt[1],
+                           marker=marker,
+                           s=100,
+                           color=color,
+                           edgecolors='black',
+                           linewidths=1.5,
+                           zorder=5)
 
                 # Ellipse
                 if len(points) > 2:
                     cov = np.cov(points.T)
-                    plot_covariance_ellipse(ax, mean_pt, cov, n_std=1.0,
-                                            facecolor=color, alpha=0.15,
-                                            edgecolor=color, linewidth=1.5)
+                    plot_covariance_ellipse(ax,
+                                            mean_pt,
+                                            cov,
+                                            n_std=1.0,
+                                            facecolor=color,
+                                            alpha=0.25,
+                                            edgecolor=color,
+                                            linewidth=1.5)
 
         plot_baselines(ax, baseline_pca, baseline_labels, marker_size=60)
-        ax.set_title(models_map[model])
+        ax.set_title(MODELS_MAPPING[model])
 
         if col == 0:
             ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})')
@@ -633,29 +725,48 @@ def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
 
     # Legend: games (colors) + attitudes (markers)
     legend_handles = []
-    game_mapping = {'public_goods': ' Public Goods Game', 'collective_risk': 'Collective Risk Dilemma', 'common_pool': 'Common Pool Resource', 'public_goods_prompt': 'Public Goods'}
     for game in games:
-        legend_handles.append(plt.Line2D([0], [0], marker='o', color='w',
-                                         markerfacecolor=game_colors[game],
-                                         markersize=10, label=game_mapping[game]))
-    legend_handles.append(plt.Line2D([0], [0], marker='o', color='gray',
-                                     markersize=8, label='Collective'))
-    legend_handles.append(plt.Line2D([0], [0], marker='s', color='gray',
-                                     markersize=8, label='Exploitative'))
+        legend_handles.append(
+            plt.Line2D([0], [0],
+                       marker='o',
+                       color='w',
+                       markerfacecolor=game_colors[game],
+                       markersize=10,
+                       label=GAME_MAPPING[game]))
+    legend_handles.append(
+        plt.Line2D([0], [0],
+                   marker='o',
+                   color='gray',
+                   markersize=8,
+                   label='Collective'))
+    legend_handles.append(
+        plt.Line2D([0], [0],
+                   marker='s',
+                   color='gray',
+                   markersize=8,
+                   label='Exploitative'))
 
-    fig.legend(handles=legend_handles, loc='upper center', frameon=False,
-               bbox_to_anchor=(0.5, 1.02), ncol=len(games) + 2,
-               columnspacing=0.6, handletextpad=0.5)
+    fig.legend(handles=legend_handles,
+               loc='upper center',
+               frameon=False,
+               bbox_to_anchor=(0.5, 1.02),
+               ncol=len(games) + 2,
+               columnspacing=0.6,
+               handletextpad=0.5)
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])
-    plt.savefig(output_dir / f"pca_by_model.{FORMAT}", format=FORMAT, bbox_inches='tight')
+    plt.savefig(output_dir / f"pca_by_model.{FORMAT}",
+                format=FORMAT,
+                bbox_inches='tight')
     plt.close()
-    logger.info(f"Saved per-model PCA grid to {output_dir / f'pca_by_model.{FORMAT}'}")
+    logger.info(
+        f"Saved per-model PCA grid to {output_dir / f'pca_by_model.{FORMAT}'}")
 
 
 # =============================================================================
 # EXTREMA ANALYSIS
 # =============================================================================
+
 
 def find_extrema(X_pca, metadata):
     """Find strategies at plot extrema."""
@@ -692,6 +803,7 @@ def find_extrema(X_pca, metadata):
 
     return results
 
+
 def extrema_analysis(tl):
     logger.info(f"\n{'='*60}")
     logger.info(f"EXTREMA ANALYSIS")
@@ -705,8 +817,8 @@ def extrema_analysis(tl):
         else:
             # Each element in context is a tuple representing one round's opponent actions
             context_str = '|'.join(''.join('C' if val else 'D'
-                                            for val in round_actions)
-                                    for round_actions in context)
+                                           for val in round_actions)
+                                   for round_actions in context)
         logger.info(f"  {context_str}: {coop_prob:.1%} coop)")
 
 
@@ -717,18 +829,18 @@ def plot_extrema(extrema_info, ax):
                     xytext=(10, 10),
                     textcoords='offset points',
                     bbox=dict(boxstyle='round,pad=0.5',
-                            facecolor='yellow',
-                            alpha=0.7),
+                              facecolor='yellow',
+                              alpha=0.7),
                     arrowprops=dict(arrowstyle='->',
                                     connectionstyle='arc3,rad=0',
                                     lw=1.5),
                     fontsize=8,
                     zorder=10)
 
+
 # =============================================================================
 # MAIN
 # =============================================================================
-
 
 if __name__ == "__main__":
     args = parse_args()
@@ -770,10 +882,13 @@ if __name__ == "__main__":
                     continue
 
             all_specs = registry.get_all_specs(gene)
-            n_strategies = len(all_specs) if args.n_strategies is None else min(len(all_specs), args.n_strategies)
+            n_strategies = len(all_specs) if args.n_strategies is None else min(
+                len(all_specs), args.n_strategies)
             chunks = chunk_indices(n_strategies, args.n_processes)
 
-            logger.info(f"Computing {n_strategies} strategies for {gene} in {len(chunks)} chunks")
+            logger.info(
+                f"Computing {n_strategies} strategies for {gene} in {len(chunks)} chunks"
+            )
 
             with Pool(processes=args.n_processes) as pool:
                 chunk_results = pool.map(compute_strategy_chunk, chunks)
@@ -825,9 +940,9 @@ if __name__ == "__main__":
     n_features = len(baseline_X[0])
     baseline_X = np.array(baseline_X + [[0.5] * n_features])
 
-    logger.info(f"Features:\n{len(unique_combos)} unique opponent action combinations of length {args.n_rounds - 1}\nGiving rise to {n_features} features in total (including histories of shorter length)."
+    logger.info(
+        f"Features:\n{len(unique_combos)} unique opponent action combinations of length {args.n_rounds - 1}\nGiving rise to {n_features} features in total (including histories of shorter length)."
     )
-
 
     # ==========================================================================
     # PHASE 3: Combined PCA (all games together, plotted separately)
@@ -839,7 +954,8 @@ if __name__ == "__main__":
     # Stack all games
     X_all = np.vstack([pca_data[g]['X'] for g in args.games])
     labels_all = np.concatenate([pca_data[g]['labels'] for g in args.games])
-    game_labels = np.concatenate([[g] * len(pca_data[g]['X']) for g in args.games])
+    game_labels = np.concatenate(
+        [[g] * len(pca_data[g]['X']) for g in args.games])
 
     # Fit combined PCA
     n_components = min(10, X_all.shape[1], X_all.shape[0])
@@ -876,11 +992,15 @@ if __name__ == "__main__":
 
         if args.plot_extrema:
             extrema_info = find_extrema(X_game_pca, metadata)
-            extrema_analysis(extrema_info.get('bottom_right', list(extrema_info.values())[0]))
+            extrema_analysis(
+                extrema_info.get('bottom_right',
+                                 list(extrema_info.values())[0]))
             plot_extrema(extrema_info, ax)
 
         plt.tight_layout()
-        plt.savefig(output_dir / f"pca_{game_name}.{FORMAT}", format=FORMAT, bbox_inches='tight')
+        plt.savefig(output_dir / f"pca_{game_name}.{FORMAT}",
+                    format=FORMAT,
+                    bbox_inches='tight')
         plt.close()
 
     # Combined 2x3 grid plot (attitudes × games)
@@ -905,9 +1025,11 @@ if __name__ == "__main__":
         for gene in pca_data[game_name]['genes']:
             gene_mask = mask & (labels_all == str(gene))
             X_gene = X_all[gene_mask]
-            mpd, mpd_norm = compute_within_set_metrics(X_gene, random_baseline_dist)
+            mpd, mpd_norm = compute_within_set_metrics(X_gene,
+                                                       random_baseline_dist)
             pr = compute_participation_ratio(X_gene)
-            logger.info(f"    {gene}: MPD={mpd:.3f} (norm={mpd_norm:.2f}), PR={pr:.2f}")
+            logger.info(
+                f"    {gene}: MPD={mpd:.3f} (norm={mpd_norm:.2f}), PR={pr:.2f}")
 
     logger.info(f"\n{'='*60}")
     logger.info("VARIANCE EXPLAINED BY GAME MEMBERSHIP")
@@ -917,7 +1039,8 @@ if __name__ == "__main__":
     models = sorted(set(g.model for g in pca_data[args.games[0]]['genes']))
     for model in models:
         model_mask = np.array([model in label for label in labels_all])
-        eta_sq_model = compute_game_variance_explained(X_all[model_mask], game_labels[model_mask])
+        eta_sq_model = compute_game_variance_explained(X_all[model_mask],
+                                                       game_labels[model_mask])
         logger.info(f"  {model}: η² = {eta_sq_model:.3f}")
 
     logger.info(f"\n{'='*60}")
@@ -933,25 +1056,33 @@ if __name__ == "__main__":
 
         for model in sorted(models):
             # Get genes for this model, split by attitude
-            collective_genes = [g for g in genes if g.model == model and g.attitude == Attitude.COLLECTIVE]
-            exploitative_genes = [g for g in genes if g.model == model and g.attitude == Attitude.EXPLOITATIVE]
+            collective_genes = [
+                g for g in genes
+                if g.model == model and g.attitude == Attitude.COLLECTIVE
+            ]
+            exploitative_genes = [
+                g for g in genes
+                if g.model == model and g.attitude == Attitude.EXPLOITATIVE
+            ]
 
             if not collective_genes or not exploitative_genes:
                 continue
 
             # Get corresponding feature vectors
             mask = game_labels == game_name
-            X_collective = X_all[mask & np.isin(labels_all, [str(g) for g in collective_genes])]
-            X_exploitative = X_all[mask & np.isin(labels_all, [str(g) for g in exploitative_genes])]
+            X_collective = X_all[
+                mask & np.isin(labels_all, [str(g) for g in collective_genes])]
+            X_exploitative = X_all[
+                mask &
+                np.isin(labels_all, [str(g) for g in exploitative_genes])]
 
             if len(X_collective) == 0 or len(X_exploitative) == 0:
                 continue
 
-            centroid_dist, cohens_d = compute_between_set_metrics(X_collective, X_exploitative)
-            metrics = BetweenSetMetrics(
-                game=game_name,
-                model=model,
-                centroid_distance=centroid_dist,
-                cohens_d=cohens_d
-            )
+            centroid_dist, cohens_d = compute_between_set_metrics(
+                X_collective, X_exploitative)
+            metrics = BetweenSetMetrics(game=game_name,
+                                        model=model,
+                                        centroid_distance=centroid_dist,
+                                        cohens_d=cohens_d)
             logger.info(f"    {metrics}")
