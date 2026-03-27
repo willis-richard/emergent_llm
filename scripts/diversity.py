@@ -763,6 +763,52 @@ def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
         f"Saved per-model PCA grid to {output_dir / f'pca_by_model.{FORMAT}'}")
 
 
+def find_centroid_strategies(X, labels, game_labels, pca_data, games):
+    """For each (game, attitude, model), find the strategy closest to the group centroid."""
+    for game_name in games:
+        logger.info(f"\n  {game_name}:")
+        mask = game_labels == game_name
+        genes = pca_data[game_name]['genes']
+        metadata = pca_data[game_name]['metadata']
+        X_game = X[mask]
+        labels_game = labels[mask]
+
+        # Build index mapping from game-local index to metadata
+        game_indices = np.where(mask)[0]
+
+        models = sorted(set(g.model for g in genes))
+        for model in models:
+            for attitude in [Attitude.COLLECTIVE, Attitude.EXPLOITATIVE]:
+                matching_genes = [
+                    g for g in genes
+                    if g.model == model and g.attitude == attitude
+                ]
+                if not matching_genes:
+                    continue
+
+                gene_strs = [str(g) for g in matching_genes]
+                gene_mask = np.isin(labels_game, gene_strs)
+                X_group = X_game[gene_mask]
+
+                if len(X_group) == 0:
+                    continue
+
+                centroid = X_group.mean(axis=0, keepdims=True)
+                dists = cdist(centroid, X_group, metric='euclidean')[0]
+                local_idx = np.argmin(dists)
+
+                # Map back to metadata
+                game_local_indices = np.where(gene_mask)[0]
+                metadata_idx = game_local_indices[local_idx]
+                gene, strategy_name, feature_dict = metadata[metadata_idx]
+
+                coop_rate = np.mean(list(feature_dict.values()))
+                logger.info(
+                    f"    {gene}: {strategy_name} "
+                    f"(dist={dists[local_idx]:.3f}, coop={coop_rate:.2%})"
+                )
+
+
 # =============================================================================
 # EXTREMA ANALYSIS
 # =============================================================================
@@ -1025,11 +1071,12 @@ if __name__ == "__main__":
         for gene in pca_data[game_name]['genes']:
             gene_mask = mask & (labels_all == str(gene))
             X_gene = X_all[gene_mask]
+            coop_rate = float(X_gene.mean()) if len(X_gene) > 0 else 0.0
             mpd, mpd_norm = compute_within_set_metrics(X_gene,
                                                        random_baseline_dist)
             pr = compute_participation_ratio(X_gene)
             logger.info(
-                f"    {gene}: MPD={mpd:.3f} (norm={mpd_norm:.2f}), PR={pr:.2f}")
+                f"    {gene}: coop={coop_rate:.3f}, MPD={mpd:.3f} (norm={mpd_norm:.2f}), PR={pr:.2f}")
 
     logger.info(f"\n{'='*60}")
     logger.info("VARIANCE EXPLAINED BY GAME MEMBERSHIP")
@@ -1042,6 +1089,12 @@ if __name__ == "__main__":
         eta_sq_model = compute_game_variance_explained(X_all[model_mask],
                                                        game_labels[model_mask])
         logger.info(f"  {model}: η² = {eta_sq_model:.3f}")
+
+    logger.info(f"\n{'='*60}")
+    logger.info("CENTROID-NEAREST STRATEGIES")
+    logger.info(f"{'='*60}")
+
+    find_centroid_strategies(X_all, labels_all, game_labels, pca_data, args.games)
 
     logger.info(f"\n{'='*60}")
     logger.info("BETWEEN-SET METRICS (Collective vs Exploitative)")
