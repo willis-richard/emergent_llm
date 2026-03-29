@@ -21,7 +21,7 @@ import openai
 from google import genai
 from google.genai import errors as genai_errors
 
-from emergent_llm.common import COLLECTIVE, EXPLOITATIVE, Attitude
+from emergent_llm.common import Attitude
 from emergent_llm.generation.prompts import (
     HEADER_IMPORTS,
     create_code_user_prompt,
@@ -297,7 +297,7 @@ def validate_strategy_code(code: str):
             ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Pow, ast.Mod,
             ast.UAdd, ast.USub, ast.MatMult,
             ast.Try, ast.ExceptHandler, ast.Yield,
-            ast.JoinedStr, ast.Assert
+            ast.JoinedStr,
         )
         # yapf: enable
 
@@ -413,7 +413,7 @@ def test_generated_strategy(class_code: str, game_name: str):
             strategy_classes) == 1, "More than one strategy class defined"
         strategy_class = strategy_classes[0]
 
-        test_strategy_class(strategy_class, game_name, allowed_time=2)
+        test_strategy_class(strategy_class, game_name, allowed_time=1.2)
 
     finally:
         # Clean up temp file
@@ -722,10 +722,24 @@ def parse_arguments() -> argparse.Namespace:
                         required=True)
     parser.add_argument("--model_name", type=str, required=True)
     parser.add_argument(
+        "--output_name",
+        type=str,
+        default=None,
+        help=("Optional output stem for strategy files. Defaults to a safe "
+              "version of model_name."),
+    )
+    parser.add_argument(
         "--game_name",
         choices=["public_goods", "public_goods_prompt", "collective_risk", "common_pool"],
         required=True)
     parser.add_argument("--strategies_dir", type=str, default="strategies")
+    parser.add_argument(
+        "--attitudes",
+        type=str,
+        default=",".join(attitude.value for attitude in Attitude.base_attitudes()),
+        help=("Comma-separated attitudes to generate. Defaults to the original "
+              "base attitudes (collective,exploitative)."),
+    )
 
     # Phase selection
     subparsers = parser.add_subparsers(dest='phase', help='Generation phase')
@@ -748,11 +762,26 @@ def parse_arguments() -> argparse.Namespace:
 
 
 def make_safe(model_name: str) -> str:
-    return model_name.replace(":", "-")
+    return model_name.replace("/", "-").replace(":", "-")
+
+
+def parse_selected_attitudes(attitude_values: str) -> list[Attitude]:
+    parsed_values = [value.strip() for value in attitude_values.split(",") if value.strip()]
+    invalid_values = [
+        value for value in parsed_values
+        if value not in {attitude.value for attitude in Attitude}
+    ]
+    if invalid_values:
+        raise ValueError(
+            f"Invalid attitudes: {invalid_values}. "
+            f"Valid values are {[attitude.value for attitude in Attitude]}")
+    return [Attitude(value) for value in parsed_values]
+
 
 def main():
     """Main function."""
     args = parse_arguments()
+    selected_attitudes = parse_selected_attitudes(args.attitudes)
 
     # Create output directory structure
     strategies_dir = Path(args.strategies_dir) / args.game_name
@@ -761,7 +790,7 @@ def main():
     log_dir.mkdir(exist_ok=True)
 
     # Setup file paths
-    safe_model_name = make_safe(args.model_name)
+    safe_model_name = make_safe(args.output_name or args.model_name)
     description_file = strategies_dir / f"{safe_model_name}_descriptions.py"
     strategy_file = strategies_dir / f"{safe_model_name}.py"
     log_file = log_dir / f"{safe_model_name}_{args.phase}.log"
@@ -789,7 +818,7 @@ def main():
     # Run appropriate phase
     if args.phase == 'descriptions':
         generate_descriptions(config, args.game_name,
-                              [COLLECTIVE, EXPLOITATIVE], args.n,
+                              selected_attitudes, args.n,
                               description_file, logger)
     elif args.phase == 'implementations':
         generate_implementations(config, args.game_name, description_file,

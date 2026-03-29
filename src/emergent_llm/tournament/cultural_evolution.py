@@ -32,10 +32,16 @@ class CulturalEvolution:
 
         # Validate all model+attitude combinations exist
         for model in self.registry.available_models:
-            for attitude in [Attitude.COLLECTIVE, Attitude.EXPLOITATIVE]:
-                gene = Gene(model, attitude)
-                if gene not in self.registry.available_genes:
-                    raise ValueError(f"Missing strategies for {gene}")
+            for attitude in Attitude.base_attitudes():
+                matching_genes = [
+                    gene for gene in self.registry.available_genes
+                    if gene.model == model and
+                    gene.attitude.to_base_attitude() == attitude
+                ]
+                if not matching_genes:
+                    raise ValueError(
+                        f"Missing strategies for model={model}, base_attitude={attitude}"
+                    )
 
         self.reset()
 
@@ -115,8 +121,7 @@ class CulturalEvolution:
         # Run fair tournament
         fair_config = BaseTournamentConfig(
             game_description=self.config.game_description,
-            repetitions=self.config.repetitions_per_generation,
-            n_processes=1)
+            repetitions=self.config.repetitions_per_generation)
         tournament = FairTournament(players, fair_config)
         results = tournament.run_tournament()
         self.generation_results.append(results)
@@ -202,15 +207,31 @@ class CulturalEvolution:
 
         # 50/50 chance of mutating model vs attitude
         available_models = self.registry.available_models
+        current_base_attitude = gene.attitude.to_base_attitude()
 
         if random.random() < 0.5 and len(available_models) > 1:
             # Mutate model
             other_models = available_models - {gene.model}
             new_model = random.choice(list(other_models))
-            return Gene(new_model, gene.attitude)
+            candidate_genes = [
+                candidate_gene for candidate_gene in self.registry.available_genes
+                if candidate_gene.model == new_model and
+                candidate_gene.attitude.to_base_attitude() == current_base_attitude
+            ]
+            if candidate_genes:
+                return random.choice(candidate_genes)
+            return gene
 
         # Mutate attitude
-        return Gene(gene.model, gene.attitude.flip())
+        flipped_base_attitude = current_base_attitude.flip()
+        candidate_genes = [
+            candidate_gene for candidate_gene in self.registry.available_genes
+            if candidate_gene.model == gene.model and
+            candidate_gene.attitude.to_base_attitude() == flipped_base_attitude
+        ]
+        if candidate_genes:
+            return random.choice(candidate_genes)
+        return Gene(gene.model, flipped_base_attitude)
 
     def _calculate_gene_frequencies(self) -> dict[Gene, float]:
         """Calculate current gene frequencies in descending order."""

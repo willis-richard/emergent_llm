@@ -86,7 +86,8 @@ class LLMPlayer(BasePlayer):
                 raise
 
             # Return fallback action based on attitude
-            return Action.C if self.id.attitude == Attitude.COLLECTIVE else Action.D
+            base_attitude = self.id.attitude.to_base_attitude()
+            return Action.C if base_attitude == Attitude.COLLECTIVE else Action.D
 
     def __repr__(self):
         """String representation of the player."""
