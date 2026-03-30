@@ -40,7 +40,7 @@ class CulturalEvolution:
         self.reset()
 
     def initialise_population(self):
-        genes = self.registry.available_genes
+        genes = {g for g in self.registry.available_genes if g.attitude in Attitude.base_attitudes()}
 
         # Initialise with uniform distribution over genes
         self.population = [
@@ -202,7 +202,6 @@ class CulturalEvolution:
 
         # 50/50 chance of mutating model vs attitude
         available_models = self.registry.available_models
-        current_base_attitude = gene.attitude.to_base_attitude()
 
         if random.random() < 0.5 and len(available_models) > 1:
             # Mutate model
@@ -211,13 +210,7 @@ class CulturalEvolution:
             return Gene(new_model, gene.attitude)
 
         # Mutate attitude
-        flipped_base_attitude = current_base_attitude.flip()
-        candidate_genes = [
-            candidate_gene for candidate_gene in self.registry.available_genes
-            if candidate_gene.model == gene.model and
-            candidate_gene.attitude.to_base_attitude() == flipped_base_attitude
-        ]
-        return random.choice(candidate_genes)
+        return Gene(gene.model, gene.attitude.flip())
 
     def _calculate_gene_frequencies(self) -> dict[Gene, float]:
         """Calculate current gene frequencies in descending order."""

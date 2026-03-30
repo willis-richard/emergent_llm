@@ -119,7 +119,7 @@ def run_mixture_tournament(game_description):
 def run_batch_fair_tournament(generator_name):
     """Run tournament with Public Goods Game."""
     config = BatchTournamentConfig(
-        group_sizes=[2,4,8],
+        group_sizes=[2,4,48],
         repetitions=2,
         generator_name=generator_name,
         n_processes=2,
@@ -129,8 +129,8 @@ def run_batch_fair_tournament(generator_name):
         model_name="DummyModel",
     )
 
-    strategies = [CollectiveStrategy] * 16 + [ExploitativeStrategy] * 16
-    genes = [Gene("", COLLECTIVE)] * 16 + [Gene("", EXPLOITATIVE)] * 16
+    strategies = [CollectiveStrategy] * 96 + [ExploitativeStrategy] * 96
+    genes = [Gene("", COLLECTIVE)] * 96 + [Gene("", EXPLOITATIVE)] * 96
 
     # Create and run tournament
     tournament = BatchFairTournament(
@@ -143,7 +143,7 @@ def run_batch_fair_tournament(generator_name):
 def run_batch_mixture_tournament(generator_name):
     """Run tournament with Public Goods Game."""
     config = BatchTournamentConfig(
-        group_sizes=[2,4,8],
+        group_sizes=[2,4,48],
         repetitions=2,
         generator_name=generator_name,
         n_processes=2,
@@ -155,8 +155,8 @@ def run_batch_mixture_tournament(generator_name):
 
     # Create and run tournament
     tournament = BatchMixtureTournament(
-        collective_specs=[StrategySpec(Gene("", COLLECTIVE), CollectiveStrategy)]*16,
-        exploitative_specs=[StrategySpec(Gene("", EXPLOITATIVE), ExploitativeStrategy)]*16,
+        collective_specs=[StrategySpec(Gene("", COLLECTIVE), CollectiveStrategy)]*96,
+        exploitative_specs=[StrategySpec(Gene("", EXPLOITATIVE), ExploitativeStrategy)]*96,
         config=config
     )
 
