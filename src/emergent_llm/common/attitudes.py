@@ -27,6 +27,7 @@ class Attitude(StrEnum):
         return Attitude.EXPLOITATIVE
 
     def flip(self):
+        assert self.value in self.base_attitudes(), f"{self.value} not a base attitude"
         return COLLECTIVE if self.value == EXPLOITATIVE else EXPLOITATIVE
 
 

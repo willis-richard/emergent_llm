@@ -743,9 +743,7 @@ class CulturalEvolutionResults:
         return "\n".join(lines)
 
     def serialise(self, style: OutputStyle = OutputStyle.FULL) -> dict:
-        config_dict = asdict(self.config)
-        config_dict['game_description'][
-            '__class__'] = self.config.game_description.__class__.__name__
+        config_dict = self.config.serialise()
 
         data = {
             'config': config_dict,
@@ -787,25 +785,7 @@ class CulturalEvolutionResults:
 
     @classmethod
     def from_dict(cls, data: dict) -> 'CulturalEvolutionResults':
-        config_data = data['config']
-        game_cls = get_description_type(
-            config_data['game_description']['__class__'])
-        game_description = game_cls(
-            **{
-                k: v
-                for k, v in config_data['game_description'].items()
-                if k != '__class__'
-            })
-
-        config = CulturalEvolutionConfig(
-            game_description=game_description,
-            population_size=config_data['population_size'],
-            top_k=config_data['top_k'],
-            mutation_rate=config_data['mutation_rate'],
-            threshold_pct=config_data['threshold_pct'],
-            max_generations=config_data['max_generations'],
-            repetitions_per_generation=config_data['repetitions_per_generation']
-        )
+        config = CulturalEvolutionConfig.from_dict(data['config'])
 
         final_gene_frequencies = {
             Gene.from_dict(item['gene']): item['frequency']
@@ -1469,7 +1449,7 @@ class BatchCulturalEvolutionResults:
 
     def serialise(self) -> dict:
         return {
-            'config': asdict(self.config),
+            'config': self.config.serialise(),
             'runs': [
                 run.serialise(self.config.output_style) for run in self.runs
             ],
@@ -1487,7 +1467,7 @@ class BatchCulturalEvolutionResults:
 
     @classmethod
     def from_dict(cls, data: dict) -> 'BatchCulturalEvolutionResults':
-        config = BatchCulturalEvolutionConfig(**data['config'])
+        config = BatchCulturalEvolutionConfig.from_dict(data['config'])
         runs = [CulturalEvolutionResults.from_dict(rd) for rd in data['runs']]
         return cls(config=config, runs=runs)
 

@@ -6,6 +6,7 @@ from typing import Callable
 from emergent_llm.common import GameDescription, Gene
 from emergent_llm.games import (
     STANDARD_GENERATORS,
+    get_description_type,
     CollectiveRiskDescription,
     CommonPoolDescription,
     PublicGoodsDescription,
@@ -44,13 +45,7 @@ class BaseTournamentConfig:
     @classmethod
     def from_dict(cls, config_data: dict) -> 'BaseTournamentConfig':
         """Load BaseTournamentConfig from dictionary data."""
-        game_class_map = {
-            'PublicGoodsDescription': PublicGoodsDescription,
-            'CollectiveRiskDescription': CollectiveRiskDescription,
-            'CommonPoolDescription': CommonPoolDescription,
-        }
-
-        game_cls = game_class_map[config_data['game_description_type']]
+        game_cls = get_description_type(config_data['game_description_type'])
         game_description = game_cls(**config_data['game_description'])
 
         return cls(game_description=game_description,
@@ -165,6 +160,28 @@ class CulturalEvolutionConfig:
         if self.repetitions_per_generation <= 0:
             raise ValueError("repetitions_per_generation must be positive")
 
+    def serialise(self) -> dict:
+        data = asdict(self)
+        data['game_description']['__class__'] = self.game_description.__class__.__name__
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'CulturalEvolutionConfig':
+        gd_data = dict(data['game_description'])
+        class_name = gd_data.pop('__class__')
+        game_cls = get_description_type(class_name)
+        game_description = game_cls(**gd_data)
+
+        return cls(
+            game_description=game_description,
+            population_size=data['population_size'],
+            top_k=data['top_k'],
+            mutation_rate=data['mutation_rate'],
+            threshold_pct=data['threshold_pct'],
+            max_generations=data['max_generations'],
+            repetitions_per_generation=data['repetitions_per_generation'],
+        )
+
 
 @dataclass
 class BatchCulturalEvolutionConfig:
@@ -217,3 +234,23 @@ class BatchCulturalEvolutionConfig:
             parts.append(f"models_{models_str}")
 
         return "_".join(parts)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'BatchCulturalEvolutionConfig':
+        evolution_config = CulturalEvolutionConfig.from_dict(data['evolution_config'])
+        return cls(
+            evolution_config=evolution_config,
+            n_runs=data['n_runs'],
+            n_processes=data['n_processes'],
+            results_dir=data['results_dir'],
+            output_style=OutputStyle(data['output_style']),
+            strategies_dir=data['strategies_dir'],
+            game_name=data['game_name'],
+            models=data.get('models'),
+        )
+
+    def serialise(self) -> dict:
+        data = asdict(self)
+        # Replace the flat dict with properly serialised evolution_config
+        data['evolution_config'] = self.evolution_config.serialise()
+        return data
