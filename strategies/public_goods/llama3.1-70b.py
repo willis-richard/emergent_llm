@@ -37583,3 +37583,4028 @@ class Strategy_EXPLOITATIVE_573(BaseStrategy):
             return Action.C
         self.last_round_defection = [coop is False for coop in history.opponent_actions[-1]]
         return action
+
+
+class Strategy_PROSOCIAL_1(BaseStrategy):
+    """
+    A prosocial strategy for the N-Player Public Goods Game, 
+    which balances cooperation and reciprocity to promote prosocial behavior.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if history is not None:
+            total_cooperators = sum(history.opponent_actions[-1, :]) + history.my_actions[-1]
+        else:
+            total_cooperators = 0
+        if total_cooperators >= self.game_description.n_players / self.game_description.k:
+            return Action.C
+        if total_cooperators < self.game_description.n_players / self.game_description.k:
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.C
+        if total_cooperators == self.game_description.n_players / self.game_description.k:
+            return random.choice([Action.C, Action.D])
+        if total_cooperators == 0:
+            return Action.C
+        return Action.C
+
+class Strategy_PROSOCIAL_2(BaseStrategy):
+    """
+    Adaptive Cooperation is a prosocial strategy designed to promote cooperation in the N-Player Public Goods Game.
+    It balances individual self-interest with collective well-being, adapting to the behavior of other players while maintaining a strong cooperative foundation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperation_threshold = game_description.n_players / 2
+        self.correction_phase = False
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        previous_cooperators = sum(history.opponent_actions[-1, :]) + (1 if history.my_actions[-1] else 0)
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if previous_cooperators <= self.game_description.n_players / 3:
+            self.correction_phase = True
+            return Action.C
+        if state.round_number > 1:
+            previous_previous_cooperators = sum(history.opponent_actions[-2, :]) + (1 if history.my_actions[-2] else 0)
+            if previous_cooperators - previous_previous_cooperators >= 2:
+                self.cooperation_threshold += 1
+            elif previous_previous_cooperators - previous_cooperators >= 2:
+                self.cooperation_threshold -= 1
+        if self.correction_phase:
+            self.correction_phase = False
+            return Action.C
+        elif previous_cooperators >= self.cooperation_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_3(BaseStrategy):
+    """
+    Adaptive Cooperate-and-Mirror strategy (ACM).
+    Balances cooperation with adaptiveness to opponents' behaviors.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperation_threshold = game_description.k / game_description.n_players * (game_description.n_players / 2)
+        self.previous_action = None
+        self.previous_cooperation_rate = None
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            self.previous_action = Action.C
+            self.previous_cooperation_rate = 1
+            return Action.C
+        opponent_cooperators = sum(history.opponent_actions[-1, :])
+        total_players = self.game_description.n_players - 1
+        cooperation_rate = opponent_cooperators / (opponent_cooperators + total_players - opponent_cooperators)
+        if cooperation_rate > self.cooperation_threshold:
+            action = Action.C
+        else:
+            action = Action.C if random.random() < cooperation_rate else Action.D
+        if self.previous_action == Action.C and cooperation_rate < self.cooperation_threshold:
+            action = Action.D
+        if self.previous_action == Action.D and cooperation_rate > self.cooperation_threshold:
+            action = Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            action = Action.C
+        self.previous_action = action
+        self.previous_cooperation_rate = cooperation_rate
+        return action
+
+class Strategy_PROSOCIAL_4(BaseStrategy):
+    """
+    Adaptive Cooperation strategy: Cooperate initially and then adapt to opponents' actions.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if self.game_description.n_rounds == 1 or self.game_description.n_players == 2:
+            return Action.C
+        if state.round_number == 0:
+            return Action.C
+        previous_actions = history.opponent_actions[-1, :]
+        previous_payoffs = history.opponent_payoffs[-1, :]
+        previous_cooperators = np.sum(previous_actions)
+        if previous_cooperators >= self.game_description.n_players / 2:
+            return Action.C
+        total_public_good_payoff = self.game_description.k / self.game_description.n_players * np.sum(previous_actions)
+        if total_public_good_payoff < 1:
+            return Action.D
+        highest_payoff_player = np.argmax(previous_payoffs)
+        return Action.C if previous_actions[highest_payoff_player] else Action.D
+
+class Strategy_PROSOCIAL_5(BaseStrategy):
+    """
+    A prosocial strategy, "Cooperative Adaptive Learner" (CAL), designed to be adaptive, robust, and prosocial.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperation_rate = 1.0
+        self.total_cooperators = 0
+        self.average_payoff_cooperators = 0.0
+        self.average_payoff_defectors = 0.0
+        self.cooperation_history = []
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if history is not None:
+            opponent_cooperations = history.opponent_actions[-1, :]
+            self.total_cooperators = sum(opponent_cooperations) + 1 if history.my_actions[-1] else sum(opponent_cooperations)
+        if self.total_cooperators >= self.game_description.n_players / 2:
+            action = Action.C
+        else:
+            action = Action.D
+        if history is not None:
+            last_rounds = min(5, len(history.my_actions))
+            cooperators_payoffs = np.mean(history.my_payoffs[-last_rounds:])
+            defectors_payoffs = np.mean([history.opponent_payoffs[-last_rounds:, i] for i in range(self.game_description.n_players - 1)])
+            self.average_payoff_cooperators = 0.5 * self.average_payoff_cooperators + 0.5 * cooperators_payoffs
+            self.average_payoff_defectors = 0.5 * self.average_payoff_defectors + 0.5 * defectors_payoffs
+            if self.average_payoff_cooperators > self.average_payoff_defectors:
+                self.cooperation_rate = min(1.0, self.cooperation_rate + 0.1)
+            elif self.average_payoff_defectors > self.average_payoff_cooperators:
+                self.cooperation_rate = max(0.0, self.cooperation_rate - 0.1)
+            self.cooperation_history.append(self.cooperation_rate)
+            if len(self.cooperation_history) > 5:
+                self.cooperation_history.pop(0)
+        if history is not None and self.total_cooperators / self.game_description.n_players < 0.2:
+            action = Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            action = Action.D
+        return action
+
+class Strategy_PROSOCIAL_6(BaseStrategy):
+    """
+    Adaptive Prosociality (APS) strategy for the N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.previous_round_cooperators = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if history is not None:
+            self.previous_round_cooperators = sum(history.opponent_actions[-1, :]) + 1
+        if self.previous_round_cooperators >= self.game_description.n_players // 2:
+            return Action.C
+        elif self.previous_round_cooperators == 0:
+            return Action.C
+        elif self.previous_round_cooperators == self.game_description.n_players:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_7(BaseStrategy):
+    """
+    Adaptive Cooperator with Retaliation (ACR) Strategy.
+    Cooperates in the first round and retaliates against defectors.
+    Forgives opponents who return to cooperating and adapts to changes.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.prev_coop_rate = None
+        self.prev_action = None
+        self.tau = 0.5
+        self.epsilon = 0.1
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            self.prev_coop_rate = None
+            self.prev_action = None
+            return Action.C
+        if history is not None:
+            prev_coop_rate = np.mean(history.opponent_actions[-1, :])
+            prev_action = history.opponent_actions[-1, 0]
+            self.prev_coop_rate = prev_coop_rate
+            self.prev_action = prev_action
+        if self.prev_coop_rate is not None:
+            if self.prev_coop_rate >= self.tau:
+                return Action.C
+            elif self.prev_action:
+                return Action.D
+            elif self.prev_coop_rate >= self.tau:
+                return Action.C
+            elif random.random() < self.epsilon:
+                return random.choice([Action.C, Action.D])
+            else:
+                return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_8(BaseStrategy):
+    """
+    Adaptive Cooperative Enforcer strategy for N-Player Public Goods Game.
+    This strategy balances individual self-interest with prosocial behavior, promoting cooperation while being robust to various opponent behaviors.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.epsilon = 0.05
+        self.p = 0.5
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.C
+        threshold = self.game_description.n_players * self.game_description.k / 2
+        if history is not None:
+            previous_round_cooperators = sum(history.opponent_actions[-1, :]) + 1
+            if previous_round_cooperators > threshold:
+                return Action.C
+            elif previous_round_cooperators < threshold:
+                if random.random() < self.p:
+                    return Action.D
+                return Action.C
+            else:
+                return Action.C
+        if random.random() < self.epsilon:
+            return random.choice([Action.C, Action.D])
+        return Action.C
+
+class Strategy_PROSOCIAL_9(BaseStrategy):
+    """
+    Adaptive Prosociality (APS) strategy for the N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.k = game_description.k
+        self.n_rounds = game_description.n_rounds
+        self.ε = 0.05
+        self.θ = (self.k - 1) / (self.n_players - 1)
+        self.prev_cooperators = 0
+        self.prev_payoff = 0
+        self.avg_payoff = 0
+        self.cooperate = True
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if history is not None:
+            self.prev_cooperators = np.sum(history.opponent_actions[-1, :] == 1)
+            self.prev_payoff = history.my_payoffs[-1]
+            self.avg_payoff = np.mean(history.my_payoffs[-self.n_rounds // 2:])
+        if state.round_number == self.n_rounds - 1:
+            return Action.D
+        if self.prev_cooperators / self.n_players >= self.θ and self.prev_payoff > self.avg_payoff:
+            action = Action.C
+        elif random.random() < self.ε:
+            action = random.choice([Action.C, Action.D])
+        else:
+            action = Action.D
+        return action
+
+class Strategy_PROSOCIAL_10(BaseStrategy):
+    """
+    A prosocial strategy that adapts its cooperation level based on the game's history.
+    Initially cooperates, then uses an adaptive threshold to decide whether to cooperate or defect.
+    Re-evaluates the threshold every 5 rounds and cooperates in the last round if the majority of players cooperated previously.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.rounds_since_re_evaluation = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        total_cooperators_last_round = sum(history.opponent_actions[-1, :]) + (1 if history.my_actions[-1] else 0)
+        theta = self.game_description.k / self.game_description.n_players * (total_cooperators_last_round / self.game_description.n_players)
+        if history.my_payoffs[-1] > theta:
+            return Action.C
+        self.rounds_since_re_evaluation += 1
+        if self.rounds_since_re_evaluation >= 5:
+            total_cooperators_last_5_rounds = sum(sum(history.opponent_actions[-5:, :]) + history.my_actions[-5:])
+            theta = self.game_description.k / self.game_description.n_players * (total_cooperators_last_5_rounds / (5 * self.game_description.n_players))
+            self.rounds_since_re_evaluation = 0
+        if state.round_number == self.game_description.n_rounds - 1:
+            if total_cooperators_last_round >= self.game_description.n_players / 2:
+                return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_11(BaseStrategy):
+    """
+    Adaptive Prosociality strategy for the N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperation_probability = 1 - 1 / game_description.n_players
+        self.adaptive_threshold = 1 / 2
+        self.successful_cooperation_rounds = 0
+        self.failed_cooperation_rounds = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C if random.random() < self.cooperation_probability else Action.D
+        total_cooperators = sum(history.opponent_actions[-1, :]) + history.my_actions[-1]
+        total_defectors = self.game_description.n_players - total_cooperators
+        total_payoff = history.my_payoffs[-1] + np.sum(history.opponent_payoffs[-1, :])
+        if total_cooperators >= self.game_description.n_players // 2:
+            return Action.C
+        elif total_payoff >= self.game_description.k / 2:
+            return Action.C
+        elif total_defectors >= self.game_description.n_players // 2:
+            return Action.D
+        else:
+            if total_payoff >= self.game_description.k / 2:
+                self.successful_cooperation_rounds += 1
+            else:
+                self.failed_cooperation_rounds += 1
+            if self.successful_cooperation_rounds >= self.game_description.n_rounds // 2:
+                self.adaptive_threshold -= 1 / self.game_description.n_players
+            elif self.failed_cooperation_rounds >= self.game_description.n_rounds // 2:
+                self.adaptive_threshold += 1 / self.game_description.n_players
+            if total_cooperators >= self.adaptive_threshold * self.game_description.n_players:
+                return Action.C
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.C if total_cooperators >= self.game_description.n_players // 2 else Action.D
+        return Action.C if random.random() < 0.5 else Action.D
+
+class Strategy_PROSOCIAL_12(BaseStrategy):
+    """
+    Adaptive Cooperative Threshold (ACT) strategy for N-Player Public Goods Game.
+    Balances individual self-interest with collective well-being, adapting to the game's history and parameters.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.m = 3
+        self.p = 2
+        self.cooperations = []
+        self.payoffs = []
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C if random.random() < 0.5 else Action.D
+        avg_coop_rate = sum(self.cooperations[-self.m:]) / self.m if self.cooperations else 0
+        if avg_coop_rate >= self.game_description.k / self.game_description.n_players:
+            cooperate = True
+        else:
+            cooperate = False
+        if self.payoffs and self.payoffs[-1] < np.mean(self.payoffs):
+            cooperate = False
+        if history and history.my_payoffs[-1] < self.game_description.k / self.game_description.n_players * sum(history.opponent_actions[-1, :]):
+            cooperate = False
+        if len(self.cooperations) >= self.p and all(self.cooperations[-self.p:]):
+            cooperate = True
+        self.cooperations.append(cooperate)
+        if history:
+            self.payoffs.append(history.my_payoffs[-1])
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if history:
+            if all(history.opponent_actions[-1, :]):
+                return Action.C
+            if all((not coop for coop in history.opponent_actions[-1, :])):
+                return Action.D
+        return Action.C if cooperate else Action.D
+
+class Strategy_PROSOCIAL_13(BaseStrategy):
+    """
+    Adaptive Cooperation with Memory strategy for the N-player public goods game.
+    Balances cooperation and self-interest by considering the history of cooperation and defection.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.memory = 0
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C if random.random() < 0.5 else Action.D
+        ci = sum(history.opponent_actions[-1, :]) / self.game_description.n_players
+        self.memory = 0.5 * self.memory + ci
+        if self.memory > 0.7:
+            cooperate_prob = 0.8
+        elif self.memory < 0.3:
+            cooperate_prob = 0.2
+        elif ci >= 0.5:
+            cooperate_prob = 0.7
+        else:
+            cooperate_prob = 0.3
+        if state.round_number == self.game_description.n_rounds - 1:
+            cooperate_prob = 0.5
+        if history.my_actions[-1] != history.opponent_actions[-1, 0] and ci < 0.5:
+            cooperate_prob = 0.6
+        if cooperate_prob == 0.5:
+            cooperate_prob = 0.6
+        return Action.C if random.random() < cooperate_prob else Action.D
+
+class Strategy_PROSOCIAL_14(BaseStrategy):
+    """
+    Reciprocal Cooperation with Graded Punishment (RCGP) strategy for N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.history = None
+        self.round_payoffs = []
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        self.history = history
+        self.round_payoffs.append(self.history.my_payoffs[-1])
+        previous_round_cooperators = sum(self.history.opponent_actions[-1, :]) + (1 if self.history.my_actions[-1] else 0)
+        majority_cooperated = previous_round_cooperators >= self.game_description.n_players / 2
+        if majority_cooperated:
+            return Action.C
+        defector_count = self.game_description.n_players - previous_round_cooperators
+        defect_probability = defector_count / (self.game_description.n_players - 1)
+        if not self.history.my_actions[-1] and self.history.my_payoffs[-1] < np.mean(self.round_payoffs):
+            return Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.C
+        if random.random() < defect_probability:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_PROSOCIAL_15(BaseStrategy):
+    """
+    Adaptive Cooperativity with Gradual Punishment strategy.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperation_threshold = 0.5
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        prev_coops = sum(history.opponent_actions[-1, :]) + (history.my_actions[-1] == Action.C)
+        self.cooperation_threshold = max(0, self.cooperation_threshold - 0.1 * (self.cooperation_threshold - prev_coops / self.game_description.n_players))
+        if self.cooperation_threshold > 0.5:
+            return Action.C
+        else:
+            punish_prob = (0.5 - self.cooperation_threshold) / 0.5
+            return Action.D if random.random() < punish_prob else Action.C
+        if state.round_number >= self.game_description.n_rounds - 2:
+            return Action.D
+
+class Strategy_PROSOCIAL_16(BaseStrategy):
+    """
+    A prosocial strategy that balances individual self-interest with collective welfare.
+    It adapts the cooperation threshold based on the average payoffs of cooperators and defectors.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.alpha = 0.5
+        self.cooperate = True
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            self.cooperate = True
+            return Action.C
+        opponent_actions = history.opponent_actions[-1, :]
+        n_cooperators = sum(opponent_actions) + (history.my_actions[-1] == Action.C)
+        if n_cooperators >= self.game_description.n_players // 2:
+            self.cooperate = True
+        else:
+            self.cooperate = False
+        if history.my_actions[-1] == Action.C:
+            coop_payoff = history.my_payoffs[-1]
+        else:
+            coop_payoff = np.mean(history.opponent_payoffs[-1, :])
+        if history.my_actions[-1] == Action.D:
+            defector_payoff = history.my_payoffs[-1]
+        else:
+            defector_payoff = np.mean(history.opponent_payoffs[-1, history.opponent_actions[-1, :] == False])
+        if coop_payoff > defector_payoff:
+            self.alpha = min(0.9, self.alpha + 0.1)
+        elif coop_payoff < defector_payoff:
+            self.alpha = max(0.1, self.alpha - 0.1)
+        if n_cooperators < self.alpha * self.game_description.n_players:
+            self.cooperate = False
+        elif n_cooperators > self.alpha * self.game_description.n_players:
+            self.cooperate = True
+        if state.round_number == self.game_description.n_rounds - 1:
+            self.cooperate = True
+        elif n_cooperators < 2:
+            self.cooperate = False
+        elif n_cooperators == self.game_description.n_players - 1:
+            self.cooperate = True
+        return Action.C if self.cooperate else Action.D
+
+class Strategy_PROSOCIAL_17(BaseStrategy):
+    """
+    Adaptive Cooperation Strategy.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.punishment_flags = [False] * game_description.n_players
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        prev_round_actions = history.opponent_actions[-1, :]
+        cooperators = sum(prev_round_actions)
+        cooperate_rate = cooperators / self.game_description.n_players
+        for i, action in enumerate(prev_round_actions):
+            if cooperate_rate > 0.5 and action == False:
+                self.punishment_flags[i] = True
+        for i, action in enumerate(prev_round_actions):
+            if self.punishment_flags[i] and action == True:
+                self.punishment_flags[i] = False
+        if cooperate_rate >= 0.5 or (self.game_description.n_players == 2 and cooperate_rate > 0):
+            return Action.C
+        elif any(self.punishment_flags):
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_18(BaseStrategy):
+    """
+    Reciprocal Altruism with Optimism (RAO) strategy for N-Player Public Goods Game.
+    Promotes prosocial cooperation and public good provision by encouraging initial cooperation, 
+    implementing a reciprocity mechanism, punishing defection, and re-evaluating behavior after punishment.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.previous_cooperators = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        opponent_cooperations = history.opponent_actions[-1, :]
+        self.previous_cooperators = sum(opponent_cooperations)
+        if self.previous_cooperators >= self.game_description.k / self.game_description.n_players:
+            return Action.C
+        return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+
+class Strategy_PROSOCIAL_19(BaseStrategy):
+    """
+    Adaptive Collective Optimism strategy for N-Player Public Goods Game.
+    Cooperates in the first round, and in subsequent rounds, cooperates if at least half of players cooperated in the previous round,
+    or if the total payoff in the previous round is above the average payoff for a single defector.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        cooperators = sum((1 for action in history.opponent_actions[-1, :] if action)) + 1
+        total_payoff = np.sum(history.opponent_payoffs[-1, :]) + history.my_payoffs[-1]
+        if cooperators >= self.game_description.n_players / 2:
+            return Action.C
+        elif cooperators < self.game_description.n_players / 2 and total_payoff > self.game_description.k / self.game_description.n_players * self.game_description.n_players + 1:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_20(BaseStrategy):
+    """
+    Prosocial strategy with adaptive reciprocity, cooperative boost, and defection avoidance.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.payoffs = []
+        self.cooperative_payoff_sum = 0
+        self.defective_payoff_sum = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        n = self.game_description.n_players
+        k = self.game_description.k
+        prev_cooperators = sum(history.opponent_actions[-1, :])
+        prev_payoffs = history.opponent_payoffs[-1, :]
+        total_cooperative_payoff = sum([payoff for payoff, action in zip(prev_payoffs, history.opponent_actions[-1, :]) if action])
+        total_defective_payoff = sum([payoff for payoff, action in zip(prev_payoffs, history.opponent_actions[-1, :]) if not action])
+        if prev_cooperators >= n / 2:
+            if total_cooperative_payoff > total_defective_payoff:
+                return Action.C
+            else:
+                return Action.C
+        elif n - prev_cooperators > n / 2:
+            return Action.D
+        else:
+            return Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.C
+
+class Strategy_PROSOCIAL_21(BaseStrategy):
+    """
+    The Adaptive Cooperative Threshold (ACT) strategy for the N-Player Public Goods Game.
+    It adapts to the game parameters and history, promoting prosocial behavior.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.alpha = 0.5
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C if random.random() < 0.5 else Action.D
+        previous_round_contributions = sum(history.opponent_actions[-1, :]) + history.my_actions[-1]
+        previous_round_payoffs = history.my_payoffs[-1]
+        average_payoff = np.mean(history.opponent_payoffs[-1, :])
+        threshold = self.game_description.k / self.game_description.n_players * (1 + self.alpha * (self.game_description.n_rounds - state.round_number))
+        if previous_round_contributions > threshold:
+            if previous_round_payoffs >= average_payoff:
+                return Action.C
+            else:
+                return Action.D if random.random() < 0.5 else Action.C
+        else:
+            return Action.D if random.random() < 0.5 else Action.C
+
+class Strategy_PROSOCIAL_22(BaseStrategy):
+    """
+    A prosocial strategy that balances individual payoff maximization with collective well-being.
+    Adapts to the game environment, leveraging the history of cooperation and defection to inform its decisions.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if self.game_description.n_players == 2:
+            return Action.C
+        if self.game_description.k >= self.game_description.n_players:
+            return Action.D
+        if self.game_description.n_rounds == 2:
+            if history.my_actions[0]:
+                return Action.D
+            else:
+                return Action.C
+        opponent_cooperations = history.opponent_actions[-1, :]
+        arp = np.mean(opponent_cooperations)
+        if arp >= 0.5:
+            return Action.C
+        p = (1 - arp) * (self.game_description.k / (self.game_description.n_players - 1))
+        if random.random() < p:
+            return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_23(BaseStrategy):
+    """
+    Adaptive Reciprocity with Public Good Orientation (ARPG) strategy for the N-Player Public Goods Game.
+    This strategy cooperates initially, reciprocates cooperation, and adapts its threshold for cooperation based on the game's history.
+    It also prioritizes cooperation in the final rounds to maximize the public good.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = 0.5
+        self.cooperation_history = []
+        self.round_number = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            self.cooperation_history.append(1)
+            return Action.C
+        self.round_number = state.round_number
+        if history is not None:
+            prev_coop_rate = np.mean(history.opponent_actions[-1, :])
+            self.cooperation_history.append(prev_coop_rate)
+            if prev_coop_rate >= self.threshold:
+                action = Action.C
+            else:
+                action = Action.D
+            if self.round_number % 5 == 0:
+                avg_coop_rate = np.mean(self.cooperation_history[-5:])
+                if avg_coop_rate > prev_coop_rate:
+                    self.threshold -= 0.1
+                elif avg_coop_rate < prev_coop_rate:
+                    self.threshold += 0.1
+            if self.round_number >= self.game_description.n_rounds - 5:
+                action = Action.C
+            if np.sum(history.opponent_actions[-1, :] == False) == 1:
+                action = Action.C
+            if np.all(history.opponent_actions[-1, :] == False):
+                action = Action.C
+            return action
+        else:
+            return Action.C
+
+class Strategy_PROSOCIAL_24(BaseStrategy):
+    """
+    A prosocial strategy for the N-Player Public Goods Game that balances cooperation with adaptive tolerance and forgiveness.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.tolerance_threshold = 0.5
+        self.max_tolerance_value = 3
+        self.defect_rounds = 3
+        self.tolerance = 0
+        self.forgiveness = False
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if history is not None:
+            cooperation_rate = np.mean(history.opponent_actions[-1, :])
+        else:
+            cooperation_rate = 0
+        if cooperation_rate < self.tolerance_threshold:
+            self.tolerance += 1
+            if self.tolerance > self.max_tolerance_value:
+                self.tolerance = 0
+                return Action.D
+        else:
+            self.tolerance = 0
+            self.forgiveness = True
+            return Action.C
+        probability_defect = state.round_number / self.game_description.n_rounds * (1 - self.tolerance_threshold)
+        return Action.D if random.random() < probability_defect else Action.C
+
+class Strategy_PROSOCIAL_25(BaseStrategy):
+    """
+    Adaptive Prosociality (AP) strategy, balancing individual payoffs with the greater good.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.avg_coop_rate = 0
+        self.threshold = game_description.k / game_description.n_players * (1 - 1 / game_description.n_rounds)
+        self.opponent_defected_prev_round = False
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C if random.random() < 0.8 else Action.D
+        coop_rates = np.mean(history.opponent_actions, axis=1)
+        self.avg_coop_rate = np.mean(coop_rates[:state.round_number - 1])
+        if self.avg_coop_rate >= self.threshold:
+            return Action.C
+        if self.opponent_defected_prev_round and self.avg_coop_rate < self.threshold:
+            return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_26(BaseStrategy):
+    """
+    Adaptive Prosociality (APS) strategy promotes cooperation in the N-Player Public Goods Game.
+    It adapts to the game parameters and history to maintain a cooperative tone and avoid exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = 0.5
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number <= self.game_description.n_players // 2:
+            return Action.C
+        if self.game_description.n_players <= 3:
+            return Action.C
+        if state.round_number == 0:
+            return Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.C
+        if history:
+            average_cooperation_rate = np.mean(history.opponent_actions[-1, :])
+            if average_cooperation_rate > self.threshold:
+                return Action.C
+            else:
+                return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_27(BaseStrategy):
+    """
+    Adaptive Collective Optimism (ACO) strategy for N-Player Public Goods Game.
+    Balances individual self-interest with collective well-being.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_coop_prev_prev = None
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        opponent_actions = history.opponent_actions
+        my_actions = history.my_actions
+        opponent_payoffs = history.opponent_payoffs
+        my_payoffs = history.my_payoffs
+        n_coop_prev = sum(opponent_actions[-1, :]) + int(my_actions[-1])
+        total_payoff_prev = np.sum(opponent_payoffs[-1, :]) + my_payoffs[-1]
+        avg_payoff = np.mean(my_payoffs[-3:]) if len(my_payoffs) >= 3 else np.mean(my_payoffs)
+        if n_coop_prev >= self.game_description.n_players // 2:
+            return Action.C
+        elif n_coop_prev < self.game_description.n_players // 2:
+            return Action.D
+        elif self.n_coop_prev_prev is not None and n_coop_prev >= self.n_coop_prev_prev:
+            return Action.C
+        elif total_payoff_prev < avg_payoff:
+            return Action.D
+        else:
+            return Action.C
+        self.n_coop_prev_prev = n_coop_prev
+
+class Strategy_PROSOCIAL_28(BaseStrategy):
+    """
+    Adaptive Cooperative Threshold (ACT) strategy balances cooperation and self-interest while being robust to various opponent behaviors.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.cooperation_threshold = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if state.round_number > 1:
+            previous_cooperators = sum(history.opponent_actions[-2, :] == True) + 1
+            self.cooperation_threshold = self.k / self.n_players * previous_cooperators > 0.5
+        if state.round_number == self.n_rounds - 1:
+            return Action.C
+        cooperators = sum(history.opponent_actions[-1, :] == True)
+        if self.cooperation_threshold and cooperators >= self.cooperation_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_29(BaseStrategy):
+    """
+    A prosocial strategy that balances individual payoff maximization with the collective well-being of the community.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.prev_defected = False
+        self.prev_majority_cooperated = None
+        self.prev_total_payoff = None
+        self.prev_avg_payoff = None
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            self.prev_defected = False
+            self.prev_majority_cooperated = None
+            self.prev_total_payoff = None
+            self.prev_avg_payoff = None
+            return Action.C
+        prev_round = state.round_number - 1
+        opponent_actions = history.opponent_actions[prev_round, :]
+        opponent_payoffs = history.opponent_payoffs[prev_round, :]
+        own_payoff = history.my_payoffs[prev_round]
+        total_payoff = own_payoff + np.sum(opponent_payoffs)
+        cooperators = sum(opponent_actions)
+        prev_majority_cooperated = cooperators >= self.game_description.n_players // 2
+        prev_avg_payoff = total_payoff / self.game_description.n_players
+        self.prev_majority_cooperated = prev_majority_cooperated
+        self.prev_total_payoff = total_payoff
+        self.prev_avg_payoff = prev_avg_payoff
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.C
+        if prev_majority_cooperated:
+            return Action.C
+        elif total_payoff > prev_avg_payoff:
+            return Action.C
+        elif total_payoff <= prev_avg_payoff or own_payoff < prev_avg_payoff:
+            self.prev_defected = True
+            return Action.D
+        elif self.prev_defected and total_payoff > prev_avg_payoff:
+            self.prev_defected = False
+            return Action.C
+        else:
+            return Action.C
+
+class Strategy_PROSOCIAL_30(BaseStrategy):
+    """
+    Adaptive Cooperative Neighborliness (ACN) strategy for N-Player Public Goods Game.
+
+    Promotes prosocial behavior by cooperating in the first round, reinforcing cooperation when prevalent,
+    adapting to the level of cooperation in the previous round, penalizing exploitative behavior, and cooperating
+    in the last round to ensure a positive conclusion.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.last_round_cooperation_probability = 1.0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if history is not None:
+            num_cooperators = sum(history.opponent_actions[-1, :]) + 1 if history.my_actions[-1] else sum(history.opponent_actions[-1, :])
+        else:
+            num_cooperators = self.game_description.n_players // 2
+        if num_cooperators >= self.game_description.n_players // 2:
+            cooperation_probability = self.game_description.k / self.game_description.n_players
+        elif num_cooperators < self.game_description.n_players // 2:
+            cooperation_probability = self.game_description.k / self.game_description.n_players * (num_cooperators / self.game_description.n_players)
+        else:
+            cooperation_probability = 0.0
+        if history is not None and num_cooperators >= self.game_description.n_players - 1 and (not history.my_actions[-1]):
+            cooperation_probability *= 0.5
+        self.last_round_cooperation_probability = cooperation_probability
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.C
+        else:
+            return Action.C if random.random() < cooperation_probability else Action.D
+
+class Strategy_PROSOCIAL_31(BaseStrategy):
+    """
+    A prosocial strategy that adapts to the game's history, using a gratitude mechanism to encourage cooperation and punish defection.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.round_number = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        self.round_number = state.round_number
+        if self.round_number == 0:
+            return Action.C
+        previous_round = history.my_payoffs[self.round_number - 1]
+        total_cooperators = sum(history.opponent_actions[self.round_number - 1, :]) + (1 if history.my_actions[self.round_number - 1] else 0)
+        average_payoff = np.mean(np.concatenate((history.my_payoffs[:self.round_number], history.opponent_payoffs[self.round_number - 1, :])))
+        if history.my_actions[self.round_number - 1] and previous_round >= average_payoff:
+            return Action.C
+        if not history.my_actions[self.round_number - 1] and previous_round > average_payoff:
+            return Action.D
+        if total_cooperators >= self.game_description.n_players / 2:
+            return Action.C
+        if total_cooperators < self.game_description.n_players / 2 and previous_round >= average_payoff:
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_32(BaseStrategy):
+    """
+    A prosocial strategy that adapts to the cooperation rate in the game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.T = 0.5
+        self.Δ = 0.2
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        prev_coop_rate = np.mean(history.my_actions[-1:] + history.opponent_actions[-1, :])
+        avg_coop_rate = np.mean(history.my_actions + np.mean(history.opponent_actions, axis=1))
+        prev_actions = history.opponent_actions[-1, :]
+        if prev_coop_rate > self.T:
+            return Action.C
+        elif prev_coop_rate < self.T:
+            if np.any(prev_actions == 0):
+                return Action.D
+            else:
+                return Action.C
+        if abs(prev_coop_rate - avg_coop_rate) > self.Δ:
+            return Action.C
+        return Action.C
+
+class Strategy_COMMUNAL_1(BaseStrategy):
+    """
+    A communal strategy that balances individual self-interest with communal welfare.
+    Adapts to the game's history, promoting cooperation while protecting against exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.exploitation_count = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if history.my_actions[-1] and (not history.opponent_actions[-1].all()):
+            self.exploitation_count += 1
+        else:
+            self.exploitation_count = 0
+        cooperators = sum(history.opponent_actions[-1, :]) + history.my_actions[-1]
+        if cooperators >= self.game_description.n_players // 2:
+            return Action.C
+        if self.exploitation_count >= 2:
+            return Action.D
+        for opponent_action in history.opponent_actions[-1, :]:
+            if opponent_action:
+                return Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        return Action.D
+
+class Strategy_COMMUNAL_2(BaseStrategy):
+    """
+    Adaptive Communal Cooperation strategy for the N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.average_payoff = None
+        self.total_payoff = None
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        opponent_actions = history.opponent_actions[-1, :]
+        total_cooperators = sum(opponent_actions) + 1
+        cooperation_rate = total_cooperators / self.n_players
+        if state.round_number == self.n_rounds - 1:
+            return Action.C
+        if history.my_payoffs is not None and history.my_payoffs.size > 1:
+            previous_payoffs = history.my_payoffs[:-1]
+            if history.my_payoffs[-1] < np.mean(previous_payoffs):
+                return Action.D
+        if history.my_payoffs is not None and history.my_payoffs.size > 1:
+            previous_payoffs = history.my_payoffs[:-1]
+            if history.my_payoffs[-1] > np.mean(previous_payoffs):
+                return Action.C
+        if cooperation_rate < 0.3:
+            return Action.D
+        if cooperation_rate >= 0.5:
+            return Action.C
+        elif cooperation_rate < 0.5 and self.k > self.n_players / 2:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_3(BaseStrategy):
+    """
+    A communal adaptive reciprocity strategy prioritizing cooperation and reciprocity.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperate = True
+        self.previous_payoffs = []
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            self.cooperate = True
+            return Action.C
+        if history:
+            opponent_cooperators = np.sum(history.opponent_actions[-1, :])
+            total_cooperators = opponent_cooperators + 1 if history.my_actions[-1] else opponent_cooperators
+            total_defectors = self.game_description.n_players - total_cooperators
+            average_payoff = np.mean(history.opponent_payoffs[-1, :]) if history.opponent_payoffs.size > 0 else 0
+            if history.my_payoffs.size > 0:
+                my_payoff = history.my_payoffs[-1]
+            else:
+                my_payoff = 0
+        else:
+            opponent_cooperators = 0
+            total_cooperators = 0
+            total_defectors = 0
+            average_payoff = 0
+            my_payoff = 0
+        if total_cooperators >= total_defectors:
+            self.cooperate = True
+        elif len(self.previous_payoffs) > 0 and average_payoff < np.mean(self.previous_payoffs):
+            self.cooperate = False
+        else:
+            self.cooperate = not self.cooperate
+        if total_cooperators >= total_defectors:
+            self.cooperate = True
+        if my_payoff < average_payoff:
+            self.cooperate = False
+        if state.round_number == self.game_description.n_rounds - 1:
+            self.cooperate = True
+        elif total_cooperators == total_defectors:
+            self.cooperate = True
+        elif history and history.my_actions[-1] == False:
+            self.cooperate = False
+        self.previous_payoffs.append(my_payoff)
+        if self.cooperate:
+            return Action.C
+        return Action.D
+
+class Strategy_COMMUNAL_4(BaseStrategy):
+    """
+    Adaptive Cooperator strategy prioritizes cooperation while adapting to the dynamics of the game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.history = None
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if history is not None:
+            self.history = {'contributions': np.count_nonzero(history.opponent_actions[-1, :]) + 1, 'payoffs': history.my_payoffs[-1]}
+        if self.history is None:
+            return Action.C
+        if self.majority_cooperated(self.history['contributions']):
+            return Action.C
+        if self.average_contribution(self.history['contributions']) < self.game_description.n_players / 2:
+            return Action.D
+        if self.exploited_player(self.history['payoffs']):
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.C
+        return Action.D
+
+    def majority_cooperated(self, contributions):
+        return contributions >= self.game_description.n_players / 2
+
+    def average_contribution(self, contributions):
+        return contributions / self.game_description.n_players
+
+    def exploited_player(self, payoffs):
+        return payoffs >= 1.5 * self.game_description.k
+
+class Strategy_COMMUNAL_5(BaseStrategy):
+    """
+    A dynamic, adaptive strategy that balances individual self-interest with communal welfare.
+    It promotes cooperation while minimizing exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        opponent_actions = history.opponent_actions
+        num_players = self.game_description.n_players
+        k = self.game_description.k
+        avg_coop_prev = np.mean(opponent_actions[-1, :])
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.C
+        if avg_coop_prev >= k / num_players:
+            return Action.C
+        else:
+            p_defect = 1 - avg_coop_prev / (k / num_players)
+            return Action.D if random.random() < p_defect else Action.C
+
+class Strategy_COMMUNAL_6(BaseStrategy):
+    """
+    Adaptive Communal Optimizer (ACO) strategy for the N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.k = game_description.k
+        self.cooperation_threshold = self.n_players // 2
+        self.exploitation_detection = self.n_players // 3
+        self.previous_action = None
+        self.previous_payoff = 0.0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C if random.random() < 0.5 else Action.D
+        average_payoff = np.mean(history.my_payoffs[-1])
+        cooperators = sum(history.opponent_actions[-1, :]) + (1 if history.my_actions[-1] else 0)
+        defectors = self.n_players - cooperators
+        self.cooperation_threshold = max(self.cooperation_threshold, cooperators)
+        self.exploitation_detection = max(self.exploitation_detection, defectors)
+        if average_payoff >= self.k / self.n_players and cooperators >= self.cooperation_threshold:
+            return Action.C
+        elif defectors >= self.exploitation_detection:
+            return Action.D
+        elif self.previous_action == Action.D and average_payoff < self.k / self.n_players:
+            return Action.C
+        else:
+            return Action.D
+        self.previous_action = action
+        self.previous_payoff = average_payoff
+
+class Strategy_COMMUNAL_7(BaseStrategy):
+    """
+    Adaptive Collective Optimism (ACO) strategy for N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.r = random.Random()
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C if self.r.random() < 1 / self.game_description.n_players else Action.D
+        previous_round_opponent_actions = history.opponent_actions[-1, :]
+        previous_round_my_action = history.my_actions[-1]
+        previous_round_cooperators = sum(previous_round_opponent_actions) + (1 if previous_round_my_action else 0)
+        if previous_round_cooperators >= self.game_description.n_players // 2:
+            return Action.C
+        elif previous_round_cooperators * self.game_description.k >= self.game_description.n_players // 2:
+            return Action.C
+        elif previous_round_cooperators < self.game_description.n_players // 2 and previous_round_cooperators * self.game_description.k < self.game_description.n_players // 2:
+            return Action.D
+        elif self.r.random() < 1 / self.game_description.n_rounds:
+            return Action.C
+        else:
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            if previous_round_cooperators >= self.game_description.n_players // 2:
+                return Action.C
+            else:
+                return Action.D
+
+class Strategy_COMMUNAL_8(BaseStrategy):
+    """
+    Adaptive Community Focus (ACF) strategy for N-Player Public Goods Game.
+    This strategy balances cooperation and punishment to achieve a high total payoff.
+    It prioritizes cooperation when the community is cooperating and punishes non-cooperative behavior.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.TC_last = 0
+        self.TC_avg = 0
+        self.t = 0
+        self.last_action = None
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            self.t += 1
+            return Action.C
+        if history is not None:
+            self.TC_last = sum(history.opponent_actions[-1, :]) + 1 if history.my_actions[-1] else sum(history.opponent_actions[-1, :])
+        if self.last_action == Action.D and self.TC_last < self.game_description.n_players // 2:
+            self.t += 1
+            return Action.D
+        if self.TC_last >= self.game_description.n_players // 2:
+            self.t += 1
+            return Action.C
+        if self.TC_avg >= self.game_description.n_players // 2:
+            self.t += 1
+            return Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.C
+        self.t += 1
+        self.last_action = Action.D
+        return Action.D
+        self.TC_avg = (self.TC_avg * (self.game_description.n_rounds // 2 - 1) + self.TC_last) / (self.game_description.n_rounds // 2)
+
+class Strategy_COMMUNAL_9(BaseStrategy):
+    """
+    Adaptive Cooperative Threshold (ACT) strategy for N-Player Public Goods Game.
+    This strategy balances individual self-interest with collective benefit of cooperation.
+    It adapts to the level of cooperation exhibited by others and is robust to various opponent behaviors.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = 0.5
+        self.average_total_contributions = 0
+        self.previous_total_contributions = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        opponent_cooperations = sum(history.opponent_actions[-1, :])
+        total_contributions = opponent_cooperations + 1
+        self.average_total_contributions = total_contributions / self.game_description.n_players
+        if total_contributions > self.previous_total_contributions:
+            self.threshold = min(1, self.threshold + 0.1)
+        else:
+            self.threshold = max(0, self.threshold - 0.1)
+        if self.average_total_contributions >= self.threshold or state.round_number == self.game_description.n_rounds - 1:
+            return Action.C
+        else:
+            return Action.D
+        self.previous_total_contributions = total_contributions
+
+class Strategy_COMMUNAL_10(BaseStrategy):
+    """
+    Gradual Reciprocity with Adaptive Forgiveness strategy for N-Player Public Goods Game.
+    This strategy balances cooperation and self-interest, adapting to the game's history,
+    rewarding cooperation and punishing defection, while allowing for forgiveness and re-engagement.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.previous_round_cooperators = 0
+        self.previous_round_defectors = 0
+        self.consecutive_defections = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if state.round_number > 1:
+            self.previous_round_cooperators = sum(history.opponent_actions[-1, :])
+            self.previous_round_defectors = self.game_description.n_players - 1 - self.previous_round_cooperators
+        if state.round_number <= 3:
+            return Action.C
+        if self.previous_round_cooperators >= self.previous_round_defectors:
+            return Action.C
+        if self.previous_round_defectors > self.previous_round_cooperators and history.my_actions[-1]:
+            return Action.D
+        if not history.my_actions[-1] and (not history.my_actions[-2]):
+            self.consecutive_defections += 1
+            if self.consecutive_defections >= 2 and history.opponent_actions[-1, 0]:
+                return Action.C
+        else:
+            self.consecutive_defections = 0
+        if state.round_number >= self.game_description.n_rounds - 2:
+            return Action.C
+        return Action.C
+
+class Strategy_COMMUNAL_11(BaseStrategy):
+    """
+    Adaptive Cooperative Momentum strategy, balancing cooperation and caution in a public goods game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.total_cooperators = 0
+        self.cooperation_probability = 0.0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        previous_round_cooperators = sum(history.opponent_actions[-1, :] + [history.my_actions[-1]])
+        self.total_cooperators = previous_round_cooperators
+        self.cooperation_probability = self.game_description.k / self.game_description.n_players * self.total_cooperators
+        if state.round_number > 1:
+            previous_previous_round_cooperators = sum(history.opponent_actions[-2, :] + [history.my_actions[-2]])
+            if self.total_cooperators > previous_previous_round_cooperators:
+                self.cooperation_probability = min(self.cooperation_probability + 0.05, 1.0)
+            elif self.total_cooperators < previous_previous_round_cooperators:
+                self.cooperation_probability = max(self.cooperation_probability - 0.05, 0.0)
+        if state.round_number < self.game_description.n_rounds - 1:
+            if self.total_cooperators >= self.game_description.n_players // 2:
+                return Action.C
+            elif random.random() < self.cooperation_probability:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_12(BaseStrategy):
+    """
+    Adaptive Cooperator (AC) strategy. 
+    Balances individual self-interest with communal well-being, adapting to the game's history and parameters.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+        self.theta = 0.5
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0 or state.round_number < 3:
+            return Action.C
+        avg_coop_rate = np.mean(history.opponent_actions[-1, :])
+        if state.round_number >= self.r - 1:
+            if avg_coop_rate >= self.theta:
+                return Action.C
+            if state.round_number == self.r - 1:
+                return Action.D
+            else:
+                return Action.C
+        if avg_coop_rate >= self.theta:
+            return Action.C
+        else:
+            p = (self.n - self.k) / self.n
+            return Action.C if random.random() > p else Action.D
+
+class Strategy_COMMUNAL_13(BaseStrategy):
+    """
+    Adaptive Cooperative Regime (ACR) strategy for the Public Goods Game.
+    Balances cooperation and self-interest by adapting to the community's behavior.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.epsilon = 0.1
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        prev_round = history.opponent_actions[-1, :]
+        prev_payoffs = history.opponent_payoffs[-1, :]
+        cooperators = sum(prev_round)
+        defectors = self.game_description.n_players - 1 - cooperators
+        if cooperators >= self.game_description.n_players / 2:
+            cooperate = True
+        elif defectors >= self.game_description.n_players / 2:
+            cooperate = False
+        elif np.sum(prev_payoffs) < self.game_description.k / self.game_description.n_players * (self.game_description.n_players - 1) / 2:
+            cooperate = False
+        elif np.sum(prev_payoffs) > self.game_description.k / self.game_description.n_players * (self.game_description.n_players - 1):
+            cooperate = True
+        else:
+            cooperate = True
+        if random.random() < self.epsilon:
+            cooperate = not cooperate
+        if state.round_number == self.game_description.n_rounds - 1:
+            if np.sum(prev_payoffs) > self.game_description.k / self.game_description.n_players * (self.game_description.n_players - 1):
+                cooperate = True
+            else:
+                cooperate = False
+        return Action.C if cooperate else Action.D
+
+class Strategy_COMMUNAL_14(BaseStrategy):
+    """
+    Adaptive Community Builder (ACB) strategy prioritizes cooperation and aims to establish a cooperative atmosphere.
+    It adapts to the game's history and opponent behaviors, punishing non-cooperative behavior while allowing for forgiveness.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.theta = 0.5
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        avg_coop_prev = np.mean(history.opponent_actions[-1, :])
+        if avg_coop_prev >= self.theta:
+            return Action.C
+        individual_payoff = history.my_payoffs[-1]
+        avg_payoff = np.mean(history.opponent_payoffs[-1, :])
+        if individual_payoff < avg_payoff:
+            return Action.D
+        return Action.C
+
+class Strategy_COMMUNAL_16(BaseStrategy):
+    """
+    Adaptive Communal Reciprocity strategy, which balances cooperation and defection 
+    based on the game's history to maximize collective payoffs while being robust to 
+    various opponent behaviors.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.reciprocity_threshold = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        previous_cooperators = sum(history.opponent_actions[-1, :])
+        if previous_cooperators >= self.game_description.n_players / 2:
+            self.reciprocity_threshold += 1
+        else:
+            self.reciprocity_threshold = 0
+        if self.reciprocity_threshold >= self.game_description.n_rounds / 2:
+            return Action.C
+        elif previous_cooperators >= self.game_description.n_players / 2:
+            return Action.C
+        elif previous_cooperators < self.game_description.n_players / 2:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_17(BaseStrategy):
+    """
+    Adaptive Reciprocity with Community Focus (ARC) strategy for N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperation_threshold = game_description.n_players / 2
+        self.community_contribution_rate = 0
+        self.round_count = 0
+        self.cooperator_counts = []
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        previous_cooperators = sum(history.opponent_actions[-1, :]) + (history.my_actions[-1] == Action.C)
+        self.cooperator_counts.append(previous_cooperators)
+        self.cooperator_counts = self.cooperator_counts[-3:]
+        self.community_contribution_rate = np.mean(self.cooperator_counts)
+        if previous_cooperators >= self.cooperation_threshold:
+            return Action.C
+        if self.community_contribution_rate >= self.game_description.k / self.game_description.n_players:
+            return Action.C
+        if previous_cooperators < self.game_description.n_players / 4:
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.C
+        if self.round_count < 3 and previous_cooperators > self.game_description.n_players / 2:
+            return Action.D
+        return Action.C
+        self.round_count += 1
+        if self.round_count % 3 == 0:
+            self.cooperation_threshold += 1 if self.community_contribution_rate > self.game_description.k / self.game_description.n_players else -1
+
+class Strategy_COMMUNAL_18(BaseStrategy):
+    """
+    Communal Foresight strategy adapts to the game parameters and history.
+    It promotes cooperation while being adaptive to the actions of other players.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if state.round_number <= self.n_players // 2:
+            return Action.C
+        elif self.n_players // 2 < state.round_number <= 2 * self.n_players:
+            opponent_payoffs = history.opponent_payoffs[-1, :]
+            my_payoff = history.my_payoffs[-1]
+            total_payoff = np.sum(opponent_payoffs) + my_payoff
+            avg_payoff_prev_round = total_payoff / self.n_players
+            avg_payoff_defect = 1 + self.k / self.n_players * 0
+            if avg_payoff_prev_round >= avg_payoff_defect:
+                return Action.C
+            else:
+                return Action.D
+        elif state.round_number > 2 * self.n_players:
+            opponent_actions = history.opponent_actions[-1, :]
+            num_cooperators_prev_round = np.sum(opponent_actions)
+            if num_cooperators_prev_round >= self.n_players / 2:
+                return Action.C
+            else:
+                return Action.D
+        elif state.round_number == self.n_rounds - 1:
+            return Action.D
+
+class Strategy_COMMUNAL_19(BaseStrategy):
+    """
+    Communal strategy that promotes cooperation and mutual benefit while being robust to a wide range of opponent behaviors.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperate_threshold = game_description.n_players / 2
+        self.w = 3
+        self.thresholds = (1.5, 2.5)
+        self.last_round_payoffs = []
+        self.avg_payoff = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        opponent_actions = history.opponent_actions[-1, :]
+        my_action = history.my_actions[-1]
+        my_payoff = history.my_payoffs[-1]
+        opponent_cooperators = sum(opponent_actions)
+        total_cooperators = opponent_cooperators + int(my_action)
+        payoff = my_payoff + self.game_description.k / self.game_description.n_players * total_cooperators
+        self.last_round_payoffs.append(payoff)
+        if state.round_number >= self.w:
+            self.avg_payoff = sum(self.last_round_payoffs[-self.w:]) / self.w
+            if self.avg_payoff < self.thresholds[0]:
+                self.cooperate_threshold = 2 * self.game_description.n_players / 5
+            elif self.avg_payoff > self.thresholds[1]:
+                self.cooperate_threshold = 3 * self.game_description.n_players / 5
+        if total_cooperators >= self.cooperate_threshold:
+            action = Action.C
+        else:
+            action = Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            action = Action.D
+        return action
+
+class Strategy_COMMUNAL_20(BaseStrategy):
+    """
+    Adaptive Communal Cooperativity strategy.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        previous_round_actions = history.opponent_actions[-1, :]
+        num_cooperators = np.sum(previous_round_actions)
+        tau = max(1, int((self.n_players - 1) * (self.k - 1) / (self.n_players * (self.k - 1))))
+        phi = self.k / self.n_players * (1 / (1 + (self.k - 1) / self.n_players))
+        if state.round_number == self.n_rounds - 1:
+            return Action.D
+        if num_cooperators >= tau:
+            return Action.C
+        elif num_cooperators < tau:
+            return Action.D
+        else:
+            total_contributions = np.sum(previous_round_actions)
+            my_contribution = history.my_actions[-1]
+            if my_contribution / total_contributions >= phi:
+                return Action.C
+            else:
+                return Action.D
+
+class Strategy_COMMUNAL_21(BaseStrategy):
+    """
+    This strategy starts by cooperating in the first round. 
+    In subsequent rounds, it cooperates if the number of cooperators in the previous round is greater than or equal to the number of defectors. 
+    The strategy also adjusts its cooperation threshold based on the average payoff of the group in the previous round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = game_description.n_players // 2
+        self.last_round_payoffs = None
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if history:
+            opponent_actions = history.opponent_actions[-1, :]
+            cooperators = sum(opponent_actions) + (1 if history.my_actions[-1] else 0)
+            defectors = self.game_description.n_players - cooperators
+            if self.last_round_payoffs is not None:
+                avg_payoff = np.mean(self.last_round_payoffs)
+                if avg_payoff < self.game_description.k * self.game_description.n_players:
+                    if avg_payoff < self.threshold:
+                        self.threshold -= 1
+                    else:
+                        self.threshold += 1
+            if cooperators >= self.threshold:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.C
+
+class Strategy_COMMUNAL_22(BaseStrategy):
+    """
+    Adaptive Collective Conscience (ACC) strategy for N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.rounds = 0
+        self.endgame = False
+        self.cooperation_rate = 0.0
+        self.observation_rounds = 3
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number < self.observation_rounds:
+            return Action.C
+        if history is not None:
+            self.cooperation_rate = np.mean(history.opponent_actions[:, :])
+            self.endgame = state.round_number >= self.game_description.n_rounds - 2
+        if self.cooperation_rate >= 0.5:
+            return Action.C
+        else:
+            return Action.D
+        if state.round_number % 3 == 0:
+            self.cooperation_rate = np.mean(history.opponent_actions[:, :])
+        if self.endgame and self.cooperation_rate > 0.7:
+            return Action.C
+        return Action.D
+
+class Strategy_COMMUNAL_23(BaseStrategy):
+    """
+    Adaptive Cooperation strategy for N-Player Public Goods Game.
+    Cooperates in the initial round and adapts to the evolving game dynamics and opponent behaviors.
+    Prioritizes cooperation while maximizing individual payoff.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.last_round = False
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            self.last_round = True
+            return Action.C
+        total_cooperators_prev = sum(history.opponent_actions[-1, :]) + 1
+        if history.my_actions[-1]:
+            total_cooperators_prev += 1
+        coop_payoff_prev = self.game_description.k / self.game_description.n_players * total_cooperators_prev
+        defect_payoff_prev = 1 + self.game_description.k / self.game_description.n_players * total_cooperators_prev
+        if coop_payoff_prev >= defect_payoff_prev or self.last_round:
+            return Action.C
+        return Action.D
+
+class Strategy_COMMUNAL_24(BaseStrategy):
+    """
+    Adaptive Communal Harmony (ACH) strategy for N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.consecutive_defections = 0
+        self.my_payoff_history = None
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            self.consecutive_defections = 0
+            self.my_payoff_history = [] if history is None else history.my_payoffs.tolist()
+            return Action.C
+        if history is not None:
+            self.my_payoff_history.append(history.my_payoffs[-1])
+            avg_coop = sum(history.opponent_actions[-1, :]) / self.game_description.n_players
+            opponent_payoffs = np.mean(history.opponent_payoffs[-1, :], axis=0)
+            my_payoff = self.my_payoff_history[-1]
+            if avg_coop >= self.game_description.k / self.game_description.n_players:
+                self.consecutive_defections = 0
+                return Action.C
+            elif avg_coop < self.game_description.k / self.game_description.n_players and my_payoff < opponent_payoffs:
+                self.consecutive_defections += 1
+                return Action.D
+            elif state.round_number == self.game_description.n_rounds - 1:
+                return Action.C
+            elif self.game_description.k / self.game_description.n_players < 0.2 and state.round_number < 3:
+                self.consecutive_defections = 0
+                return Action.C
+            elif self.consecutive_defections > self.game_description.n_players / 2:
+                self.consecutive_defections = 0
+                return Action.C
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_25(BaseStrategy):
+    """
+    Adaptive Cooperative Threshold strategy for the N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperation_threshold = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            self.cooperation_threshold = math.ceil(self.game_description.n_players * (self.game_description.k - 1) / self.game_description.k)
+            return Action.C
+        if history is not None:
+            previous_round = history.my_payoffs[-1]
+            cooperators = sum(history.opponent_actions[-1, :]) + history.my_actions[-1]
+            if cooperators >= self.cooperation_threshold and previous_round > 1:
+                return Action.C
+            else:
+                return Action.D
+        return Action.C
+
+class Strategy_COMMUNAL_26(BaseStrategy):
+    """
+    Adaptive Community Builder (ACB) strategy for the N-Player Public Goods Game.
+    This strategy adapts to the game's history and parameters, focusing on cooperation and robustness.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperate_counter = 0
+        self.defect_counter = 0
+        self.avg_payoff = 0
+        self.opponent_actions = None
+        self.opponent_payoffs = None
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number <= 1:
+            return Action.C
+        if history is not None:
+            self.opponent_actions = history.opponent_actions
+            self.opponent_payoffs = history.opponent_payoffs
+        if history is not None and len(history.my_payoffs) > 0:
+            self.avg_payoff = np.mean(history.my_payoffs[-1:]) + self.game_description.k / self.game_description.n_players * np.sum(self.opponent_actions[-1, :])
+            if self.avg_payoff > (1 + self.game_description.k) / 2:
+                action = Action.C
+            else:
+                action = Action.D
+        else:
+            action = Action.C
+        if self.opponent_actions is not None and len(self.opponent_actions) > 0:
+            num_cooperators = np.sum(self.opponent_actions[-1, :])
+            if num_cooperators > self.game_description.n_players / 2:
+                action = Action.C
+        if self.opponent_actions is not None and len(self.opponent_actions) > 0:
+            for opponent_action in self.opponent_actions[-1, :]:
+                if not opponent_action:
+                    action = Action.D
+        if self.opponent_actions is not None and len(self.opponent_actions) > 1:
+            for i in range(len(self.opponent_actions) - 1):
+                if not self.opponent_actions[i, 0] and self.opponent_actions[-1, 0]:
+                    action = Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            if self.avg_payoff > (1 + self.game_description.k) / 2 and np.sum(self.opponent_actions[-1, :]) > self.game_description.n_players / 2:
+                action = Action.C
+            else:
+                action = Action.D
+        if action == Action.C:
+            self.cooperate_counter += 1
+        else:
+            self.defect_counter += 1
+        return action
+
+class Strategy_COMMUNAL_27(BaseStrategy):
+    """
+    A communal strategy that prioritizes cooperation and reciprocity, 
+    aiming to create a communal environment where players can trust each other 
+    to contribute to the public good.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = 0
+        self.round_number = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            self.round_number = 1
+            return Action.C
+        previous_round_cooperators = np.sum(history.opponent_actions[-1, :] + history.my_actions[-1])
+        if self.round_number > 1:
+            self.threshold = previous_round_cooperators / self.game_description.n_players * (self.game_description.k / self.game_description.n_players) * ((self.round_number - 1) / self.round_number)
+        average_cooperation_rate = previous_round_cooperators / self.game_description.n_players
+        if average_cooperation_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_28(BaseStrategy):
+    """
+    Adaptive Collective Optimism (ACO) is a communal strategy that balances individual self-interest with collective well-being.
+    It adapts to the game's history and parameters to promote cooperation and achieve high payoffs.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = game_description.n_players // 2
+        self.avg_payoffs = []
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C if random.random() < self.game_description.k / self.game_description.n_players else Action.D
+        prev_coops = sum(history.opponent_actions[-1, :]) + (history.my_actions[-1] if history.my_actions[-1] else 0)
+        if prev_coops >= self.threshold:
+            return Action.C
+        else:
+            return Action.D if random.random() < 1 - self.game_description.k / self.game_description.n_players else Action.C
+        if state.round_number > self.game_description.n_rounds // 10:
+            avg_payoff = np.mean([sum(history.opponent_payoffs[-i - 1, :]) / self.game_description.n_players + (history.my_payoffs[-i - 1] if history.my_payoffs[-i - 1] else 0) for i in range(self.game_description.n_rounds // 10)])
+            self.avg_payoffs.append(avg_payoff)
+            if avg_payoff > self.game_description.k:
+                self.threshold += 1
+            elif avg_payoff < self.game_description.k:
+                self.threshold -= 1
+
+class Strategy_COMMUNAL_29(BaseStrategy):
+    """
+    This strategy, "Adaptive Community Builder," is designed to foster cooperation while being robust to various opponent behaviors.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.avg_coop_rate = 0
+        self.coop_threshold = 0.5
+        self.p_coop = 0
+        self.p_defect = 0
+        self.p_punish = 0.8
+        self.punishment_rounds = 2
+        self.punishment_counter = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if state.round_number <= min(5, self.game_description.n_rounds // 2):
+            if history is not None:
+                self.avg_coop_rate = (self.avg_coop_rate * (state.round_number - 1) + sum(history.opponent_actions[-1, :]) / self.game_description.n_players) / state.round_number
+            return Action.C
+        if history is not None:
+            self.p_coop = 1 - (1 - self.avg_coop_rate) ** (1 / (self.game_description.k - 1))
+            self.p_defect = (self.game_description.n_rounds - state.round_number) / self.game_description.n_rounds
+            if random.random() < self.p_coop:
+                action = Action.C
+            else:
+                action = Action.D
+            if action == Action.D and self.avg_coop_rate > self.coop_threshold:
+                self.punishment_counter = 0
+                while self.punishment_counter < self.punishment_rounds:
+                    action = Action.D
+                    self.punishment_counter += 1
+            if self.punishment_counter > 0:
+                self.punishment_counter -= 1
+        else:
+            action = Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            if self.avg_coop_rate > self.coop_threshold:
+                return Action.C
+            else:
+                return Action.D
+        return action
+
+class Strategy_COMMUNAL_30(BaseStrategy):
+    """
+    Adaptive Cooperation with Tit-for-Tat (ACTT) Strategy.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        prev_actions = history.opponent_actions[-1, :]
+        prev_cooperators = sum(prev_actions)
+        prev_defectors = self.game_description.n_players - 1 - prev_cooperators
+        if prev_cooperators >= prev_defectors:
+            return Action.C
+        elif prev_defectors > prev_cooperators:
+            return Action.D
+        elif self.game_description.k > self.game_description.n_players / 2:
+            return Action.C
+        else:
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+
+class Strategy_COMMUNAL_31(BaseStrategy):
+    """
+    Adaptive Communal Reciprocity (ACR) strategy, balancing individual self-interest with communal well-being.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.avg_cooperators = 0
+        self.avg_payoff = 0
+        self.previous_payoff = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if history.my_actions.size > 1:
+            self.avg_cooperators = np.mean(history.my_actions[:-1])
+            self.avg_payoff = np.mean(history.my_payoffs[:-1])
+        total_cooperators = np.sum(history.opponent_actions[-1, :]) + history.my_actions[-1]
+        if total_cooperators >= self.game_description.n_players / 2 or self.previous_payoff > self.avg_payoff:
+            action = Action.C
+        elif self.previous_payoff < self.avg_payoff and history.my_actions[-1]:
+            action = Action.D
+        else:
+            action = Action.D
+        self.previous_payoff = self.calculate_payoff(action, history, self.game_description.k, self.game_description.n_players)
+        if state.round_number == self.game_description.n_rounds - 1:
+            action = Action.C
+        return action
+
+    def calculate_payoff(self, action: Action, history: PlayerHistory, k: float, n: int) -> float:
+        total_cooperators = np.sum(history.opponent_actions[-1, :]) + (action == Action.C)
+        payoff = (action == Action.D) + k / n * total_cooperators
+        return payoff
+
+class Strategy_COMMUNAL_32(BaseStrategy):
+    """
+    Adaptive Cooperation with Social Learning strategy for N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold_value = 0.5
+        self.alpha = 0.8
+        self.beta = 0.9
+        self.total_payoff = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number <= 2:
+            return Action.C
+        if state.round_number == self.game_description.n_rounds:
+            if self.total_payoff > self.beta * self.game_description.n_players * self.game_description.k:
+                return Action.C
+            else:
+                return Action.D
+        if history is None:
+            return Action.C
+        num_cooperators = sum(history.opponent_actions[-1, :])
+        if num_cooperators == 0:
+            return Action.D
+        proportion_cooperators = num_cooperators / self.game_description.n_players
+        if proportion_cooperators >= self.threshold_value:
+            return Action.C
+        else:
+            return Action.D
+        if self.total_payoff < self.alpha * self.game_description.n_players * self.game_description.k:
+            self.threshold_value -= 0.1
+        if history is not None:
+            self.total_payoff += history.my_payoffs[-1]
+
+class Strategy_AGGRESSIVE_1(BaseStrategy):
+    """
+    Aggressive strategy that initially defects, then observes opponents' behavior and adapts to maximize payoffs.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.avg_coop = 0
+        self.coop_count = 0
+        self.round_num = 1
+        self.opponent_coop = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        if state.round_number <= 2:
+            self.coop_count += 1
+            self.avg_coop = self.coop_count / state.round_number
+            return Action.C
+        if history is not None:
+            self.opponent_coop = np.mean(history.opponent_actions[-1, :])
+        if self.avg_coop >= 0.5:
+            if self.opponent_coop < 0.3 or state.round_number == self.game_description.n_rounds - 1:
+                return Action.D
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_AGGRESSIVE_2(BaseStrategy):
+    """
+    The Adaptive Exploiter strategy is designed to be aggressive, adaptive, and robust to various opponent behaviors.
+    It utilizes a combination of observation, pattern recognition, and retaliatory mechanisms to maximize payoffs.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number <= 2:
+            return Action.C
+        if 2 < state.round_number <= self.game_description.n_rounds // 2:
+            if sum(history.opponent_actions[-1, :]) > self.game_description.n_players // 2:
+                return Action.C
+            else:
+                return Action.D
+        if self.game_description.n_rounds // 2 < state.round_number <= 3 * self.game_description.n_rounds // 4:
+            avg_coop_rate = sum(history.opponent_actions[-2:, :].sum(axis=1)) / (2 * self.game_description.n_players)
+            if avg_coop_rate > 0.5:
+                return Action.C
+            else:
+                return Action.D
+        if 3 * self.game_description.n_rounds // 4 < state.round_number < self.game_description.n_rounds:
+            opponent_max_payoff = np.argmax(np.sum(history.opponent_payoffs, axis=0))
+            if np.sum(history.opponent_payoffs[:, opponent_max_payoff]) / state.round_number > 0.5:
+                return Action.C
+            else:
+                return Action.D
+        return Action.D
+
+class Strategy_AGGRESSIVE_3(BaseStrategy):
+    """
+    Aggressive strategy for the N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if history is None or state.round_number < 2:
+            return Action.C
+        cooperators = sum(history.opponent_actions[-1, :])
+        if state.round_number < self.game_description.n_rounds - 1:
+            if cooperators >= self.game_description.n_players / 2:
+                return Action.D
+            else:
+                return Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if cooperators >= self.game_description.n_players / 2:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_AGGRESSIVE_4(BaseStrategy):
+    """
+    Aggressive strategy that punishes opponents for low payoffs and exploits highly cooperative environments.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.round_payoffs = []
+        self.defect_last_round = False
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        total_cooperators = sum(history.opponent_actions[-1, :]) + history.my_actions[-1]
+        total_payoff = history.my_payoffs[-1] + np.sum(history.opponent_payoffs[-1, :])
+        if not self.round_payoffs:
+            average_payoff = 0
+        else:
+            average_payoff = np.mean(self.round_payoffs)
+        if total_payoff < average_payoff:
+            return Action.D
+        if total_cooperators >= 3 * self.game_description.n_players // 4:
+            return Action.D
+        if total_cooperators >= self.game_description.n_players // 2:
+            return Action.C
+        else:
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        self.round_payoffs.append(total_payoff)
+
+class Strategy_AGGRESSIVE_5(BaseStrategy):
+    """
+    The "Adaptive Exploiter" strategy is designed to be aggressive by initially defecting in early rounds 
+    to exploit potential cooperators, defecting in late rounds if there are not enough cooperators to 
+    sustain a high payoff, and having a higher probability of defecting when the average payoffs are equal.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.round_number = None
+        self.c_prev = None
+        self.payoff_avg_C = None
+        self.payoff_avg_D = None
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        self.round_number = state.round_number
+        if history is not None:
+            self.c_prev = np.count_nonzero(history.opponent_actions[-1, :])
+            self.payoff_avg_C = np.mean(history.my_payoffs[-1] if history.my_actions[-1] else history.opponent_payoffs[-1, history.opponent_actions[-1, :] == 1])
+            self.payoff_avg_D = np.mean(history.opponent_payoffs[-1, history.opponent_actions[-1, :] == 0])
+            if self.round_number <= min(5, self.game_description.n_rounds // 2):
+                if self.c_prev <= self.game_description.n_players // 2:
+                    return Action.D
+                return Action.C
+            if self.payoff_avg_C > self.payoff_avg_D:
+                return Action.C
+            elif self.payoff_avg_D > self.payoff_avg_C:
+                return Action.D
+            else:
+                return Action.D if random.random() < 0.7 else Action.C
+            if self.round_number > self.game_description.n_rounds // 2:
+                if self.c_prev <= self.game_description.n_players // 3:
+                    return Action.D
+                return Action.C
+            if self.round_number == self.game_description.n_rounds:
+                return Action.D
+            if self.game_description.n_players == 2:
+                return Action.C if history.my_actions[-1] else Action.D
+            if self.c_prev == 0:
+                return Action.C
+        return Action.D
+
+class Strategy_AGGRESSIVE_6(BaseStrategy):
+    """
+    Aggressive strategy that leverages the game's structure to maximize payoffs.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        opponent_actions = history.opponent_actions[-1, :].astype(int)
+        total_cooperators = sum(opponent_actions)
+        if total_cooperators < self.game_description.n_players // 2:
+            return Action.D
+        if self.game_description.k / self.game_description.n_players > 0.5:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_AGGRESSIVE_7(BaseStrategy):
+    """
+    Aggressive strategy that punishes non-cooperative behavior and exploits situations where the group is not working together effectively.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.history = []
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            self.history.append(True)
+            return Action.C
+        avg_coop_rate = sum(history.opponent_actions[-1, :]) / self.game_description.n_players
+        if history.my_payoffs[-1] < np.mean(history.my_payoffs):
+            cooperate = False
+        elif avg_coop_rate > 0.5:
+            cooperate = random.random() < avg_coop_rate
+        else:
+            cooperate = False
+        if state.round_number == self.game_description.n_rounds - 1:
+            cooperate = False
+        opponent_cooperation_rates = np.mean(history.opponent_actions, axis=0)
+        if opponent_cooperation_rates.min() < 0.25:
+            cooperate = False
+        elif opponent_cooperation_rates.max() > 0.75:
+            cooperate = True
+        self.history.append(cooperate)
+        return Action.C if cooperate else Action.D
+
+class Strategy_AGGRESSIVE_8(BaseStrategy):
+    """
+    An aggressive strategy for the N-Player Public Goods Game that adapts to the game parameters and history.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.prev_round_outcome = None
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C if random.random() < self.game_description.k / self.game_description.n_players else Action.D
+        if history:
+            any_defector = np.any(~history.opponent_actions[-1, :])
+            prev_cooperators = np.sum(history.opponent_actions[-1, :])
+            prev_total_coop_payoff = self.game_description.k / self.game_description.n_players * prev_cooperators
+            prev_total_defect_payoff = 1
+            if any_defector:
+                return Action.D
+            if prev_cooperators >= self.game_description.n_players // 2:
+                if prev_total_coop_payoff > prev_total_defect_payoff:
+                    return Action.C
+                return Action.D
+        return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+
+class Strategy_AGGRESSIVE_9(BaseStrategy):
+    """
+    Aggressive strategy that adapts to opponents' behavior while maintaining a robust and retaliatory stance.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperation_threshold = (game_description.n_players - 1) / (game_description.k - 1)
+        self.adaptation_factor = 0.1
+        self.retaliation_rounds = 0
+        self.retaliation_active = False
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        if self.retaliation_active:
+            self.retaliation_rounds -= 1
+            if self.retaliation_rounds == 0:
+                self.retaliation_active = False
+            return Action.D
+        cooperators = sum(history.opponent_actions[-1, :]) + (1 if history.my_actions[-1] else 0)
+        if cooperators >= self.cooperation_threshold:
+            if history.my_payoffs.shape[0] > self.game_description.n_players:
+                w = self.game_description.n_players
+                player_payoff = sum(history.my_payoffs[-w:]) / w
+                opponent_payoffs = np.sum(history.opponent_payoffs[-w:, :], axis=0) / w
+                average_opponent_payoff = np.mean(opponent_payoffs)
+                if player_payoff < average_opponent_payoff:
+                    self.cooperation_threshold *= 1 - self.adaptation_factor
+            return Action.C
+        else:
+            self.retaliation_active = True
+            self.retaliation_rounds = min(self.game_description.n_rounds - state.round_number, 2)
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if cooperators == self.cooperation_threshold:
+            return Action.C
+        if history.my_actions[-1] and (not history.opponent_actions[-1, 0]):
+            self.retaliation_active = True
+            self.retaliation_rounds = min(self.game_description.n_rounds - state.round_number, 2)
+            return Action.D
+
+class Strategy_AGGRESSIVE_10(BaseStrategy):
+    """
+    Aggressive strategy that exploits the public good when possible while adapting to changing opponent behaviors.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.total_payoff = 0
+        self.average_payoff = 0
+        self.defect_probability = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        if history is not None:
+            total_cooperators = sum(history.opponent_actions[-1, :]) + (1 if history.my_actions[-1] else 0)
+        else:
+            total_cooperators = 0
+        if total_cooperators <= self.game_description.n_players / 2:
+            action = Action.D
+        else:
+            probability = (self.game_description.k - 1) / (self.game_description.n_players - 1)
+            if random.random() < probability:
+                action = Action.C
+            else:
+                action = Action.D
+        if history is not None and self.total_payoff < self.average_payoff:
+            self.defect_probability += 0.1
+            if random.random() < self.defect_probability:
+                action = Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            action = Action.D
+        if history is not None:
+            self.total_payoff += history.my_payoffs[-1]
+            if len(history.opponent_payoffs) > 0:
+                self.average_payoff = np.mean(history.opponent_payoffs[-1, :])
+        return action
+
+class Strategy_AGGRESSIVE_11(BaseStrategy):
+    """
+    Aggressive strategy to punish and exploit opponents in the Public Goods game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.opponent_defected = False
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        total_cooperators = sum(history.opponent_actions[-1, :]) + (1 if history.my_actions[-1] else 0)
+        self.opponent_defected = not all(history.opponent_actions[-1, :])
+        threshold = math.ceil(self.game_description.k / self.game_description.n_players * self.game_description.n_players)
+        if total_cooperators < threshold:
+            return Action.D
+        if self.opponent_defected:
+            return Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        return Action.C
+
+class Strategy_AGGRESSIVE_12(BaseStrategy):
+    """
+    Adaptive Greedy strategy for N-Player Public Goods Game.
+    This strategy adapts to the game parameters and history, prioritizing individual payoff maximization.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.prev_round_payoff_C = 0
+        self.prev_round_payoff_D = 0
+        self.prev_round_cooperators = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        if state.round_number > 1:
+            self.prev_round_cooperators = sum(history.opponent_actions[-1, :]) + (history.my_actions[-1] == Action.C)
+            self.prev_round_payoff_C = self.game_description.k / self.game_description.n_players * self.prev_round_cooperators
+            self.prev_round_payoff_D = 1 + self.game_description.k / self.game_description.n_players * sum(history.opponent_actions[-1, :])
+        if state.round_number < self.game_description.n_rounds:
+            if self.prev_round_payoff_C > self.prev_round_payoff_D and self.prev_round_cooperators >= self.game_description.n_players / 2:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+class Strategy_AGGRESSIVE_13(BaseStrategy):
+    """
+    Punish and Exploit strategy for the N-Player Public Goods Game.
+    This strategy initially cooperates, then punishes opponents for not contributing enough to the public good, 
+    and exploits their willingness to cooperate when they do.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if history is not None:
+            total_cooperators = sum(history.opponent_actions[-1, :]) + 1
+        else:
+            total_cooperators = self.game_description.n_players
+        if total_cooperators <= self.game_description.n_players // 2:
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        return Action.C
+
+class Strategy_AGGRESSIVE_14(BaseStrategy):
+    """
+    Aggressive strategy that punishes defectors and exploits cooperators.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.punish_threshold = 0.4
+        self.exploit_threshold = 0.6
+        self.avg_coop_rate_window = 3
+        self.coop_count = 0
+        self.defect_count = 0
+        self.prev_avg_coop_rate = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        total_cooperators = 0
+        for i in range(self.avg_coop_rate_window):
+            round_number = state.round_number - 1 - i
+            if round_number >= 0:
+                total_cooperators += sum(history.opponent_actions[round_number, :])
+        avg_coop_rate = total_cooperators / (self.avg_coop_rate_window * self.game_description.n_players)
+        self.prev_avg_coop_rate = avg_coop_rate
+        if avg_coop_rate < self.punish_threshold:
+            return Action.D
+        elif avg_coop_rate > self.exploit_threshold:
+            return Action.C
+        else:
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+
+class Strategy_AGGRESSIVE_15(BaseStrategy):
+    """
+    An aggressive strategy that adapts to opponents' behaviors and exploits their weaknesses.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        n_players = self.game_description.n_players
+        prev_round_opponent_actions = history.opponent_actions[-1, :]
+        prev_round_cooperators = sum(prev_round_opponent_actions)
+        prev_round_defectors = n_players - prev_round_cooperators
+        if prev_round_cooperators <= n_players // 2:
+            return Action.D
+        elif prev_round_defectors >= n_players // 2:
+            return Action.C
+        else:
+            return Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+
+class Strategy_AGGRESSIVE_16(BaseStrategy):
+    """
+    Aggressive strategy that exploits cooperation and punishes defection.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.total_payoff_avg = None
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        opponent_payoffs = history.opponent_payoffs[-1]
+        my_payoff = history.my_payoffs[-1]
+        total_payoff = np.sum(opponent_payoffs) + my_payoff
+        avg_payoff = total_payoff / self.game_description.n_players
+        if self.total_payoff_avg is None:
+            self.total_payoff_avg = avg_payoff
+        else:
+            self.total_payoff_avg = (self.total_payoff_avg * (state.round_number - 1) + avg_payoff) / state.round_number
+        if state.round_number < self.game_description.n_rounds - 1:
+            if avg_payoff < 1 + self.game_description.k / self.game_description.n_players:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+class Strategy_AGGRESSIVE_17(BaseStrategy):
+    """
+    Aggressive strategy designed to be adaptive and robust to various opponent behaviors.
+    Aims to maximize individual payoff while exploiting potential cooperation from other players.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.C_count = 0
+        self.cooperate = False
+        self.punish = False
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            self.C_count = 0
+            self.cooperate = False
+            self.punish = False
+            return Action.D
+        if history:
+            self.C_count = sum((1 for action in history.opponent_actions[-1, :] if action))
+            self.cooperate = self.C_count >= self.game_description.n_players // 2
+        if state.round_number <= self.game_description.n_players:
+            action = Action.D
+        elif self.cooperate and (not self.punish):
+            action = Action.C
+        elif self.cooperate and self.punish:
+            action = Action.D
+        elif state.round_number == self.game_description.n_rounds:
+            action = Action.D
+        else:
+            action = Action.D
+        if action == Action.C and self.punish:
+            self.punish = False
+        if action == Action.C and self.C_count < self.game_description.n_players:
+            self.punish = True
+        return action
+
+class Strategy_AGGRESSIVE_18(BaseStrategy):
+    """
+    An aggressive strategy for the N-Player Public Goods Game that adapts to the opponent's cooperation rate.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.p_coop = game_description.k / game_description.n_players
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C if random.random() < self.p_coop else Action.D
+        rho_prev = sum(history.opponent_actions[-1, :] + [history.my_actions[-1]]) / self.game_description.n_players
+        theta = 1 - 1 / self.game_description.k * (1 - 1 / self.game_description.n_players)
+        if rho_prev >= theta:
+            coop = True
+        elif rho_prev < 1 / self.game_description.n_players:
+            coop = False
+        else:
+            coop = random.random() < (1 - 1 / self.game_description.k) * self.p_coop
+        self.p_coop = (1 - 1 / self.game_description.k) * self.p_coop if coop else self.p_coop
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        return Action.C if coop else Action.D
+
+class Strategy_AGGRESSIVE_19(BaseStrategy):
+    """
+    An aggressive strategy for the N-Player Public Goods Game that only depends on the game parameters and history.
+    This strategy retaliates against defectors, prioritizes individual gain when the group is not cooperating, 
+    and exploits cooperative players in the last round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.k = game_description.k
+        self.r = game_description.n_rounds
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        my_actions = history.my_actions if history else np.array([], dtype=bool)
+        opponent_actions = history.opponent_actions if history else np.array([[]], dtype=bool)
+        my_payoffs = history.my_payoffs if history else np.array([], dtype=float)
+        avg_payoff = my_payoffs[-1] if my_payoffs.size else 0
+        if avg_payoff >= self.k:
+            for opponent_action in opponent_actions[-1, :]:
+                if not opponent_action:
+                    return Action.D
+            return Action.C
+        if state.round_number == self.r - 1:
+            return Action.D
+        if np.all(my_actions):
+            return Action.C
+        if np.all(~my_actions):
+            return Action.D
+        return Action.D
+
+class Strategy_AGGRESSIVE_20(BaseStrategy):
+    """
+    The Adaptive Exploiter strategy is an aggressive strategy that adapts to the evolving game dynamics.
+    It defects in the initial round, then cooperates if the average payoff of cooperators is greater than the average payoff of defectors.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0 or history is None:
+            return Action.D
+        previous_round_opponent_actions = history.opponent_actions[-1, :]
+        cooperators = sum(previous_round_opponent_actions)
+        defectors = self.game_description.n_players - 1 - cooperators
+        if cooperators > 0:
+            coop_payoffs = history.opponent_payoffs[-1, previous_round_opponent_actions]
+            avg_coop_payoff = np.mean(coop_payoffs)
+        else:
+            avg_coop_payoff = 0
+        if defectors > 0:
+            defect_payoffs = history.opponent_payoffs[-1, ~previous_round_opponent_actions]
+            avg_defect_payoff = np.mean(defect_payoffs)
+        else:
+            avg_defect_payoff = 0
+        if cooperators == 1:
+            return Action.C
+        elif defectors == 1:
+            return Action.D
+        if avg_coop_payoff > avg_defect_payoff:
+            return Action.C
+        elif avg_coop_payoff == avg_defect_payoff:
+            return Action.D
+        else:
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+
+class Strategy_AGGRESSIVE_21(BaseStrategy):
+    """
+    An aggressive strategy that adapts to the actions of other players and retaliates when cooperation is not reciprocated.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperate = True
+        self.previous_round_defect = False
+        self.previous_total_cooperators = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            self.cooperate = True
+            return Action.C
+        total_cooperators = sum(history.opponent_actions[-1, :]) + (1 if history.my_actions[-1] else 0)
+        if self.previous_round_defect and total_cooperators > self.previous_total_cooperators:
+            self.cooperate = True
+        elif not self.previous_round_defect and total_cooperators < self.previous_total_cooperators:
+            self.cooperate = False
+        elif total_cooperators >= self.game_description.k:
+            self.cooperate = True
+        else:
+            self.cooperate = False
+        if state.round_number == self.game_description.n_rounds - 1:
+            self.cooperate = False
+        self.previous_round_defect = not self.cooperate
+        self.previous_total_cooperators = total_cooperators
+        return Action.C if self.cooperate else Action.D
+
+class Strategy_AGGRESSIVE_22(BaseStrategy):
+    """
+    An aggressive, adaptive strategy for the N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperate_prob = 0.7
+        self.defect_prob = 0.3
+        self.threshold = 0.5
+        self.endgame_threshold = 0.8
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        total_payoff_prev = np.sum(history.my_payoffs[-1]) + np.sum(history.opponent_payoffs[-1, :])
+        if total_payoff_prev < self.game_description.n_players:
+            return Action.C
+        else:
+            return Action.D
+        p_c = np.mean(history.opponent_actions[-1, :])
+        if p_c > self.threshold:
+            self.cooperate_prob = 0.3
+        else:
+            self.cooperate_prob = 0.7
+        if history.opponent_actions[-1, :].any() and (not history.my_actions[-1]):
+            return Action.D
+        if state.round_number > self.game_description.n_rounds * self.endgame_threshold:
+            return Action.D
+        if random.random() < self.cooperate_prob:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_AGGRESSIVE_23(BaseStrategy):
+    """
+    Aggressive "Punish-Then-Exploit" strategy.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.k = game_description.k
+        self.n_rounds = game_description.n_rounds
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if state.round_number == self.n_rounds - 1:
+            return Action.D
+        prev_cooperators = sum(history.opponent_actions[-1, :]) + history.my_actions[-1]
+        prev_avg_payoff = np.mean(history.my_payoffs[-1:])
+        prev_opponent_payoff = history.opponent_payoffs[-1, 0]
+        opponent_exploited = history.opponent_actions[-1, 0] == False and prev_opponent_payoff > prev_avg_payoff
+        if prev_cooperators >= self.n_players / self.k:
+            if opponent_exploited:
+                return Action.D
+            return Action.C
+        return Action.D
+
+class Strategy_AGGRESSIVE_24(BaseStrategy):
+    """
+    The Adaptive Exploiter strategy aims to maximize payoffs by exploiting the cooperative environment 
+    while being robust to a wide range of opponent behaviors.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperate_count = 0
+        self.payoff_history = []
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        if state.round_number < self.game_description.n_rounds - 1:
+            cooperators = sum(history.opponent_actions[-1, :]) + (history.my_actions[-1] if history.my_actions[-1] else 0)
+            if cooperators >= self.game_description.n_players / 2:
+                action = Action.C
+            else:
+                action = Action.D
+        elif state.round_number == self.game_description.n_rounds - 1:
+            avg_payoff = sum(self.payoff_history) / len(self.payoff_history)
+            previous_round_payoff = history.my_payoffs[-1] + self.game_description.k / self.game_description.n_players * sum(history.opponent_actions[-1, :])
+            cooperators = sum(history.opponent_actions[-1, :]) + (history.my_actions[-1] if history.my_actions[-1] else 0)
+            if cooperators >= self.game_description.n_players / 2 and previous_round_payoff > avg_payoff:
+                action = Action.C
+            else:
+                action = Action.D
+        else:
+            action = Action.D
+        if history:
+            previous_round_payoff = history.my_payoffs[-1] + self.game_description.k / self.game_description.n_players * sum(history.opponent_actions[-1, :])
+            self.payoff_history.append(previous_round_payoff)
+        return action
+
+class Strategy_AGGRESSIVE_25(BaseStrategy):
+    """
+    Adaptive Punisher strategy for the N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.my_payoff = 0
+        self.avg_payoff = 0
+
+    def calculate_payoff(self, action, k, n, c_total):
+        if action == Action.C:
+            return k / n * c_total
+        else:
+            return 1 + k / n * c_total
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number <= self.game_description.n_players:
+            return Action.C
+        c_total = sum(history.opponent_actions[-1, :] + [history.my_actions[-1]])
+        c_prev = sum(history.opponent_actions[-1, :])
+        my_index = self.game_description.n_players - 1
+        if c_prev >= self.game_description.n_players / 2 and history.my_actions[-1] == Action.D:
+            return Action.D
+        elif c_total >= self.game_description.n_players / 2 and history.my_actions[-1] == Action.C:
+            return Action.C
+        elif c_total < self.game_description.n_players / 2 and history.my_actions[-1] == Action.C:
+            return Action.D
+        elif self.my_payoff / self.game_description.n_players < self.avg_payoff:
+            return Action.D
+        else:
+            return Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        self.my_payoff += self.calculate_payoff(history.my_actions[-1], self.game_description.k, self.game_description.n_players, c_total)
+        self.avg_payoff = sum([self.calculate_payoff(history.opponent_actions[-1, i], self.game_description.k, self.game_description.n_players, c_total) for i in range(self.game_description.n_players)]) / self.game_description.n_players
+
+class Strategy_AGGRESSIVE_26(BaseStrategy):
+    """
+    Aggressive strategy that exploits opponents' cooperation and punishes those who defect when the group is contributing.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.prev_round_coop = 0
+        self.was_punished = False
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        if history is not None:
+            self.prev_round_coop = sum(history.opponent_actions[-1, :]) + 1
+            if self.was_punished:
+                self.was_punished = False
+                return Action.D
+            if self.prev_round_coop >= self.game_description.k:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if history is not None and len(history.my_actions) > 0 and (history.my_actions[-1] == 0) and (self.prev_round_coop >= self.game_description.k):
+            self.was_punished = True
+
+class Strategy_AGGRESSIVE_27(BaseStrategy):
+    """
+    An aggressive strategy for the N-Player Public Goods Game that only depends on the game parameters and history.
+    It starts by cooperating in the first round, and then adapts its behavior based on the total number of cooperators in the previous round.
+    It introduces a "punishment" mechanism to discourage defectors by defecting with a higher probability if a player has defected in the previous round and the total number of cooperators is less than k.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.defector_prob = 0.8
+        self.non_defector_prob = 0.2
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        total_cooperators = sum(history.opponent_actions[-1, :]) + history.my_actions[-1]
+        if total_cooperators >= self.game_description.k:
+            return Action.C
+        elif history.my_actions[-1] == False:
+            return Action.D if random.random() < self.defector_prob else Action.C
+        else:
+            return Action.D if random.random() < self.non_defector_prob else Action.C
+
+class Strategy_AGGRESSIVE_28(BaseStrategy):
+    """
+    An aggressive strategy for the N-Player Public Goods Game that adapts to the game's dynamics.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number <= 2:
+            return Action.C
+        avg_payoff = np.mean(history.my_payoffs[-1] + history.opponent_payoffs[-1])
+        if avg_payoff >= self.game_description.k:
+            return Action.D
+        cooperators = sum(history.opponent_actions[-1, :])
+        if avg_payoff < self.game_description.k and cooperators >= self.game_description.n_players // 2:
+            return Action.C
+        if state.round_number >= self.game_description.n_rounds - 2:
+            return Action.D
+        return Action.D
+
+class Strategy_AGGRESSIVE_29(BaseStrategy):
+    """
+    An aggressive strategy that adapts to opponents' behavior.
+    It defects in the initial round, then cooperates if the average payoff of cooperators is higher.
+    In later rounds, it employs a Tit-for-Tat approach with a twist, and defects unconditionally in the last rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        if state.round_number <= 5:
+            avg_coop_payoff = np.mean([payoff for payoff, action in zip(history.opponent_payoffs[-1, :], history.opponent_actions[-1, :]) if action])
+            avg_def_payoff = np.mean([payoff for payoff, action in zip(history.opponent_payoffs[-1, :], history.opponent_actions[-1, :]) if not action])
+            if avg_coop_payoff > avg_def_payoff:
+                return Action.C
+            else:
+                return Action.D
+        elif state.round_number <= self.game_description.n_rounds - 2:
+            cooperators = np.sum(history.opponent_actions[-1, :])
+            if cooperators >= self.game_description.n_players // 2:
+                return Action.C
+            else:
+                avg_coop_payoff = np.mean([payoff for payoff, action in zip(history.opponent_payoffs[-1, :], history.opponent_actions[-1, :]) if action])
+                avg_def_payoff = np.mean([payoff for payoff, action in zip(history.opponent_payoffs[-1, :], history.opponent_actions[-1, :]) if not action])
+                if avg_coop_payoff < avg_def_payoff:
+                    return Action.D
+                elif cooperators == self.game_description.n_players - 1 - cooperators:
+                    return Action.D if random.random() < 0.6 else Action.C
+                else:
+                    return Action.C
+        else:
+            return Action.D
+
+class Strategy_AGGRESSIVE_30(BaseStrategy):
+    """
+    Aggressive strategy for the N-Player Public Goods Game, 
+    punishing non-cooperative behavior and exploiting cooperative behavior.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.k = game_description.k
+        self.r = game_description.n_rounds
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        prev_round_actions = history.opponent_actions[-1, :]
+        prev_round_payoffs = history.opponent_payoffs[-1, :]
+        my_prev_payoff = history.my_payoffs[-1]
+        total_contribution = sum(prev_round_actions)
+        if total_contribution < self.k / self.n * (self.n / 2):
+            return Action.D
+        avg_payoff = np.mean(prev_round_payoffs)
+        if my_prev_payoff > avg_payoff:
+            return Action.C
+        else:
+            return Action.D
+        if state.round_number == self.r - 1:
+            return Action.D
+
+class Strategy_AGGRESSIVE_31(BaseStrategy):
+    """
+    An aggressive, adaptive strategy for the N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.previous_actions = []
+        self.num_cooperators = 0
+        self.average_payoff = 0
+        self.round_number = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        if self.game_description.n_players < 5 and state.round_number < 2:
+            return Action.D
+        elif self.game_description.k > self.game_description.n_players - 1 and state.round_number == 0:
+            return Action.C
+        self.round_number = state.round_number
+        if history is not None:
+            self.previous_actions.append(history.my_actions[-1])
+            self.num_cooperators = sum((1 for action in history.my_actions if action)) + sum((1 for action in history.opponent_actions[-1, :] if action))
+            self.average_payoff = np.mean(history.my_payoffs)
+        if self.num_cooperators < self.game_description.n_players / 4:
+            return Action.D
+        elif self.average_payoff >= self.game_description.k:
+            return Action.C if self.num_cooperators > self.game_description.n_players / 2 else Action.D
+        if self.average_payoff <= 1:
+            return Action.D
+        elif self.num_cooperators >= self.game_description.n_players / 2:
+            return Action.C
+        else:
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+
+class Strategy_AGGRESSIVE_32(BaseStrategy):
+    """
+    An aggressive strategy that starts with a Defect (D), then adapts to opponents' behavior.
+    It exploits high cooperation rates, defects in low cooperation rates, and prioritizes individual payoff maximization in the last round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.opponent_coop_rate = 0
+        self.recent_coop_rate = 0
+        self.coop_prob = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        self.opponent_coop_rate = sum(history.opponent_actions[-1, :]) / self.game_description.n_players
+        recent_coop_count = sum(history.opponent_actions[-3:, :].mean(axis=0))
+        self.recent_coop_rate = recent_coop_count / (3 * self.game_description.n_players)
+        self.coop_prob = self.opponent_coop_rate
+        if self.recent_coop_rate > self.opponent_coop_rate:
+            self.coop_prob = min(self.coop_prob + 0.1, 1)
+        elif self.recent_coop_rate < self.opponent_coop_rate:
+            self.coop_prob = max(self.coop_prob - 0.1, 0)
+        if random.random() < self.coop_prob:
+            if state.round_number == self.game_description.n_rounds - 1:
+                return Action.D
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_1(BaseStrategy):
+    """
+    An opportunistic strategy that adapts to the game's history and parameters.
+    It seeks to cooperate when the opponent is likely to cooperate, while minimizing the risk of exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = (game_description.k - 1) / (game_description.k * game_description.n_players)
+        self.punishment_in_progress = False
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if self.punishment_in_progress:
+            self.punishment_in_progress = False
+            return Action.D
+        opponent_cooperation_rate = np.mean(history.opponent_actions[-1, :])
+        if opponent_cooperation_rate >= self.threshold:
+            return Action.C
+        if history.my_actions[-1] and (not np.all(history.opponent_actions[-1, :])):
+            self.punishment_in_progress = True
+            return Action.D
+        if not self.punishment_in_progress and history.my_actions[-1] == False and np.all(history.opponent_actions[-1, :]):
+            self.punishment_in_progress = False
+            return Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_2(BaseStrategy):
+    """
+    Opportunistic strategy that adapts to the behavior of others.
+    Cooperates initially, then continues to cooperate if total cooperators meet the multiplication factor threshold.
+    Defects in the last round and when cooperation is not paying off.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.history = []
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        total_cooperators = sum((1 for a in history.opponent_actions[-1, :] if a))
+        if total_cooperators >= self.game_description.k:
+            action = Action.C
+        elif total_cooperators == 0:
+            action = Action.C
+        else:
+            action = Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            action = Action.D
+        self.history.append(action)
+        return action
+
+class Strategy_OPPORTUNISTIC_3(BaseStrategy):
+    """
+    Adaptive Exploitation strategy that balances exploration, exploitation, and adaptation to maximize payoffs.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.coop_count = 0
+        self.def_count = 0
+        self.coop_payoff = 0
+        self.def_payoff = 0
+        self.previous_opponent_actions = None
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if self.previous_opponent_actions is not None:
+            opponent_cooperators = sum(self.previous_opponent_actions)
+            self.coop_payoff = self.game_description.k / self.game_description.n_players * opponent_cooperators
+            self.def_payoff = 1 + self.game_description.k / self.game_description.n_players * opponent_cooperators
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if self.coop_payoff >= self.def_payoff:
+            return Action.C
+        else:
+            return Action.D
+        self.previous_opponent_actions = history.opponent_actions[-1, :]
+
+class Strategy_OPPORTUNISTIC_4(BaseStrategy):
+    """
+    Adaptive Exploiter strategy for the N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        t = state.round_number
+        if t == 0:
+            return Action.C
+        if t <= 0.2 * self.r:
+            return Action.C
+        elif 0.2 * self.r < t <= 0.5 * self.r:
+            if history is not None:
+                num_cooperators = sum(history.opponent_actions[-1, :])
+                p = self.k / self.n * (num_cooperators / self.n)
+                return Action.C if random.random() < p else Action.D
+            else:
+                return Action.C
+        elif t > 0.5 * self.r:
+            if history is not None:
+                avg_payoff_coop = np.mean(history.my_payoffs[history.my_actions])
+                avg_payoff_defect = np.mean(history.my_payoffs[~history.my_actions])
+                if avg_payoff_coop > avg_payoff_defect:
+                    return Action.C
+                else:
+                    num_cooperators = sum(history.opponent_actions[-1, :])
+                    if num_cooperators > 0.6 * self.n:
+                        return Action.D
+                    return Action.D
+            else:
+                return Action.D
+        elif t == self.r:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_5(BaseStrategy):
+    """
+    Opportunistic Strategy: Adaptive Cooperation (AC).
+    This strategy starts by cooperating, then adapts based on the cooperation threshold.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.cooperation_threshold = math.ceil(game_description.n_players * game_description.k / (game_description.n_players + game_description.k))
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        num_coop_prev = sum(history.opponent_actions[-1, :]) + 1
+        if num_coop_prev >= self.cooperation_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_6(BaseStrategy):
+    """
+    Adaptive Opportunistic Cooperation (AOC) strategy for N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.recent_history = []
+        self.exploiters = []
+        self.cooperation_bias = 0.4
+        self.default_cooperation_rate = 0.5
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if self.game_description.k > 1.5 and self.game_description.n_players > 4:
+            self.cooperation_bias = 0.6
+        recent_cooperation_rate = self.calculate_recent_cooperation_rate(history)
+        if self.exploiter_detected(history):
+            return Action.D
+        if self.punish_exploiters(history):
+            return Action.D
+        if recent_cooperation_rate > self.cooperation_bias:
+            return Action.C
+        return Action.D
+
+    def calculate_recent_cooperation_rate(self, history: PlayerHistory) -> float:
+        recent_rounds = min(3, len(history.my_actions))
+        recent_cooperation_count = sum(history.my_actions[-recent_rounds:])
+        return recent_cooperation_count / recent_rounds if recent_rounds > 0 else self.default_cooperation_rate
+
+    def exploiter_detected(self, history: PlayerHistory) -> bool:
+        opponent_actions = history.opponent_actions
+        for player in range(self.game_description.n_players - 1):
+            player_actions = opponent_actions[:, player]
+            if all((action == 0 for action in player_actions[-3:])):
+                self.exploiters.append(player)
+                return True
+        return False
+
+    def punish_exploiters(self, history: PlayerHistory) -> bool:
+        if self.exploiters:
+            return True
+        return False
+
+class Strategy_OPPORTUNISTIC_7(BaseStrategy):
+    """
+    Adaptive Explorer strategy: 
+    Cooperate if average cooperation rate is above a threshold, 
+    otherwise Defect with a higher probability if the player's payoff 
+    is lower than the expected payoff if everyone had cooperated.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.THRESHOLD = 0.5
+        self.PROB_DEFECT = 0.8
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number < 3:
+            return Action.C if random.random() < 0.5 else Action.D
+        avg_coop_rate = np.mean(history.opponent_actions[-1, :])
+        if avg_coop_rate > self.THRESHOLD:
+            return Action.C
+        if avg_coop_rate < self.THRESHOLD and history.my_payoffs[-1] < self.game_description.k * avg_coop_rate:
+            return Action.D if random.random() < self.PROB_DEFECT else Action.C
+        return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            if np.sum(history.my_payoffs) < np.mean(np.sum(history.opponent_payoffs, axis=0)):
+                return Action.D
+            else:
+                return Action.C
+
+class Strategy_OPPORTUNISTIC_8(BaseStrategy):
+    """
+    Adaptive Exploiter strategy: Cooperate in the first round, then defect if the total payoff from the previous round is greater than or equal to the average payoff of all players in the previous round. Otherwise, cooperate.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.previous_round_payoff = None
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        total_payoff_prev = np.sum(history.my_payoffs[-1]) + np.sum(history.opponent_payoffs[-1, :])
+        avg_payoff_prev = total_payoff_prev / self.game_description.n_players
+        self.previous_round_payoff = total_payoff_prev
+        if history.my_payoffs[-1] >= avg_payoff_prev:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_OPPORTUNISTIC_9(BaseStrategy):
+    """
+    Adaptive Exploiter strategy for N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C if random.random() < 0.5 else Action.D
+        opponent_cooperations = history.opponent_actions[-1, :]
+        total_cooperators = sum(opponent_cooperations) + (history.my_actions[-1] == Action.C)
+        average_payoff = (history.my_payoffs[-1] + np.sum(history.opponent_payoffs[-1, :])) / self.n
+        if average_payoff > 1 + self.k / self.n:
+            cooperate_prob = 0.3
+        elif total_cooperators > self.n / 2:
+            cooperate_prob = 0.7
+        else:
+            cooperate_prob = 0.5
+        if state.round_number == self.r - 1:
+            cooperate_prob = 0.0
+        return Action.C if random.random() < cooperate_prob else Action.D
+
+class Strategy_OPPORTUNISTIC_10(BaseStrategy):
+    """
+    Adaptive Opportunism strategy for the N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if history is not None:
+            cooperators = sum(history.opponent_actions[-1, :])
+            if cooperators >= self.game_description.n_players // 2:
+                return Action.C
+            return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_11(BaseStrategy):
+    """
+    Adaptive Opportunism strategy for the N-Player Public Goods Game.
+    This strategy balances cooperation and defection to maximize payoffs.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        cooperators = sum(history.opponent_actions[-1, :]) + 1 if history.my_actions[-1] else sum(history.opponent_actions[-1, :])
+        if cooperators >= self.game_description.n_players // 2:
+            return Action.C
+        elif cooperators >= 0.75 * self.game_description.n_players:
+            return Action.D
+        else:
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_12(BaseStrategy):
+    """
+    Adaptive Opportunism strategy for N-Player Public Goods Game.
+    This strategy cooperates initially, then adapts to the opponent's behavior, 
+    exploiting their cooperation when possible while maintaining a willingness to cooperate when mutually beneficial.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if state.round_number == self.n_rounds - 1:
+            return Action.D
+        elif history is not None:
+            cooperators = sum(history.opponent_actions[-1, :])
+            if cooperators >= (self.n_players + 1) // 2:
+                return Action.C
+            elif cooperators == 0:
+                return Action.C
+            elif cooperators == self.n_players - 1:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.C
+
+class Strategy_OPPORTUNISTIC_13(BaseStrategy):
+    """
+    Opportunistic strategy that adapts to changing circumstances and exploits cooperative opponents.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        most_recent_round = history.my_actions.shape[0] - 1
+        cooperators_payoffs = np.extract(history.my_actions[most_recent_round] == True, history.my_payoffs[most_recent_round])
+        cooperators_avg_payoff = np.mean(cooperators_payoffs) if cooperators_payoffs.size > 0 else 0
+        defectors_payoffs = np.extract(history.my_actions[most_recent_round] == False, history.my_payoffs[most_recent_round])
+        defectors_avg_payoff = np.mean(defectors_payoffs) if defectors_payoffs.size > 0 else 0
+        if cooperators_avg_payoff > defectors_avg_payoff:
+            return Action.C
+        else:
+            return Action.D
+        if state.round_number == self.r - 1:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_14(BaseStrategy):
+    """
+    An opportunistic adaptive cooperator strategy that initially cooperates, reciprocates cooperation, and exploits low cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.history = []
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        prev_round_cooperators = sum(history.opponent_actions[-1, :]) + 1 if history.my_actions[-1] else sum(history.opponent_actions[-1, :])
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if prev_round_cooperators >= self.game_description.n_players // 2:
+            return Action.C
+        else:
+            return Action.D
+        self.history.append({'cooperators': prev_round_cooperators, 'action': history.my_actions[-1]})
+
+class Strategy_OPPORTUNISTIC_15(BaseStrategy):
+    """
+    Adaptive Opportunism (AO) strategy for N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.history = None
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        self.history = history
+        if state.round_number == 0:
+            return Action.C
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        prev_round_actions = self.history.opponent_actions[-1, :]
+        prev_round_payoffs = self.history.opponent_payoffs[-1, :]
+        if state.round_number < r // 2:
+            coop_payoffs = prev_round_payoffs[prev_round_actions]
+            def_payoffs = prev_round_payoffs[~prev_round_actions]
+            if len(coop_payoffs) == 0:
+                avg_coop_payoff = 0
+            else:
+                avg_coop_payoff = np.mean(coop_payoffs)
+            if len(def_payoffs) == 0:
+                avg_def_payoff = 0
+            else:
+                avg_def_payoff = np.mean(def_payoffs)
+            if avg_coop_payoff > avg_def_payoff:
+                return Action.C
+            else:
+                return Action.D
+        elif r // 2 <= state.round_number < 3 * r // 4:
+            num_coop = np.sum(prev_round_actions)
+            num_def = n - num_coop
+            if num_coop >= num_def:
+                return Action.C
+            else:
+                return Action.D
+        elif 3 * r // 4 < state.round_number < r:
+            current_coop_payoff = k / n * np.sum(prev_round_actions)
+            current_def_payoff = 1 + k / n * np.sum(prev_round_actions)
+            if current_coop_payoff > current_def_payoff:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_16(BaseStrategy):
+    """
+    Adaptive Opportunism (AO) strategy balances cooperation and defection based on the observed behavior of other players and the game's parameters.
+    It seeks to maximize its payoff by cooperating when it's beneficial and defecting when it's not.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.history = None
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        self.history = history
+        avg_coop_payoff = np.mean(self.history.my_payoffs[self.history.my_actions])
+        avg_def_payoff = np.mean(self.history.my_payoffs[~self.history.my_actions])
+        prev_cooperators = sum(self.history.opponent_actions[-1, :])
+        if prev_cooperators >= self.game_description.n_players / 2:
+            return Action.C
+        if avg_coop_payoff < avg_def_payoff:
+            return Action.D
+        if avg_coop_payoff > avg_def_payoff:
+            return Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        probability = self.game_description.k / self.game_description.n_players
+        if random.random() < probability:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_17(BaseStrategy):
+    """
+    An opportunistic strategy for the N-Player Public Goods Game that adapts to the game parameters and history.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.prev_payoff = None
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            if self.game_description.n_rounds == 1:
+                return Action.D
+            elif self.game_description.n_players == 2:
+                return Action.C
+            else:
+                return Action.C
+        avg_payoff = np.mean(history.my_payoffs[-1] + history.opponent_payoffs[-1, :])
+        avg_cooperators = np.mean(np.sum(history.opponent_actions[:, :], axis=1) + history.my_actions)
+        if state.round_number <= self.game_description.n_rounds // 2:
+            if avg_payoff >= 1.5:
+                return Action.C
+            else:
+                return Action.D
+        elif state.round_number <= 3 * self.game_description.n_rounds // 4:
+            if avg_cooperators >= self.game_description.n_players / 2:
+                return Action.C
+            else:
+                return Action.D
+        elif state.round_number < self.game_description.n_rounds:
+            if self.prev_payoff is not None and self.prev_payoff > 1:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_18(BaseStrategy):
+    """
+    Opportunistic Explorer strategy for N-Player Public Goods Game.
+    Adapts to the game parameters and history, balancing cooperation and exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = 1.0
+        self.exploit_history = []
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        previous_round = state.round_number - 1
+        payoffs = history.my_payoffs[previous_round] + np.mean(history.opponent_payoffs[previous_round, :])
+        actions = history.my_actions[previous_round] + np.mean(history.opponent_actions[previous_round, :])
+        if payoffs > self.threshold and actions < 1.0:
+            return Action.D
+        if payoffs > self.threshold:
+            self.threshold += 0.1
+        elif payoffs < self.threshold:
+            self.threshold -= 0.1
+        if payoffs > 1.0:
+            return Action.C
+        else:
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_19(BaseStrategy):
+    """
+    Opportunistic Strategy: Adaptive Cooperator.
+
+    This strategy is opportunistic, as it adapts to the game environment and adjusts its behavior based on the actions of other players.
+    By cooperating in the first round and subsequent rounds where cooperation is prevalent, the strategy encourages cooperation and maximizes the total payoff.
+    By defecting when cooperation is low, the strategy minimizes losses.
+    The payoff-based adjustment and opponent adaptation mechanisms allow the strategy to respond to changes in the game environment and opponent behaviors.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperate_likelihood = 0.5
+        self.defect_likelihood = 0.5
+        self.opponent_consistently_cooperates = [False] * game_description.n_players
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        opponent_actions = history.opponent_actions[-1, :]
+        total_cooperators = sum(opponent_actions) + (history.my_actions[-1] == Action.C)
+        total_defectors = self.game_description.n_players - total_cooperators
+        previous_round_payoff_difference = history.my_payoffs[-1] - self.game_description.k / self.game_description.n_players * total_cooperators
+        if previous_round_payoff_difference > self.game_description.k / self.game_description.n_players * 0.1:
+            if history.my_actions[-1] == Action.C:
+                self.cooperate_likelihood = min(self.cooperate_likelihood + 0.1, 1.0)
+                self.defect_likelihood = max(self.defect_likelihood - 0.1, 0.0)
+            else:
+                self.cooperate_likelihood = max(self.cooperate_likelihood - 0.1, 0.0)
+                self.defect_likelihood = min(self.defect_likelihood + 0.1, 1.0)
+        for i, opponent_action in enumerate(opponent_actions):
+            if opponent_action:
+                self.opponent_consistently_cooperates[i] = True
+            elif not opponent_action and self.opponent_consistently_cooperates[i]:
+                self.opponent_consistently_cooperates[i] = False
+        if total_cooperators >= total_defectors:
+            if random.random() < self.cooperate_likelihood:
+                return Action.C
+            else:
+                return Action.D
+        elif random.random() < self.defect_likelihood:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_OPPORTUNISTIC_20(BaseStrategy):
+    """
+    Adaptive Opportunism (AO) strategy for the N-Player Public Goods Game.
+
+    This strategy initially cooperates, then adapts to the actions of others by comparing average payoffs.
+    It exploits opportunities to earn higher payoffs by defecting when the average payoff of defectors is higher.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.round_payoffs = None
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if self.round_payoffs is None:
+            self.round_payoffs = np.zeros(self.game_description.n_players)
+            my_payoff = history.my_payoffs[-1]
+            self.round_payoffs[0] = my_payoff
+            for i, opponent_payoff in enumerate(history.opponent_payoffs[-1, :]):
+                self.round_payoffs[i + 1] = opponent_payoff
+        avg_coop_payoff = np.mean(self.round_payoffs[history.my_actions[-1] | history.opponent_actions[-1, :] @ np.ones(self.game_description.n_players - 1, dtype=bool)])
+        avg_def_payoff = np.mean(self.round_payoffs[~history.my_actions[-1] & ~(history.opponent_actions[-1, :] @ np.ones(self.game_description.n_players - 1, dtype=bool))])
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if avg_coop_payoff > avg_def_payoff:
+            return Action.C
+        elif avg_def_payoff > avg_coop_payoff:
+            return Action.D
+        else:
+            p = self.game_description.k / self.game_description.n_players
+            return Action.C if random.random() < p else Action.D
+
+class Strategy_OPPORTUNISTIC_21(BaseStrategy):
+    """
+    Opportunistic strategy for the N-Player Public Goods Game, 
+    designed to be adaptive and robust to various opponent behaviors.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.ACR = 0
+        self.opponent_actions = []
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            self.opponent_actions.append(Action.C.value)
+            return Action.C
+        if self.game_description.n_rounds <= 5:
+            return Action.C
+        if state.round_number <= 5:
+            self.ACR = sum(self.opponent_actions) / len(self.opponent_actions)
+            if self.ACR >= 0.5:
+                self.opponent_actions.append(Action.C.value)
+                return Action.C
+            self.opponent_actions.append(Action.D.value)
+            return Action.D
+        if state.round_number < self.game_description.n_rounds // 2:
+            majority_action = Action.C if sum(history.opponent_actions[-1, :]) >= self.game_description.n_players // 2 else Action.D
+            if majority_action == Action.C:
+                self.opponent_actions.append(Action.C.value)
+                return Action.C
+            elif majority_action == Action.D:
+                self.opponent_actions.append(Action.D.value)
+                return Action.D
+            else:
+                max_payoff_opponent = np.argmax(history.opponent_payoffs[-1, :])
+                self.opponent_actions.append(history.opponent_actions[-1, max_payoff_opponent])
+                return Action.C if self.opponent_actions[-1] else Action.D
+        if self.game_description.k / self.game_description.n_players * self.ACR >= 1:
+            self.opponent_actions.append(Action.C.value)
+            return Action.C
+        self.opponent_actions.append(Action.D.value)
+        return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_22(BaseStrategy):
+    """
+    Opportunistic strategy for the N-Player Public Goods Game, which balances cooperation and defection based on the game's history.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C if random.random() < 0.5 else Action.D
+        prev_cooperators = sum(history.opponent_actions[-1, :] if history.my_actions[-1] else history.opponent_actions[-1, :-1])
+        avg_payoff = np.mean([history.my_payoffs[-3]] + [payoff for payoff in history.opponent_payoffs[-3, :]]) if history.my_payoffs.size >= 3 else np.mean([history.my_payoffs[-1]] + [payoff for payoff in history.opponent_payoffs[-1, :]])
+        player_payoff = history.my_payoffs[-1]
+        if avg_payoff > self.k / self.n * self.n and player_payoff < avg_payoff:
+            return Action.D
+        elif prev_cooperators < self.n / 2 and player_payoff > self.k / self.n * self.n:
+            return Action.D
+        elif player_payoff < self.k / self.n * self.n and prev_cooperators < self.n / 2:
+            return Action.C
+        elif prev_cooperators >= self.n / 2:
+            return Action.C
+        else:
+            if random.random() < 0.1:
+                return Action.C if random.random() < 0.5 else Action.D
+            return Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_23(BaseStrategy):
+    """
+    Opportunistic strategy for the N-Player Public Goods Game.
+    Adapts to the game's dynamics by exploiting cooperation when beneficial
+    and re-evaluating the situation after two consecutive rounds of defection.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.previous_payoff = None
+        self.previous_average_payoff = None
+        self.consecutive_defections = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if history.my_payoffs.size > 0:
+            average_payoff = np.mean(np.concatenate(([history.my_payoffs[-1]], history.opponent_payoffs[-1, :])))
+        else:
+            average_payoff = 0
+        if history.my_payoffs.size > 0 and history.my_payoffs[-1] >= average_payoff:
+            self.consecutive_defections = 0
+            return Action.C
+        else:
+            self.consecutive_defections += 1
+            if self.consecutive_defections == 2 and history.my_payoffs.size > 0 and (history.my_payoffs[-1] < average_payoff):
+                self.consecutive_defections = 0
+                return Action.C
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_24(BaseStrategy):
+    """
+    Adaptive Opportunism (AO) is an opportunistic strategy that adapts to the game's history and parameters.
+    It balances cooperation and exploitation by considering recent history, game parameters, and handling edge cases.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.t = 1
+        self.APC = 0
+        self.APD = 0
+        self.last_round_coops = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            self.t = 1
+            return Action.C
+        self.t += 1
+        if history is not None and len(history.opponent_actions) > 1:
+            self.last_round_coops = sum(history.opponent_actions[-1, :])
+            self.APC = self.last_round_coops * self.game_description.k / self.game_description.n_players
+            self.APD = 1 + self.game_description.k / self.game_description.n_players * (self.game_description.n_players - self.last_round_coops)
+        if self.APC > self.APD or self.last_round_coops >= self.game_description.k:
+            action = Action.C
+        else:
+            action = Action.D
+        if self.last_round_coops == 0:
+            action = Action.C
+        elif self.last_round_coops == self.game_description.n_players:
+            action = Action.D
+        return action
+
+class Strategy_OPPORTUNISTIC_25(BaseStrategy):
+    """
+    Opportunistic strategy for the N-Player Public Goods Game.
+    Adapts to the behavior of other players, exploiting situations where cooperation is relatively rare.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        avg_coop_t_1 = np.mean(history.opponent_actions[-1, :])
+        if avg_coop_t_1 >= 0.5:
+            return Action.C
+        else:
+            return Action.D
+        if state.round_number == self.r - 1:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_26(BaseStrategy):
+    """
+    An opportunistic strategy that balances individual payoffs with collective benefits in the N-Player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.defection_threshold = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        n = self.game_description.n_players
+        k = self.game_description.k
+        r = self.game_description.n_rounds
+        if state.round_number < r // 2:
+            avg_contribution = sum(history.opponent_actions[-1, :]) / n
+            if avg_contribution > k / n:
+                return Action.C
+            else:
+                return Action.D
+        if state.round_number < 3 * r // 4:
+            moving_avg = sum(sum(history.opponent_actions[state.round_number - r // 2:state.round_number, :]) / (r // 2))
+            if moving_avg < 0.5 * n:
+                self.defection_threshold += 1
+            if sum(history.opponent_actions[-1, :]) > self.defection_threshold:
+                return Action.C
+            else:
+                return Action.D
+        if state.round_number >= 3 * r // 4:
+            expected_coop_payoff = k / n * sum(history.opponent_actions[-1, :])
+            if expected_coop_payoff > 1:
+                return Action.C
+            else:
+                return Action.D
+        if state.round_number == r - 1:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_27(BaseStrategy):
+    """
+    The Adaptive Exploiter strategy aims to maximize its payoff by adapting to the opponent's behavior 
+    and exploiting opportunities for cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        prev_round = history.opponent_actions[-1, :]
+        prev_cooperators = np.sum(prev_round)
+        prev_defectors = self.n_players - 1 - prev_cooperators
+        if prev_cooperators >= prev_defectors:
+            return Action.C
+        elif prev_defectors > prev_cooperators:
+            return Action.D
+        else:
+            prob_coop = self.k / self.n_players
+            return Action.C if random.random() < prob_coop else Action.D
+        if state.round_number == self.n_rounds - 1:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_28(BaseStrategy):
+    """
+    Opportunistic strategy for the N-Player Public Goods Game.
+    Cooperates in the first round, then adapts based on the cooperation rate and payoff.
+    Defects in the last round to maximize individual payoff.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = 0.5
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if history is not None:
+            cooperation_rate = np.sum(history.opponent_actions[-1, :]) / self.game_description.n_players
+        else:
+            cooperation_rate = 0
+        if history is not None and history.my_payoffs.size > 0:
+            previous_payoff = history.my_payoffs[-1]
+            expected_payoff = 1 + self.game_description.k / self.game_description.n_players * self.game_description.n_players
+            self.threshold += (previous_payoff - expected_payoff) / self.game_description.n_players
+        if cooperation_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_29(BaseStrategy):
+    """
+    Opportunistic strategy that adapts to opponent's behavior, balancing cooperation and defection.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.avg_cooperation = 0
+        self.rounds = 0
+        self.threshold = 0.5
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if self.rounds < 3:
+            return Action.C
+        opponent_cooperations = history.opponent_actions[:-1].sum(axis=1)
+        self.avg_cooperation = opponent_cooperations.mean()
+        if self.avg_cooperation > self.threshold:
+            return Action.C
+        else:
+            return Action.D
+        if history.opponent_actions[-1, :].sum() == 0:
+            return Action.D
+        elif history.my_actions[-1] and history.opponent_actions[-1, :].sum() > 0:
+            return Action.C
+        elif history.my_actions[-1] and history.opponent_actions[-1, :].sum() == 0:
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        self.rounds += 1
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_30(BaseStrategy):
+    """
+    Opportunistic strategy that adapts to the prevailing behavior of opponents.
+    Cooperates in the first round to establish a baseline for cooperation.
+    Subsequently cooperates if the total number of cooperators in the previous round
+    is greater than or equal to half the number of players, or if the payoff from
+    the previous round is greater than or equal to half the multiplication factor.
+    Defects in the last round to prioritize individual payoff.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        total_cooperators_prev = sum(history.opponent_actions[-1, :]) + history.my_actions[-1]
+        payoff_prev = self.calculate_payoff(history, state.round_number)
+        if total_cooperators_prev >= self.game_description.n_players // 2 or payoff_prev >= self.game_description.k / self.game_description.n_players * (self.game_description.n_players / 2):
+            return Action.C
+        return Action.D
+
+    def calculate_payoff(self, history: PlayerHistory, round_number: int) -> float:
+        total_cooperators = sum(history.opponent_actions[round_number - 1, :]) + history.my_actions[round_number - 1]
+        if history.my_actions[round_number - 1]:
+            return self.game_description.k / self.game_description.n_players * total_cooperators
+        return 1 + self.game_description.k / self.game_description.n_players * total_cooperators
+
+class Strategy_OPPORTUNISTIC_31(BaseStrategy):
+    """
+    An opportunistic strategy for the N-Player Public Goods Game.
+    It adapts to the previous round's payoffs and chooses to cooperate if cooperators fared better.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        previous_round_actions = history.opponent_actions[-1, :]
+        previous_round_payoffs = history.opponent_payoffs[-1, :]
+        coop_payoffs = previous_round_payoffs[previous_round_actions]
+        def_payoffs = previous_round_payoffs[~previous_round_actions]
+        if len(coop_payoffs) == 0:
+            avg_coop_payoff = 0
+        else:
+            avg_coop_payoff = np.mean(coop_payoffs)
+        if len(def_payoffs) == 0:
+            avg_def_payoff = 0
+        else:
+            avg_def_payoff = np.mean(def_payoffs)
+        if avg_coop_payoff > avg_def_payoff:
+            return Action.C
+        elif sum(previous_round_actions) <= self.game_description.n_players / 2:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_32(BaseStrategy):
+    """
+    Adaptive Opportunism strategy for the N-Player Public Goods Game.
+
+    This strategy cooperates initially, reciprocates cooperation, exploits non-cooperation, and punishes its own exploitation.
+    It adapts to the behavior of other players while maximizing its own payoff.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.defected_last_round = False
+        self.prev_cooperators = 0
+        self.prev_prev_cooperators = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if history is not None:
+            if state.round_number == 1:
+                self.prev_cooperators = sum(history.opponent_actions[-1, :])
+                self.prev_cooperators += 1
+            else:
+                self.prev_prev_cooperators = self.prev_cooperators
+                self.prev_cooperators = sum(history.opponent_actions[-1, :])
+                if history.my_actions[-1]:
+                    self.prev_cooperators += 1
+            if self.prev_cooperators >= self.prev_prev_cooperators:
+                return Action.C
+            elif self.prev_cooperators < self.prev_prev_cooperators:
+                self.defected_last_round = True
+                return Action.D
+            elif self.defected_last_round and self.prev_cooperators > self.prev_prev_cooperators:
+                self.defected_last_round = False
+                return Action.C
+            elif self.game_description.n_rounds - state.round_number <= 2:
+                return Action.C
+            elif state.round_number == self.game_description.n_rounds - 1:
+                return Action.D
+            else:
+                self.defected_last_round = False
+                return Action.D
+        return Action.C
+
+class Strategy_COMMUNAL_15(BaseStrategy):
+    """
+    Reflective Conditional Cooperation strategy for N-Player Public Goods Game.
+    This strategy adapts to the game history and opponent behaviors while maintaining a strong communal mindset.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.theta = 0.5
+        self.reflect_prob = 0.7
+        self.conditional_prob = 0.7
+        self.low_coop_threshold = 0.2
+        self.high_defect_threshold = 0.8
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C if random.random() < 0.5 else Action.D
+        opponent_actions = history.opponent_actions[-1, :]
+        my_action = history.my_actions[-1]
+        avg_coop_rate = np.mean(np.concatenate([opponent_actions, [my_action]]))
+        avg_payoff = np.mean(history.opponent_payoffs[-1, :] + [history.my_payoffs[-1]])
+        if avg_payoff > history.my_payoffs[-1]:
+            return Action.C if random.random() < self.reflect_prob else Action.D
+        if my_action and history.my_payoffs[-1] > avg_payoff:
+            return Action.C if random.random() < self.conditional_prob else Action.D
+        if avg_coop_rate > self.theta:
+            return Action.C
+        else:
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.C if avg_coop_rate > self.theta else Action.D
+        elif avg_coop_rate < self.low_coop_threshold:
+            return Action.D
+        elif 1 - avg_coop_rate > self.high_defect_threshold:
+            return Action.D

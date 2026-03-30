@@ -46970,3 +46970,6124 @@ class Strategy_COLLECTIVE_195(BaseStrategy):
             return Action.C
         else:
             return Action.D
+
+
+class Strategy_PROSOCIAL_1(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution (ARC): A prosocial strategy that balances
+    trust-building with strategic robustness through adaptive cooperation based
+    on observed reciprocity across game phases.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.C
+        cooperation_rate = self._calculate_cooperation_rate(history, round_num)
+        threshold = 1.0 / self.n
+        early_game_cutoff = math.floor(self.r / 3)
+        mid_game_cutoff = math.floor(2 * self.r / 3)
+        if round_num <= early_game_cutoff:
+            return self._early_game_decision(cooperation_rate, threshold)
+        elif round_num <= mid_game_cutoff:
+            return self._mid_game_decision(cooperation_rate, threshold)
+        else:
+            return self._end_game_decision(cooperation_rate, threshold)
+
+    def _calculate_cooperation_rate(self, history: PlayerHistory, round_num: int) -> float:
+        """
+        Calculate the cooperation rate from all players in all previous rounds.
+        round_num is 0-indexed, so we look at rounds 0 to round_num-1.
+        """
+        if round_num == 0:
+            return 0.0
+        my_cooperations = np.sum(history.my_actions[:round_num])
+        opponent_cooperations = np.sum(history.opponent_actions[:round_num, :])
+        total_cooperations = my_cooperations + opponent_cooperations
+        total_actions = self.n * round_num
+        if total_actions == 0:
+            return 0.0
+        return total_cooperations / total_actions
+
+    def _early_game_decision(self, cooperation_rate: float, threshold: float) -> Action:
+        """
+        Early game (rounds 1 to floor(r/3)):
+        - If cooperation_rate >= threshold: COOPERATE
+        - Else: COOPERATE with probability 0.7, DEFECT with probability 0.3
+        """
+        if cooperation_rate >= threshold:
+            return Action.C
+        else:
+            return Action.C if random.random() < 0.7 else Action.D
+
+    def _mid_game_decision(self, cooperation_rate: float, threshold: float) -> Action:
+        """
+        Mid game (rounds floor(r/3)+1 to floor(2r/3)):
+        - If cooperation_rate >= (threshold + 0.1): COOPERATE
+        - Elif cooperation_rate >= (threshold - 0.1): COOPERATE with probability 0.6, DEFECT with probability 0.4
+        - Else: DEFECT
+        """
+        if cooperation_rate >= threshold + 0.1:
+            return Action.C
+        elif cooperation_rate >= threshold - 0.1:
+            return Action.C if random.random() < 0.6 else Action.D
+        else:
+            return Action.D
+
+    def _end_game_decision(self, cooperation_rate: float, threshold: float) -> Action:
+        """
+        End game (rounds floor(2r/3)+1 to r):
+        - If cooperation_rate >= (threshold + 0.05): COOPERATE
+        - Else: DEFECT
+        """
+        if cooperation_rate >= threshold + 0.05:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_2(BaseStrategy):
+    """
+    Prosocial Adaptive Contribution Strategy (PACS)
+    
+    Balances prosocial commitment with rational self-protection through conditional cooperation.
+    - Round 1: Always cooperate (prosocial signal)
+    - Rounds 2 to r-1: Cooperate if observed cooperation rate >= k/n threshold
+    - Round r: Apply same logic as middle rounds (maintain integrity)
+    
+    The threshold k/n represents the break-even cooperation rate where cooperators earn
+    at least as much as defectors. This ensures we only cooperate when mutually beneficial.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.k = game_description.k
+        self.n_rounds = game_description.n_rounds
+        self.cooperation_threshold = self.k / self.n_players
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        """
+        Decide action based on current round and observed cooperation history.
+        
+        Args:
+            state: Current game state containing round_number (0-indexed)
+            history: Previous rounds' actions and payoffs, or None for round 0
+            
+        Returns:
+            Action.C (cooperate) or Action.D (defect)
+        """
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.C
+        previous_round_idx = current_round - 1
+        opponent_actions_last_round = history.opponent_actions[previous_round_idx, :]
+        cooperators_last_round = int(sum(opponent_actions_last_round))
+        our_action_last_round = history.my_actions[previous_round_idx]
+        total_cooperators_last_round = cooperators_last_round + int(our_action_last_round)
+        observed_cooperation_rate = total_cooperators_last_round / self.n_players
+        if observed_cooperation_rate >= self.cooperation_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_3(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution (ARC): A prosocial strategy that balances
+    cooperation with rational self-protection by scaling contributions based on
+    observed group cooperation rates, while maintaining baseline cooperation to
+    signal good faith and encourage reciprocation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.C
+        recent_rounds = min(5, current_round)
+        recent_history = history.opponent_actions[-recent_rounds:, :]
+        cooperators_in_recent = np.sum(recent_history)
+        my_recent_actions = history.my_actions[-recent_rounds:]
+        cooperators_in_recent += np.sum(my_recent_actions)
+        group_coop_rate = cooperators_in_recent / (self.n_players * recent_rounds)
+        threshold_strong = 0.6
+        threshold_hope = 0.3
+        if self.n_players <= 3:
+            threshold_strong = 0.45
+            threshold_hope = 0.15
+        if self.k <= 1.3:
+            threshold_strong = 0.7
+            threshold_hope = 0.7
+        elif self.k >= self.n_players - 0.5:
+            threshold_strong = 0.4
+            threshold_hope = 0.2
+        progress_fraction = current_round / self.n_rounds
+        if group_coop_rate >= threshold_strong:
+            return Action.C
+        elif group_coop_rate >= threshold_hope and progress_fraction < 0.75:
+            return Action.C
+        elif group_coop_rate < threshold_hope and progress_fraction >= 0.5:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_PROSOCIAL_4(BaseStrategy):
+    """
+    Conditional Reciprocal Contribution strategy for N-Player Public Goods Game.
+    
+    Balances prosocial commitment with rational self-protection by:
+    1. Starting with cooperation (round 1)
+    2. Adapting based on observed cooperation rate vs. sustainability threshold
+    3. Maintaining cooperation in endgame to avoid defection spirals
+    4. Using threshold = ceil(1/k) / n to determine viability of cooperation
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.k = game_description.k
+        self.n_rounds = game_description.n_rounds
+        min_cooperators_needed = math.ceil(1.0 / self.k)
+        self.threshold = min_cooperators_needed / self.n_players
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        previous_round_index = state.round_number - 1
+        opponent_cooperators = np.sum(history.opponent_actions[previous_round_index, :])
+        my_cooperation_prev = history.my_actions[previous_round_index]
+        total_cooperators = opponent_cooperators + (1 if my_cooperation_prev else 0)
+        cooperation_rate = total_cooperators / self.n_players
+        if cooperation_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_5(BaseStrategy):
+    """
+    Prosocial Adaptive Contribution Strategy (PACS)
+    
+    Balances prosocial cooperation with rational self-protection through graduated response.
+    - Round 1: Optimistic cooperation
+    - Rounds 2 to r-1: Adaptive tit-for-tat with forgiveness based on cooperation rate thresholds
+    - Final round: Strategic defection (subgame-perfect equilibrium)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold_high = 0.6
+        self.threshold_mid = 0.3
+        self.probe_defection_prob = 0.15
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        previous_round_idx = state.round_number - 1
+        cooperators_last_round = int(sum(history.opponent_actions[previous_round_idx, :]))
+        if history.my_actions[previous_round_idx]:
+            cooperators_last_round += 1
+        n_players = self.game_description.n_players
+        if n_players == 0:
+            return Action.D
+        cooperation_rate = cooperators_last_round / n_players
+        if cooperation_rate >= self.threshold_high:
+            return Action.C
+        elif cooperation_rate >= self.threshold_mid:
+            if random.random() < 1.0 - self.probe_defection_prob:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_6(BaseStrategy):
+    """
+    Generous Tit-for-Tat with Decay: An adaptive prosocial strategy that balances
+    cooperation with self-protection. Initiates cooperation, rewards reciprocation,
+    punishes persistent defection, and gradually forgives while adapting to group dynamics.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.n_rounds - 1:
+            return Action.C
+        return self._adaptive_decision(current_round, history)
+
+    def _adaptive_decision(self, current_round: int, history: PlayerHistory) -> Action:
+        """
+        Implement the adaptive decision logic for rounds 1 to r-2.
+        """
+        cooperation_rates = self._calculate_cooperation_rates(history, current_round)
+        avg_cooperation = self._safe_mean(cooperation_rates)
+        recent_rounds = min(2, current_round)
+        recent_cooperation = self._safe_mean(cooperation_rates[-recent_rounds:]) if recent_rounds > 0 else 0.0
+        opponent_defection_counts = self._count_opponent_defections(history, current_round)
+        recent_opponent_actions = history.opponent_actions[current_round - 1, :]
+        recent_defectors = sum((1 for action in recent_opponent_actions if not action))
+        profitability_threshold = self.k / self.n_players
+        if avg_cooperation >= profitability_threshold:
+            if recent_defectors <= self.n_players / 2:
+                return Action.C
+            else:
+                avg_defection_count = self._safe_mean(opponent_defection_counts)
+                forgiveness_prob = 1.0 - avg_defection_count / (current_round + 1.0)
+                forgiveness_prob = max(0.0, min(1.0, forgiveness_prob))
+                if random.random() < forgiveness_prob:
+                    return Action.C
+                else:
+                    return Action.D
+        else:
+            avg_defection_count = self._safe_mean(opponent_defection_counts)
+            if avg_defection_count >= (current_round + 1.0) / 2.0:
+                return Action.D
+            elif random.random() < 0.5:
+                return Action.C
+            else:
+                return Action.D
+
+    def _calculate_cooperation_rates(self, history: PlayerHistory, current_round: int) -> list:
+        """
+        Calculate the cooperation rate for each previous round.
+        cooperation_rate = (number of cooperators) / n
+        """
+        cooperation_rates = []
+        for round_idx in range(current_round):
+            self_action = int(history.my_actions[round_idx])
+            opponent_cooperators = sum((1 for action in history.opponent_actions[round_idx, :] if action))
+            total_cooperators = self_action + opponent_cooperators
+            coop_rate = total_cooperators / float(self.n_players)
+            cooperation_rates.append(coop_rate)
+        return cooperation_rates
+
+    def _count_opponent_defections(self, history: PlayerHistory, current_round: int) -> list:
+        """
+        Count defections per opponent across all previous rounds.
+        Returns a list of defection counts for each opponent.
+        """
+        defection_counts = [0] * (self.n_players - 1)
+        for round_idx in range(current_round):
+            for opponent_idx in range(self.n_players - 1):
+                if not history.opponent_actions[round_idx, opponent_idx]:
+                    defection_counts[opponent_idx] += 1
+        return defection_counts
+
+    def _safe_mean(self, values: list) -> float:
+        """
+        Safely compute mean of a list, returning 0.0 if list is empty.
+        """
+        if not values or len(values) == 0:
+            return 0.0
+        return sum(values) / float(len(values))
+
+class Strategy_PROSOCIAL_7(BaseStrategy):
+    """
+    Generous Tit-For-Tat with Decay: A prosocial adaptive strategy for N-player public goods games.
+    
+    Balances cooperation with strategic robustness by:
+    1. Leading with generosity (cooperate first round)
+    2. Rewarding cooperation via weighted cooperation rate thresholds
+    3. Punishing defection minimally with measured responses
+    4. Adapting via weighted recent behavior (1.5x weight on last 2 rounds)
+    5. Allowing redemption through hope mechanisms (0.4 threshold)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.C
+        cooperation_rate = self._calculate_weighted_cooperation_rate(history)
+        k_over_n = self.k / self.n_players
+        if current_round == self.n_rounds - 1:
+            if cooperation_rate >= k_over_n:
+                return Action.C
+            else:
+                return Action.D
+        if cooperation_rate >= k_over_n:
+            return Action.C
+        elif cooperation_rate >= 0.4:
+            last_round_coop_pct = self._get_last_round_cooperation_percentage(history)
+            if last_round_coop_pct > 0.5:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            last_round_coop_pct = self._get_last_round_cooperation_percentage(history)
+            if last_round_coop_pct > 0.5:
+                return Action.C
+            else:
+                return Action.D
+
+    def _calculate_weighted_cooperation_rate(self, history: PlayerHistory) -> float:
+        """
+        Calculate cooperation rate with 1.5x weight on the last 2 rounds.
+        """
+        if history is None or len(history.opponent_actions) == 0:
+            return 0.0
+        n_rounds_played = len(history.opponent_actions)
+        total_weight = 0.0
+        weighted_cooperators = 0.0
+        for round_idx in range(n_rounds_played):
+            if round_idx >= n_rounds_played - 2:
+                weight = 1.5
+            else:
+                weight = 1.0
+            cooperators_this_round = np.sum(history.opponent_actions[round_idx, :])
+            weighted_cooperators += weight * cooperators_this_round
+            total_weight += weight * self.n_players
+        if total_weight == 0.0:
+            return 0.0
+        return weighted_cooperators / total_weight
+
+    def _get_last_round_cooperation_percentage(self, history: PlayerHistory) -> float:
+        """
+        Get the percentage of players who cooperated in the most recent round.
+        """
+        if history is None or len(history.opponent_actions) == 0:
+            return 0.0
+        last_round_actions = history.opponent_actions[-1, :]
+        cooperators_in_last_round = np.sum(last_round_actions)
+        return cooperators_in_last_round / self.n_players
+
+class Strategy_PROSOCIAL_8(BaseStrategy):
+    """
+    Graduated Reciprocal Altruism with Decay (GRAD)
+    
+    A prosocial strategy that cooperates initially, then adapts based on observed
+    cooperation rates. It gracefully degrades cooperation rather than punishing,
+    while protecting against exploitation in the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.k = game_description.k
+        self.r = game_description.n_rounds
+        self.epsilon = 0.05
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.C
+        coop_rate = self._calculate_cooperation_rate(history, current_round)
+        if current_round == self.r - 1:
+            threshold = self.k / self.n - self.epsilon
+            if coop_rate >= threshold:
+                return Action.C
+            else:
+                return Action.D
+        threshold_high = self.k / self.n - self.epsilon
+        threshold_low = self.k / (2 * self.n)
+        if coop_rate >= threshold_high:
+            return Action.C
+        elif coop_rate >= threshold_low:
+            decay_probability = max(0.3, coop_rate / (self.k / self.n))
+            if random.random() < decay_probability:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+    def _calculate_cooperation_rate(self, history: PlayerHistory, current_round: int) -> float:
+        """
+        Calculate the cooperation rate from all previous rounds.
+        
+        cooperation_rate = (total cooperators observed) / (n × number_of_previous_rounds)
+        """
+        if current_round == 0:
+            return 0.0
+        total_cooperators = 0
+        for round_idx in range(current_round):
+            total_cooperators += np.sum(history.opponent_actions[round_idx, :])
+        total_possible = self.n * current_round
+        if total_possible == 0:
+            return 0.0
+        return total_cooperators / total_possible
+
+class Strategy_PROSOCIAL_9(BaseStrategy):
+    """
+    Conditional Reciprocal Contribution (CRC) Strategy for N-Player Public Goods Game.
+    
+    A prosocial adaptive strategy that:
+    - Cooperates unconditionally in round 1 to establish trust
+    - Adapts cooperation based on group cooperation rates with a declining threshold
+    - Maintains reciprocity in the final round without betrayal
+    - Seeks sustainable cooperative equilibrium while protecting against exploitation
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        previous_round_idx = state.round_number - 1
+        cooperators_previous = int(sum(history.opponent_actions[previous_round_idx, :]))
+        cooperation_rate_previous = cooperators_previous / self.n_players
+        if state.round_number == self.n_rounds - 1:
+            if cooperation_rate_previous >= 0.5:
+                return Action.C
+            else:
+                return Action.D
+        current_round = state.round_number
+        total_rounds = self.n_rounds
+        if total_rounds > 1:
+            threshold = 0.5 + 0.15 * (total_rounds - current_round) / (total_rounds - 1)
+        else:
+            threshold = 0.5
+        if cooperation_rate_previous >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_10(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution (ARC) Strategy for N-Player Public Goods Game.
+    
+    A threshold-based reciprocal strategy that:
+    - Opens with cooperation to establish prosocial credibility
+    - Adapts dynamically to observed cooperation levels (Cooperation Index)
+    - Withdraws when defection becomes systemic
+    - Terminates with rational defection in the final round
+    - Balances prosocial intent with strategic robustness
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.threshold_high = 0.75 if self.n_players == 2 else 0.5
+        self.threshold_low = 0.25
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.n_rounds - 1:
+            return Action.D
+        previous_round_idx = current_round - 1
+        opponent_cooperators_prev = int(sum(history.opponent_actions[previous_round_idx, :]))
+        own_cooperated_prev = int(history.my_actions[previous_round_idx])
+        total_cooperators_prev = opponent_cooperators_prev + own_cooperated_prev
+        cooperation_index = total_cooperators_prev / self.n_players
+        if cooperation_index >= self.threshold_high:
+            return Action.C
+        elif cooperation_index >= self.threshold_low:
+            if random.random() <= cooperation_index:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_11(BaseStrategy):
+    """
+    Threshold Reciprocity with Prosocial Opening
+    
+    A prosocial adaptive strategy that cooperates unconditionally in round 1,
+    then cooperates in subsequent rounds if and only if the observed cooperation
+    rate in the previous round meets or exceeds the rational threshold k/(k+1).
+    This balances mutual benefit maximization with protection against exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.k = game_description.k
+        self.threshold = self.k / (self.k + 1.0)
+        self.consecutive_all_defect_rounds = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        prev_round_idx = state.round_number - 1
+        opponent_cooperators = int(np.sum(history.opponent_actions[prev_round_idx, :]))
+        my_prev_action = int(history.my_actions[prev_round_idx])
+        total_cooperators = my_prev_action + opponent_cooperators
+        coop_rate = total_cooperators / float(self.n_players)
+        if coop_rate < 1e-09:
+            self.consecutive_all_defect_rounds += 1
+        else:
+            self.consecutive_all_defect_rounds = 0
+        if self.consecutive_all_defect_rounds >= 2:
+            return Action.D
+        grace_margin = 0.05
+        adjusted_threshold = self.threshold - grace_margin
+        if coop_rate >= adjusted_threshold:
+            self.consecutive_all_defect_rounds = 0
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_12(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution (ARC): A prosocial strategy that reciprocates
+    collective contribution levels. Cooperates in round 1, then cooperates if and only if
+    the previous round's cooperation rate meets a dynamic threshold of max(0.5, cooperation_rate).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        previous_round_idx = state.round_number - 1
+        my_action_prev = history.my_actions[previous_round_idx]
+        opponent_actions_prev = history.opponent_actions[previous_round_idx, :]
+        total_cooperators = int(my_action_prev) + int(np.sum(opponent_actions_prev))
+        n_players = self.game_description.n_players
+        cooperation_rate = total_cooperators / n_players
+        threshold = max(0.5, cooperation_rate)
+        if cooperation_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_13(BaseStrategy):
+    """
+    Adaptive Cooperation with Graceful Degradation.
+    
+    Balances prosocial intent with robust self-protection by:
+    - Starting with cooperation to establish goodwill
+    - Adapting based on observed cooperation rates and payoff comparisons
+    - Defecting in the final round (backward induction)
+    - Gracefully degrading when cooperation is not reciprocated
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = 0.55
+        self.last_action = None
+        self.consecutive_low_coop_rounds = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            self.last_action = True
+            return Action.C
+        if round_num == self.n_rounds - 1:
+            return Action.D
+        cooperation_score = self._compute_cooperation_incentive(state, history)
+        if self.consecutive_low_coop_rounds >= 3:
+            return Action.D
+        if cooperation_score >= self.threshold:
+            self.last_action = True
+            return Action.C
+        else:
+            self.last_action = False
+            return Action.D
+
+    def _compute_cooperation_incentive(self, state: GameState, history: PlayerHistory) -> float:
+        """
+        Compute cooperation_score = (k/n - 1) × avg_coop_rate + 
+                                     historical_payoff_comparison +
+                                     remaining_rounds_factor +
+                                     adaptive_cooling_adjustment
+        """
+        round_num = state.round_number
+        avg_coop_rate = self._get_average_cooperation_rate(history, round_num)
+        payoff_comp = self._get_payoff_comparison(history, round_num)
+        remaining_factor = (self.n_rounds - round_num) / self.n_rounds
+        cooling_adj = self._get_adaptive_cooling_adjustment(history, round_num)
+        if avg_coop_rate < 0.4:
+            self.consecutive_low_coop_rounds += 1
+        else:
+            self.consecutive_low_coop_rounds = 0
+        k_n_factor = self.k / self.n_players - 1
+        cooperation_score = k_n_factor * avg_coop_rate + payoff_comp + remaining_factor + cooling_adj
+        return cooperation_score
+
+    def _get_average_cooperation_rate(self, history: PlayerHistory, round_num: int) -> float:
+        """
+        average_cooperation_rate = 
+            (total cooperators across all previous rounds) / 
+            (n × number of rounds played so far)
+        """
+        if round_num == 0:
+            return 0.5
+        my_coop = np.sum(history.my_actions[:round_num])
+        opponent_coop = np.sum(history.opponent_actions[:round_num, :])
+        total_cooperators = my_coop + opponent_coop
+        total_possible = self.n_players * round_num
+        if total_possible == 0:
+            return 0.5
+        avg_rate = total_cooperators / total_possible
+        return avg_rate
+
+    def _get_payoff_comparison(self, history: PlayerHistory, round_num: int) -> float:
+        """
+        Compare my average payoff with opponents' average payoff in the previous round.
+        Apply weighting to recent rounds.
+        """
+        if round_num == 0:
+            return 0.0
+        my_payoff = history.my_payoffs[round_num - 1]
+        opponent_payoffs = history.opponent_payoffs[round_num - 1, :]
+        avg_opponent_payoff = np.mean(opponent_payoffs)
+        if my_payoff < avg_opponent_payoff:
+            return -0.3
+        elif my_payoff > avg_opponent_payoff:
+            return 0.2
+        else:
+            return 0.0
+
+    def _get_adaptive_cooling_adjustment(self, history: PlayerHistory, round_num: int) -> float:
+        """
+        Adaptive cooling adjustments:
+        - If I defected last round and others maintained cooperation: +0.15
+        - If I cooperated last round and most others defected: -0.25
+        """
+        if round_num == 0 or self.last_action is None:
+            return 0.0
+        if round_num < 1:
+            return 0.0
+        prev_opponent_coop_count = np.sum(history.opponent_actions[round_num - 1, :])
+        prev_avg_coop_rate = (prev_opponent_coop_count + (1 if history.my_actions[round_num - 1] else 0)) / self.n_players
+        adjustment = 0.0
+        if not self.last_action and prev_avg_coop_rate >= 0.6:
+            adjustment += 0.15
+        if self.last_action and prev_avg_coop_rate < 0.4:
+            adjustment -= 0.25
+        return adjustment
+
+class Strategy_PROSOCIAL_14(BaseStrategy):
+    """
+    Conditional Reciprocal Contribution (CRC): An adaptive prosocial strategy for
+    N-player public goods games that leads with cooperation, monitors group behavior,
+    and adapts dynamically while maintaining hope for mutual benefit.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.C
+        avg_cooperation = self._calculate_avg_cooperation(history, round_number)
+        threshold_high, threshold_low = self._get_thresholds()
+        if round_number == self.n_rounds - 1:
+            if avg_cooperation >= threshold_high:
+                return Action.C
+            else:
+                return Action.D
+        if avg_cooperation >= threshold_high:
+            return Action.C
+        elif avg_cooperation >= threshold_low:
+            return Action.C if random.random() < avg_cooperation else Action.D
+        else:
+            hope_probability = self._get_hope_probability()
+            return Action.C if random.random() < hope_probability else Action.D
+
+    def _calculate_avg_cooperation(self, history: PlayerHistory, round_number: int) -> float:
+        """
+        Calculate average cooperation rate across all previous rounds and all players.
+        """
+        if round_number == 0:
+            return 1.0
+        total_cooperators = 0
+        for round_idx in range(round_number):
+            cooperators_in_round = np.sum(history.opponent_actions[round_idx, :])
+            total_cooperators += cooperators_in_round
+        total_observations = round_number * self.n_players
+        if total_observations == 0:
+            return 1.0
+        avg_coop = total_cooperators / total_observations
+        return avg_coop
+
+    def _get_thresholds(self) -> tuple[float, float]:
+        """
+        Determine threshold values based on game parameters.
+        Adjust for very large groups and extreme multiplication factors.
+        """
+        threshold_high = 0.5
+        threshold_low = 0.25
+        if self.n_players >= 20:
+            threshold_high = 0.6
+            threshold_low = 0.35
+        if self.k >= self.n_players * 0.95:
+            threshold_high = 0.45
+        return (threshold_high, threshold_low)
+
+    def _get_hope_probability(self) -> float:
+        """
+        Determine the hope probability for severe defection scenarios.
+        Adjusted based on multiplication factor strength.
+        """
+        hope_probability = 0.15
+        if self.k < 1.5:
+            hope_probability = 0.1
+        return hope_probability
+
+class Strategy_PROSOCIAL_15(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution (ARC) Strategy
+    
+    A prosocial strategy that balances cooperation with strategic robustness by:
+    1. Initiating cooperation to establish mutual benefit
+    2. Adapting to observed cooperation rates
+    3. Protecting against exploitation without abandoning prosocial intent
+    4. Maximizing collective welfare while remaining individually rational
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.critical_rate = self.k / self.n_players
+        self.threshold_lower = self.critical_rate + 0.1
+        self.threshold_restore = self.critical_rate + 0.05
+        self.last_action_was_defect = False
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            self.last_action_was_defect = False
+            return Action.C
+        cooperation_rate = self._compute_cooperation_rate(history, round_number)
+        if round_number == self.n_rounds - 1:
+            self.last_action_was_defect = False
+            if cooperation_rate >= self.threshold_lower:
+                return Action.C
+            else:
+                return Action.D
+        if self.last_action_was_defect and cooperation_rate > self.threshold_restore:
+            self.last_action_was_defect = False
+            return Action.C
+        if cooperation_rate >= self.threshold_lower:
+            self.last_action_was_defect = False
+            return Action.C
+        else:
+            self.last_action_was_defect = True
+            return Action.D
+
+    def _compute_cooperation_rate(self, history: PlayerHistory, round_number: int) -> float:
+        """
+        Compute the observed cooperation rate across all players in all previous rounds.
+        
+        cooperation_rate = (total cooperations so far) / (n_players × rounds_completed)
+        """
+        if round_number == 0:
+            return 0.0
+        my_total = int(np.sum(history.my_actions[:round_number]))
+        opponent_total = int(np.sum(history.opponent_actions[:round_number, :]))
+        total_contributions = my_total + opponent_total
+        max_possible = self.n_players * round_number
+        if max_possible == 0:
+            return 0.0
+        cooperation_rate = total_contributions / max_possible
+        return cooperation_rate
+
+class Strategy_PROSOCIAL_16(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution (ARC) Strategy for N-Player Public Goods Game.
+    
+    Core Philosophy: Balance prosocial objectives with game-theoretic robustness by:
+    1. Starting optimistically with cooperation
+    2. Adapting to others' behavior to avoid exploitation
+    3. Maintaining long-term cooperation incentives
+    4. Recovering from cooperation breakdown gracefully
+    
+    Decision Rules:
+    - Round 1: Always cooperate
+    - Rounds 2 to r-1: Adapt based on cooperation rate from previous round
+      * CR >= 0.50: Cooperate
+      * CR >= 0.25: Cooperate (maintain recovery pathways)
+      * CR < 0.25: Defect (minimize losses)
+    - Final round: Always defect (no future rounds, maximize immediate payoff)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold_high = 0.5
+        self.threshold_low = 0.25
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            return Action.D
+        previous_round_idx = current_round - 1
+        self_cooperated_last = history.my_actions[previous_round_idx]
+        opponent_cooperators_last = np.sum(history.opponent_actions[previous_round_idx, :])
+        total_cooperators = int(self_cooperated_last) + int(opponent_cooperators_last)
+        cooperation_rate = total_cooperators / n
+        if cooperation_rate >= self.threshold_high:
+            return Action.C
+        elif cooperation_rate >= self.threshold_low:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_17(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution (ARC) Strategy
+    
+    A prosocial strategy that balances cooperation with rational self-protection.
+    Cooperates initially, then adapts based on group cooperation rates while
+    detecting and punishing exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold_high = 0.5
+        self.threshold_low = 0.25
+        self.p_persist = 0.7
+        self.last_round_cooperation_rate = None
+        self.was_sole_cooperator_last_round = False
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        prev_round = state.round_number - 1
+        prev_round_opponent_actions = history.opponent_actions[prev_round, :]
+        prev_round_cooperators_opponents = int(np.sum(prev_round_opponent_actions))
+        my_prev_action = history.my_actions[prev_round]
+        prev_round_cooperators_total = prev_round_cooperators_opponents + (1 if my_prev_action else 0)
+        cooperation_rate = prev_round_cooperators_total / self.game_description.n_players
+        sole_cooperator = my_prev_action and prev_round_cooperators_total == 1
+        oscillating = False
+        if state.round_number >= 2:
+            two_rounds_back = state.round_number - 2
+            two_back_opponent_actions = history.opponent_actions[two_rounds_back, :]
+            two_back_cooperators_opponents = int(np.sum(two_back_opponent_actions))
+            two_back_my_action = history.my_actions[two_rounds_back]
+            two_back_cooperators_total = two_back_cooperators_opponents + (1 if two_back_my_action else 0)
+            two_back_coop_rate = two_back_cooperators_total / self.game_description.n_players
+            oscillating = cooperation_rate < 0.25 and two_back_coop_rate > 0.5 or (cooperation_rate > 0.5 and two_back_coop_rate < 0.25)
+        all_defection = cooperation_rate == 0
+        is_final_round = state.round_number == self.game_description.n_rounds - 1
+        if is_final_round:
+            if cooperation_rate >= self.threshold_high:
+                return Action.C
+            else:
+                return Action.D
+        if sole_cooperator:
+            return Action.D
+        if oscillating:
+            return Action.C
+        if all_defection:
+            return Action.D
+        if cooperation_rate >= self.threshold_high:
+            return Action.C
+        elif cooperation_rate >= self.threshold_low:
+            return Action.C if random.random() < self.p_persist else Action.D
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_18(BaseStrategy):
+    """
+    Prosocial Adaptive Contribution Strategy (PACS)
+    
+    Balances prosocial value creation with resilience against exploitation by:
+    1. Always cooperating in round 1 to signal good faith
+    2. In subsequent rounds, cooperating if and only if the observed cooperation
+       rate from the previous round meets or exceeds the threshold k/(2n)
+    3. This threshold ensures that cooperation is mutually beneficial when met
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.k = game_description.k
+        self.r = game_description.n_rounds
+        self.threshold = self.k / (2.0 * self.n)
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        prev_round_idx = state.round_number - 1
+        opponent_cooperators_prev = int(np.sum(history.opponent_actions[prev_round_idx, :]))
+        my_cooperated_prev = int(history.my_actions[prev_round_idx])
+        total_cooperators_prev = opponent_cooperators_prev + my_cooperated_prev
+        cooperation_rate = total_cooperators_prev / float(self.n)
+        if cooperation_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_19(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution (ARC) Strategy
+    
+    A prosocial strategy that leads with cooperation, adapts to observed behavior,
+    and maintains long-term cooperation potential while protecting against exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.k = game_description.k
+        self.r = game_description.n_rounds
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.C
+        threshold_high = 0.75
+        threshold_mid = 0.4
+        if self.k <= 1.5:
+            threshold_mid = 0.6
+        if self.n > 20:
+            threshold_high = 0.6
+        if self.r == 2:
+            return Action.C
+        cooperation_rate = self._calculate_cooperation_rate(history, round_num)
+        if round_num == self.r - 1:
+            my_previous_action = history.my_actions[-1]
+            if my_previous_action:
+                return Action.C
+            elif cooperation_rate >= 0.5:
+                return Action.C
+            else:
+                return Action.D
+        if cooperation_rate >= threshold_high:
+            return Action.C
+        elif cooperation_rate >= threshold_mid:
+            return Action.C if random.random() < cooperation_rate else Action.D
+        else:
+            return Action.D
+
+    def _calculate_cooperation_rate(self, history: PlayerHistory, round_num: int) -> float:
+        """
+        Calculate the cooperation rate across all players in rounds 0 to round_num-1.
+        
+        cooperation_rate = (total cooperators in all previous rounds) / (n * round_num)
+        """
+        if round_num <= 0:
+            return 0.0
+        my_cooperations = int(np.sum(history.my_actions[:round_num]))
+        opponent_cooperations = int(np.sum(history.opponent_actions[:round_num, :]))
+        total_cooperations = my_cooperations + opponent_cooperations
+        total_actions = self.n * round_num
+        if total_actions == 0:
+            return 0.0
+        cooperation_rate = total_cooperations / total_actions
+        return cooperation_rate
+
+class Strategy_PROSOCIAL_20(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution (ARC) Strategy for N-Player Public Goods Game.
+    
+    Balances prosocial intent, robustness against exploitation, and adaptability.
+    - Round 1: Cooperate (establish trust)
+    - Rounds 2 to r-1: Adapt based on observed cooperation rate
+    - Round r: Cooperate (reaffirm prosocial commitment)
+    
+    Decision rule for middle rounds:
+    - If cooperation_rate >= (k-1)/n: Cooperate
+    - Else if cooperation_rate >= 0.33: Cooperate with probability = cooperation_rate
+    - Else: Defect
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.C
+        if round_number == self.n_rounds - 1:
+            return Action.C
+        total_cooperators = np.sum(history.opponent_actions[:round_number, :])
+        total_possible_cooperations = self.n_players * round_number
+        if total_possible_cooperations == 0:
+            cooperation_rate = 0.0
+        else:
+            cooperation_rate = total_cooperators / total_possible_cooperations
+        payoff_threshold = (self.k - 1) / self.n_players
+        if cooperation_rate >= payoff_threshold:
+            return Action.C
+        elif cooperation_rate >= 0.33:
+            if random.random() < cooperation_rate:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_21(BaseStrategy):
+    """
+    Graduated Reciprocal Cooperation with Proportional Retaliation.
+    
+    A prosocial strategy that:
+    1. Opens with unconditional cooperation
+    2. Maintains cooperation during early rounds (grace period)
+    3. Adapts based on observed cooperation rate
+    4. Uses proportional reciprocity when cooperation is low
+    5. Defects in the final round (backward induction)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.C
+        if round_number <= 2:
+            return Action.C
+        if round_number == self.n_rounds - 1:
+            return Action.D
+        total_cooperations = 0
+        total_cooperations += int(np.sum(history.my_actions[:round_number]))
+        total_cooperations += int(np.sum(history.opponent_actions[:round_number, :]))
+        cooperation_rate = total_cooperations / (round_number * self.n_players)
+        if cooperation_rate > 0.5:
+            return Action.C
+        avg_cooperators_per_round = total_cooperations / round_number
+        opponent_cooperation = avg_cooperators_per_round / self.n_players
+        rounds_remaining = self.n_rounds - round_number
+        decay_factor = 1.0 - rounds_remaining / self.n_rounds * 0.2
+        prob_cooperate = opponent_cooperation * decay_factor
+        if random.random() < prob_cooperate:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_22(BaseStrategy):
+    """
+    Graduated Reciprocal Altruism with Decay (GRAD)
+    
+    A prosocial adaptive strategy that:
+    - Opens with cooperation to signal trustworthiness
+    - Adapts cooperation threshold based on population cooperation rate
+    - Decays the threshold over time to increase late-game cooperation
+    - Uses mathematically calibrated breakeven point as base threshold
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.C
+        prev_cooperators = int(np.sum(history.opponent_actions[-1, :]))
+        prev_cooperation_rate = prev_cooperators / self.n_players
+        base_threshold = (self.k - 1.0) / self.n_players
+        decay_factor = 0.5
+        threshold = base_threshold * (1.0 - decay_factor * (current_round / self.n_rounds))
+        if prev_cooperation_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_23(BaseStrategy):
+    """
+    Adaptive Generosity with Earned Trust (AGET): A prosocial strategy that 
+    leads with cooperation, reciprocates based on group cooperation rates, 
+    tracks exploitation, and adapts to endgame conditions.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.C
+        recent_cooperation_rate = self._calculate_recent_cooperation_rate(history, current_round)
+        my_recent_exploitation = self._calculate_my_exploitation(history, current_round)
+        if current_round >= self.n_rounds - 2:
+            if recent_cooperation_rate > 0.5:
+                return Action.C
+            else:
+                return Action.D
+        if self._is_unanimous_defection(history, current_round):
+            return Action.D
+        if recent_cooperation_rate >= 0.5:
+            return Action.C
+        elif recent_cooperation_rate >= 0.25 and my_recent_exploitation < 1:
+            return Action.C
+        else:
+            return Action.D
+
+    def _calculate_recent_cooperation_rate(self, history: PlayerHistory, current_round: int) -> float:
+        """
+        Calculate cooperation rate of others in last 2 rounds.
+        Returns a value in [0, 1].
+        """
+        start_round = max(0, current_round - 2)
+        end_round = current_round
+        if start_round == end_round:
+            recent_actions = history.opponent_actions[start_round:end_round + 1, :]
+        else:
+            recent_actions = history.opponent_actions[start_round:end_round, :]
+        if recent_actions.size == 0:
+            return 0.0
+        total_cooperators = np.sum(recent_actions)
+        total_slots = recent_actions.shape[0] * recent_actions.shape[1]
+        if total_slots == 0:
+            return 0.0
+        return float(total_cooperators) / float(total_slots)
+
+    def _calculate_my_exploitation(self, history: PlayerHistory, current_round: int) -> float:
+        """
+        Count times I played C while others' cooperation rate was < 0.5 in last 2 rounds.
+        """
+        start_round = max(0, current_round - 2)
+        end_round = current_round
+        exploitation_count = 0
+        for round_idx in range(start_round, end_round):
+            if round_idx >= len(history.my_actions):
+                continue
+            if not history.my_actions[round_idx]:
+                continue
+            others_cooperated = np.sum(history.opponent_actions[round_idx, :])
+            others_total = history.opponent_actions[round_idx, :].shape[0]
+            if others_total > 0:
+                others_coop_rate = float(others_cooperated) / float(others_total)
+                if others_coop_rate < 0.5:
+                    exploitation_count += 1
+        return float(exploitation_count)
+
+    def _is_unanimous_defection(self, history: PlayerHistory, current_round: int) -> bool:
+        """
+        Check if all other players defected for 3+ consecutive rounds.
+        """
+        if current_round < 3:
+            return False
+        check_rounds = min(3, current_round)
+        start_round = current_round - check_rounds
+        for round_idx in range(start_round, current_round):
+            if round_idx < 0 or round_idx >= len(history.opponent_actions):
+                continue
+            others_cooperated = np.sum(history.opponent_actions[round_idx, :])
+            if others_cooperated > 0:
+                return False
+        return True
+
+class Strategy_PROSOCIAL_24(BaseStrategy):
+    """
+    Adaptive Reciprocal Cooperation with Robustness.
+    
+    Balances prosocial cooperation with rational self-protection by:
+    - Cooperating unconditionally in early rounds to establish intent
+    - Using a cooperation rate threshold that adapts based on game phase
+    - Lowering thresholds in final rounds to maximize collective welfare
+    - Defecting against systematically defective communities
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num <= 1:
+            return Action.C
+        observed_coop_rate = self._calculate_cooperation_rate(history, round_num)
+        threshold = self._get_threshold(round_num)
+        if round_num == self.n_rounds - 1:
+            if observed_coop_rate < 0.3:
+                return Action.D
+            else:
+                return Action.C
+        if observed_coop_rate < 0.2:
+            return Action.D
+        if observed_coop_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+    def _calculate_cooperation_rate(self, history: PlayerHistory, round_num: int) -> float:
+        """
+        Calculate the cooperation rate from the last 2 rounds.
+        Uses moving average with weights: last round 0.6, round before 0.4.
+        """
+        if round_num < 2:
+            return 0.0
+        last_two_rounds = history.opponent_actions[max(0, round_num - 2):round_num, :]
+        if last_two_rounds.shape[0] == 0:
+            return 0.0
+        cooperators_per_round = np.sum(last_two_rounds, axis=1)
+        cooperation_rates_per_round = cooperators_per_round / self.n_players
+        if len(cooperation_rates_per_round) == 2:
+            weighted_rate = 0.4 * cooperation_rates_per_round[0] + 0.6 * cooperation_rates_per_round[1]
+            return weighted_rate
+        else:
+            return cooperation_rates_per_round[0]
+
+    def _get_threshold(self, round_num: int) -> float:
+        """
+        Determine cooperation rate threshold based on game phase.
+        """
+        half_rounds = self.n_rounds / 2.0
+        eighty_percent_rounds = 0.8 * self.n_rounds
+        if round_num <= half_rounds:
+            return 0.4
+        elif round_num <= eighty_percent_rounds:
+            return 0.45
+        else:
+            return 0.35
+
+class Strategy_PROSOCIAL_25(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution (ARC) Strategy for N-Player Public Goods Game.
+    
+    Balances prosocial intent with strategic robustness through:
+    1. Optimistic start (round 1 cooperation)
+    2. Dynamic adaptation to group behavior
+    3. Intelligent scaling of contribution
+    4. Strategic endgame behavior
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.C
+        assessment_threshold = 0.6 if self.n == 2 else 0.5
+        assessment_duration = min(4 if self.r > 10 else 3, self.r - 1)
+        if round_number <= assessment_duration and round_number < self.r - 1:
+            coop_rate = self._calculate_coop_rate(history, round_number)
+            if coop_rate >= assessment_threshold:
+                return Action.C
+        if round_number == self.r - 1:
+            cumulative_coop_rate = self._calculate_coop_rate(history, round_number)
+            endgame_threshold = 0.6
+            if cumulative_coop_rate >= endgame_threshold:
+                return Action.C
+            else:
+                return Action.D
+        return self._adaptive_decision(history, round_number)
+
+    def _calculate_coop_rate(self, history: PlayerHistory, round_number: int) -> float:
+        """
+        Calculate cumulative cooperation rate across all history up to current round.
+        Returns cooperators / (n * rounds_elapsed)
+        """
+        if round_number == 0:
+            return 0.0
+        total_cooperators = np.sum(history.opponent_actions[:round_number, :])
+        total_possible = self.n * round_number
+        if total_possible == 0:
+            return 0.0
+        return total_cooperators / total_possible
+
+    def _calculate_recent_coop_rate(self, history: PlayerHistory, round_number: int) -> float:
+        """
+        Calculate cooperation rate in recent rounds.
+        Uses last 2 rounds (or longer window for large r), or all history if < 2 rounds exist.
+        """
+        if round_number == 0:
+            return 0.0
+        if self.r > 10:
+            window_size = min(4, max(1, self.r // 3))
+        else:
+            window_size = 2
+        start_idx = max(0, round_number - window_size)
+        end_idx = round_number
+        recent_actions = history.opponent_actions[start_idx:end_idx, :]
+        recent_cooperators = np.sum(recent_actions)
+        recent_possible = self.n * (end_idx - start_idx)
+        if recent_possible == 0:
+            return 0.0
+        return recent_cooperators / recent_possible
+
+    def _adaptive_decision(self, history: PlayerHistory, round_number: int) -> Action:
+        """
+        Adaptive phase decision: Use mirroring effect with damping.
+        target_cooperation_level = 0.5 + (0.5 * recent_coop_rate)
+        """
+        recent_coop_rate = self._calculate_recent_coop_rate(history, round_number)
+        target_cooperation_level = 0.5 + 0.5 * recent_coop_rate
+        if random.random() < target_cooperation_level:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_26(BaseStrategy):
+    """
+    Adaptive Prosocial Strategy: Conditional Reciprocal Contribution
+    
+    Balances prosocial cooperation with robust self-protection against exploitation.
+    - Round 1: Cooperate (goodwill signal)
+    - Rounds 2 to r-1: Adaptive reciprocal strategy based on cooperation rates and payoff fairness
+    - Round r: Defect (unless consistent cooperation history)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold_high = 0.5
+        self.threshold_low = 0.25
+        self.payoff_epsilon = 0.15
+        if self.k > self.n_players - 0.5:
+            self.threshold_high = 0.4
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.n_rounds - 1:
+            return self._final_round_decision(history)
+        return self._adaptive_decision(history, current_round)
+
+    def _final_round_decision(self, history: PlayerHistory) -> Action:
+        """
+        Final round: Defect normally, but cooperate if consistent cooperation observed.
+        """
+        avg_coop_rate = self._calculate_average_cooperation_rate(history)
+        if avg_coop_rate > 0.6:
+            return Action.C
+        return Action.D
+
+    def _adaptive_decision(self, history: PlayerHistory, current_round: int) -> Action:
+        """
+        Rounds 2 to r-1: Reciprocal threshold strategy with payoff fairness check.
+        """
+        prev_coop_rate = self._calculate_cooperation_rate_at_round(history, current_round - 1)
+        if prev_coop_rate >= self.threshold_high:
+            return Action.C
+        if prev_coop_rate < self.threshold_low:
+            return Action.D
+        my_last_action = history.my_actions[current_round - 1]
+        my_last_payoff = history.my_payoffs[current_round - 1]
+        avg_payoff_last = self._calculate_average_payoff_at_round(history, current_round - 1)
+        if my_last_action and my_last_payoff < avg_payoff_last - self.payoff_epsilon:
+            return Action.D
+        return Action.C
+
+    def _calculate_cooperation_rate_at_round(self, history: PlayerHistory, round_idx: int) -> float:
+        """
+        Calculate the cooperation rate (fraction of cooperators) in a specific round.
+        Returns 0 if no valid data.
+        """
+        if round_idx < 0 or round_idx >= len(history.my_actions):
+            return 0.0
+        my_action = history.my_actions[round_idx]
+        opponent_cooperators = np.sum(history.opponent_actions[round_idx, :])
+        total_cooperators = int(my_action) + opponent_cooperators
+        coop_rate = total_cooperators / self.n_players
+        return float(coop_rate)
+
+    def _calculate_average_cooperation_rate(self, history: PlayerHistory) -> float:
+        """
+        Calculate the average cooperation rate across all completed rounds.
+        """
+        if len(history.my_actions) == 0:
+            return 0.0
+        total_rate = 0.0
+        for round_idx in range(len(history.my_actions)):
+            total_rate += self._calculate_cooperation_rate_at_round(history, round_idx)
+        avg_rate = total_rate / len(history.my_actions)
+        return avg_rate
+
+    def _calculate_average_payoff_at_round(self, history: PlayerHistory, round_idx: int) -> float:
+        """
+        Calculate the average payoff of all players in a specific round.
+        """
+        if round_idx < 0 or round_idx >= len(history.my_payoffs):
+            return 0.0
+        my_payoff = history.my_payoffs[round_idx]
+        opponent_payoffs = history.opponent_payoffs[round_idx, :]
+        total_payoff = my_payoff + np.sum(opponent_payoffs)
+        avg_payoff = total_payoff / self.n_players
+        return float(avg_payoff)
+
+class Strategy_PROSOCIAL_27(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution (ARC) Strategy
+    
+    A prosocial strategy that balances cooperation with intelligent defection detection.
+    Uses adaptive thresholds based on game parameters to sustain cooperation while
+    protecting against exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.C
+        threshold_cooperators = max(0.5, self.k / (self.n_players + 1))
+        if round_number == self.n_rounds - 1:
+            return Action.C
+        prev_round_idx = round_number - 1
+        prev_cooperators = int(np.sum(history.opponent_actions[prev_round_idx, :]))
+        coop_rate_prev = prev_cooperators / self.n_players
+        if round_number == self.n_rounds - 2:
+            if coop_rate_prev >= threshold_cooperators:
+                return Action.C
+            if round_number >= 2:
+                two_rounds_ago_idx = round_number - 2
+                coop_rate_2rounds_ago = int(np.sum(history.opponent_actions[two_rounds_ago_idx, :])) / self.n_players
+                trend = coop_rate_prev - coop_rate_2rounds_ago
+                if trend > 0:
+                    return Action.C
+            return Action.D
+        if coop_rate_prev >= threshold_cooperators:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_28(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution (ARC) Strategy for N-Player Public Goods Game.
+    
+    Balances prosocial intent with rational self-protection by:
+    - Starting with unconditional cooperation
+    - Adapting to group cooperation rates with forgiving thresholds
+    - Gradually lowering demands as the game progresses
+    - Including a recovery mechanism for sudden cooperation drops
+    - Maintaining integrity even in the final round
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        if self.n_players == 2:
+            self.base_threshold = 0.6
+        elif self.n_players > 10:
+            self.base_threshold = 0.45
+        else:
+            self.base_threshold = 0.5
+        self.decay_rate = 0.05
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.C
+        cooperators_last_round = int(np.sum(history.opponent_actions[current_round - 1, :]))
+        coop_rate_last = cooperators_last_round / self.n_players
+        if current_round >= 2:
+            coop_rate_prev_prev = int(np.sum(history.opponent_actions[current_round - 2, :])) / self.n_players
+            if coop_rate_last < 0.3 and coop_rate_prev_prev > 0.3:
+                if random.random() < 0.4:
+                    return Action.C
+                else:
+                    return Action.D
+        progress = current_round / self.n_rounds
+        dynamic_threshold = self.base_threshold - self.decay_rate * progress
+        if current_round == self.n_rounds - 1:
+            threshold_final = 0.5
+            if coop_rate_last >= threshold_final:
+                return Action.C
+            else:
+                return Action.D
+        if coop_rate_last >= dynamic_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_29(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution (ARC) Strategy for N-Player Public Goods Game.
+    
+    Balances prosocial cooperation with intelligent defection-resistance by:
+    1. Cooperating unconditionally in round 1 to signal good faith
+    2. Tracking historical cooperation ratios across all players
+    3. Estimating opponent cooperation probability with recency weighting
+    4. Cooperating when expected payoff from contribution meets/exceeds breakeven threshold
+    5. Granting benefit-of-doubt margin (0.1) to encourage cooperation
+    6. Special handling for final round: cooperate only if others have shown reciprocity
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.exploitation_bias = 0.0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.C
+        coop_ratio = self._calculate_cooperation_ratio(history, round_number)
+        breakeven_threshold = self.k / self.n_players
+        decay_factor = min(0.15, 1.0 / self.n_rounds)
+        opponent_coop_prob = coop_ratio * (1.0 - decay_factor)
+        expected_public_benefit = self.k / self.n_players * (1.0 + (self.n_players - 1) * opponent_coop_prob)
+        adjusted_threshold = breakeven_threshold - self.exploitation_bias
+        cooperation_threshold = adjusted_threshold - 0.1
+        if round_number == self.n_rounds - 1:
+            if coop_ratio > breakeven_threshold - 0.1:
+                return Action.C
+            else:
+                return Action.D
+        if expected_public_benefit >= cooperation_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+    def _calculate_cooperation_ratio(self, history: PlayerHistory, round_number: int) -> float:
+        """
+        Calculate the cooperation ratio from all previous rounds.
+        Returns: (total cooperators across all previous rounds) / (n × number of previous rounds)
+        """
+        if round_number <= 0:
+            return 0.5
+        previous_rounds = round_number
+        opponent_cooperations = np.sum(history.opponent_actions[:round_number, :])
+        our_cooperations = np.sum(history.my_actions[:round_number])
+        total_cooperations = opponent_cooperations + our_cooperations
+        total_possible = self.n_players * previous_rounds
+        if total_possible == 0:
+            return 0.5
+        coop_ratio = float(total_cooperations) / float(total_possible)
+        self._detect_exploitation(history, round_number)
+        return coop_ratio
+
+    def _detect_exploitation(self, history: PlayerHistory, round_number: int) -> None:
+        """
+        Detect if we were exploited in recent rounds and adjust bias accordingly.
+        Exploitation = we cooperated but fewer than k players cooperated total.
+        """
+        if round_number <= 0:
+            return
+        recent_round = round_number - 1
+        if history.my_actions[recent_round]:
+            opponent_cooperators = np.sum(history.opponent_actions[recent_round, :])
+            total_cooperators = opponent_cooperators + 1
+            if total_cooperators < self.k:
+                self.exploitation_bias = min(0.15, self.exploitation_bias + 0.05)
+            else:
+                self.exploitation_bias = max(0.0, self.exploitation_bias - 0.02)
+
+class Strategy_PROSOCIAL_30(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution Strategy (ARCS)
+    
+    Balances prosocial cooperation with strategic self-protection through:
+    - Cooperation-first initialization
+    - Adaptive thresholds that relax over time
+    - Reciprocity based on population cooperation rates
+    - Special handling for final rounds and extreme defection scenarios
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.C
+        if self.n_rounds == 1:
+            return Action.C
+        cooperators_in_previous_round = sum(history.opponent_actions[round_number - 1, :])
+        cooperation_rate = cooperators_in_previous_round / self.n_players
+        if cooperation_rate < 0.2:
+            return Action.D
+        threshold = max(0.4, min(0.9, (self.n_rounds - round_number) / self.n_rounds))
+        if round_number == self.n_rounds - 1:
+            if cooperation_rate >= 0.5:
+                return Action.C
+            if cooperation_rate < 0.3:
+                return Action.D
+        if cooperation_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_31(BaseStrategy):
+    """
+    Conditional Reciprocal Generosity: An adaptive prosocial strategy that balances
+    cooperation and self-protection across early, middle, and late game phases.
+    
+    - Early rounds (t ≤ r/3): Cooperate to build reputation
+    - Middle rounds (r/3 < t ≤ 2r/3): Conditional cooperation based on recent cooperation rates
+    - Late rounds (t > 2r/3): Protective defection with occasional cooperation
+    - Final round: Defect (unless r ≤ 3)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+        self.early_phase_end = math.floor(self.r / 3)
+        self.middle_phase_end = math.floor(2 * self.r / 3)
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_t = state.round_number
+        if round_t == 0:
+            return Action.C
+        if round_t <= self.early_phase_end:
+            return Action.C
+        if round_t <= self.middle_phase_end:
+            return self._middle_phase_decision(round_t, history)
+        if round_t < self.r - 1:
+            return self._late_phase_decision(round_t, history)
+        if round_t == self.r - 1:
+            if self.r <= 3:
+                return Action.C
+            else:
+                return Action.D
+        return Action.D
+
+    def _middle_phase_decision(self, round_t: int, history: PlayerHistory) -> Action:
+        """
+        Middle phase (r/3 < t ≤ 2r/3): Adapt based on recent cooperation.
+        """
+        recent_coop_rate = self._get_recent_coop_rate(round_t, history, window=3)
+        threshold = self.k / self.n
+        if recent_coop_rate > threshold:
+            return Action.C
+        elif recent_coop_rate > threshold - 0.15:
+            return Action.C if random.random() < 0.7 else Action.D
+        else:
+            return Action.D
+
+    def _late_phase_decision(self, round_t: int, history: PlayerHistory) -> Action:
+        """
+        Late phase (2r/3 < t < r): More protective, lower cooperation probability.
+        """
+        recent_coop_rate = self._get_recent_coop_rate(round_t, history, window=2)
+        threshold = self.k / self.n
+        if recent_coop_rate > threshold + 0.1:
+            return Action.C
+        elif recent_coop_rate >= threshold - 0.1:
+            return Action.C if random.random() < 0.4 else Action.D
+        else:
+            return Action.D
+
+    def _get_recent_coop_rate(self, round_t: int, history: PlayerHistory, window: int) -> float:
+        """
+        Calculate the average cooperation rate of all other players in the last 'window' rounds.
+        Handles edge cases where fewer than 'window' rounds have occurred.
+        """
+        start_round = max(0, round_t - window)
+        end_round = round_t
+        if start_round >= end_round:
+            return 0.0
+        total_cooperations = 0
+        for r in range(start_round, end_round):
+            total_cooperations += np.sum(history.opponent_actions[r, :])
+        num_rounds_in_window = end_round - start_round
+        total_slots = self.n * num_rounds_in_window
+        if total_slots == 0:
+            return 0.0
+        return total_cooperations / total_slots
+
+class Strategy_PROSOCIAL_32(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution (ARC) Strategy for N-Player Public Goods Game.
+    
+    Balances prosocial cooperation with rational self-protection through conditional
+    contribution based on observed cooperation rates. Cooperates initially, then adapts
+    based on group cooperation levels with probabilistic reciprocation in ambiguous zones.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.C
+        prev_round_cooperators = sum(history.opponent_actions[current_round - 1, :])
+        coop_rate = prev_round_cooperators / self.n_players
+        if current_round <= 2:
+            threshold_high = 0.55
+        else:
+            threshold_high = 0.5
+        threshold_medium = 0.3
+        threshold_low = 0.2
+        if coop_rate >= threshold_high:
+            return Action.C
+        elif coop_rate >= threshold_medium:
+            prob_cooperate = (coop_rate - threshold_medium) / (threshold_high - threshold_medium)
+            if random.random() < prob_cooperate:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_1(BaseStrategy):
+    """
+    Adaptive Communal Strategy for N-Player Public Goods Game.
+    
+    Balances mutual benefit maximization, robustness against exploitation, and
+    adaptation to observed cooperation patterns through three phases:
+    - Phase 1 (Early): Cooperate to signal intent and gather information
+    - Phase 2 (Middle): Adaptive reciprocity based on observed cooperation rate
+    - Phase 3 (Final): Defect in last round (subgame perfect)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold_high = 0.6
+        self.threshold_mid = 0.35
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        current_round = state.round_number
+        early_exploration_rounds = min(3, math.floor(r / 3))
+        if current_round < early_exploration_rounds:
+            return Action.C
+        if current_round == r - 1:
+            return Action.D
+        if history is None:
+            return Action.C
+        rounds_completed = current_round
+        if rounds_completed == 0:
+            return Action.C
+        total_cooperators = np.sum(history.opponent_actions[:rounds_completed, :])
+        total_possible_cooperations = n * rounds_completed
+        if total_possible_cooperations == 0:
+            return Action.C
+        observed_coop_rate = total_cooperators / total_possible_cooperations
+        if observed_coop_rate >= self.threshold_high:
+            return Action.C
+        elif observed_coop_rate >= self.threshold_mid:
+            p_adaptive = observed_coop_rate
+            if random.random() < p_adaptive:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_2(BaseStrategy):
+    """
+    Graduated Reciprocal Altruism with Decay (GRAD) - Adaptive Communal Strategy
+    for N-Player Public Goods Game.
+    
+    Balances individual rationality with communal welfare through:
+    - Leading with cooperation but matching group behavior thereafter
+    - Protecting against defection spirals with a cooperation floor
+    - Strategic endgame adaptation
+    - Payoff-responsive threshold adjustment
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.harsh_reciprocal_mode = False
+        self.harsh_mode_rounds = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.C
+        prev_round_idx = round_num - 1
+        prev_opponent_actions = history.opponent_actions[prev_round_idx, :]
+        prev_cooperators = int(np.sum(prev_opponent_actions))
+        cooperation_rate = prev_cooperators / self.n_players
+        rounds_remaining = self.n_rounds - round_num
+        if rounds_remaining <= 2:
+            if cooperation_rate >= 0.5:
+                return Action.C
+            else:
+                return Action.D
+        defection_ratio = 1.0 - cooperation_rate
+        if defection_ratio > 0.75:
+            if round_num >= 2:
+                prev_prev_idx = round_num - 2
+                prev_prev_cooperators = int(np.sum(history.opponent_actions[prev_prev_idx, :]))
+                prev_prev_defection_ratio = 1.0 - prev_prev_cooperators / self.n_players
+                if prev_prev_defection_ratio > 0.75:
+                    self.harsh_reciprocal_mode = True
+                    self.harsh_mode_rounds = 0
+        if self.harsh_reciprocal_mode:
+            self.harsh_mode_rounds += 1
+            if cooperation_rate > 0.4:
+                self.harsh_reciprocal_mode = False
+                self.harsh_mode_rounds = 0
+            elif random.random() < 0.2:
+                return Action.C
+            else:
+                return Action.D
+        my_payoffs = history.my_payoffs
+        avg_payoff = float(np.mean(my_payoffs)) if len(my_payoffs) > 0 else 1.0
+        min_expected_payoff = (1.0 - self.k / self.n_players) * 1.1
+        cooperation_floor = 0.3
+        if avg_payoff < min_expected_payoff:
+            cooperation_floor = 0.4
+        discount_factor = round_num / self.n_rounds
+        base_prob = cooperation_rate * (1.0 - discount_factor)
+        coop_prob = max(cooperation_floor, base_prob)
+        if random.random() < coop_prob:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_3(BaseStrategy):
+    """
+    Conditional Reciprocal Communalism (CRC) Strategy for N-Player Public Goods Game.
+    
+    This adaptive strategy:
+    1. Cooperates in the first round to establish communal intent
+    2. Conditions subsequent decisions on the observed cooperation rate
+    3. Uses a theoretically grounded threshold (k-1)/(n-1) to determine reciprocity
+    4. Punishes free-riding with temporary defection when cooperation drops below threshold
+    5. Recovers quickly to allow restoration of positive equilibria
+    6. Extracts final payoff only in the last round if cooperation is insufficient
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+        if self.n > 1:
+            self.threshold = (self.k - 1.0) / (self.n - 1.0)
+        else:
+            self.threshold = 0.0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.C
+        last_round_idx = current_round - 1
+        last_round_opponent_cooperators = int(np.sum(history.opponent_actions[last_round_idx, :]))
+        last_round_self_cooperated = int(history.my_actions[last_round_idx])
+        total_cooperators_last_round = last_round_opponent_cooperators + last_round_self_cooperated
+        coop_rate = total_cooperators_last_round / self.n
+        rounds_remaining = self.r - current_round - 1
+        if coop_rate >= self.threshold:
+            return Action.C
+        elif rounds_remaining > 0:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_4(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution (ARC) Strategy for N-Player Public Goods Game.
+    
+    Balances communal value creation with individual security through:
+    - Phase-based decision thresholds (early/middle/late)
+    - Adaptive reciprocity based on group cooperation rates
+    - Graceful degradation against defection
+    - Strategic final-round optimization
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def _get_phase(self, round_number: int) -> str:
+        """Classify round into phase: 'early', 'middle', or 'late'."""
+        early_end = math.floor(self.n_rounds / 3)
+        middle_end = math.floor(2 * self.n_rounds / 3)
+        if round_number <= early_end:
+            return 'early'
+        elif round_number <= middle_end:
+            return 'middle'
+        else:
+            return 'late'
+
+    def _get_threshold(self, phase: str) -> float:
+        """Get cooperation rate threshold for the given phase."""
+        base_threshold = self.k / self.n_players
+        if phase == 'early':
+            return base_threshold + 0.15
+        elif phase == 'middle':
+            return base_threshold + 0.05
+        else:
+            return base_threshold
+
+    def _count_cooperators_in_round(self, history: PlayerHistory, round_idx: int) -> int:
+        """Count total cooperators (including self) in a given round."""
+        my_action = history.my_actions[round_idx]
+        opponent_cooperators = int(np.sum(history.opponent_actions[round_idx, :]))
+        return int(my_action) + opponent_cooperators
+
+    def _get_cooperation_rate(self, history: PlayerHistory, round_idx: int) -> float:
+        """Get cooperation rate in a given round (0.0 to 1.0)."""
+        if self.n_players == 0:
+            return 0.0
+        cooperators = self._count_cooperators_in_round(history, round_idx)
+        return cooperators / self.n_players
+
+    def _get_personal_cooperation_ratio(self, history: PlayerHistory, up_to_round: int) -> float:
+        """Get ratio of rounds where player cooperated (up to and including round_idx)."""
+        if up_to_round < 0:
+            return 0.0
+        rounds_played = up_to_round + 1
+        if rounds_played == 0:
+            return 0.0
+        my_coop_count = int(np.sum(history.my_actions[:up_to_round + 1]))
+        return my_coop_count / rounds_played
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.C
+        phase = self._get_phase(current_round)
+        threshold = self._get_threshold(phase)
+        prev_round_idx = current_round - 1
+        cooperation_rate = self._get_cooperation_rate(history, prev_round_idx)
+        if current_round == self.n_rounds - 1:
+            late_threshold = self._get_threshold('late')
+            if cooperation_rate >= late_threshold * 0.9:
+                return Action.C
+            else:
+                return Action.D
+        if cooperation_rate >= threshold:
+            return Action.C
+        else:
+            personal_coop_ratio = self._get_personal_cooperation_ratio(history, prev_round_idx)
+            if personal_coop_ratio >= 0.75:
+                adaptation_factor = 0.5 + 0.5 * personal_coop_ratio
+                if random.random() < adaptation_factor:
+                    return Action.C
+                else:
+                    return Action.D
+            else:
+                return Action.D
+
+class Strategy_COMMUNAL_5(BaseStrategy):
+    """
+    Adaptive Reciprocal Stewardship (ARS) Strategy
+    
+    Balances individual rationality with communal benefit through earned trust,
+    defensive rationality, adaptive learning, and long-term thinking.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0 or round_num == 1:
+            return Action.C
+        if round_num == self.n_rounds - 1:
+            return Action.C
+        global_coop_rate = self._calculate_global_coop_rate(history, round_num)
+        cooperation_threshold = self.k / self.n_players
+        my_previous_action = history.my_actions[round_num - 1]
+        defectors_last_round = self.n_players - int(sum(history.opponent_actions[round_num - 1, :]))
+        if not my_previous_action:
+            defectors_last_round += 1
+        if global_coop_rate >= cooperation_threshold:
+            if my_previous_action:
+                return Action.C
+            else:
+                return Action.C if random.random() < 0.7 else Action.D
+        elif global_coop_rate >= 0.33:
+            threshold_defectors = math.ceil(self.n_players / 3)
+            if defectors_last_round <= threshold_defectors:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+    def _calculate_global_coop_rate(self, history: PlayerHistory, round_num: int) -> float:
+        """
+        Calculate the global cooperation rate from rounds 0 to round_num-1.
+        Handles edge case of division by zero.
+        """
+        if round_num == 0:
+            return 0.0
+        total_coop_instances = 0
+        for r in range(round_num):
+            cooperators_in_round = int(sum(history.opponent_actions[r, :]))
+            if history.my_actions[r]:
+                cooperators_in_round += 1
+            total_coop_instances += cooperators_in_round
+        total_possible = self.n_players * round_num
+        if total_possible == 0:
+            return 0.0
+        return total_coop_instances / total_possible
+
+class Strategy_COMMUNAL_6(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution Strategy (ARCS)
+    
+    Balances conditional cooperation with defection deterrence in N-player public goods games.
+    - Round 1: Cooperate (establish good faith)
+    - Final round: Defect (standard Nash equilibrium)
+    - Middle rounds: Cooperate if previous round's cooperation rate >= adaptive threshold
+    
+    Threshold decays over time to account for defector dominance as game progresses.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.r - 1:
+            return Action.D
+        previous_round_actions = history.opponent_actions[current_round - 1, :]
+        own_previous_action = history.my_actions[current_round - 1]
+        cooperators_last_round = int(own_previous_action) + int(np.sum(previous_round_actions))
+        cooperation_rate = cooperators_last_round / self.n
+        base_threshold = self.k / self.n
+        if self.r <= 2:
+            threshold = base_threshold
+        else:
+            decay_factor = (self.n - self.k) / (2.0 * self.n)
+            threshold = base_threshold + decay_factor * (current_round - 1) / (self.r - 2)
+        if cooperation_rate == 0:
+            return Action.D
+        if cooperation_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_7(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution Strategy for N-Player Public Goods Game.
+    
+    Balances self-preservation, communal benefit, and robustness by:
+    1. Cooperating in round 1 to establish cooperation possibility
+    2. Conditionally cooperating in middle rounds based on empirical cooperation rate
+    3. Defecting in the final round (subgame-perfect equilibrium)
+    
+    The cooperation threshold is k/n, representing the break-even point where
+    expected payoff from cooperation equals payoff from defection.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = self.k / self.n_players
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.C
+        if round_number == self.n_rounds - 1:
+            return Action.D
+        total_cooperations = self._count_total_cooperations(history, round_number)
+        total_actions = self.n_players * round_number
+        if total_actions == 0:
+            return Action.C
+        cooperation_rate = total_cooperations / total_actions
+        if cooperation_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+    def _count_total_cooperations(self, history: PlayerHistory, round_number: int) -> int:
+        """
+        Count total cooperations across all players in all previous rounds.
+        
+        Args:
+            history: PlayerHistory object containing actions and payoffs
+            round_number: Current round number (0-indexed)
+        
+        Returns:
+            Total number of cooperate actions across all players and all previous rounds
+        """
+        total = 0
+        if history.my_actions is not None and len(history.my_actions) > 0:
+            total += int(np.sum(history.my_actions[:round_number]))
+        if history.opponent_actions is not None and len(history.opponent_actions) > 0:
+            total += int(np.sum(history.opponent_actions[:round_number, :]))
+        return total
+
+class Strategy_COMMUNAL_8(BaseStrategy):
+    """
+    Adaptive Reciprocal Stewardship Strategy for N-Player Public Goods Game.
+    
+    Implements conditional cooperation with graceful degradation based on observed
+    cooperation rates. Uses adaptive thresholds to maintain sustainable collective
+    outcomes while protecting against exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.cooperation_history = []
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.C
+        previous_round_idx = round_number - 1
+        self_action_prev = history.my_actions[previous_round_idx]
+        opponent_actions_prev = history.opponent_actions[previous_round_idx, :]
+        total_cooperators = int(self_action_prev) + int(np.sum(opponent_actions_prev))
+        cooperation_rate = total_cooperators / self.n_players
+        threshold_lower = self.k / (2.0 * self.n_players)
+        if round_number == self.n_rounds - 1 and cooperation_rate >= 0.5:
+            threshold_lower = 0.5
+        if len(self.cooperation_history) >= 3:
+            recent_three = self.cooperation_history[-3:]
+            if recent_three[0] == recent_three[1] == recent_three[2] and recent_three[0] >= threshold_lower and (recent_three[0] > 0):
+                self.cooperation_history.append(cooperation_rate)
+                return Action.C
+            elif recent_three[0] == recent_three[1] == recent_three[2] and recent_three[0] < threshold_lower and (recent_three[0] > 0):
+                self.cooperation_history.append(cooperation_rate)
+                if random.random() < 0.2:
+                    return Action.C
+                else:
+                    return Action.D
+        self.cooperation_history.append(cooperation_rate)
+        if cooperation_rate >= threshold_lower:
+            return Action.C
+        elif cooperation_rate > 0:
+            defect_probability = 1.0 - cooperation_rate / threshold_lower
+            if random.random() < defect_probability:
+                return Action.D
+            else:
+                return Action.C
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_9(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution (ARC): A communal strategy for N-player public goods games.
+    
+    Maintains a Contribution Index (CI) tracking empirical cooperation rates and adapts decisions
+    based on whether community cooperation sustains the public good (threshold: k/n).
+    Features graceful degradation, trend sensitivity, and last-round exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.k = game_description.k
+        self.r = game_description.n_rounds
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        t = state.round_number
+        if t == 0:
+            return Action.C
+        total_cooperators = int(np.sum(history.my_actions)) + int(np.sum(history.opponent_actions))
+        total_players_rounds = self.n * t
+        ci = total_cooperators / total_players_rounds if total_players_rounds > 0 else 0.0
+        threshold = self.k / self.n
+        recent_window = min(3, t)
+        recent_start = t - recent_window
+        recent_cooperators = int(np.sum(history.my_actions[recent_start:t])) + int(np.sum(history.opponent_actions[recent_start:t, :]))
+        recent_total = self.n * recent_window
+        recent_trend = recent_cooperators / recent_total if recent_total > 0 else 0.0
+        is_improving = recent_trend > ci or recent_trend >= 0.5
+        if t == self.r - 1:
+            if ci >= 2.0 * self.k / self.n:
+                return Action.C
+            else:
+                return Action.D
+        if ci >= threshold:
+            return Action.C
+        elif is_improving:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_10(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution (ARC) Strategy for N-Player Public Goods Game.
+    
+    Balances collective welfare, individual resilience, and adaptive learning:
+    - Round 1: Cooperate to test reciprocity
+    - Middle rounds: Cooperate if observed cooperation rate >= k/(k+1), else defect
+    - Final round: Defect (no future reciprocity possible)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = self.k / (self.k + 1.0)
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.C
+        if round_number == self.n_rounds - 1:
+            return Action.D
+        previous_round_idx = round_number - 1
+        opponent_cooperators_prev = sum(history.opponent_actions[previous_round_idx, :])
+        player_cooperated_prev = history.my_actions[previous_round_idx]
+        total_cooperators_prev = opponent_cooperators_prev + (1 if player_cooperated_prev else 0)
+        coop_rate = total_cooperators_prev / self.n_players
+        if coop_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_11(BaseStrategy):
+    """
+    Adaptive Communal Strategy for N-Player Public Goods Game.
+    
+    Balances reciprocal altruism with defensive pragmatism:
+    - Round 1: Always cooperate to establish prosocial intent
+    - Rounds 2 to r-1: Adaptive reciprocity based on running average cooperation rate
+    - Final round: Cooperate if group cooperation ≥ 50%, else defect
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperation_rates = []
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        self._update_cooperation_history(history)
+        avg_cr = self._calculate_average_cooperation_rate()
+        if state.round_number == self.game_description.n_rounds - 1:
+            if avg_cr >= 0.5:
+                return Action.C
+            else:
+                return Action.D
+        if avg_cr >= 0.5:
+            return Action.C
+        elif avg_cr >= 0.25:
+            return Action.C if random.random() < avg_cr else Action.D
+        else:
+            return Action.D
+
+    def _update_cooperation_history(self, history: PlayerHistory) -> None:
+        """
+        Update cooperation_rates list with CR values from all completed rounds.
+        """
+        n_completed_rounds = len(history.my_actions)
+        while len(self.cooperation_rates) < n_completed_rounds:
+            round_idx = len(self.cooperation_rates)
+            my_cooperation = int(history.my_actions[round_idx])
+            opponent_cooperations = int(np.sum(history.opponent_actions[round_idx, :]))
+            total_cooperators = my_cooperation + opponent_cooperations
+            cr = total_cooperators / self.game_description.n_players
+            self.cooperation_rates.append(cr)
+
+    def _calculate_average_cooperation_rate(self) -> float:
+        """
+        Calculate running average cooperation rate from completed rounds.
+        Returns 0.5 if no prior rounds exist (safe default).
+        """
+        if len(self.cooperation_rates) == 0:
+            return 0.5
+        return float(np.mean(self.cooperation_rates))
+
+class Strategy_COMMUNAL_12(BaseStrategy):
+    """
+    Adaptive Communal Strategy: Progressive Contribution with Responsive Defection
+    
+    Balances communal optimality with self-protection by using a threshold-based
+    cooperation system. Cooperates in round 1, then responds to cooperation rates
+    using two thresholds: k/n (break-even) and 0.5 (majority).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        prev_round_index = state.round_number - 1
+        my_prev_action = history.my_actions[prev_round_index]
+        opponent_prev_actions = history.opponent_actions[prev_round_index, :]
+        total_cooperators = int(my_prev_action) + int(np.sum(opponent_prev_actions))
+        cooperation_rate = total_cooperators / self.game_description.n_players
+        threshold_break_even = self.game_description.k / self.game_description.n_players
+        threshold_majority = 0.5
+        if cooperation_rate >= threshold_break_even:
+            return Action.C
+        elif cooperation_rate >= threshold_majority:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_13(BaseStrategy):
+    """
+    Adaptive Reciprocity with Graceful Degradation.
+    
+    Balances communal contribution with rational self-protection through conditional
+    cooperation based on observed cooperation rates in the previous round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold_high = 0.5
+        self.threshold_mid = 0.3
+        self.threshold_low = 0.1
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        prev_round_idx = state.round_number - 1
+        my_prev_action = history.my_actions[prev_round_idx]
+        opponent_prev_actions = history.opponent_actions[prev_round_idx, :]
+        total_cooperators = int(my_prev_action) + int(sum(opponent_prev_actions))
+        n_players = self.game_description.n_players
+        cooperation_rate = total_cooperators / n_players
+        if cooperation_rate >= self.threshold_high:
+            return Action.C
+        elif cooperation_rate >= self.threshold_mid:
+            return Action.C if random.random() < cooperation_rate else Action.D
+        elif cooperation_rate >= self.threshold_low:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_14(BaseStrategy):
+    """
+    Conditional Reciprocal Communalism (CRC) Strategy for N-Player Public Goods Game.
+    
+    Balances communal contribution with selective defection based on observed cooperation rates.
+    - Round 1: Cooperate (prosocial initialization)
+    - Rounds 2 to r-1: Cooperate if community cooperation rate ≥ threshold, else defect
+    - Final round: Cooperate if prior CCR ≥ 0.5, else defect
+    
+    Threshold = max(k/n, 0.4) to prevent race-to-the-bottom while remaining responsive.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = max(self.k / self.n_players, 0.4)
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.C
+        if round_number == self.n_rounds - 1:
+            prev_round_idx = round_number - 1
+            prev_coop_count = float(np.sum(history.opponent_actions[prev_round_idx, :]))
+            prev_ccr = prev_coop_count / self.n_players
+            if prev_ccr >= 0.5:
+                return Action.C
+            else:
+                return Action.D
+        prev_round_idx = round_number - 1
+        prev_coop_count = float(np.sum(history.opponent_actions[prev_round_idx, :]))
+        prev_ccr = prev_coop_count / self.n_players
+        if prev_ccr >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_15(BaseStrategy):
+    """
+    Conditional Reciprocal Contribution (CRC) Strategy for N-Player Public Goods Game.
+    
+    Balances communal value creation with self-protection against exploitation.
+    Uses adaptive thresholds and probabilistic reciprocity to foster cooperation
+    while remaining resilient to free-riding.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold_high = 0.5
+        self.threshold_mid = 0.25
+        self.threshold_low = 0.1
+        self.consecutive_zero_coop = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        last_round_opponent_actions = history.opponent_actions[-1, :]
+        last_round_cooperators = int(np.sum(last_round_opponent_actions))
+        my_last_action = history.my_actions[-1]
+        total_cooperators_last_round = last_round_cooperators + (1 if my_last_action else 0)
+        cooperation_rate = total_cooperators_last_round / self.game_description.n_players
+        if last_round_cooperators == 0:
+            self.consecutive_zero_coop += 1
+        else:
+            self.consecutive_zero_coop = 0
+        if self.consecutive_zero_coop >= 2:
+            return Action.D
+        is_last_round = state.round_number == self.game_description.n_rounds - 1
+        if is_last_round:
+            if cooperation_rate >= self.threshold_mid:
+                return Action.C
+            else:
+                return Action.D
+        if cooperation_rate >= self.threshold_high:
+            return Action.C
+        elif cooperation_rate >= self.threshold_mid:
+            if random.random() < cooperation_rate:
+                return Action.C
+            else:
+                return Action.D
+        elif cooperation_rate >= self.threshold_low:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_16(BaseStrategy):
+    """
+    Conditional Reciprocal Contribution (CRC) Strategy for N-Player Public Goods Game.
+    
+    Core principle: Cooperate when observed cooperation rate meets or exceeds the 
+    breakeven threshold (k/n). This balances communal values with robustness against 
+    exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = game_description.k / game_description.n_players
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        previous_round_idx = state.round_number - 1
+        cooperators_previous = int(np.sum(history.opponent_actions[previous_round_idx, :]))
+        our_action_previous = int(history.my_actions[previous_round_idx])
+        total_cooperators_previous = cooperators_previous + our_action_previous
+        cooperation_rate = total_cooperators_previous / self.game_description.n_players
+        if cooperation_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_17(BaseStrategy):
+    """
+    Adaptive Communal Strategy for N-Player Public Goods Game
+    
+    Balances communal optimism with rational self-protection through three behavioral modes:
+    - COOPERATIVE: High cooperation observed (≥65%) → Always cooperate
+    - CAUTIOUS: Mixed cooperation (30-65%) → Probabilistic defection based on cooperation rate
+    - DEFENSIVE: Low cooperation (<30%) → Defect
+    
+    Special logic for round r-1 (boost cooperation) and round r (final cooperation).
+    Uses rolling window of last k=min(5, r-1) rounds to allow recovery from defection.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        if self.n_players == 2:
+            self.threshold_high = 0.7
+            self.threshold_low = 0.35
+        else:
+            self.threshold_high = 0.65
+            self.threshold_low = 0.3
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.C
+        if round_num == self.n_rounds - 1:
+            return Action.C
+        cooperation_rate = self._calculate_cooperation_rate(round_num, history)
+        mode = self._determine_mode(cooperation_rate, round_num)
+        if round_num == self.n_rounds - 2 and mode != 'DEFENSIVE':
+            cooperation_rate = min(cooperation_rate + 0.1, 1.0)
+        if mode == 'COOPERATIVE':
+            return Action.C
+        elif mode == 'CAUTIOUS':
+            defection_prob = (1.0 - cooperation_rate) * 0.5
+            if random.random() > defection_prob:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+    def _calculate_cooperation_rate(self, round_num: int, history: PlayerHistory) -> float:
+        """
+        Calculate cooperation rate in the lookback window.
+        Window size is min(5, round_num) to allow recent history to influence decisions.
+        """
+        if round_num == 0:
+            return 1.0
+        window_size = min(5, round_num)
+        total_cooperators = 0
+        for i in range(round_num - window_size, round_num):
+            if i >= 0:
+                my_contribution = 1 if history.my_actions[i] else 0
+                opponent_contributions = np.sum(history.opponent_actions[i, :])
+                round_cooperators = my_contribution + opponent_contributions
+                total_cooperators += round_cooperators
+        total_possible = self.n_players * window_size
+        if total_possible == 0:
+            return 1.0
+        cooperation_rate = total_cooperators / total_possible
+        return cooperation_rate
+
+    def _determine_mode(self, cooperation_rate: float, round_num: int) -> str:
+        """
+        Determine behavioral mode based on cooperation rate.
+        Uses thresholds that can be adjusted for dyads.
+        """
+        if cooperation_rate >= self.threshold_high:
+            return 'COOPERATIVE'
+        elif cooperation_rate >= self.threshold_low:
+            return 'CAUTIOUS'
+        else:
+            return 'DEFENSIVE'
+
+class Strategy_COMMUNAL_18(BaseStrategy):
+    """
+    Adaptive Communal Contribution (ACC) Strategy for N-Player Public Goods Game.
+    
+    Balances communal value creation with resilience against exploitation through:
+    - Optimistic cooperation in round 1
+    - Adaptive reciprocation based on sustainability threshold in middle rounds
+    - Community-first cooperation in final round
+    - Probabilistic hedging when cooperation is uncertain
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.C
+        if round_number == self.n_rounds - 1:
+            return Action.C
+        return self._adaptive_reciprocation(history, round_number)
+
+    def _adaptive_reciprocation(self, history: PlayerHistory, round_number: int) -> Action:
+        """
+        Adaptive reciprocation logic for middle rounds.
+        """
+        observed_coop_rate = self._calculate_observed_cooperation_rate(history, round_number)
+        sustainability_threshold = self._calculate_sustainability_threshold()
+        if observed_coop_rate >= sustainability_threshold:
+            return Action.C
+        elif observed_coop_rate >= sustainability_threshold * 0.5:
+            if sustainability_threshold > 0:
+                prob_cooperate = observed_coop_rate / sustainability_threshold
+            else:
+                prob_cooperate = 0.5
+            if random.random() < prob_cooperate:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+    def _calculate_observed_cooperation_rate(self, history: PlayerHistory, round_number: int) -> float:
+        """
+        Calculate the observed cooperation rate from all players' history.
+        
+        observed_coop_rate = (total_cooperators_in_history) / (n × rounds_elapsed)
+        """
+        if round_number == 0:
+            return 0.0
+        total_opponent_cooperations = np.sum(history.opponent_actions[:round_number, :])
+        total_own_cooperations = np.sum(history.my_actions[:round_number])
+        total_cooperations = total_opponent_cooperations + total_own_cooperations
+        total_possible = self.n_players * round_number
+        if total_possible == 0:
+            return 0.0
+        return float(total_cooperations) / float(total_possible)
+
+    def _calculate_sustainability_threshold(self) -> float:
+        """
+        Calculate the sustainability threshold.
+        
+        sustainability_threshold = (1/k) - (1/n)
+        
+        This represents the minimum cooperation rate where collective payoff 
+        from cooperation exceeds individual payoff from universal defection.
+        """
+        if self.k == 0:
+            return 1.0
+        threshold = 1.0 / self.k - 1.0 / self.n_players
+        return max(0.0, min(1.0, threshold))
+
+class Strategy_COMMUNAL_19(BaseStrategy):
+    """
+    Adaptive Communal Strategy for N-Player Public Goods Game.
+    
+    Balances communal contribution, self-protection, and robustness by conditionally
+    cooperating based on a dynamically decaying threshold of opponent cooperation rates.
+    Cooperates in round 1 unconditionally, then conditions on whether the cooperation rate
+    in the previous round meets an adaptive threshold that gradually decays toward k/n.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+        self.base_threshold = 0.5
+        self.min_threshold = self.k / self.n
+        if self.r > 1:
+            self.decay_rate = (self.base_threshold - self.min_threshold) / (self.r - 1)
+        else:
+            self.decay_rate = 0.0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        prev_round_idx = state.round_number - 1
+        prev_round_cooperators = int(np.sum(history.opponent_actions[prev_round_idx, :]))
+        cooperation_rate = prev_round_cooperators / self.n
+        current_round = state.round_number
+        if current_round == self.r - 1:
+            threshold = self.min_threshold
+        else:
+            threshold = max(self.min_threshold, self.base_threshold - self.decay_rate * current_round)
+        if cooperation_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_20(BaseStrategy):
+    """
+    Adaptive Communal Strategy: Conditional Reciprocal Contribution
+    
+    Balances communal welfare with individual sustainability through adaptive
+    threshold-based reciprocity. Cooperates in round 1 and final round, then
+    conditionally cooperates in middle rounds based on whether the cooperation
+    rate exceeds the threshold k/n.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.n_rounds - 1:
+            return Action.C
+        prev_round_opponent_actions = history.opponent_actions[current_round - 1, :]
+        prev_round_cooperators = int(np.sum(prev_round_opponent_actions))
+        if history.my_actions[current_round - 1]:
+            total_cooperators = prev_round_cooperators + 1
+        else:
+            total_cooperators = prev_round_cooperators
+        coop_rate = total_cooperators / self.n_players
+        threshold = self.k / self.n_players
+        if coop_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_21(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution (ARC): A communal strategy that uses threshold-based
+    reciprocal contribution to maximize collective welfare while remaining robust against
+    exploitation. Cooperates when community contribution meets or exceeds the fair-share
+    threshold (k/n), and defects otherwise, with special handling for edge cases and the
+    final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.cooperation_target = game_description.k / game_description.n_players
+        self.defect_punishment_counter = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            self.defect_punishment_counter = 0
+            return Action.C
+        prev_round_idx = current_round - 1
+        prev_cooperators = int(np.sum(history.opponent_actions[prev_round_idx, :]))
+        if history.my_actions[prev_round_idx]:
+            prev_cooperators += 1
+        contribution_rate = prev_cooperators / self.n_players
+        if self.defect_punishment_counter > 0:
+            self.defect_punishment_counter -= 1
+            return Action.D
+        if contribution_rate < 0.1:
+            self.defect_punishment_counter = 2
+            return Action.D
+        if contribution_rate > 0.8:
+            return Action.C
+        if abs(contribution_rate - self.cooperation_target) < 0.15:
+            return Action.C
+        is_last_round = current_round == self.n_rounds - 1
+        if is_last_round:
+            if contribution_rate >= self.cooperation_target:
+                return Action.C
+            else:
+                return Action.D
+        if contribution_rate >= self.cooperation_target:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_22(BaseStrategy):
+    """
+    Adaptive Communal Resilience Strategy for N-Player Public Goods Game.
+    
+    Balances three principles: communal preference (cooperate when beneficial),
+    self-protection (defect against exploiters), and robustness (adapt dynamically).
+    Uses a three-phase approach: initial probing, mid-game assessment, and final rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.k = game_description.k
+        self.r = game_description.n_rounds
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.C
+        if round_num in {1, 2}:
+            return self._phase1_decision(history, round_num)
+        return self._mid_to_final_decision(history, round_num)
+
+    def _phase1_decision(self, history: PlayerHistory, round_num: int) -> Action:
+        """
+        Rounds 1-2: Conditional strategy based on round 0 observations.
+        """
+        cooperators_round_0 = np.sum(history.opponent_actions[0, :])
+        cooperation_rate = cooperators_round_0 / (self.n - 1) if self.n - 1 > 0 else 0
+        if cooperation_rate > 0.8:
+            return Action.C
+        elif cooperation_rate > 0.5:
+            return Action.C if random.random() < cooperation_rate else Action.D
+        else:
+            return Action.D
+
+    def _mid_to_final_decision(self, history: PlayerHistory, round_num: int) -> Action:
+        """
+        Rounds 3+: Assess global and opponent cooperation over last 3 rounds.
+        """
+        start_round = max(0, round_num - 3)
+        recent_rounds = history.opponent_actions[start_round:round_num, :]
+        if recent_rounds.size == 0:
+            return Action.C
+        total_cooperations = np.sum(recent_rounds)
+        total_possible = recent_rounds.shape[0] * self.n
+        global_cooperation = total_cooperations / total_possible if total_possible > 0 else 0
+        opponent_cooperations = np.sum(recent_rounds)
+        opponent_possible = recent_rounds.shape[0] * (self.n - 1)
+        opponent_cooperation = opponent_cooperations / opponent_possible if opponent_possible > 0 else 0
+        threshold_high = self.k / self.n
+        threshold_low = self.k / (2 * self.n) if self.n > 0 else 0
+        if global_cooperation > threshold_high:
+            return Action.C
+        elif global_cooperation < threshold_low:
+            return Action.D
+        else:
+            return Action.C if opponent_cooperation > 0.5 else Action.D
+
+class Strategy_COMMUNAL_23(BaseStrategy):
+    """
+    Adaptive Communal Strategy for N-Player Public Goods Game.
+    
+    Balances communal value creation with self-protection through conditional
+    cooperation with decay-resistant memory. Uses historical cooperation rates
+    and parameter-dependent thresholds to decide when cooperation is sustainable.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.C
+        avg_coop_rate = self._calculate_avg_cooperation_rate(history, round_num)
+        recent_coop_rate = self._calculate_recent_cooperation_rate(history, round_num)
+        self_sustaining_threshold = self.k / self.n
+        if round_num == self.r - 1:
+            threshold_final = max(0.5, self.k / self.n)
+            if avg_coop_rate >= threshold_final:
+                return Action.C
+            else:
+                return Action.D
+        if recent_coop_rate >= self_sustaining_threshold:
+            return Action.C
+        elif avg_coop_rate >= self_sustaining_threshold and round_num <= self.r / 2:
+            return Action.C
+        else:
+            return Action.D
+
+    def _calculate_avg_cooperation_rate(self, history: PlayerHistory, round_num: int) -> float:
+        """
+        Calculate average cooperation rate across all previous rounds.
+        Returns cooperation rate as a fraction (0.0 to 1.0).
+        """
+        if round_num == 0:
+            return 0.0
+        total_cooperators = 0
+        for round_idx in range(round_num):
+            total_cooperators += int(np.sum(history.opponent_actions[round_idx, :]))
+            if history.my_actions[round_idx]:
+                total_cooperators += 1
+        total_player_rounds = round_num * self.n
+        if total_player_rounds == 0:
+            return 0.0
+        return total_cooperators / total_player_rounds
+
+    def _calculate_recent_cooperation_rate(self, history: PlayerHistory, round_num: int) -> float:
+        """
+        Calculate cooperation rate in the last 3 rounds (or fewer if game is shorter).
+        Returns cooperation rate as a fraction (0.0 to 1.0).
+        """
+        if round_num == 0:
+            return 0.0
+        recent_rounds = min(3, round_num)
+        total_cooperators = 0
+        for round_idx in range(round_num - recent_rounds, round_num):
+            total_cooperators += int(np.sum(history.opponent_actions[round_idx, :]))
+            if history.my_actions[round_idx]:
+                total_cooperators += 1
+        total_player_rounds = recent_rounds * self.n
+        if total_player_rounds == 0:
+            return 0.0
+        return total_cooperators / total_player_rounds
+
+class Strategy_COMMUNAL_24(BaseStrategy):
+    """
+    Adaptive Reciprocal Contribution (ARC) Strategy for N-Player Public Goods Game.
+    
+    Balances communal welfare, self-protection, and robustness through adaptive
+    reciprocation based on observed cooperation rates and game phase.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == 1:
+            round_1_cooperators = int(sum(history.opponent_actions[0, :]))
+            round_1_coop_rate = round_1_cooperators / self.n_players
+            if round_1_coop_rate >= 0.5:
+                return Action.C
+            else:
+                return Action.D
+        avg_coop_rate = self._calculate_avg_coop_rate(history, current_round)
+        recent_coop_rate = self._calculate_recent_coop_rate(history)
+        if current_round == self.n_rounds - 1:
+            threshold = self.k / self.n_players * 0.7
+            if avg_coop_rate >= threshold:
+                return Action.C
+            else:
+                return Action.D
+        if current_round == self.n_rounds - 1:
+            threshold = self.k / self.n_players
+            if avg_coop_rate >= threshold:
+                return Action.C
+            else:
+                return Action.D
+        threshold_baseline = self.k / self.n_players
+        threshold_moderate = threshold_baseline * 0.6
+        threshold_low = threshold_baseline * 0.3
+        if avg_coop_rate >= threshold_baseline:
+            if recent_coop_rate >= 0.5:
+                return Action.C
+            else:
+                return Action.D
+        elif avg_coop_rate >= threshold_moderate:
+            if random.random() < avg_coop_rate:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            exploration_phase = current_round % 3 == 0
+            if recent_coop_rate >= threshold_low and (not exploration_phase):
+                return Action.D
+            elif exploration_phase:
+                return Action.C
+            else:
+                return Action.D
+
+    def _calculate_avg_coop_rate(self, history: PlayerHistory, current_round: int) -> float:
+        """
+        Calculate average cooperation rate across all past rounds.
+        Avoids division by zero for early rounds.
+        """
+        if current_round == 0:
+            return 0.0
+        total_cooperators = 0
+        for round_idx in range(current_round):
+            round_cooperators = int(sum(history.opponent_actions[round_idx, :]))
+            total_cooperators += round_cooperators
+        total_possible = current_round * self.n_players
+        if total_possible == 0:
+            return 0.0
+        return total_cooperators / total_possible
+
+    def _calculate_recent_coop_rate(self, history: PlayerHistory) -> float:
+        """
+        Calculate cooperation rate in the most recent round.
+        """
+        if len(history.opponent_actions) == 0:
+            return 0.0
+        recent_cooperators = int(sum(history.opponent_actions[-1, :]))
+        if self.n_players == 0:
+            return 0.0
+        return recent_cooperators / self.n_players
+
+class Strategy_COMMUNAL_25(BaseStrategy):
+    """
+    Adaptive Communal Strategy for N-Player Public Goods Game.
+    
+    Employs conditional cooperation with opportunistic defense:
+    - Round 1: Cooperate unconditionally to signal cooperative intent
+    - Rounds 2 to r-1: Cooperate if previous round's cooperation rate meets dynamic threshold
+    - Round r: Defect (final round), unless cooperation was very strong (>1-1/n)
+    
+    The dynamic threshold is max(0.4, (k/n) × 0.5), allowing flexibility based on game parameters.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.C
+        if round_number == self.n_rounds - 1:
+            if round_number > 0:
+                previous_coop_rate = self._get_cooperation_rate(history, round_number - 1)
+                threshold_final = 1.0 - 1.0 / self.n_players
+                if previous_coop_rate > threshold_final:
+                    return Action.C
+            return Action.D
+        previous_coop_rate = self._get_cooperation_rate(history, round_number - 1)
+        threshold = max(0.4, self.k / self.n_players * 0.5)
+        if previous_coop_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+    def _get_cooperation_rate(self, history: PlayerHistory, round_idx: int) -> float:
+        """
+        Calculate the cooperation rate in a given round.
+        Includes both this player and all opponents.
+        
+        Args:
+            history: PlayerHistory object
+            round_idx: 0-indexed round number
+        
+        Returns:
+            Cooperation rate as a float in [0, 1]
+        """
+        if round_idx < 0 or round_idx >= len(history.my_actions):
+            return 0.0
+        my_action = history.my_actions[round_idx]
+        my_contrib = 1 if my_action else 0
+        opponent_actions_in_round = history.opponent_actions[round_idx, :]
+        opponent_contrib = np.sum(opponent_actions_in_round)
+        total_cooperators = my_contrib + opponent_contrib
+        coop_rate = total_cooperators / self.n_players
+        return float(coop_rate)
+
+class Strategy_COMMUNAL_26(BaseStrategy):
+    """
+    Conditional Reciprocal Contribution (CRC) Strategy for N-Player Public Goods Game.
+    
+    Balances individual rationality with communal benefit by:
+    - Rewarding cooperation when it emerges
+    - Protecting against free-riding without full escalation
+    - Maintaining partial cooperation that improves collective welfare
+    - Using history to estimate group cooperation trends
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.theta = game_description.k / game_description.n_players
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.C if self.k >= 1.5 else Action.D
+        cooperators_prev = int(np.sum(history.opponent_actions[round_num - 1, :]))
+        cr_prev = cooperators_prev / self.n_players
+        if round_num >= 2:
+            recent_crs = [int(np.sum(history.opponent_actions[round_num - 1, :])) / self.n_players, int(np.sum(history.opponent_actions[round_num - 2, :])) / self.n_players]
+            if all((cr == 0 for cr in recent_crs)):
+                return Action.C
+        if self.theta > 0.6:
+            adjustment = -0.15
+        elif self.theta <= 0.4:
+            adjustment = 0.2
+        else:
+            adjustment = 0.0
+        time_penalty = 0.1 * (self.n_rounds - round_num) / self.n_rounds
+        threshold = self.theta + adjustment - time_penalty
+        if cr_prev >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_27(BaseStrategy):
+    """
+    Adaptive Reciprocal Stewardship Strategy for N-Player Public Goods Game.
+    
+    Embodies communal values by cooperating conditionally based on observed
+    cooperation rates, with probabilistic reciprocity in the middle zone.
+    Starts with cooperation, responds to defection intelligently, and maintains
+    consistency even in the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.k = game_description.k
+        self.r = game_description.n_rounds
+        self.threshold_cooperative = self.k / self.n
+        self.threshold_defective = (self.k - 1.0) / self.n
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        last_round_opponent_actions = history.opponent_actions[-1, :]
+        cooperators_last_round = int(np.sum(last_round_opponent_actions))
+        n_opponents = self.n - 1
+        if n_opponents > 0:
+            cooperation_rate = cooperators_last_round / n_opponents
+        else:
+            cooperation_rate = 0.0
+        if cooperation_rate >= self.threshold_cooperative:
+            return Action.C
+        elif cooperation_rate <= self.threshold_defective:
+            return Action.D
+        elif random.random() < cooperation_rate:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_28(BaseStrategy):
+    """
+    Adaptive Communal Strategy for N-Player Public Goods Game.
+    
+    Implements conditional reciprocity with decay, balancing individual rationality
+    with communal benefit through dynamic thresholds and recovery mechanisms.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.punishment_counter = 0
+        self.low_cooperation_streak = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.C
+        cooperation_rate = self._calculate_cooperation_rate(history, current_round)
+        if self.punishment_counter > 0:
+            self.punishment_counter -= 1
+            return Action.D
+        if cooperation_rate < 0.2:
+            self.low_cooperation_streak += 1
+            if self.low_cooperation_streak >= 2:
+                self.punishment_counter = 2
+                self.low_cooperation_streak = 0
+                return Action.D
+        else:
+            self.low_cooperation_streak = 0
+        threshold = self._calculate_dynamic_threshold(current_round)
+        if cooperation_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+    def _calculate_cooperation_rate(self, history: PlayerHistory, current_round: int) -> float:
+        """
+        Calculate the proportion of all players cooperating in recent rounds.
+        Uses last m rounds where m = min(5, current_round).
+        """
+        m = min(5, current_round)
+        if m == 0:
+            return 0.0
+        recent_opponent_actions = history.opponent_actions[-m:, :]
+        total_cooperators = np.sum(recent_opponent_actions)
+        own_recent_actions = history.my_actions[-m:]
+        total_cooperators += np.sum(own_recent_actions)
+        cooperation_rate = total_cooperators / (m * self.n_players)
+        return cooperation_rate
+
+    def _calculate_dynamic_threshold(self, current_round: int) -> float:
+        """
+        Calculate the dynamic cooperation threshold based on game phase and payoff structure.
+        """
+        baseline_threshold = (self.k - 1.0) / (self.k + 1.0)
+        time_factor = 1.0 + 0.3 * (current_round / max(self.n_rounds - 1, 1))
+        adjusted_threshold = baseline_threshold * time_factor
+        capped_threshold = min(adjusted_threshold, 0.85)
+        return capped_threshold
+
+class Strategy_COMMUNAL_29(BaseStrategy):
+    """
+    Conditional Reciprocity with Decay: A communal strategy for N-player public goods games.
+    
+    Balances conditional cooperation with robust defection deterrence by:
+    1. Leading with unconditional cooperation in round 1
+    2. Adapting to recent cooperation rates in middle rounds
+    3. Using probabilistic matching in intermediate cooperation zones
+    4. Making strategic final-round decisions based on opponent behavior
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = 0.5
+        self.buffer = 0.15
+        self.k_rounds_lookback = 3
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.C
+        if round_num == self.n_rounds - 1:
+            return self._final_round_decision(history)
+        return self._middle_round_decision(history, round_num)
+
+    def _final_round_decision(self, history: PlayerHistory) -> Action:
+        """
+        Final round strategy: punish if defection rate was high, else cooperate.
+        """
+        last_round_idx = len(history.opponent_actions) - 1
+        last_round_cooperators = np.sum(history.opponent_actions[last_round_idx, :])
+        last_round_defection_rate = (self.n_players - last_round_cooperators) / self.n_players
+        if last_round_defection_rate > self.threshold:
+            return Action.D
+        else:
+            return Action.C
+
+    def _middle_round_decision(self, history: PlayerHistory, round_num: int) -> Action:
+        """
+        Middle rounds strategy: adapt based on recent cooperation ratio.
+        """
+        recent_coop_ratio = self._compute_recent_cooperation_ratio(history, round_num)
+        k_threshold = self.k / self.n_players
+        if recent_coop_ratio >= k_threshold + self.buffer:
+            return Action.C
+        if recent_coop_ratio < k_threshold - self.buffer:
+            return Action.D
+        return Action.C if random.random() < recent_coop_ratio else Action.D
+
+    def _compute_recent_cooperation_ratio(self, history: PlayerHistory, round_num: int) -> float:
+        """
+        Compute average cooperation rate over recent rounds.
+        Looks back at most k_rounds_lookback rounds (or fewer if early game).
+        """
+        lookback_rounds = min(self.k_rounds_lookback, round_num)
+        if lookback_rounds == 0:
+            return 0.0
+        start_idx = round_num - lookback_rounds
+        end_idx = round_num
+        recent_actions = history.opponent_actions[start_idx:end_idx, :]
+        total_cooperators = np.sum(recent_actions)
+        total_actions = lookback_rounds * self.n_players
+        if total_actions == 0:
+            return 0.0
+        return total_cooperators / total_actions
+
+class Strategy_COMMUNAL_30(BaseStrategy):
+    """
+    Adaptive Reciprocal Provisioning (ARP): A communal strategy that balances
+    collective welfare with robust self-protection.
+    
+    - Round 1: Cooperate to establish good faith
+    - Rounds 2 to r-1: Cooperate if cooperation rate ≥ k/n, else defect
+    - Round r: Defect (final round free-riding), unless defecting was already
+      necessary due to low cooperation in previous round
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = self.k / self.n_players
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.C
+        if round_number == self.n_rounds - 1:
+            prev_round_index = round_number - 1
+            cooperators_prev = int(np.sum(history.opponent_actions[prev_round_index, :]))
+            cooperators_prev += int(history.my_actions[prev_round_index])
+            coop_rate_prev = cooperators_prev / self.n_players
+            if coop_rate_prev < self.threshold:
+                return Action.D
+            return Action.D
+        prev_round_index = round_number - 1
+        cooperators_prev = int(np.sum(history.opponent_actions[prev_round_index, :]))
+        cooperators_prev += int(history.my_actions[prev_round_index])
+        coop_rate = cooperators_prev / self.n_players
+        if coop_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_31(BaseStrategy):
+    """
+    Adaptive Communal Strategy: Conditional Reciprocal Contribution
+    
+    Balances individual rationality with communal benefit maximization using
+    conditional reciprocity. Cooperates initially to signal trustworthiness,
+    then switches to threshold-based reciprocity. Defects in final round and
+    punishes sudden defection waves while remaining open to forgiveness.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = (self.k - 1) / (self.k + 1)
+        self.punishment_rounds_remaining = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.C
+        if round_num == self.n_rounds - 1:
+            return Action.D
+        if self.punishment_rounds_remaining > 0:
+            self.punishment_rounds_remaining -= 1
+            last_round_cooperators = int(np.sum(history.opponent_actions[-1, :]))
+            coop_rate = last_round_cooperators / self.n_players
+            if coop_rate >= self.threshold:
+                self.punishment_rounds_remaining = 0
+                return Action.C
+            return Action.D
+        last_round_cooperators = int(np.sum(history.opponent_actions[-1, :]))
+        coop_rate = last_round_cooperators / self.n_players
+        if round_num >= 2:
+            prev_prev_cooperators = int(np.sum(history.opponent_actions[-2, :]))
+            prev_prev_coop_rate = prev_prev_cooperators / self.n_players
+            if prev_prev_coop_rate > 0 and prev_prev_coop_rate - coop_rate > 0.25:
+                self.punishment_rounds_remaining = 2
+                return Action.D
+        if coop_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COMMUNAL_32(BaseStrategy):
+    """
+    Adaptive Reciprocal Threshold (ART) Strategy for N-Player Public Goods Game.
+    
+    Core principle: Cooperate when cooperation is collectively beneficial (when the
+    cooperation rate meets or exceeds the break-even threshold k/n), defect otherwise.
+    Always cooperate in round 1 to establish baseline, then apply threshold logic.
+    In the final round, cooperate if threshold is met, defect otherwise.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = game_description.k / game_description.n_players
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.C
+        previous_round_idx = state.round_number - 1
+        my_cooperated = history.my_actions[previous_round_idx]
+        opponent_cooperators = int(sum(history.opponent_actions[previous_round_idx, :]))
+        total_cooperators = opponent_cooperators + (1 if my_cooperated else 0)
+        cooperation_rate = total_cooperators / self.game_description.n_players
+        is_final_round = state.round_number == self.game_description.n_rounds - 1
+        if cooperation_rate >= self.threshold:
+            return Action.C
+        elif is_final_round:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_AGGRESSIVE_1(BaseStrategy):
+    """
+    Predatory Exploitation Strategy for N-Player Public Goods Game.
+    
+    Maximizes personal payoff by ruthlessly exploiting cooperative tendencies.
+    Defaults to defection unless specific high-payoff exploitation opportunities arise.
+    Intensifies aggression in late-game rounds where reputation becomes irrelevant.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.noise_probability = 0.05
+        self.late_game_threshold = 0.75
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        n = self.game_description.n_players
+        k = self.game_description.k
+        r = self.game_description.n_rounds
+        prev_round_idx = state.round_number - 1
+        cooperators_prev = int(sum(history.opponent_actions[prev_round_idx, :]))
+        if state.round_number > r * self.late_game_threshold:
+            return Action.D
+        payoff_if_defect = 1.0 + k / n * cooperators_prev
+        payoff_if_coop = k / n * cooperators_prev
+        if payoff_if_defect > payoff_if_coop:
+            if random.random() < self.noise_probability:
+                return Action.C
+            else:
+                return Action.D
+        return Action.D
+
+class Strategy_AGGRESSIVE_2(BaseStrategy):
+    """
+    Aggressive Exploitation with Conditional Punishment Strategy.
+    
+    Core approach: Always defect to maximize personal payoff by exploiting
+    cooperative tendencies while avoiding losses from defectors.
+    - Round 1: Defect (establish baseline, test population)
+    - Rounds 2 to r-1: Defect (exploitation phase)
+    - Round r: Defect (endgame, no future reputation effects)
+    
+    This dominant strategy works by:
+    - Against cooperators: Capture private endowment + share of their contributions
+    - Against defectors: Match their payoff (no relative loss)
+    - Final round: No future retaliation possible, so defect
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        if state.round_number == self.n_rounds - 1:
+            return Action.D
+        return Action.D
+
+class Strategy_AGGRESSIVE_3(BaseStrategy):
+    """
+    AGGRESSIVE STRATEGY: "EXPLOIT-FIRST WITH ADAPTIVE PUNISHMENT"
+    
+    Maximizes personal payoff by exploiting cooperative behavior when beneficial,
+    while maintaining credible defection capacity. Defaults to defection unless
+    high cooperation rate makes free-riding attractive.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperation_history = []
+        self.own_payoff_history = []
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.D
+        if round_num == r - 1:
+            return Action.D
+        prev_round_idx = round_num - 1
+        opponent_cooperators_prev = int(np.sum(history.opponent_actions[prev_round_idx, :]))
+        own_action_prev = history.my_actions[prev_round_idx]
+        total_cooperators_prev = opponent_cooperators_prev + (1 if own_action_prev else 0)
+        cooperation_rate_prev = total_cooperators_prev / n
+        threshold = (k - 1) / k
+        if cooperation_rate_prev > threshold:
+            expected_cooperators_next = cooperation_rate_prev * n
+            if expected_cooperators_next > k / 2:
+                return Action.C
+        return Action.D
+
+class Strategy_AGGRESSIVE_4(BaseStrategy):
+    """
+    Aggressive Exploitative Threshold Strategy for N-Player Public Goods Game.
+    
+    Maximizes personal payoff by exploiting cooperators while avoiding waste in 
+    defector-dominated fields. Uses parameter-adaptive thresholds to identify 
+    exploitable cooperation levels and defaults to defection in all scenarios.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.D
+        if round_num == self.r - 1:
+            return Action.D
+        prev_round_idx = round_num - 1
+        prev_cooperation_count = int(np.sum(history.opponent_actions[prev_round_idx, :]))
+        exploit_threshold = self.k / self.n * self.n
+        punish_threshold = self.k / (2.0 * self.n) * self.n
+        if prev_cooperation_count >= exploit_threshold * 1.2:
+            return Action.D
+        elif prev_cooperation_count >= punish_threshold:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_AGGRESSIVE_5(BaseStrategy):
+    """
+    Exploitative Conditional Defection Strategy for N-Player Public Goods Game.
+    
+    Maximizes individual payoff by unconditionally defecting, exploiting any cooperation
+    from other players while avoiding mutual defection traps through observation.
+    Never cooperates regardless of history or game state.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round == self.r - 1:
+            return Action.D
+        if history is not None:
+            previous_round = current_round - 1
+            cooperators_prev = int(sum(history.opponent_actions[previous_round, :]))
+            coop_ratio = cooperators_prev / self.n if self.n > 0 else 0.0
+            threshold = (self.k - 1) / self.k if self.k > 0 else 0.0
+            if coop_ratio >= threshold:
+                return Action.D
+            elif coop_ratio > 1.0 / self.n:
+                return Action.D
+            else:
+                return Action.D
+        return Action.D
+
+class Strategy_AGGRESSIVE_6(BaseStrategy):
+    """
+    Aggressive strategy: Exploitative defection with conditional punishment.
+    
+    Core approach: Always defect to maximize personal payoff by exploiting
+    cooperators while maintaining flexibility. Only defect (which is already
+    the default) under all conditions, as defection dominates mathematically
+    in this public goods game structure.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round <= 2:
+            return Action.D
+        if current_round > 0:
+            cooperation_last_round = np.mean(history.opponent_actions[current_round - 1, :])
+        else:
+            cooperation_last_round = 0.0
+        if current_round > 0:
+            avg_cooperation_rate = np.mean(history.opponent_actions[:current_round, :])
+        else:
+            avg_cooperation_rate = 0.0
+        if current_round > 0:
+            defection_rate_last_round = 1.0 - cooperation_last_round
+        else:
+            defection_rate_last_round = 0.0
+        endgame_threshold = 0.8 * self.n_rounds
+        if current_round / self.n_rounds > endgame_threshold:
+            if defection_rate_last_round > 0:
+                return Action.D
+        if cooperation_last_round > 0.5:
+            return Action.D
+        if avg_cooperation_rate < 0.4:
+            return Action.D
+        if current_round == self.n_rounds - 1:
+            return Action.D
+        return Action.D
+
+class Strategy_AGGRESSIVE_7(BaseStrategy):
+    """
+    Aggressive Adaptive Strategy: "Calculated Exploitation"
+    
+    Maximizes individual payoff by exploiting cooperation when it exists,
+    while minimizing losses from defection. Always defects except in carefully
+    calculated scenarios where cooperation might be exploited.
+    
+    Core logic:
+    - Round 1: Defect (establish non-cooperative baseline)
+    - Rounds 2 to r-1: Defect if cooperation_rate >= threshold, else defect
+    - Final round: Defect (no future consequences)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = self.k / self.n_players
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.D
+        if round_number == self.n_rounds - 1:
+            return Action.D
+        if history is None:
+            return Action.D
+        previous_round_idx = round_number - 1
+        opponent_cooperators = sum(history.opponent_actions[previous_round_idx, :])
+        total_cooperators = opponent_cooperators
+        if history.my_actions[previous_round_idx]:
+            total_cooperators += 1
+        cooperation_rate = total_cooperators / self.n_players
+        if cooperation_rate >= self.threshold:
+            return Action.D
+        elif cooperation_rate > 0:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_AGGRESSIVE_8(BaseStrategy):
+    """
+    Aggressive Strategy: Conditional Defection with Opportunistic Exploitation
+    
+    Core philosophy: Maximize personal payoff by exploiting the public goods dilemma.
+    Default action is DEFECT. Only conditionally cooperate in middle rounds when observed
+    cooperation rate exceeds the threshold k/n, and even then only to exploit the cooperators.
+    Always defect in round 1 and the last round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.total_cooperators_observed = 0
+        self.rounds_observed = 0
+        self.threshold_T = game_description.k / game_description.n_players
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        n_rounds = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.D
+        if current_round == n_rounds - 1:
+            return Action.D
+        if history is not None:
+            self.total_cooperators_observed = int(np.sum(history.opponent_actions))
+            self.rounds_observed = current_round * (self.game_description.n_players - 1)
+        if self.rounds_observed > 0:
+            cooperation_rate = self.total_cooperators_observed / self.rounds_observed
+        else:
+            cooperation_rate = 0.0
+        if cooperation_rate > self.threshold_T:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_AGGRESSIVE_9(BaseStrategy):
+    """
+    Aggressive "Profit Maximizer with Opportunistic Defection" strategy for N-Player Public Goods Game.
+    
+    Core philosophy: Exploit the game structure by defecting whenever it yields higher individual payoff.
+    Only cooperate if expected payoff from cooperation exceeds defection, which rarely occurs.
+    Always defect in the final round and first round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        n = self.n_players
+        k = self.k
+        r = self.n_rounds
+        if round_number == r - 1:
+            return Action.D
+        if round_number == 0:
+            return Action.D
+        past_rounds_played = round_number
+        total_decisions = n * past_rounds_played
+        if total_decisions == 0:
+            return Action.D
+        all_opponent_cooperations = np.sum(history.opponent_actions)
+        my_cooperations = np.sum(history.my_actions)
+        total_cooperations = all_opponent_cooperations + my_cooperations
+        observed_coop_rate = total_cooperations / total_decisions
+        profitability_threshold = (n - k) / n
+        if observed_coop_rate > profitability_threshold:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_AGGRESSIVE_10(BaseStrategy):
+    """
+    Aggressive Exploitative Strategy with Punitive Retaliation.
+    
+    Maximizes personal payoff by exploiting naive cooperators while punishing defectors.
+    - Round 1: Always defect (exploration)
+    - Rounds 2 to r-1: Classify opponents as naive cooperators or rational defectors,
+      cooperate only if majority are naive cooperators
+    - Round r: Always defect (final round exploitation)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold_naive = 0.75
+        self.deviation_threshold = 0.3
+        self.retaliation_duration = 2
+        self.retaliation_defection_boost = 0.2
+        self.retaliation_counter = 0
+        self.last_3_rounds_start = None
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round == self.n_rounds - 1:
+            return Action.D
+        return self._adaptive_decision(current_round, history)
+
+    def _adaptive_decision(self, current_round: int, history: PlayerHistory) -> Action:
+        """
+        Adaptive phase decision logic for rounds 2 to r-1.
+        Classifies opponents and decides based on majority type.
+        """
+        n_opponents = self.n_players - 1
+        if self.n_players == 2:
+            return self._head_to_head_decision(history)
+        if self.retaliation_counter > 0:
+            self.retaliation_counter -= 1
+            return Action.D
+        naive_cooperators = 0
+        rational_defectors = 0
+        for opponent_idx in range(n_opponents):
+            coop_rate = self._get_cooperation_rate(history, opponent_idx, current_round)
+            if self._detect_deviation(history, opponent_idx, current_round):
+                self.retaliation_counter = self.retaliation_duration
+                return Action.D
+            threshold = self._get_adaptive_threshold(current_round)
+            if coop_rate >= threshold:
+                naive_cooperators += 1
+            else:
+                rational_defectors += 1
+        if naive_cooperators > rational_defectors:
+            return Action.C
+        else:
+            return Action.D
+
+    def _head_to_head_decision(self, history: PlayerHistory) -> Action:
+        """
+        Special logic for n=2 (head-to-head games).
+        Cooperate if opponent cooperates > 50%, else defect.
+        """
+        opponent_actions = history.opponent_actions[:-1]
+        if len(opponent_actions) == 0:
+            return Action.D
+        cooperation_count = np.sum(opponent_actions[:, 0])
+        cooperation_rate = cooperation_count / len(opponent_actions)
+        if cooperation_rate > 0.5:
+            return Action.C
+        else:
+            return Action.D
+
+    def _get_cooperation_rate(self, history: PlayerHistory, opponent_idx: int, current_round: int) -> float:
+        """
+        Calculate cooperation rate for a specific opponent up to current round.
+        """
+        rounds_elapsed = current_round
+        if rounds_elapsed == 0:
+            return 0.0
+        opponent_actions = history.opponent_actions[:rounds_elapsed, opponent_idx]
+        cooperation_count = np.sum(opponent_actions)
+        return float(cooperation_count) / float(rounds_elapsed)
+
+    def _detect_deviation(self, history: PlayerHistory, opponent_idx: int, current_round: int) -> bool:
+        """
+        Detect if opponent switched from high cooperation to consistent defection
+        (deviation > 0.3 in last 3 rounds).
+        """
+        if current_round < 4:
+            return False
+        historical_rounds = max(0, current_round - 3)
+        if historical_rounds == 0:
+            return False
+        historical_actions = history.opponent_actions[:historical_rounds, opponent_idx]
+        historical_coop_rate = float(np.sum(historical_actions)) / float(historical_rounds)
+        recent_actions = history.opponent_actions[max(0, current_round - 3):current_round, opponent_idx]
+        if len(recent_actions) == 0:
+            return False
+        recent_coop_rate = float(np.sum(recent_actions)) / float(len(recent_actions))
+        deviation = historical_coop_rate - recent_coop_rate
+        return deviation > self.deviation_threshold
+
+    def _get_adaptive_threshold(self, current_round: int) -> float:
+        """
+        Adjust classification threshold based on game length.
+        Longer games have lower threshold (easier to identify as naive).
+        """
+        if self.n_rounds > 20:
+            return 0.5
+        else:
+            return self.threshold_naive
+
+class Strategy_AGGRESSIVE_11(BaseStrategy):
+    """
+    Opportunistic Dominance: An aggressive strategy that exploits cooperation
+    while maintaining a baseline defection stance. Maximizes individual payoff
+    by defecting in most situations, with rare signaling cooperation only when
+    cooperation rates are exceptionally high and multiple rounds remain.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = self.k / self.n_players
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.D
+        if round_number == self.n_rounds - 1:
+            return Action.D
+        prev_round_cooperators = int(sum(history.opponent_actions[round_number - 1, :]))
+        coop_rate = prev_round_cooperators / self.n_players
+        rounds_remaining = self.n_rounds - round_number
+        signal_threshold = self.threshold + 0.15
+        if coop_rate >= signal_threshold and rounds_remaining > 2:
+            if random.random() < 0.1:
+                return Action.C
+        return Action.D
+
+class Strategy_AGGRESSIVE_12(BaseStrategy):
+    """
+    Aggressive Conditional Exploitation Strategy for N-Player Public Goods Game.
+    
+    Maximizes personal payoff through calculated defection while exploiting cooperative opponents.
+    Uses dynamic thresholds that become increasingly aggressive as the game progresses.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.k = game_description.k
+        self.r = game_description.n_rounds
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.D
+        if round_num == self.r - 1:
+            return Action.D
+        if round_num == self.r - 2:
+            if random.random() < 0.9:
+                return Action.D
+            else:
+                return Action.C
+        if round_num <= 3:
+            recent_rounds = range(0, round_num)
+        else:
+            recent_rounds = range(round_num - 3, round_num)
+        if len(recent_rounds) == 0:
+            avg_cooperators = 0.0
+        else:
+            total_cooperators = 0
+            for r_idx in recent_rounds:
+                round_cooperators = int(np.sum(history.opponent_actions[r_idx, :]))
+                total_cooperators += round_cooperators
+            avg_cooperators = total_cooperators / len(recent_rounds)
+        coop_rate = avg_cooperators / self.n
+        base_threshold = self.k / self.n
+        decay_term = (self.r - round_num) / (2.0 * self.r)
+        threshold = base_threshold + decay_term
+        if coop_rate >= threshold:
+            return Action.D
+        if coop_rate >= threshold:
+            return Action.D
+        time_pressure = (self.r - round_num) / self.r
+        exploit_prob = 0.7 + 0.3 * time_pressure
+        if random.random() < exploit_prob:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_AGGRESSIVE_13(BaseStrategy):
+    """
+    Aggressive Exploitation with Defensive Retaliation strategy for N-Player Public Goods Game.
+    
+    Core approach: Defect by default, exploit cooperative opponents, and defend against defectors.
+    Tracks individual opponent cooperation rates and adjusts exploitation intensity accordingly.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.exploitation_threshold = 0.6
+        if self.n_rounds > 10:
+            self.exploitation_threshold = 0.55
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.D
+        if round_number == self.n_rounds - 1:
+            return Action.D
+        if round_number > 0:
+            cooperators_last_round = int(sum(history.opponent_actions[round_number - 1, :]))
+            threshold_cooperators = math.floor(self.n_players / 3)
+            if cooperators_last_round < threshold_cooperators:
+                return Action.D
+        opponent_coop_rates = self._calculate_opponent_cooperation_rates(history, round_number)
+        trap_detected = self._detect_trap_moves(history, round_number)
+        coalition_detected = self._detect_coalition_signals(history, round_number)
+        if coalition_detected:
+            return Action.D
+        return Action.D
+
+    def _calculate_opponent_cooperation_rates(self, history: PlayerHistory, round_number: int) -> NDArray[np.float64]:
+        """
+        Calculate cooperation rate for each opponent up to the current round.
+        Returns array of cooperation rates indexed by opponent.
+        """
+        if round_number == 0:
+            return np.zeros(self.n_players - 1)
+        opponent_coop_counts = np.sum(history.opponent_actions[:round_number, :], axis=0)
+        opponent_coop_rates = opponent_coop_counts / round_number
+        return opponent_coop_rates
+
+    def _detect_trap_moves(self, history: PlayerHistory, round_number: int) -> bool:
+        """
+        Detect if opponents are switching from D→C immediately after player defects.
+        This indicates potential manipulation attempts.
+        """
+        if round_number < 2:
+            return False
+        if not history.my_actions[round_number - 1] == False:
+            return False
+        prev_cooperators = int(sum(history.opponent_actions[round_number - 2, :]))
+        curr_cooperators = int(sum(history.opponent_actions[round_number - 1, :]))
+        cooperation_jump = curr_cooperators - prev_cooperators
+        if cooperation_jump >= math.ceil(self.n_players * 0.4):
+            return True
+        return False
+
+    def _detect_coalition_signals(self, history: PlayerHistory, round_number: int) -> bool:
+        """
+        Detect coordinated patterns where multiple opponents switch to C simultaneously.
+        Indicates potential coalition attempt to manipulate this player.
+        """
+        if round_number < 2:
+            return False
+        prev_cooperators = int(sum(history.opponent_actions[round_number - 2, :]))
+        curr_cooperators = int(sum(history.opponent_actions[round_number - 1, :]))
+        coordination_threshold = math.ceil(self.n_players * 0.5)
+        if curr_cooperators - prev_cooperators >= coordination_threshold:
+            return True
+        return False
+
+class Strategy_AGGRESSIVE_14(BaseStrategy):
+    """
+    Aggressive Strategy: Adaptive Exploitation with Punitive Retaliation
+    
+    Maximizes personal payoff by exploiting cooperative environments while maintaining
+    credible threats against defectors. Prioritizes individual gain over collective welfare.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.D
+        if round_num >= self.n_rounds - 2:
+            return Action.D
+        recent_window = min(3, round_num)
+        recent_opponent_actions = history.opponent_actions[-recent_window:, :]
+        opponent_defection_count = np.sum(~recent_opponent_actions)
+        opponent_defection_rate = opponent_defection_count / (recent_window * self.n_players)
+        if opponent_defection_rate >= 0.5:
+            return Action.D
+        prev_round_cooperators = np.sum(history.opponent_actions[-1, :])
+        cooperation_threshold = self.n_players / 2.0 + 1
+        if prev_round_cooperators >= cooperation_threshold:
+            return Action.D
+        return Action.D
+
+class Strategy_AGGRESSIVE_15(BaseStrategy):
+    """
+    Exploitative Threshold Strategy: Aggressive defection-dominant strategy that exploits
+    cooperative tendencies in N-Player Public Goods Games.
+    
+    Core principle: Defection strictly dominates cooperation when k < n (always true by spec),
+    so always defect to maximize personal payoff through free-riding on any existing cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        return Action.D
+
+class Strategy_AGGRESSIVE_16(BaseStrategy):
+    """
+    Aggressive Exploitative Threshold Strategy for N-Player Public Goods Game.
+    
+    Core approach: Defect by default, cooperate only when enough others are cooperating
+    to make it mathematically profitable. Becomes more aggressive (lower cooperation threshold)
+    as the game progresses. Always defects in round 1 and final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_t = state.round_number
+        if round_t == 0:
+            return Action.D
+        if round_t == self.n_rounds - 1:
+            return Action.D
+        if history is not None:
+            previous_round = round_t - 1
+            cooperators_in_prev_round = sum(history.opponent_actions[previous_round, :])
+            total_opponents = self.n_players - 1
+            if total_opponents > 0:
+                cooperation_ratio = cooperators_in_prev_round / total_opponents
+            else:
+                cooperation_ratio = 0.0
+            normalized_round = round_t / self.n_rounds
+            threshold = 0.6 - 0.15 * normalized_round
+            if cooperation_ratio >= threshold:
+                return Action.C
+            else:
+                return Action.D
+        return Action.D
+
+class Strategy_AGGRESSIVE_17(BaseStrategy):
+    """
+    Opportunistic Extraction: An aggressive strategy that exploits cooperative behavior
+    while avoiding mutual defection traps. Defects in round 1 to signal strength,
+    then uses a cooperation threshold (k/n) to decide between exploitation (defect)
+    and probing/punishing (cooperate) in middle rounds, before defecting in final rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.D
+        if round_num >= self.n_rounds - 2:
+            return Action.D
+        total_cooperators = int(np.sum(history.opponent_actions[:round_num, :]))
+        total_player_rounds = round_num * self.n_players
+        if total_player_rounds == 0:
+            return Action.C
+        coop_fraction = total_cooperators / total_player_rounds
+        threshold = self.k / self.n_players
+        if coop_fraction > threshold:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_AGGRESSIVE_18(BaseStrategy):
+    """
+    Exploitative Threshold Strategy for N-Player Public Goods Game.
+    
+    Aggressively exploits cooperative opponents while adapting to defection.
+    - Round 1: Always defect (information gathering and exploitation)
+    - Rounds 2 to r-1: Defect if opponent cooperation rate exceeds threshold (k-1)/(n-1)
+    - Last round: Always defect (no future retaliation possible)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.k = game_description.k
+        self.n_rounds = game_description.n_rounds
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round == self.n_rounds - 1:
+            return Action.D
+        opponent_actions = history.opponent_actions[:current_round, :]
+        total_cooperations = np.sum(opponent_actions)
+        total_possible_cooperations = (self.n_players - 1) * current_round
+        if total_possible_cooperations == 0:
+            cooperation_rate = 0.0
+        else:
+            cooperation_rate = total_cooperations / total_possible_cooperations
+        threshold = (self.k - 1.0) / (self.n_players - 1.0)
+        if cooperation_rate >= threshold:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_AGGRESSIVE_19(BaseStrategy):
+    """
+    Exploit Then Dominate: An aggressive strategy that always defects to maximize
+    individual payoff. Exploits cooperative players by harvesting public goods while
+    contributing nothing. Never cooperates, maintains consistency, and ends aggressively.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        previous_round_idx = state.round_number - 1
+        previous_cooperators = int(sum(history.opponent_actions[previous_round_idx, :]))
+        coop_rate = previous_cooperators / self.game_description.n_players
+        threshold = self.game_description.k / self.game_description.n_players
+        return Action.D
+
+class Strategy_AGGRESSIVE_20(BaseStrategy):
+    """
+    Conditional Defection with Punishment (CDP): An aggressive strategy that maximizes
+    individual payoff by defaulting to defection while exploiting cooperators. Only
+    cooperates when it directly increases personal payoff relative to defection.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.D
+        if round_number == self.n_rounds - 1:
+            return Action.D
+        total_rounds_completed = round_number
+        total_observations = self.n_players * total_rounds_completed
+        total_cooperations = 0
+        for past_round in range(total_rounds_completed):
+            total_cooperations += np.sum(history.opponent_actions[past_round, :])
+        if total_observations == 0:
+            coop_rate = 0.0
+        else:
+            coop_rate = total_cooperations / total_observations
+        estimated_coop = coop_rate * (self.n_players - 1)
+        payoff_if_d = 1.0 + self.k / self.n_players * estimated_coop
+        payoff_if_c = self.k / self.n_players * (estimated_coop + 1.0)
+        last_round_cooperators = np.sum(history.opponent_actions[round_number - 1, :])
+        if last_round_cooperators > 0 and payoff_if_d >= 1.0:
+            return Action.D
+        if payoff_if_d >= payoff_if_c:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_AGGRESSIVE_21(BaseStrategy):
+    """
+    Aggressive Strategy: Adaptive Exploitation with Dynamic Punishment (AEWDP)
+    
+    Core philosophy: Exploit cooperation for maximum personal gain while maintaining
+    credible threat capacity. Defect by default, cooperate only when it maximizes
+    expected payoff relative to defection, and punish cooperation opportunistically.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.exploitation_intensity = 0.0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.D
+        if round_num == self.n_rounds - 1:
+            return Action.D
+        return self._decide_middle_game(round_num, history)
+
+    def _decide_middle_game(self, round_num: int, history: PlayerHistory) -> Action:
+        """Decision logic for middle game rounds (2 to r-1)"""
+        coop_rate = self._calculate_cooperation_rate(history, round_num)
+        threshold = (1.0 - self.k / self.n_players) / 2.0
+        if round_num > 0 and round_num % 3 == 0:
+            self._recalibrate(history, round_num, coop_rate)
+        if coop_rate > threshold:
+            if self._should_punish_self(history, round_num):
+                if random.random() < 0.95:
+                    return Action.D
+                else:
+                    return Action.C
+            else:
+                expected_cooperators = coop_rate * self.n_players
+                payoff_if_defect = 1.0 + self.k / self.n_players * expected_cooperators
+                payoff_if_cooperate = self.k / self.n_players * expected_cooperators
+                if payoff_if_defect > payoff_if_cooperate + 0.1:
+                    return Action.D
+                elif random.random() < 0.9 + self.exploitation_intensity:
+                    return Action.D
+                else:
+                    return Action.C
+        else:
+            return Action.D
+
+    def _calculate_cooperation_rate(self, history: PlayerHistory, current_round: int) -> float:
+        """Calculate cooperation rate from previous rounds"""
+        if current_round <= 0:
+            return 0.0
+        total_cooperators = 0
+        for round_idx in range(current_round):
+            opponent_coops = np.sum(history.opponent_actions[round_idx, :])
+            self_coop = 1.0 if history.my_actions[round_idx] else 0.0
+            total_cooperators += opponent_coops + self_coop
+        total_possible = current_round * self.n_players
+        if total_possible == 0:
+            return 0.0
+        return total_cooperators / total_possible
+
+    def _should_punish_self(self, history: PlayerHistory, current_round: int) -> bool:
+        """Determine if I should punish my own cooperation"""
+        if current_round <= 0:
+            return False
+        prev_round = current_round - 1
+        if not history.my_actions[prev_round]:
+            return False
+        my_prev_payoff = history.my_payoffs[prev_round]
+        avg_payoff = np.mean(history.opponent_payoffs[prev_round, :])
+        return my_prev_payoff < avg_payoff
+
+    def _recalibrate(self, history: PlayerHistory, current_round: int, coop_rate: float) -> None:
+        """Adaptive recalibration every 3 rounds"""
+        recent_start = max(0, current_round - 3)
+        recent_coops = 0
+        recent_total = 0
+        for round_idx in range(recent_start, current_round):
+            opponent_coops = np.sum(history.opponent_actions[round_idx, :])
+            self_coop = 1.0 if history.my_actions[round_idx] else 0.0
+            recent_coops += opponent_coops + self_coop
+            recent_total += self.n_players
+        if recent_total == 0:
+            recent_cooperation = 0.0
+        else:
+            recent_cooperation = recent_coops / recent_total
+        if recent_cooperation < 0.25:
+            self.exploitation_intensity = 0.1
+        elif recent_cooperation > 0.75:
+            self.exploitation_intensity = min(0.15, self.exploitation_intensity + 0.15)
+        else:
+            self.exploitation_intensity = 0.0
+
+class Strategy_AGGRESSIVE_22(BaseStrategy):
+    """
+    EXPLOITATIVE THRESHOLD strategy for N-Player Public Goods Game.
+    
+    Systematically exploits cooperative tendencies through conditional defection.
+    Defects in ~95% of scenarios by default, with selective exploitation of 
+    high-cooperation environments. Uses threshold-based adaptation to maximize
+    personal payoff extraction.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.exploitation_threshold = self.k / self.n_players * 0.5 + 0.4
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.D
+        if round_number == self.n_rounds - 1:
+            return Action.D
+        if round_number == self.n_rounds - 2:
+            return Action.D
+        last_round_index = round_number - 1
+        cooperators_last_round = int(sum(history.opponent_actions[last_round_index, :]))
+        cooperation_rate = cooperators_last_round / self.n_players if self.n_players > 0 else 0
+        rounds_remaining = self.n_rounds - round_number
+        if cooperation_rate > 0.8 and rounds_remaining > 3:
+            return Action.D
+        if cooperation_rate < 0.15 and round_number > 5:
+            return Action.D
+        if cooperation_rate >= self.exploitation_threshold:
+            return Action.D
+        if cooperation_rate < self.exploitation_threshold and rounds_remaining > 2:
+            return Action.D
+        return Action.D
+
+class Strategy_AGGRESSIVE_23(BaseStrategy):
+    """
+    Aggressive Adaptive Defection with Conditional Punishment Strategy.
+    
+    This strategy maximizes personal payoff by defaulting to defection while
+    strategically cooperating only when it directly benefits the player.
+    It exploits cooperators, punishes cooperation attempts, and uses adaptive
+    thresholds based on observed cooperation rates.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold_high = 0.65
+        self.threshold_medium = 0.35
+        self.max_history_window = 3
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        rolling_coop_rate = self._calculate_rolling_cooperation_rate(history, state.round_number)
+        if rolling_coop_rate > self.threshold_high:
+            return Action.D
+        elif rolling_coop_rate > self.threshold_medium:
+            coop_probability = 0.25 * rolling_coop_rate
+            if random.random() < coop_probability:
+                return Action.C
+            return Action.D
+        else:
+            return Action.D
+
+    def _calculate_rolling_cooperation_rate(self, history: PlayerHistory, round_number: int) -> float:
+        """
+        Calculate exponentially weighted average of cooperation rates from recent rounds.
+        Weights recent rounds more heavily.
+        """
+        start_round = max(0, round_number - self.max_history_window)
+        end_round = round_number
+        coop_rates = []
+        for round_idx in range(start_round, end_round):
+            cooperators_in_round = np.sum(history.opponent_actions[round_idx, :])
+            coop_rate = cooperators_in_round / self.game_description.n_players
+            coop_rates.append(coop_rate)
+        if len(coop_rates) == 0:
+            return 0.0
+        num_rounds = len(coop_rates)
+        if num_rounds == 1:
+            return coop_rates[0]
+        elif num_rounds == 2:
+            weights = np.array([0.4, 0.6])
+        else:
+            weights = np.array([0.3, 0.4, 0.3])
+            coop_rates = coop_rates[-3:]
+        weights = weights[:len(coop_rates)]
+        weights = weights / np.sum(weights)
+        rolling_coop_rate = float(np.dot(weights, coop_rates))
+        return rolling_coop_rate
+
+class Strategy_AGGRESSIVE_24(BaseStrategy):
+    """
+    Aggressive Adaptive Strategy: "Predatory Opportunism"
+    
+    Exploits cooperative tendencies while minimizing vulnerability.
+    Always defects in round 1 and final rounds, adaptively exploits
+    based on observed cooperation rates in mid-game phases.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold_high = 0.5 + 1.0 / self.n
+        self.threshold_low = 1.0 / self.k if self.k > 0 else 0.0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round >= self.r - 2:
+            return Action.D
+        last_round_opponent_actions = history.opponent_actions[-1, :]
+        cooperators_last_round = int(np.sum(last_round_opponent_actions))
+        coop_rate = cooperators_last_round / self.n
+        if coop_rate >= self.threshold_high:
+            return Action.D
+        elif coop_rate >= self.threshold_low:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_AGGRESSIVE_25(BaseStrategy):
+    """
+    Adaptive Defection with Conditional Punishment (ADCP):
+    An aggressive strategy that defaults to defection while exploiting cooperators.
+    Cooperates conditionally only when the exploitation threshold is met, and enters
+    a permanent defection lock if cooperation rates drop below 30%.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.defection_lock = False
+        self.exploitation_mode = False
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        current_round = state.round_number
+        previous_cooperators = int(np.sum(history.opponent_actions[current_round - 1, :]))
+        history_depth = min(3, current_round)
+        recent_rounds = history.opponent_actions[current_round - history_depth:current_round, :]
+        total_possible = history_depth * n
+        total_cooperators = int(np.sum(recent_rounds))
+        cooperation_rate_last_3 = total_cooperators / total_possible if total_possible > 0 else 0.0
+        if self.defection_lock:
+            return Action.D
+        if cooperation_rate_last_3 <= 0.3:
+            self.defection_lock = True
+            return Action.D
+        threshold = math.ceil(n / 2)
+        if previous_cooperators >= threshold:
+            self.exploitation_mode = True
+            return Action.D
+        if previous_cooperators == 0:
+            return Action.D
+        if current_round >= r - 1:
+            return Action.D
+        return Action.D
+
+class Strategy_AGGRESSIVE_26(BaseStrategy):
+    """
+    Aggressive "Exploit and Punish" strategy for N-Player Public Goods Game.
+    
+    Core philosophy: Defect opportunistically to maximize personal payoff while
+    exploiting any cooperation from other players. Cooperate minimally and only
+    when forced by circumstances. Always defect in final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.k = game_description.k
+        self.r = game_description.n_rounds
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.D
+        if round_num == self.r - 1:
+            return Action.D
+        prev_round_idx = round_num - 1
+        prev_opponent_actions = history.opponent_actions[prev_round_idx, :]
+        prev_my_action = history.my_actions[prev_round_idx]
+        total_cooperators = int(prev_my_action) + int(np.sum(prev_opponent_actions))
+        coop_rate = total_cooperators / self.n
+        my_last_payoff = history.my_payoffs[prev_round_idx]
+        threshold = self.k / self.n
+        if coop_rate >= threshold:
+            return Action.D
+        if coop_rate == 1.0:
+            return Action.D
+        if coop_rate > 0.3:
+            return Action.D
+        if coop_rate <= 0.3:
+            return Action.D
+        if not prev_my_action and my_last_payoff < 1.2:
+            return Action.D
+        return Action.D
+
+class Strategy_AGGRESSIVE_27(BaseStrategy):
+    """
+    Aggressive Exploitation with Punitive Resets.
+    
+    This strategy maximizes personal payoff by exploiting cooperative tendencies
+    while maintaining a credible threat of punishment. Defection is the default;
+    cooperation never occurs. The strategy uses backward induction (defect in final
+    two rounds) and exploits mid-game cooperation when it exceeds a threshold.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = 1.0 - 1.0 / (2.0 * self.k)
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.D
+        if round_number == self.n_rounds - 1 or round_number == self.n_rounds - 2:
+            return Action.D
+        previous_round_index = round_number - 1
+        cooperators_last_round = int(np.sum(history.opponent_actions[previous_round_index, :]))
+        cooperation_rate = cooperators_last_round / self.n_players
+        if cooperation_rate > self.threshold:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_AGGRESSIVE_28(BaseStrategy):
+    """
+    Aggressive Exploitation Strategy with Conditional Retaliation.
+    
+    Core approach: Defect to exploit cooperators and free-ride on public goods.
+    Always defect in round 1 and final round (no future shadow, no reputation value).
+    In middle rounds, always defect regardless of cooperation rate (exploitation dominates).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.D
+        if round_number == self.r - 1:
+            return Action.D
+        return Action.D
+
+class Strategy_AGGRESSIVE_29(BaseStrategy):
+    """
+    Aggressive Exploitative Threshold Strategy for N-Player Public Goods Game.
+    
+    Prioritizes individual payoff maximization through calculated exploitation.
+    Defects almost always, exploiting cooperative signals while minimizing
+    vulnerability to being exploited. Uses cooperation rates to determine
+    exploitation opportunities, but defaults to defection in nearly all cases.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold_high = 0.3
+        self.threshold_low = 0.05
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        if state.round_number == 0:
+            return Action.D
+        if state.round_number == r - 1:
+            return Action.D
+        if state.round_number <= 1:
+            return Action.D
+        if state.round_number >= r - 2:
+            return Action.D
+        last_round_actions = history.opponent_actions[-1, :]
+        cooperators_count = int(np.sum(last_round_actions))
+        if n == 0:
+            cooperation_rate = 0.0
+        else:
+            cooperation_rate = cooperators_count / n
+        if cooperation_rate >= self.threshold_high:
+            return Action.D
+        elif cooperation_rate <= self.threshold_low:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_AGGRESSIVE_30(BaseStrategy):
+    """
+    Exploitative Threshold Strategy: Aggressive defection that exploits cooperation
+    while avoiding exploitation. Always defects by default, with conditional logic
+    that still defaults to defection based on historical cooperation rates.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.exploitation_threshold = game_description.k / game_description.n_players
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        total_cooperators = np.sum(history.opponent_actions)
+        total_opportunities = self.game_description.n_players * state.round_number
+        if total_opportunities == 0:
+            cooperation_rate = 0.0
+        else:
+            cooperation_rate = float(total_cooperators) / float(total_opportunities)
+        if cooperation_rate > self.exploitation_threshold:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_AGGRESSIVE_31(BaseStrategy):
+    """
+    Aggressive Strategy: Adaptive Exploitation with Defensive Retaliation
+    
+    Core philosophy: Maximize personal payoff through aggressive defection while
+    adapting to prevent mutual destruction. Exploits cooperators ruthlessly,
+    matches defectors, and applies minimal cooperation only to sustain the public
+    good in deteriorating environments.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperation_threshold = 0.5
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        cooperation_rate = self._calculate_opponent_cooperation_rate(history, state)
+        if cooperation_rate >= self.cooperation_threshold:
+            return Action.D
+        if cooperation_rate > 0:
+            rounds_remaining = self.game_description.n_rounds - state.round_number
+            probability_defect = min(0.9, rounds_remaining / self.game_description.n_rounds)
+            if random.random() < probability_defect:
+                return Action.D
+            else:
+                return Action.C
+        return Action.D
+
+    def _calculate_opponent_cooperation_rate(self, history: PlayerHistory, state: GameState) -> float:
+        """
+        Calculate the cooperation rate of all opponents based on history.
+        Returns a value in [0, 1].
+        """
+        rounds_completed = state.round_number
+        if rounds_completed == 0:
+            return 0.0
+        total_possible_opponent_actions = rounds_completed * (self.game_description.n_players - 1)
+        if total_possible_opponent_actions == 0:
+            return 0.0
+        total_opponent_cooperations = np.sum(history.opponent_actions[:rounds_completed, :])
+        cooperation_rate = float(total_opponent_cooperations) / float(total_possible_opponent_actions)
+        return cooperation_rate
+
+class Strategy_AGGRESSIVE_32(BaseStrategy):
+    """
+    Aggressive Exploitative Strategy: "Conditional Predator"
+    
+    Maximizes personal payoff by exploiting cooperative tendencies while ruthlessly
+    punishing defection. Defects in round 1 and final round unconditionally. In middle
+    rounds, defects if cooperation rate exceeds break-even threshold (k/n), otherwise
+    cooperates to set traps for reciprocal strategies.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.break_even_threshold = self.k / self.n_players
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.D
+        if round_number == self.n_rounds - 1:
+            return Action.D
+        prev_round_opponent_actions = history.opponent_actions[round_number - 1, :]
+        cooperation_count = np.sum(prev_round_opponent_actions)
+        cooperation_rate = cooperation_count / self.n_players
+        if cooperation_rate >= self.break_even_threshold:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_OPPORTUNISTIC_1(BaseStrategy):
+    """
+    Opportunistic Extraction Strategy for N-Player Public Goods Game.
+    
+    Core philosophy: Maximize personal payoff by exploiting cooperative players
+    while avoiding futile cooperation. Defect by default, only considering
+    cooperation when extracting value from others' contributions.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.k = game_description.k
+        self.total_rounds = game_description.n_rounds
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.D
+        if round_num == self.total_rounds - 1:
+            return Action.D
+        previous_round_idx = round_num - 1
+        c_prev = int(sum(history.opponent_actions[previous_round_idx, :]))
+        threshold = self.n_players * (self.n_players - self.k) / self.k
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_2(BaseStrategy):
+    """
+    Opportunistic Adaptive Defection with Selective Exploitation.
+    
+    Maximizes personal payoff by exploiting cooperative behavior when it exists,
+    while defaulting to defection as the baseline strategy. Uses dynamic thresholds
+    and trend analysis to adapt to opponent behavior across rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.consecutive_defections = 0
+        self.early_collapse_locked = False
+        self.max_coop_rate_seen = 0.0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.D
+        prev_round_idx = round_number - 1
+        prev_cooperators = int(sum(history.opponent_actions[prev_round_idx, :]))
+        prev_coop_rate = prev_cooperators / self.n_players if self.n_players > 0 else 0.0
+        self.max_coop_rate_seen = max(self.max_coop_rate_seen, prev_coop_rate)
+        if round_number == 2 and prev_coop_rate < 0.1:
+            self.early_collapse_locked = True
+        if self.early_collapse_locked:
+            return Action.D
+        exploitation_payoff = 1.0 + self.k / self.n_players * prev_cooperators
+        if round_number == self.n_rounds - 1:
+            return Action.D
+        exploitation_threshold = 1.5
+        if self.consecutive_defections >= 3:
+            exploitation_threshold = 1.4
+        if exploitation_payoff >= exploitation_threshold and prev_coop_rate > 0.4:
+            self.consecutive_defections += 1
+            return Action.D
+        if exploitation_payoff < 1.5 and prev_coop_rate > 0.4:
+            self.consecutive_defections = 0
+            return Action.C
+        if round_number >= 2:
+            prev_prev_round_idx = round_number - 2
+            prev_prev_cooperators = int(sum(history.opponent_actions[prev_prev_round_idx, :]))
+            prev_prev_coop_rate = prev_prev_cooperators / self.n_players if self.n_players > 0 else 0.0
+            if prev_coop_rate < prev_prev_coop_rate and prev_coop_rate < 0.2:
+                self.consecutive_defections += 1
+                return Action.D
+            if prev_coop_rate > prev_prev_coop_rate:
+                if exploitation_payoff >= exploitation_threshold:
+                    self.consecutive_defections += 1
+                    return Action.D
+        self.consecutive_defections += 1
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_3(BaseStrategy):
+    """
+    Opportunistic Strategy: Conditional Defection with Adaptive Exploitation
+    
+    Maximizes personal payoff by exploiting cooperation when it appears, while avoiding
+    the sucker's payoff of cooperating against defectors. Core principle: defection is
+    mathematically superior in this game since k < n implies (k/n) < 1, making cooperation
+    strictly dominated except in exploitation scenarios.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == self.n_rounds - 1:
+            return Action.D
+        if round_num == 0:
+            return Action.D
+        total_rounds_played = round_num
+        total_cooperators = int(np.sum(history.opponent_actions[:round_num, :]))
+        if total_rounds_played == 0:
+            cooperation_rate = 0.0
+        else:
+            cooperation_rate = total_cooperators / (self.n_players * total_rounds_played)
+        exploitation_threshold = (self.n_players - 1) / self.n_players
+        if cooperation_rate > exploitation_threshold:
+            return Action.D
+        rounds_remaining = self.n_rounds - round_num
+        if rounds_remaining <= 2:
+            return Action.D
+        if round_num >= 3:
+            recent_cooperators = int(np.sum(history.opponent_actions[round_num - 3:round_num, :]))
+            recent_cooperation_rate = recent_cooperators / (3 * self.n_players)
+        else:
+            recent_cooperation_rate = cooperation_rate
+        if round_num >= 2:
+            prev_round_cooperators = int(np.sum(history.opponent_actions[round_num - 1, :]))
+            curr_estimated_cooperators = int(np.sum(history.opponent_actions[round_num - 2, :]))
+            if prev_round_cooperators > curr_estimated_cooperators:
+                return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_4(BaseStrategy):
+    """
+    Parasite Strategy: Opportunistic defection with conditional free-riding.
+    
+    Core logic:
+    - Always defect in round 1 and final round
+    - Mid-game: defect when cooperation rate exceeds threshold (k/n + 0.05)
+    - Exception: cooperate once if defected 3+ consecutive rounds and others still cooperate
+      (to sustain exploitable cooperation in the group)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = self.k / self.n + 0.05
+        self.consecutive_defections = 0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            self.consecutive_defections = 1
+            return Action.D
+        if round_num == self.r - 1:
+            return Action.D
+        last_round_idx = round_num - 1
+        cooperators_last_round = np.sum(history.opponent_actions[last_round_idx, :])
+        coop_rate_last = cooperators_last_round / self.n
+        my_defections = 0
+        for i in range(len(history.my_actions) - 1, -1, -1):
+            if not history.my_actions[i]:
+                my_defections += 1
+            else:
+                break
+        if my_defections >= 3 and coop_rate_last > 0.4:
+            self.consecutive_defections = 0
+            return Action.C
+        if coop_rate_last >= self.threshold:
+            self.consecutive_defections += 1
+            return Action.D
+        self.consecutive_defections += 1
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_5(BaseStrategy):
+    """
+    Opportunistic Strategy: "Adaptive Exploitation with Conditional Defection"
+    
+    Maximizes personal payoff by exploiting cooperative environments while defecting
+    when cooperation is insufficient or at game boundaries. Uses adaptive thresholds
+    based on game parameters (n, k) to decide when to free-ride on others' contributions.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.D
+        if round_num == self.n_rounds - 1:
+            return Action.D
+        prev_round_idx = round_num - 1
+        cooperators_last_round = int(np.sum(history.opponent_actions[prev_round_idx, :]))
+        if self.n_players == 0:
+            return Action.D
+        cooperation_rate = cooperators_last_round / self.n_players
+        threshold_high = max(0.5, self.k / (2.0 * self.n_players))
+        threshold_mid = self.k / (2.0 * self.n_players) + 0.1
+        if cooperation_rate >= threshold_high:
+            return Action.C
+        elif cooperation_rate >= threshold_mid:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_6(BaseStrategy):
+    """
+    Opportunistic Strategy: Adaptive Exploitation with Dynamic Threshold Switching
+    
+    Maximizes personal payoff by exploiting cooperative environments while minimizing
+    losses in defective ones. Uses aggregate cooperation rates to dynamically switch
+    between exploitation and tactical adaptation modes.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.upper_threshold = 0.5
+        self.lower_threshold = 0.2
+        self.recovery_probability = 0.3
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        if state.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        prev_round_idx = state.round_number - 1
+        opponent_cooperators_prev = sum(history.opponent_actions[prev_round_idx, :])
+        self_cooperated_prev = history.my_actions[prev_round_idx]
+        total_cooperators_prev = opponent_cooperators_prev + (1 if self_cooperated_prev else 0)
+        prev_coop_rate = total_cooperators_prev / self.game_description.n_players
+        if prev_coop_rate > self.upper_threshold:
+            return Action.D
+        elif prev_coop_rate < self.lower_threshold:
+            if random.random() < self.recovery_probability:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_7(BaseStrategy):
+    """
+    Opportunistic strategy: Adaptive Exploitation with Selective Reciprocity.
+    
+    Maximizes personal payoff by exploiting cooperative environments while 
+    defecting in all rounds except rare, calculated cooperation attempts in 
+    high-cooperation mid-game scenarios.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.endgame_threshold = max(3, math.ceil(self.n_rounds / 4))
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.D
+        if round_number >= self.n_rounds - self.endgame_threshold:
+            return Action.D
+        previous_round_idx = round_number - 1
+        previous_cooperators = int(np.sum(history.opponent_actions[previous_round_idx, :]))
+        cooperation_rate = previous_cooperators / self.n_players
+        exploitation_premium = self.k / self.n_players * previous_cooperators - (1 - self.k / self.n_players)
+        cooperation_threshold = max(self.k / self.n_players, 0.66)
+        exploitation_threshold = 0.3
+        if cooperation_rate >= cooperation_threshold and exploitation_premium > exploitation_threshold:
+            if random.random() < 0.05:
+                return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_8(BaseStrategy):
+    """
+    Opportunistic strategy: "Adaptive Exploitation with Conditional Cooperation"
+    
+    Core approach: Defect by default, but conditionally cooperate when it maximizes
+    personal payoff. Exploits cooperators, detects mutual defection, and always defects
+    in final rounds for maximum extraction.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.last_action_was_probe = False
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round >= self.n_rounds - 2:
+            return Action.D
+        if current_round == 0:
+            self.last_action_was_probe = False
+            return Action.D
+        prev_round_idx = current_round - 1
+        cooperators_prev_round = int(np.sum(history.opponent_actions[prev_round_idx, :]))
+        cooperation_rate_last_round = cooperators_prev_round / (self.n_players - 1) if self.n_players > 1 else 0.0
+        start_idx = max(0, current_round - 3)
+        public_pool_values = []
+        for round_idx in range(start_idx, current_round):
+            cooperators_in_round = int(np.sum(history.opponent_actions[round_idx, :]))
+            if history.my_actions[round_idx]:
+                cooperators_in_round += 1
+            public_pool_contribution = self.k / self.n_players * cooperators_in_round
+            public_pool_values.append(public_pool_contribution)
+        avg_public_pool = np.mean(public_pool_values) if public_pool_values else 0.0
+        threshold_cooperation = (self.k - 1) / self.k if self.k > 1 else 0.0
+        if cooperation_rate_last_round > threshold_cooperation:
+            self.last_action_was_probe = False
+            return Action.C
+        defection_rate_last_round = 1.0 - cooperation_rate_last_round
+        threshold_pool = self.k / 2.0
+        if defection_rate_last_round > 0.5 and avg_public_pool < threshold_pool:
+            if not self.last_action_was_probe:
+                self.last_action_was_probe = True
+                return Action.C
+            else:
+                self.last_action_was_probe = False
+                return Action.D
+        self.last_action_was_probe = False
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_9(BaseStrategy):
+    """
+    Opportunistic Strategy: Adaptive Defection with Conditional Exploitation (ADCE)
+    
+    Core philosophy: Maximize personal payoff by exploiting cooperation when available
+    while minimizing losses from defection. Never voluntarily contribute unless external
+    conditions make defection risky. Default to defection with rare tactical evasion.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num < min(3, self.n_rounds - 1):
+            return Action.D
+        if round_num >= self.n_rounds - 2:
+            return Action.D
+        if history is not None and round_num > 0:
+            last_round_idx = round_num - 1
+            opponent_cooperators = int(np.sum(history.opponent_actions[last_round_idx, :]))
+            total_cooperators = opponent_cooperators + (1 if history.my_actions[last_round_idx] else 0)
+            cooperation_rate = total_cooperators / self.n_players if self.n_players > 0 else 0.0
+            if cooperation_rate > 0.7 and round_num < self.n_rounds - 2:
+                if random.random() < 0.1:
+                    return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_10(BaseStrategy):
+    """
+    Opportunistic Strategy: Adaptive Exploitation with Defection Bias
+    
+    Core philosophy: Maximize personal payoff by exploiting cooperative opponents
+    while maintaining a defection bias. Always defect, but monitor cooperation rates
+    to identify and maximize exploitation of cooperative environments.
+    
+    Decision rules:
+    - Round 1: DEFECT (no history, establish aggressive positioning)
+    - Rounds 2 to r-1: DEFECT (always, regardless of cooperation rate)
+    - Round r: DEFECT (endgame exploitation, no reputation effects)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = (self.n_players - 1) / self.n_players
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        if state.round_number == self.n_rounds - 1:
+            return Action.D
+        if history is not None and len(history.opponent_actions) > 0:
+            prev_round_actions = history.opponent_actions[state.round_number - 1, :]
+            cooperators_count = int(np.sum(prev_round_actions))
+            if self.n_players > 0:
+                cooperation_rate = cooperators_count / self.n_players
+            else:
+                cooperation_rate = 0.0
+            if cooperation_rate >= self.threshold:
+                return Action.D
+            else:
+                return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_11(BaseStrategy):
+    """
+    Adaptive Exploitation Strategy for N-Player Public Goods Game.
+    
+    Exploits cooperative behavior by defecting when cooperation is sufficiently
+    prevalent. The strategy monitors cooperation rates and maintains defection
+    as the dominant strategy, maximizing personal payoff through free-riding.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.exploitation_threshold = 1.0 / self.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        cooperation_rate = self._calculate_cooperation_rate(history, state.round_number)
+        if state.round_number > self.n_rounds - 2:
+            return Action.D
+        return Action.D
+
+    def _calculate_cooperation_rate(self, history: PlayerHistory, current_round: int) -> float:
+        """
+        Calculate the cooperation rate across all previous rounds.
+        
+        cooperation_rate = total_cooperators / (number_of_previous_rounds * n_players)
+        
+        This includes both the player's own cooperation and opponents' cooperation.
+        """
+        if current_round == 0:
+            return 0.0
+        my_cooperations = np.sum(history.my_actions[:current_round])
+        opponent_cooperations = np.sum(history.opponent_actions[:current_round, :])
+        total_cooperations = my_cooperations + opponent_cooperations
+        total_possible_cooperations = current_round * self.n_players
+        if total_possible_cooperations == 0:
+            return 0.0
+        cooperation_rate = total_cooperations / total_possible_cooperations
+        return cooperation_rate
+
+class Strategy_OPPORTUNISTIC_12(BaseStrategy):
+    """
+    Opportunistic strategy: "Adaptive Exploit with Contingent Cooperation"
+    
+    Cooperates in round 1 to gather information, then exploits cooperative populations
+    while defecting against defection-dominant environments. Always defects in the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.k = game_description.k
+        self.r = game_description.n_rounds
+        self.threshold = (self.n - self.k) / self.n
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.r - 1:
+            return Action.D
+        total_cooperators = np.sum(history.my_actions[:current_round]) + np.sum(history.opponent_actions[:current_round, :])
+        total_actions_observed = self.n * current_round
+        if total_actions_observed == 0:
+            coop_rate = 0.0
+        else:
+            coop_rate = total_cooperators / total_actions_observed
+        if coop_rate >= self.threshold:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_13(BaseStrategy):
+    """
+    Opportunistic strategy: "Adaptive Exploitation with Selective Cooperation"
+    
+    Defects in round 1 and final round. In middle rounds, adapts based on opponent
+    cooperation rates using dynamic thresholds. Extends exploitation when opponents
+    show sustained high cooperation while we defect.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.k = game_description.k
+        self.r = game_description.n_rounds
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.D
+        if round_num == self.r - 1:
+            return Action.D
+        prev_round_idx = round_num - 1
+        prev_cooperators = int(np.sum(history.opponent_actions[prev_round_idx, :]))
+        coop_rate = prev_cooperators / self.n if self.n > 0 else 0.0
+        threshold = 1.0 / self.k + 0.15
+        threshold = max(0.3, min(0.8, threshold))
+        if round_num > 1:
+            prev_prev_round_idx = round_num - 2
+            prev_prev_cooperators = int(np.sum(history.opponent_actions[prev_prev_round_idx, :]))
+            prev_prev_coop_rate = prev_prev_cooperators / self.n if self.n > 0 else 0.0
+            avg_last_2_coop = (coop_rate + prev_prev_coop_rate) / 2.0
+            our_prev_action = history.my_actions[prev_round_idx]
+            our_prev_prev_action = history.my_actions[prev_prev_round_idx]
+            if avg_last_2_coop > 0.65 and (not our_prev_action) and (not our_prev_prev_action):
+                return Action.D
+        if coop_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_14(BaseStrategy):
+    """
+    Opportunistic Free-Rider with Adaptive Defection.
+    
+    Core strategy: Always defect to maximize personal payoff by exploiting
+    cooperators while avoiding the cost of contribution. Defects in round 1
+    (initialization), rounds 2 to r-1 (exploitation based on cooperation rate),
+    and final round (no reputation consequences).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = self.k / self.n_players
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.D
+        if round_number == self.n_rounds - 1:
+            return Action.D
+        if history is not None:
+            previous_round_idx = round_number - 1
+            cooperators_previous_round = np.sum(history.opponent_actions[previous_round_idx, :])
+            cooperation_rate = cooperators_previous_round / self.n_players
+            if cooperation_rate >= self.threshold:
+                return Action.D
+            else:
+                return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_15(BaseStrategy):
+    """
+    Opportunistic strategy: "Adaptive Exploitation with Contingent Cooperation"
+    
+    Exploits the public goods game asymmetry through three phases:
+    1. Early game (rounds 0 to r/3): DEFECT to profile opponent cooperation
+    2. Mid game (rounds r/3+1 to 2r/3): Conditional cooperation based on observed cooperation rate
+    3. End game (rounds 2r/3+1 to r): DEFECT to maximize final exploitation
+    
+    Core logic: Cooperate only when others' cooperation makes it profitable (when observed
+    cooperation rate exceeds threshold (k-1)/k), otherwise defect.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.early_phase_end = math.floor(self.n_rounds / 3)
+        self.mid_phase_end = math.floor(2 * self.n_rounds / 3)
+        self.coop_threshold = (self.k - 1) / self.k if self.k > 1 else 0.0
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num <= self.early_phase_end:
+            return Action.D
+        if round_num <= self.mid_phase_end:
+            observed_coop_rate = self._calculate_early_cooperation_rate(history)
+            if observed_coop_rate > self.coop_threshold:
+                return Action.C
+            else:
+                return Action.D
+        return Action.D
+
+    def _calculate_early_cooperation_rate(self, history: PlayerHistory) -> float:
+        """
+        Calculate the empirical cooperation rate from Phase 1 (early game).
+        Returns fraction of opponent actions that were COOPERATE in early phase rounds.
+        """
+        if self.early_phase_end == 0:
+            return 0.0
+        early_actions = history.opponent_actions[0:self.early_phase_end + 1, :]
+        total_cooperations = np.sum(early_actions)
+        total_possible = (self.early_phase_end + 1) * self.n_players
+        if total_possible == 0:
+            return 0.0
+        cooperation_rate = total_cooperations / total_possible
+        return cooperation_rate
+
+class Strategy_OPPORTUNISTIC_16(BaseStrategy):
+    """
+    Opportunistic Defection Strategy: Adaptive exploitation with defection bias.
+    
+    This strategy exploits the fundamental asymmetry in public goods games by:
+    1. Always defecting in round 1 and final round
+    2. Defecting in middle rounds to extract value from any cooperators
+    3. Never voluntarily cooperating unless strategic necessity arises
+    4. Monitoring cooperation rates but ultimately defaulting to defection
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        final_round = self.n_rounds - 1
+        if current_round == 0:
+            return Action.D
+        if current_round == final_round:
+            return Action.D
+        if current_round == final_round - 1:
+            return Action.D
+        if history is not None and current_round > 0:
+            prev_round_actions = history.opponent_actions[current_round - 1, :]
+            cooperation_count = np.sum(prev_round_actions)
+            cooperation_rate = cooperation_count / (self.n_players - 1) if self.n_players > 1 else 0.0
+            exploitation_threshold = 0.3
+            if cooperation_count == 0:
+                return Action.D
+            if current_round >= 2:
+                prev_prev_actions = history.opponent_actions[current_round - 2, :]
+                prev_prev_coop_count = np.sum(prev_prev_actions)
+                if prev_prev_coop_count > cooperation_count:
+                    return Action.D
+            if cooperation_rate > 0.7:
+                return Action.D
+            return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_17(BaseStrategy):
+    """
+    Opportunistic strategy: Adaptive Exploitation with Calculated Reciprocity.
+    
+    Maximizes personal payoff by exploiting cooperative environments while avoiding
+    mutual defection traps. Defaults to defection, tests cooperation only when safe,
+    and abandons cooperation in the endgame.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round == self.n_rounds - 1:
+            return Action.D
+        prev_round_idx = current_round - 1
+        cooperators_prev_round = int(sum(history.opponent_actions[prev_round_idx, :]))
+        cooperation_rate = cooperators_prev_round / self.n_players
+        if current_round >= 3:
+            recent_rounds_start = max(0, current_round - 3)
+            defection_pattern = True
+            for round_idx in range(recent_rounds_start, current_round):
+                cooperators_in_round = int(sum(history.opponent_actions[round_idx, :]))
+                if cooperators_in_round >= 2:
+                    defection_pattern = False
+                    break
+            if defection_pattern and cooperation_rate < 0.2:
+                return Action.C
+        if self.k < 1.2:
+            exploitation_threshold = 0.7
+        else:
+            exploitation_threshold = 0.4
+        if cooperation_rate >= exploitation_threshold:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_18(BaseStrategy):
+    """
+    Opportunistic Strategy: "Adaptive Exploitation with Defensive Defection"
+    
+    Prioritizes individual payoff maximization by exploiting cooperative opponents
+    while maintaining flexibility to adapt to punitive environments. Uses round 1
+    for information extraction, middle rounds for opportunistic exploitation, and
+    final rounds for maximum extraction.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.k = game_description.k
+        self.r = game_description.n_rounds
+        self.exploitation_factor = 0.3
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.D
+        if round_num == self.r - 1:
+            return Action.D
+        if round_num == self.r - 2:
+            avg_coop_rate = self._get_moving_average_coop_rate(history, round_num)
+            if avg_coop_rate > 2 * (self.k / self.n):
+                return Action.C
+            else:
+                return Action.D
+        avg_coop_rate = self._get_moving_average_coop_rate(history, round_num)
+        defect_payoff = 1 + self.k / self.n * (avg_coop_rate * self.n)
+        coop_payoff = self.k / self.n * (avg_coop_rate * self.n + 1)
+        rounds_remaining = self.r - round_num
+        threshold = (self.k - 1) / self.n * (rounds_remaining / self.r) * self.exploitation_factor
+        payoff_diff = coop_payoff - defect_payoff
+        if payoff_diff > threshold:
+            return Action.C
+        else:
+            return Action.D
+
+    def _get_moving_average_coop_rate(self, history: PlayerHistory, round_num: int) -> float:
+        """
+        Calculate 2-round moving average of cooperation rate.
+        Uses the last 1-2 complete rounds (excluding current round).
+        Returns average number of cooperators across those rounds.
+        """
+        if round_num == 0:
+            return 0.0
+        start_idx = max(0, round_num - 2)
+        end_idx = round_num
+        total_cooperators = 0
+        num_rounds_counted = 0
+        for r in range(start_idx, end_idx):
+            cooperators = int(np.sum(history.opponent_actions[r, :]))
+            total_cooperators += cooperators
+            num_rounds_counted += 1
+        if num_rounds_counted == 0:
+            return 0.0
+        avg_cooperators = total_cooperators / num_rounds_counted
+        avg_coop_rate = avg_cooperators / self.n
+        return avg_coop_rate
+
+class Strategy_OPPORTUNISTIC_19(BaseStrategy):
+    """
+    Opportunistic Strategy: Adaptive Exploitation with Contingent Cooperation
+    
+    Maximizes personal payoff by exploiting cooperative players while minimizing losses.
+    - Round 1: Cooperate to gather information
+    - Rounds 2 to r-1: Defect if enough cooperators exist, else cooperate to rebuild
+    - Round r: Always defect (final extraction, no future consequences)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = math.ceil((self.n_players - 1) / 2)
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.n_rounds - 1:
+            return Action.D
+        previous_round_idx = current_round - 1
+        cooperators_last_round = int(sum(history.opponent_actions[previous_round_idx, :]))
+        if cooperators_last_round >= self.threshold:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_OPPORTUNISTIC_20(BaseStrategy):
+    """
+    Adaptive Exploitation Strategy: Maximizes personal payoff by exploiting cooperative tendencies
+    while minimizing vulnerability. Cooperates only when others have demonstrated sufficient cooperation,
+    reserves endgame for pure defection, and uses rolling averages to filter noise in opponent behavior.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+        self.exploitation_threshold = (self.k - 1) / self.k
+        self.min_exploitation_window = math.ceil(self.r / 3)
+        self.endgame_phase = math.ceil(self.r / 4)
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.D
+        if self.r <= 4:
+            return Action.D
+        if current_round > self.r - self.endgame_phase:
+            return Action.D
+        coop_rate = self._calculate_cooperation_rate(history, current_round)
+        rounds_remaining = self.r - current_round
+        if coop_rate > self.exploitation_threshold and rounds_remaining > self.min_exploitation_window:
+            return Action.C
+        else:
+            return Action.D
+
+    def _calculate_cooperation_rate(self, history: PlayerHistory, current_round: int) -> float:
+        """
+        Calculate rolling 3-round average cooperation rate of other players.
+        Returns proportion of cooperators among other players.
+        """
+        window_start = max(0, current_round - 3)
+        window_end = current_round
+        if window_start >= window_end:
+            return 0.0
+        opponent_actions_window = history.opponent_actions[window_start:window_end, :]
+        total_cooperations = np.sum(opponent_actions_window)
+        total_opponent_actions = (window_end - window_start) * (self.n - 1)
+        if total_opponent_actions == 0:
+            return 0.0
+        coop_rate = total_cooperations / total_opponent_actions
+        return coop_rate
+
+class Strategy_OPPORTUNISTIC_21(BaseStrategy):
+    """
+    Opportunistic strategy with adaptive defection and conditional exploitation.
+    
+    Maximizes personal payoff by exploiting cooperative behavior when it exists,
+    while minimizing losses from mutual defection. Defaults to defection in almost
+    all cases, with rare tactical cooperation to blend into persistent cooperator pools.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = self.k / self.n
+        self.cooperation_buffer = 0.15
+        self.min_history_rounds = 3
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round == self.r - 1:
+            return Action.D
+        prev_round_cooperators = int(sum(history.opponent_actions[current_round - 1, :]))
+        prev_c_rate = prev_round_cooperators / self.n
+        if current_round >= self.min_history_rounds and current_round < self.r - 1:
+            all_prev_cooperators = np.sum(history.opponent_actions[:current_round, :])
+            all_prev_rounds = current_round * self.n
+            if all_prev_rounds > 0:
+                hist_c_rate = all_prev_cooperators / all_prev_rounds
+                if hist_c_rate > self.threshold + self.cooperation_buffer:
+                    return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_22(BaseStrategy):
+    """
+    Adaptive Exploitation with Conditional Cooperation (AECC).
+    
+    Maximizes personal payoff by exploiting cooperative tendencies while maintaining
+    flexibility. Defects in first round, last round, and when cooperation rate is high
+    (free-riding). Cooperates conditionally in middle rounds when cooperation is moderate.
+    Uses a 3-round moving window to track opponent cooperation and adapt dynamically.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.exploitation_threshold = 0.65
+        self.collapse_threshold = 0.35
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.D
+        if round_num == self.n_rounds - 1:
+            return Action.D
+        window_size = min(3, round_num)
+        start_idx = round_num - window_size
+        opponent_actions_window = history.opponent_actions[start_idx:round_num, :]
+        total_cooperations = np.sum(opponent_actions_window)
+        total_slots = window_size * (self.n_players - 1)
+        if total_slots == 0:
+            coop_rate = 0.0
+        else:
+            coop_rate = total_cooperations / total_slots
+        threshold = self.exploitation_threshold
+        if round_num == self.n_rounds - 2:
+            threshold = 0.6
+        if coop_rate > threshold:
+            return Action.D
+        elif coop_rate < self.collapse_threshold:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_OPPORTUNISTIC_23(BaseStrategy):
+    """
+    Opportunistic Strategy: Adaptive Defection with Selective Exploitation
+    
+    A strategy that exploits cooperative opponents while maintaining plausible deniability.
+    Uses early cooperation to bait trust, then defects opportunistically.
+    Employs reputation resets when detected as retaliatory, and abandons cooperation entirely
+    in endgame when future value is gone.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.C
+        rounds_remaining = self.n_rounds - round_number
+        if rounds_remaining <= 2:
+            return Action.D
+        opponent_coop_last_round = int(np.sum(history.opponent_actions[round_number - 1, :]))
+        my_recent_defections = int(np.sum(~history.my_actions[max(0, round_number - 5):round_number]))
+        total_rounds_played = round_number
+        total_possible_coop = total_rounds_played * self.n_players
+        total_opponent_coop = int(np.sum(history.opponent_actions[:round_number, :]))
+        overall_coop_rate = total_opponent_coop / total_possible_coop if total_possible_coop > 0 else 0.0
+        retaliatory_detected = False
+        if round_number >= 2:
+            if not history.my_actions[round_number - 1]:
+                opponent_defections_this_round = self.n_players - opponent_coop_last_round
+                if opponent_defections_this_round >= self.n_players * 0.6:
+                    retaliatory_detected = True
+        if overall_coop_rate < 0.3:
+            return Action.D
+        if opponent_coop_last_round >= self.n_players / 2:
+            return Action.D
+        if opponent_coop_last_round == 0:
+            return Action.D
+        if my_recent_defections >= 4 and retaliatory_detected:
+            return Action.C
+        early_round_threshold = math.ceil(self.n_rounds / 3)
+        if round_number < early_round_threshold:
+            rounds_since_coop = 0
+            for i in range(round_number - 1, -1, -1):
+                if history.my_actions[i]:
+                    break
+                rounds_since_coop += 1
+            if rounds_since_coop < 3 and opponent_coop_last_round > 0:
+                return Action.D
+            if opponent_coop_last_round > 0.5 * self.n_players:
+                if rounds_since_coop >= 3:
+                    return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_24(BaseStrategy):
+    """
+    Opportunistic Exploitation with Strategic Defection.
+    
+    Exploits cooperative environments ruthlessly while adapting to defection-heavy contexts.
+    Prioritizes personal gain over collective welfare with tactical flexibility based on
+    observed cooperation rates and round progression.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+        self.exploitation_threshold = self.k / self.n
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.D
+        rounds_remaining = self.r - current_round
+        if rounds_remaining <= 2:
+            return Action.D
+        previous_round_cooperators = int(np.sum(history.opponent_actions[current_round - 1, :]))
+        coop_rate = previous_round_cooperators / self.n
+        if coop_rate > self.exploitation_threshold:
+            if coop_rate >= 0.7:
+                return Action.D
+            elif coop_rate >= 0.5:
+                return Action.D
+            else:
+                return Action.C
+        elif coop_rate < 0.3:
+            return Action.D
+        elif random.random() < 0.25:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_25(BaseStrategy):
+    """
+    Adaptive Predation: An opportunistic strategy that exploits cooperative players
+    while maintaining flexibility to pivot toward cooperation when defection becomes
+    unprofitable. Ruthlessly extracts value while remaining robust to various opponent types.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.D
+        prev_opponent_actions = history.opponent_actions[round_number - 1, :]
+        others_coop_count = int(np.sum(prev_opponent_actions))
+        others_total = self.n_players - 1
+        if others_total == 0:
+            coop_rate = 0.0
+        else:
+            coop_rate = others_coop_count / others_total
+        threshold = 1.0 / self.k
+        if round_number == self.n_rounds - 1:
+            return Action.D
+        if round_number == self.n_rounds:
+            if coop_rate > 0.5:
+                return Action.D
+            else:
+                return Action.D
+        if coop_rate >= threshold:
+            return Action.D
+        elif round_number < self.n_rounds - 2:
+            if coop_rate < 0.15 and round_number < self.n_rounds - 3:
+                return Action.C
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_26(BaseStrategy):
+    """
+    Opportunistic strategy: Adaptive Defection with Conditional Exploitation.
+    
+    Maximizes personal payoff by exploiting cooperative players while avoiding 
+    mutual defection traps. Defects in round 1 and final round unconditionally.
+    In middle rounds, conditionally cooperates only if:
+    1. Observed cooperation rate >= k/n threshold (breakeven point)
+    2. Recent payoff is below tournament average (sanity check)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.k = game_description.k
+        self.r = game_description.n_rounds
+        self.threshold = self.k / self.n
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.D
+        if round_num == self.r - 1:
+            return Action.D
+        if history is None:
+            return Action.D
+        total_cooperators = int(np.sum(history.opponent_actions[:round_num, :]))
+        possible_cooperations = round_num * (self.n - 1)
+        if possible_cooperations == 0:
+            cooperation_rate = 0.0
+        else:
+            cooperation_rate = total_cooperators / possible_cooperations
+        if cooperation_rate >= self.threshold:
+            recent_rounds = min(3, round_num)
+            my_recent_payoffs = history.my_payoffs[round_num - recent_rounds:round_num]
+            my_recent_avg = float(np.mean(my_recent_payoffs)) if len(my_recent_payoffs) > 0 else 0.0
+            last_round_idx = round_num - 1
+            all_payoffs_last_round = np.concatenate([[history.my_payoffs[last_round_idx]], history.opponent_payoffs[last_round_idx, :]])
+            tournament_avg = float(np.mean(all_payoffs_last_round))
+            if my_recent_avg < tournament_avg:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_27(BaseStrategy):
+    """
+    Adaptive Exploitation Framework (AEF) for N-Player Public Goods Game.
+    
+    Exploits cooperation through a three-phase approach:
+    1. Round 1: Cooperate to gather information about opponent types
+    2. Rounds 2 to r-1: Adaptively exploit based on dynamic threshold
+    3. Final round: Defect to extract maximum payoff with no future consequences
+    
+    Uses dynamic threshold that decreases over time to become more aggressive
+    as rounds progress and cooperation opportunities diminish.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_t = state.round_number + 1
+        if round_t == 1:
+            return Action.C
+        if round_t == self.r:
+            return Action.D
+        prev_round_idx = round_t - 2
+        prev_cooperators = int(np.sum(history.opponent_actions[prev_round_idx, :]))
+        cooperation_rate = prev_cooperators / self.n
+        denominator_players = self.n - 1
+        denominator_rounds = self.r - 2
+        if denominator_players <= 0 or denominator_rounds <= 0:
+            if cooperation_rate > 0.5:
+                return Action.C
+            else:
+                return Action.D
+        base_rate = (self.k - 1) / denominator_players
+        time_decay = (self.r - round_t) / denominator_rounds
+        threshold = base_rate * time_decay
+        if cooperation_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_28(BaseStrategy):
+    """
+    Adaptive Exploit-Maximize (AEM) strategy for N-Player Public Goods Game.
+    
+    Opportunistic strategy that systematically exploits cooperative opponents while
+    maintaining flexibility to adapt when exploitation becomes unprofitable.
+    Prioritizes individual gain through strategic defection, selective cooperation,
+    and endgame ruthlessness.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.early_phase_end = math.floor(self.n_rounds * 0.25)
+        self.middle_phase_end = math.floor(self.n_rounds * 0.75)
+        self.threshold_mid = self.k / self.n_players + 0.1
+
+    def _classify_phase(self, round_number: int) -> str:
+        """Classify current phase: EARLY, MIDDLE, or LATE"""
+        if round_number <= self.early_phase_end:
+            return 'EARLY'
+        elif round_number <= self.middle_phase_end:
+            return 'MIDDLE'
+        else:
+            return 'LATE'
+
+    def _compute_opponent_stats(self, history: PlayerHistory) -> tuple[list[float], dict[int, str]]:
+        """
+        Compute cooperation rates and classify opponent types.
+        Returns: (cooperation_rates, classifications)
+        """
+        n_rounds_played = history.my_actions.shape[0]
+        cooperation_rates = []
+        classifications = {}
+        for opponent_idx in range(self.n_players - 1):
+            cooperations = int(np.sum(history.opponent_actions[:, opponent_idx]))
+            c_rate = cooperations / n_rounds_played if n_rounds_played > 0 else 0.0
+            cooperation_rates.append(c_rate)
+            if c_rate < 0.4:
+                classifications[opponent_idx] = 'Defector'
+            elif c_rate >= 0.6:
+                classifications[opponent_idx] = 'Reliable_Cooperator'
+            else:
+                classifications[opponent_idx] = 'Conditional_Cooperator'
+        return (cooperation_rates, classifications)
+
+    def _early_phase_decision(self, cooperation_rates: list[float], classifications: dict[int, str]) -> Action:
+        """Decision logic for EARLY phase"""
+        reliable_coop_count = sum((1 for c in classifications.values() if c == 'Reliable_Cooperator'))
+        if reliable_coop_count >= 1:
+            return Action.D
+        all_defectors = all((c == 'Defector' for c in classifications.values()))
+        if all_defectors:
+            return Action.D
+        return Action.C
+
+    def _middle_phase_decision(self, cooperation_rates: list[float], history: PlayerHistory, round_number: int) -> Action:
+        """Decision logic for MIDDLE phase"""
+        avg_coop = np.mean(cooperation_rates) if cooperation_rates else 0.0
+        if avg_coop > self.threshold_mid:
+            return Action.D
+        if avg_coop < 0.25:
+            return Action.D
+        last_action_was_defect = history.my_actions[-1] == False
+        last_payoff = history.my_payoffs[-1]
+        if last_action_was_defect and last_payoff > 1.5:
+            return Action.D
+        return Action.C
+
+    def _late_phase_decision(self, cooperation_rates: list[float], round_number: int) -> Action:
+        """Decision logic for LATE phase"""
+        rounds_remaining = self.n_rounds - round_number - 1
+        if rounds_remaining <= 2:
+            return Action.D
+        avg_coop = np.mean(cooperation_rates) if cooperation_rates else 0.0
+        if avg_coop > 0.5:
+            return Action.D
+        return Action.D
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        """
+        Determine action for current round based on phase and opponent profiling.
+        """
+        round_number = state.round_number
+        if round_number == 0:
+            return Action.D
+        cooperation_rates, classifications = self._compute_opponent_stats(history)
+        avg_coop = np.mean(cooperation_rates) if cooperation_rates else 0.0
+        if avg_coop < 0.15:
+            return Action.D
+        if round_number == self.n_rounds - 1:
+            return Action.D
+        phase = self._classify_phase(round_number)
+        if phase == 'EARLY':
+            return self._early_phase_decision(cooperation_rates, classifications)
+        elif phase == 'MIDDLE':
+            return self._middle_phase_decision(cooperation_rates, history, round_number)
+        else:
+            return self._late_phase_decision(cooperation_rates, round_number)
+
+class Strategy_OPPORTUNISTIC_29(BaseStrategy):
+    """
+    Opportunistic Strategy: Adaptive Defection with Conditional Cooperation
+    
+    Exploits cooperative players while maintaining flexibility to adjust based on observed behavior.
+    Maximizes individual payoff by defecting whenever the expected value exceeds cooperation,
+    while opportunistically cooperating only when it serves strategic purposes.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold_T = self.k / (self.n_players + self.k)
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        if state.round_number == 0:
+            return Action.D
+        if state.round_number == self.n_rounds - 1:
+            return Action.D
+        total_rounds_played = state.round_number
+        total_contributions = int(np.sum(history.opponent_actions[:total_rounds_played, :]))
+        if total_rounds_played == 0:
+            return Action.D
+        c_rate = total_contributions / (self.n_players * total_rounds_played)
+        cooperators_prev_round = int(np.sum(history.opponent_actions[total_rounds_played - 1, :]))
+        if cooperators_prev_round > 0.5 * self.n_players:
+            return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_30(BaseStrategy):
+    """
+    Opportunistic strategy: "Adaptive Exploit with Conditional Reciprocity"
+    
+    Exploits cooperative environments while defecting when cooperation is unprofitable.
+    Uses a break-even threshold to decide: cooperate if observed cooperation rate
+    meets the threshold, otherwise defect. Always defects in round 1 and last round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = (self.n_players - self.k) / self.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        current_round = state.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round == self.n_rounds - 1:
+            return Action.D
+        previous_round_idx = current_round - 1
+        opponent_actions_previous = history.opponent_actions[previous_round_idx, :]
+        cooperators_previous = np.sum(opponent_actions_previous)
+        cooperation_rate = cooperators_previous / self.n_players
+        if cooperation_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_31(BaseStrategy):
+    """
+    Adaptive Exploitation Strategy for N-Player Public Goods Game.
+    
+    Maximizes personal payoff by exploiting cooperative environments while 
+    minimizing losses in defective environments. Uses observed cooperation rates
+    to decide between defection (extraction) and occasional cooperation 
+    (maintaining the cooperation pool for continued exploitation).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.k_over_n = game_description.k / game_description.n_players
+        self.threshold_high = 0.6
+        self.threshold_low = 0.3
+        self.endgame_cutoff = self.n_rounds - math.ceil(0.2 * self.n_rounds)
+        self.ocr_window = min(5, self.n_rounds - 1)
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_num = state.round_number
+        if round_num == 0:
+            return Action.D
+        if round_num == self.n_rounds - 1:
+            return Action.D
+        if round_num >= self.endgame_cutoff:
+            if random.random() < 0.85:
+                return Action.D
+            else:
+                return Action.C
+        ocr = self._calculate_ocr(history, round_num)
+        if ocr >= self.threshold_high:
+            exploit_value = self.k_over_n * (ocr * self.n_players) - 1
+            if exploit_value > 0:
+                return Action.D
+            elif random.random() < 0.4:
+                return Action.C
+            else:
+                return Action.D
+        elif ocr >= self.threshold_low:
+            return Action.D
+        else:
+            return Action.D
+
+    def _calculate_ocr(self, history: PlayerHistory, round_num: int) -> float:
+        """
+        Calculate Observed Cooperation Rate (OCR) over the last k rounds.
+        OCR = (total cooperators in recent rounds) / (n * recent_round_count)
+        """
+        if round_num == 0:
+            return 0.0
+        window_size = min(self.ocr_window, round_num)
+        start_round = round_num - window_size
+        recent_opponent_actions = history.opponent_actions[start_round:round_num, :]
+        cooperators_count = np.sum(recent_opponent_actions)
+        total_possible = window_size * self.n_players
+        if total_possible == 0:
+            return 0.0
+        ocr = cooperators_count / total_possible
+        return ocr
+
+class Strategy_OPPORTUNISTIC_32(BaseStrategy):
+    """
+    Opportunistic Strategy: Adaptive Exploitation with Dynamic Defection
+    
+    Maximizes personal payoff by exploiting cooperative tendencies in others while
+    minimizing losses from defection. Defects by default, cooperates only strategically
+    to reset expectations when payoffs collapse.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, state: GameState, history: None | PlayerHistory) -> Action:
+        round_t = state.round_number
+        if round_t == 0:
+            return Action.D
+        if round_t == self.n_rounds - 1:
+            return Action.D
+        c_prev = int(np.sum(history.opponent_actions[round_t - 1, :]))
+        payoff_if_defect = 1.0 + self.k / self.n_players * c_prev
+        payoff_if_cooperate = self.k / self.n_players * c_prev
+        if c_prev >= 1 and payoff_if_defect > payoff_if_cooperate:
+            return Action.D
+        if c_prev == 0:
+            return Action.D
+        lookback = min(3, round_t)
+        recent_cooperators = 0
+        total_slots = 0
+        for i in range(round_t - lookback, round_t):
+            if i >= 0:
+                recent_cooperators += int(np.sum(history.opponent_actions[i, :]))
+                total_slots += self.n_players
+        cooperation_trend = recent_cooperators / total_slots if total_slots > 0 else 0.0
+        rounds_remaining = self.n_rounds - round_t
+        if cooperation_trend > 0.5 and rounds_remaining > 2:
+            return Action.D
+        my_last_payoff = history.my_payoffs[round_t - 1]
+        defections_punished = my_last_payoff < 1.0 or cooperation_trend < 0.3
+        if cooperation_trend <= 0.5 and defections_punished:
+            return Action.C
+        return Action.D
