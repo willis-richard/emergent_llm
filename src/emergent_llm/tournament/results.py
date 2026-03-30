@@ -149,10 +149,13 @@ class MixtureTournamentSummary:
         mixture_stats: dict[MixtureKey, MixtureResult] = {}
 
         for match_result in match_results:
-            n_collective = sum(1 for pid in match_result.player_ids
-                               if pid.attitude == Attitude.COLLECTIVE)
-            n_exploitative = sum(1 for pid in match_result.player_ids
-                                 if pid.attitude == Attitude.EXPLOITATIVE)
+            base_attitudes = [
+                pid.attitude.to_base_attitude() for pid in match_result.player_ids
+            ]
+            n_collective = sum(1 for attitude in base_attitudes
+                               if attitude == Attitude.COLLECTIVE)
+            n_exploitative = sum(1 for attitude in base_attitudes
+                                 if attitude == Attitude.EXPLOITATIVE)
 
             mixture_key = MixtureKey(n_collective, n_exploitative)
             group_size = n_collective + n_exploitative
@@ -169,9 +172,9 @@ class MixtureTournamentSummary:
             stats = mixture_stats[mixture_key]
             for player_id, total_payoff in zip(match_result.player_ids,
                                                match_result.total_payoffs):
-                if player_id.attitude == Attitude.COLLECTIVE:
+                if player_id.attitude.to_base_attitude() == Attitude.COLLECTIVE:
                     stats.collective_scores.append(total_payoff)
-                elif player_id.attitude == Attitude.EXPLOITATIVE:
+                elif player_id.attitude.to_base_attitude() == Attitude.EXPLOITATIVE:
                     stats.exploitative_scores.append(total_payoff)
             stats.matches_played += 1
 
@@ -273,14 +276,16 @@ class CulturalEvolutionSummary:
                 all_payoffs.append(row['mean_payoff'])
                 cooperations.append(row['mean_cooperations'] / total_rounds)
 
-                if row['player_attitude'] == Attitude.COLLECTIVE.value:
+                row_attitude = Attitude(row['player_attitude']).to_base_attitude()
+                if row_attitude == Attitude.COLLECTIVE:
                     collective_payoffs.append(row['mean_payoff'])
-                elif row['player_attitude'] == Attitude.EXPLOITATIVE.value:
+                elif row_attitude == Attitude.EXPLOITATIVE:
                     exploitative_payoffs.append(row['mean_payoff'])
 
             gen_freqs = gene_frequency_history[generation]
             collective_freq = sum(freq for gene, freq in gen_freqs.items()
-                                  if gene.attitude == Attitude.COLLECTIVE)
+                                  if gene.attitude.to_base_attitude() ==
+                                  Attitude.COLLECTIVE)
 
             stats_rows.append({
                 'collective_mean_payoff':

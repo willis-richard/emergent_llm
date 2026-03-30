@@ -5,7 +5,11 @@ from enum import StrEnum
 class Attitude(StrEnum):
     """Player attitudes for strategy generation."""
     COLLECTIVE = "collective"
+    PROSOCIAL = "prosocial"
+    COMMUNAL = "communal"
     EXPLOITATIVE = "exploitative"
+    AGGRESSIVE = "aggressive"
+    OPPORTUNISTIC = "opportunistic"
 
     def __str__(self):
         return self.value
@@ -13,10 +17,23 @@ class Attitude(StrEnum):
     def __repr__(self):
         return f"Attitude.{self.name}"
 
+    @staticmethod
+    def base_attitudes() -> list['Attitude']:
+        return [Attitude.COLLECTIVE, Attitude.EXPLOITATIVE]
+
+    def to_base_attitude(self) -> 'Attitude':
+        if self in {Attitude.COLLECTIVE, Attitude.PROSOCIAL, Attitude.COMMUNAL}:
+            return Attitude.COLLECTIVE
+        return Attitude.EXPLOITATIVE
+
     def flip(self):
         return COLLECTIVE if self.value == EXPLOITATIVE else EXPLOITATIVE
 
 
 # Export for convenience
 COLLECTIVE = Attitude.COLLECTIVE
+PROSOCIAL = Attitude.PROSOCIAL
+COMMUNAL = Attitude.COMMUNAL
 EXPLOITATIVE = Attitude.EXPLOITATIVE
+AGGRESSIVE = Attitude.AGGRESSIVE
+OPPORTUNISTIC = Attitude.OPPORTUNISTIC
