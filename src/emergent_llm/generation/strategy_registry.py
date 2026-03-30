@@ -1,6 +1,7 @@
 """Registry for loading and sampling LLM-generated strategies."""
 import importlib.util
 import inspect
+import logging
 import random
 from pathlib import Path
 
@@ -44,7 +45,12 @@ class StrategyRegistry:
             if self.models_filter is not None and strategy_file.stem not in self.models_filter:
                 continue
 
-            specs = self._load_specs_from_file(strategy_file)
+            try:
+                specs = self._load_specs_from_file(strategy_file)
+            except Exception as exc:
+                logging.warning("Skipping invalid strategy file %s: %s",
+                                strategy_file, exc)
+                continue
 
             # Group by gene
             for spec in specs:
@@ -60,12 +66,12 @@ class StrategyRegistry:
 
         specs = []
         for strategy_class in strategy_classes:
-            # Extract attitude from class name (Strategy_COLLECTIVE_1)
-            if "COLLECTIVE" in strategy_class.__name__:
-                attitude = Attitude.COLLECTIVE
-            elif "EXPLOITATIVE" in strategy_class.__name__:
-                attitude = Attitude.EXPLOITATIVE
-            else:
+            parts = strategy_class.__name__.split("_")
+            if len(parts) < 3 or parts[0] != "Strategy":
+                continue  # Skip malformed classes
+            try:
+                attitude = Attitude[parts[1]]
+            except KeyError:
                 continue  # Skip malformed classes
 
             gene = Gene(model, attitude)
@@ -103,10 +109,12 @@ class StrategyRegistry:
         all_specs = cls._load_specs_from_file(safe_filepath)
 
         collective = [
-            s for s in all_specs if s.gene.attitude == Attitude.COLLECTIVE
+            s for s in all_specs
+            if s.gene.attitude.to_base_attitude() == Attitude.COLLECTIVE
         ]
         exploitative = [
-            s for s in all_specs if s.gene.attitude == Attitude.EXPLOITATIVE
+            s for s in all_specs
+            if s.gene.attitude.to_base_attitude() == Attitude.EXPLOITATIVE
         ]
 
         return collective, exploitative

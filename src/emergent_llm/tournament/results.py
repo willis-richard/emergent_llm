@@ -25,7 +25,6 @@ from emergent_llm.tournament.configs import (
 )
 
 FIGSIZE, FORMAT = setup('3_col_paper')
-
 MODELS_MAP = {
     "gpt-5-mini[collective]": "GPT 5 Mini[Collective]",
     "gemini-2.5-flash[collective]": "Gemini 2.5 Flash[Collective]",
@@ -40,7 +39,6 @@ MODELS_MAP = {
     "mistral-7b[exploitative]": "Mistral 7b[Exploitative]",
     "deepseek-r1-distill-llama-70b[exploitative]": "DeepSeek R1[Exploitative]",
 }
-
 
 def _load_json(filepath: Path) -> dict:
     """Load JSON from gzipped or plain file based on extension."""
@@ -149,10 +147,13 @@ class MixtureTournamentSummary:
         mixture_stats: dict[MixtureKey, MixtureResult] = {}
 
         for match_result in match_results:
-            n_collective = sum(1 for pid in match_result.player_ids
-                               if pid.attitude == Attitude.COLLECTIVE)
-            n_exploitative = sum(1 for pid in match_result.player_ids
-                                 if pid.attitude == Attitude.EXPLOITATIVE)
+            base_attitudes = [
+                pid.attitude.to_base_attitude() for pid in match_result.player_ids
+            ]
+            n_collective = sum(1 for attitude in base_attitudes
+                               if attitude == Attitude.COLLECTIVE)
+            n_exploitative = sum(1 for attitude in base_attitudes
+                                 if attitude == Attitude.EXPLOITATIVE)
 
             mixture_key = MixtureKey(n_collective, n_exploitative)
             group_size = n_collective + n_exploitative
@@ -169,9 +170,9 @@ class MixtureTournamentSummary:
             stats = mixture_stats[mixture_key]
             for player_id, total_payoff in zip(match_result.player_ids,
                                                match_result.total_payoffs):
-                if player_id.attitude == Attitude.COLLECTIVE:
+                if player_id.attitude.to_base_attitude() == Attitude.COLLECTIVE:
                     stats.collective_scores.append(total_payoff)
-                elif player_id.attitude == Attitude.EXPLOITATIVE:
+                elif player_id.attitude.to_base_attitude() == Attitude.EXPLOITATIVE:
                     stats.exploitative_scores.append(total_payoff)
             stats.matches_played += 1
 
@@ -273,14 +274,16 @@ class CulturalEvolutionSummary:
                 all_payoffs.append(row['mean_payoff'])
                 cooperations.append(row['mean_cooperations'] / total_rounds)
 
-                if row['player_attitude'] == Attitude.COLLECTIVE.value:
+                row_attitude = Attitude(row['player_attitude']).to_base_attitude()
+                if row_attitude == Attitude.COLLECTIVE:
                     collective_payoffs.append(row['mean_payoff'])
-                elif row['player_attitude'] == Attitude.EXPLOITATIVE.value:
+                elif row_attitude == Attitude.EXPLOITATIVE:
                     exploitative_payoffs.append(row['mean_payoff'])
 
             gen_freqs = gene_frequency_history[generation]
             collective_freq = sum(freq for gene, freq in gen_freqs.items()
-                                  if gene.attitude == Attitude.COLLECTIVE)
+                                  if gene.attitude.to_base_attitude() ==
+                                  Attitude.COLLECTIVE)
 
             stats_rows.append({
                 'collective_mean_payoff':
@@ -856,31 +859,21 @@ class CulturalEvolutionResults:
         return cls.from_dict(data)
 
     def plot_gene_frequencies(self, output_dir: Path):
-        # increase space for legend
-
-        figsize, _ = setup('1_col_slide')
-
-        cmap = plt.cm.Paired
-        colors = [cmap(i) for i in np.linspace(0, 1, len(self.gene_frequency_df.columns))]
-
-        # increase room for legend
-        fig, ax = plt.subplots(figsize=(FIGSIZE[0], FIGSIZE[1] * 2.1),
+        fig, ax = plt.subplots(figsize=(FIGSIZE[0], FIGSIZE[1] * 2),
                                facecolor='white')
 
-        for i, col in enumerate(self.gene_frequency_df.columns):
+        for col in self.gene_frequency_df.columns:
             ax.plot(self.gene_frequency_df.index,
                     self.gene_frequency_df[col],
                     marker='o',
                     lw=0.75,
                     label=MODELS_MAP[col],
-                    color=colors[i],
                     clip_on=False)
 
         ax.set_xlabel('Generation')
         ax.set_ylabel('Gene Frequency')
         ax.set_ylim(0, 1)
-        ax.legend(bbox_to_anchor=(1, -0.5), loc='lower left', frameon=False,
-                  ncols=1, handletextpad=0.4, columnspacing=0.6)
+        ax.legend(bbox_to_anchor=(0, 1.8), loc='upper left', frameon=False)
         ax.grid(True, alpha=0.3)
 
         output_dir = Path(output_dir)
@@ -1301,11 +1294,6 @@ class BatchCulturalEvolutionResults:
             winning_gene = run.winning_gene
             winning_frequency = run.final_gene_frequencies[winning_gene]
 
-            n_rounds = run.config.game_description.n_rounds
-            normalised_collective_payoff = run.generation_stats_df.iloc[-1]['collective_mean_payoff'] / n_rounds
-            normalised_exploitative_payoff = run.generation_stats_df.iloc[-1]['exploitative_mean_payoff'] / n_rounds
-            normalised_social_welfare = run.generation_stats_df.iloc[-1]['overall_mean_payoff'] / n_rounds
-
             run_rows.append({
                 'run': run_idx,
                 'generations': run.final_generation,
@@ -1314,9 +1302,7 @@ class BatchCulturalEvolutionResults:
                 'winning_attitude': winning_gene.attitude.value,
                 'winning_frequency': winning_frequency,
                 'threshold_met': winning_frequency >= run.config.threshold_pct,
-                'normalised_collective_payoff': normalised_collective_payoff,
-                'normalised_exploitative_payoff': normalised_exploitative_payoff,
-                'normalised_social_welfare': normalised_social_welfare})
+            })
 
         object.__setattr__(self, '_run_summary_df', pd.DataFrame(run_rows))
 
@@ -1437,18 +1423,6 @@ class BatchCulturalEvolutionResults:
                 f"  {row['strategy']} ({row['attitude']}): "
                 f"{row['total_survivals']} survivals, fitness={row['mean_fitness']:.2f}"
             )
-
-        n_rounds = self.config.evolution_config.game_description.n_rounds
-        social_welfare = self.run_summary_df.normalised_social_welfare.mean()
-        max_social_welfare = self.config.evolution_config.game_description.max_social_welfare() / n_rounds
-        min_social_welfare = self.config.evolution_config.game_description.min_social_welfare() / n_rounds
-        proportion = (social_welfare - min_social_welfare) / (max_social_welfare - min_social_welfare)
-        lines.append(f"Normalised collective payoff: {self.run_summary_df.normalised_collective_payoff.mean():.2f}")
-        lines.append(f"Normalised exploitative payoff: {self.run_summary_df.normalised_exploitative_payoff.mean():.2f}")
-        lines.append(f"Normalised social welfare: {social_welfare:.2f}")
-        lines.append(f"Maximum social welfare: {max_social_welfare:.2f}")
-        lines.append(f"Minimum social welfare: {min_social_welfare:.2f}")
-        lines.append(f"Proportion: {proportion:.2f}")
 
         return "\n".join(lines)
 
