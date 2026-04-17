@@ -68,13 +68,13 @@ class CulturalEvolution:
         )
 
         while self.generation < self.config.max_generations:
-            self.logger.info(f"Generation {self.generation}")
+            self.logger.debug(f"Generation {self.generation}")
 
             frequencies = self._calculate_gene_frequencies()
             self.gene_frequencies.append(frequencies)
             freq_str = ", ".join(
                 f"{gene}: {freq:.2%}" for gene, freq in frequencies.items())
-            self.logger.info(f"Gene frequencies: {freq_str}")
+            self.debug.info(f"Gene frequencies: {freq_str}")
 
             if self._check_threshold(frequencies):
                 self.logger.info("Threshold reached - terminating")

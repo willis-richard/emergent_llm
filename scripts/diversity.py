@@ -240,7 +240,7 @@ def compute_strategy_chunk(
         player = LLMPlayer("testing", gene, description, spec.strategy_class)
         features = compute_features(player, args.n_games)
         results.append((spec.strategy_class.__name__, features))
-        logger.info(
+        logger.debug(
             f"{gene.model} {spec.strategy_class.__name__}: {np.mean(list(features.values())):.3f}"
         )
 
@@ -270,7 +270,7 @@ def create_baseline_players(n_players: int,
 
 
 def compute_baselines(n_players: int,
-                      n_rounds: int) -> dict[str, dict[OpponentActions, float]]:
+                      n_rounds: int) -> dict[str, dict[CooperatorCounts, float]]:
     baseline_players = create_baseline_players(n_players, n_rounds)
     baseline_features = {}
     for player in baseline_players:
