@@ -56,8 +56,7 @@ class LLMPlayer(BasePlayer):
         self.strategy_function = self.strategy_class(self.game_description)
         self.error_count = 0
 
-    def __call__(self, state: GameState,
-                 history: None | PlayerHistory) -> Action:
+    def __call__(self, state: GameState, history: PlayerHistory) -> Action:
         """Execute the strategy function with limited error handling."""
         try:
             action = self.strategy_function(state, history)
@@ -102,7 +101,7 @@ class LLMPlayer(BasePlayer):
 class SimplePlayer(BasePlayer):
     """Simple player for testing with no-argument strategy function."""
 
-    def __init__(self, name: str, strategy_function: Callable[[GameState, None | PlayerHistory], Action]):
+    def __init__(self, name: str, strategy_function: Callable[[GameState, PlayerHistory], Action]):
         """
         Initialise simple player with a no-argument strategy function.
 
@@ -117,7 +116,7 @@ class SimplePlayer(BasePlayer):
         pass
 
     def __call__(self, state: GameState,
-                 history: None | PlayerHistory) -> Action:
+                 history: PlayerHistory) -> Action:
         """Execute the strategy function (ignoring game context)."""
         return self.strategy_function(state, history)
 

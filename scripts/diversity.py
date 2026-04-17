@@ -2,16 +2,17 @@
 
 import argparse
 import logging
-from dataclasses import dataclass
-from itertools import combinations_with_replacement, product
-from multiprocessing import Pool
 import pickle
+from collections import defaultdict
+from dataclasses import dataclass
+from itertools import product
+from multiprocessing import Pool
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Ellipse
-from scipy.spatial.distance import pdist, cdist
+from scipy.spatial.distance import cdist, pdist
 from sklearn.decomposition import PCA
 
 from emergent_llm.common import (
@@ -33,15 +34,13 @@ from emergent_llm.players import (
     ConditionalDefector,
     Cooperator,
     Defector,
-    HistoricalCooperator,
     LLMPlayer,
     SimplePlayer,
-    SpecialRounds,
 )
 
 FIGSIZE, FORMAT = setup('fullscreen')
 
-OpponentActions = tuple[tuple[Action, ...], ...]
+CooperatorCounts = tuple[int, ...]  # cooperator count per round
 
 GAME_MAPPING = {
     'public_goods': ' Public Goods Game',
@@ -156,7 +155,7 @@ def save_features(features_dict, game_name: str, gene: Gene, args):
 
 
 def load_features(game_name: str, gene: Gene,
-                  args) -> dict[str, dict[OpponentActions, float]] | None:
+                  args) -> dict[str, dict[CooperatorCounts, float]] | None:
     cache_path = get_cache_path(game_name, gene, args)
     if not cache_path.exists():
         logger.info(f"Could not find existing cache at {cache_path}")
@@ -174,25 +173,27 @@ def load_features(game_name: str, gene: Gene,
 # =============================================================================
 
 
-class FixedOpponent:
+class FixedCooperatorCount:
+    """Opponent that cooperates in round r iff its index < the prescribed count."""
 
-    def __init__(self, fixed_actions):
-        self.fixed_actions: list[Action] = fixed_actions
+    def __init__(self, opponent_index: int, counts: list[int]):
+        self.opponent_index = opponent_index
+        self.counts = counts
 
-    def __call__(self, state: GameState, _: PlayerHistory | None):
-        return self.fixed_actions[state.round_number]
-
-
-def context_to_key(arr: list[list[Action]]) -> OpponentActions:
-    return tuple(map(tuple, arr))
+    def __call__(self, state: GameState, _: PlayerHistory):
+        return C if self.opponent_index < self.counts[state.round_number] else D
 
 
 def play_games(player: LLMPlayer, n_games: int,
-               combo: OpponentActions) -> list[GameHistory]:
+               combo: CooperatorCounts) -> list[GameHistory]:
+    n_opponents = args.n_players - 1
+    # Append a dummy count for the final round (opponent actions don't
+    # affect the feature we record for that round)
+    counts_with_final = list(combo) + [0]
     # last round action of opponents does not matter
     opponents = [
-        SimplePlayer(f"opponent_{i+1}", FixedOpponent(list(actions) + [C]))
-        for i, actions in enumerate(combo)
+        SimplePlayer(f"opponent_{i}", FixedCooperatorCount(i, counts_with_final))
+        for i in range(n_opponents)
     ]
 
     players = [player] + opponents
@@ -204,16 +205,14 @@ def play_games(player: LLMPlayer, n_games: int,
 
 
 def compute_features(player: BasePlayer,
-                     n_games: int) -> dict[OpponentActions, float]:
-    features = {}
+                     n_games: int) -> dict[CooperatorCounts, float]:
+    features: dict[CooperatorCounts, float] = {}
     for combo in unique_combos:
         histories = play_games(player, n_games, combo)
-        player_history = histories[0].for_player(0)
-        for r in range(0, args.n_rounds):
-            context = Action.from_bool_array(
-                player_history.opponent_actions[:r])
+        for r in range(args.n_rounds):
+            context: CooperatorCounts = combo[:r]
             actions = [Action(history.actions[r, 0]) for history in histories]
-            features[context_to_key(context)] = float(
+            features[context] = float(
                 Action.to_bool_array(actions).mean())
     return features
 
@@ -229,7 +228,7 @@ def chunk_indices(n_items: int, n_chunks: int) -> list[list[int]]:
 
 def compute_strategy_chunk(
     strategy_indices: list[int]
-) -> list[tuple[str, dict[OpponentActions, float]]]:
+) -> list[tuple[str, dict[CooperatorCounts, float]]]:
     """Compute features for a chunk of strategies. Runs in worker process."""
     worker_registry = StrategyRegistry(args.strategies_dir, game_name,
                                        [gene.model])
@@ -318,6 +317,38 @@ class BetweenSetMetrics:
                 f"Cohen's d={self.cohens_d:.2f}")
 
 
+@dataclass
+class AttitudeComparisonMetrics:
+    """Metrics comparing a non-base attitude to both base attitudes."""
+    game: str
+    model: str
+    attitude: Attitude
+    n_strategies: int
+    # vs collective
+    d_vs_collective: float
+    d_vs_collective_ci_lower: float
+    d_vs_collective_ci_upper: float
+    centroid_dist_collective: float
+    # vs exploitative
+    d_vs_exploitative: float
+    d_vs_exploitative_ci_lower: float
+    d_vs_exploitative_ci_upper: float
+    centroid_dist_exploitative: float
+    # ratio: d_to_own_base / d_to_other_base (< 1 means closer to own base)
+    proximity_ratio: float
+
+    def __str__(self):
+        return (
+            f"{self.game}/{self.model}/{self.attitude.value} "
+            f"(n={self.n_strategies}): "
+            f"d_coll={self.d_vs_collective:.2f} "
+            f"[{self.d_vs_collective_ci_lower:.2f}, {self.d_vs_collective_ci_upper:.2f}], "
+            f"d_expl={self.d_vs_exploitative:.2f} "
+            f"[{self.d_vs_exploitative_ci_lower:.2f}, {self.d_vs_exploitative_ci_upper:.2f}], "
+            f"ratio(own/other)={self.proximity_ratio:.2f}"
+        )
+
+
 def compute_random_baseline_distance(n_features: int,
                                      n_samples: int = 500) -> float:
     """Compute mean pairwise distance for random [0,1] vectors."""
@@ -394,6 +425,127 @@ def compute_between_set_metrics(
     return centroid_distance, cohens_d
 
 
+def compute_cohens_d(X_a: np.ndarray, X_b: np.ndarray) -> float:
+    """
+    Multivariate Cohen's d: centroid distance / pooled within-set std.
+
+    Same formulation as compute_between_set_metrics for consistency.
+    """
+    if len(X_a) < 2 or len(X_b) < 2:
+        return np.nan
+
+    centroid_distance = np.linalg.norm(X_a.mean(axis=0) - X_b.mean(axis=0))
+
+    n_a, n_b = len(X_a), len(X_b)
+    var_a = np.var(X_a, axis=0).mean()
+    var_b = np.var(X_b, axis=0).mean()
+
+    pooled_var = ((n_a - 1) * var_a + (n_b - 1) * var_b) / (n_a + n_b - 2)
+    pooled_std = np.sqrt(pooled_var * X_a.shape[1])
+
+    return centroid_distance / pooled_std if pooled_std > 0 else np.nan
+
+
+def bootstrap_cohens_d(
+    X_a: np.ndarray,
+    X_b: np.ndarray,
+    n_bootstrap: int = 1000,
+    confidence: float = 0.95,
+) -> tuple[float, float, float]:
+    """
+    Bootstrap confidence interval for multivariate Cohen's d.
+
+    Returns:
+        (point_estimate, ci_lower, ci_upper)
+    """
+    point = compute_cohens_d(X_a, X_b)
+    if np.isnan(point):
+        return np.nan, np.nan, np.nan
+
+    rng = np.random.default_rng(42)
+    boot_ds = []
+    for _ in range(n_bootstrap):
+        idx_a = rng.choice(len(X_a), size=len(X_a), replace=True)
+        idx_b = rng.choice(len(X_b), size=len(X_b), replace=True)
+        d = compute_cohens_d(X_a[idx_a], X_b[idx_b])
+        if not np.isnan(d):
+            boot_ds.append(d)
+
+    if len(boot_ds) < 10:
+        return point, np.nan, np.nan
+
+    alpha = (1 - confidence) / 2
+    ci_lower = float(np.percentile(boot_ds, 100 * alpha))
+    ci_upper = float(np.percentile(boot_ds, 100 * (1 - alpha)))
+    return point, ci_lower, ci_upper
+
+
+def compute_attitude_comparison(
+    X_nonbase: np.ndarray,
+    X_collective: np.ndarray,
+    X_exploitative: np.ndarray,
+    game: str,
+    model: str,
+    attitude: Attitude,
+    n_bootstrap: int = 1000,
+) -> AttitudeComparisonMetrics:
+    """Compare a non-base attitude to both base attitudes in original feature space."""
+
+    d_c, ci_c_lo, ci_c_hi = bootstrap_cohens_d(X_nonbase, X_collective, n_bootstrap)
+    d_e, ci_e_lo, ci_e_hi = bootstrap_cohens_d(X_nonbase, X_exploitative, n_bootstrap)
+
+    centroid_c = float(np.linalg.norm(
+        X_nonbase.mean(axis=0) - X_collective.mean(axis=0)
+    )) if len(X_nonbase) > 0 and len(X_collective) > 0 else np.nan
+
+    centroid_e = float(np.linalg.norm(
+        X_nonbase.mean(axis=0) - X_exploitative.mean(axis=0)
+    )) if len(X_nonbase) > 0 and len(X_exploitative) > 0 else np.nan
+
+    # Proximity ratio: distance to own base / distance to other base
+    own_base = attitude.to_base_attitude()
+    if own_base == Attitude.COLLECTIVE:
+        ratio = d_c / d_e if d_e > 0 else np.nan
+    else:
+        ratio = d_e / d_c if d_c > 0 else np.nan
+
+    return AttitudeComparisonMetrics(
+        game=game,
+        model=model,
+        attitude=attitude,
+        n_strategies=len(X_nonbase),
+        d_vs_collective=d_c,
+        d_vs_collective_ci_lower=ci_c_lo,
+        d_vs_collective_ci_upper=ci_c_hi,
+        centroid_dist_collective=centroid_c,
+        d_vs_exploitative=d_e,
+        d_vs_exploitative_ci_lower=ci_e_lo,
+        d_vs_exploitative_ci_upper=ci_e_hi,
+        centroid_dist_exploitative=centroid_e,
+        proximity_ratio=ratio,
+    )
+
+
+def get_feature_vectors_for_gene(
+    X_all: np.ndarray,
+    labels_all: np.ndarray,
+    game_labels: np.ndarray,
+    game_name: str,
+    pca_data: dict,
+    model: str,
+    attitude: Attitude,
+) -> np.ndarray:
+    """Extract feature vectors for a specific (game, model, attitude) combination."""
+    mask = game_labels == game_name
+    genes = pca_data[game_name]['genes']
+    matching = [g for g in genes if g.model == model and g.attitude == attitude]
+    if not matching:
+        return np.empty((0, X_all.shape[1]))
+    gene_strs = [str(g) for g in matching]
+    gene_mask = mask & np.isin(labels_all, gene_strs)
+    return X_all[gene_mask]
+
+
 def compute_game_variance_explained(X: np.ndarray,
                                     game_labels: np.ndarray) -> float:
     """
@@ -416,6 +568,46 @@ def compute_game_variance_explained(X: np.ndarray,
         ss_between += n_game * np.sum((game_centroid - global_centroid)**2)
 
     return ss_between / ss_total if ss_total > 0 else 0.0
+
+
+# =============================================================================
+# PCA HELPERS
+# =============================================================================
+
+
+def fit_base_attitude_pca(X_all, labels_all, game_labels, pca_data, games):
+    """
+    Fit PCA on base attitudes only, return transformer and transformed data.
+
+    Returns:
+        pca: fitted PCA object
+        X_pca_all: all data projected into base-attitude PCA space
+        base_mask: boolean mask for base attitude rows
+    """
+    base_attitude_set = set(Attitude.base_attitudes())
+    base_mask = np.zeros(len(X_all), dtype=bool)
+
+    for game_name in games:
+        game_mask = game_labels == game_name
+        for gene in pca_data[game_name]['genes']:
+            if gene.attitude in base_attitude_set:
+                gene_mask = game_mask & (labels_all == str(gene))
+                base_mask |= gene_mask
+
+    X_base = X_all[base_mask]
+    logger.info(
+        f"Fitting PCA on {base_mask.sum()} base-attitude strategies "
+        f"(out of {len(X_all)} total)"
+    )
+
+    n_components = min(10, X_base.shape[1], X_base.shape[0])
+    pca = PCA(n_components=n_components)
+    pca.fit(X_base)
+
+    # Transform ALL data (base + non-base) into this space
+    X_pca_all = pca.transform(X_all)
+
+    return pca, X_pca_all, base_mask
 
 
 # =============================================================================
@@ -511,7 +703,7 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
     Create a 2×3 grid: rows=attitudes, columns=games.
     Each subplot shows all models for that game/attitude combination.
     """
-    attitudes = [Attitude.COLLECTIVE, Attitude.EXPLOITATIVE]
+    attitudes = Attitude.base_attitudes()
     attitude_names = {
         Attitude.COLLECTIVE: "Collective",
         Attitude.EXPLOITATIVE: "Exploitative"
@@ -522,7 +714,6 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
     for g in games:
         all_genes.extend(pca_data[g]['genes'])
     models = sorted(set(gene.model for gene in all_genes))
-    # models = sorted(set(['claude-haiku-4-5', 'gemini-2.5-flash', 'gpt-5-mini']))
     cmap = plt.colormaps.get_cmap('tab10')
     model_colors = {model: cmap(i) for i, model in enumerate(models)}
 
@@ -861,10 +1052,7 @@ def extrema_analysis(tl):
         if len(context) == 0:
             context_str = 'Start'
         else:
-            # Each element in context is a tuple representing one round's opponent actions
-            context_str = '|'.join(''.join('C' if val else 'D'
-                                           for val in round_actions)
-                                   for round_actions in context)
+            context_str = '|'.join(str(c) for c in context)
         logger.info(f"  {context_str}: {coop_prob:.1%} coop)")
 
 
@@ -899,9 +1087,9 @@ if __name__ == "__main__":
     logger.info(f"Running diversity.py for games: {args.games}")
 
     # Globals shared across all games
-    all_actions = tuple(product([D, C], repeat=args.n_rounds - 1))
-    unique_combos: tuple[OpponentActions, ...] = tuple(
-        combinations_with_replacement(all_actions, args.n_players - 1))
+    n_opponents = args.n_players - 1
+    unique_combos: tuple[CooperatorCounts, ...] = tuple(
+        product(range(n_opponents + 1), repeat=args.n_rounds - 1))
 
     # ==========================================================================
     # PHASE 1: Load/compute features for each game (with caching)
@@ -991,10 +1179,10 @@ if __name__ == "__main__":
     )
 
     # ==========================================================================
-    # PHASE 3: Combined PCA (all games together, plotted separately)
+    # PHASE 3: Combined PCA (fit on base attitudes only, project everything)
     # ==========================================================================
     logger.info(f"\n{'='*60}")
-    logger.info("COMBINED PCA ANALYSIS")
+    logger.info("COMBINED PCA ANALYSIS (fitted on base attitudes only)")
     logger.info(f"{'='*60}")
 
     # Stack all games
@@ -1003,11 +1191,16 @@ if __name__ == "__main__":
     game_labels = np.concatenate(
         [[g] * len(pca_data[g]['X']) for g in args.games])
 
-    # Fit combined PCA
-    n_components = min(10, X_all.shape[1], X_all.shape[0])
-    pca_combined = PCA(n_components=n_components)
-    X_pca_combined = pca_combined.fit_transform(X_all)
+    # Fit PCA on base attitudes only, transform everything
+    pca_combined, X_pca_combined, base_mask = fit_base_attitude_pca(
+        X_all, labels_all, game_labels, pca_data, args.games
+    )
     baseline_pca_combined = pca_combined.transform(baseline_X)
+
+    logger.info(
+        f"PCA explained variance (base attitudes): "
+        f"{pca_combined.explained_variance_ratio_[:5]}"
+    )
 
     # Random baseline for normalization
     random_baseline_dist = compute_random_baseline_distance(X_all.shape[1])
@@ -1019,7 +1212,7 @@ if __name__ == "__main__":
     plt.axhline(y=0.9, color='r', linestyle='--', label='90% threshold')
     plt.xlabel('Component')
     plt.ylabel('Cumulative Explained Variance')
-    plt.title('Combined PCA Scree Plot')
+    plt.title('Combined PCA Scree Plot (base attitudes)')
     plt.legend()
     plt.savefig(output_dir / f"scree_combined.{FORMAT}", format=FORMAT)
     plt.close()
@@ -1059,7 +1252,7 @@ if __name__ == "__main__":
                       pca_combined, output_dir)
 
     # ==========================================================================
-    # PHASE 4: Compute and display metrics
+    # PHASE 4: Compute and display metrics (base attitudes)
     # ==========================================================================
     logger.info(f"\n{'='*60}")
     logger.info("DIVERSITY METRICS (Within-set)")
@@ -1139,3 +1332,80 @@ if __name__ == "__main__":
                                         centroid_distance=centroid_dist,
                                         cohens_d=cohens_d)
             logger.info(f"    {metrics}")
+
+    # ==========================================================================
+    # PHASE 5: Non-base attitude comparison
+    # ==========================================================================
+    non_base_attitudes = [a for a in Attitude if a not in Attitude.base_attitudes()]
+
+    if not non_base_attitudes:
+        logger.info("No non-base attitudes found, skipping Phase 5")
+    else:
+        logger.info(f"\n{'='*60}")
+        logger.info("NON-BASE ATTITUDE COMPARISON (Cohen's d to base attitudes)")
+        logger.info(f"{'='*60}")
+
+        all_comparisons: list[AttitudeComparisonMetrics] = []
+
+        for game_name in args.games:
+            logger.info(f"\n  {game_name}:")
+            genes = pca_data[game_name]['genes']
+            models_in_game = sorted(set(g.model for g in genes))
+
+            for model in models_in_game:
+                # Get base attitude feature vectors
+                X_collective = get_feature_vectors_for_gene(
+                    X_all, labels_all, game_labels, game_name,
+                    pca_data, model, Attitude.COLLECTIVE,
+                )
+                X_exploitative = get_feature_vectors_for_gene(
+                    X_all, labels_all, game_labels, game_name,
+                    pca_data, model, Attitude.EXPLOITATIVE,
+                )
+
+                if len(X_collective) == 0 or len(X_exploitative) == 0:
+                    continue
+
+                for attitude in non_base_attitudes:
+                    X_nb = get_feature_vectors_for_gene(
+                        X_all, labels_all, game_labels, game_name,
+                        pca_data, model, attitude,
+                    )
+                    if len(X_nb) < 2:
+                        continue
+
+                    metrics = compute_attitude_comparison(
+                        X_nb, X_collective, X_exploitative,
+                        game_name, model, attitude,
+                        n_bootstrap=1000,
+                    )
+                    all_comparisons.append(metrics)
+                    logger.info(f"    {metrics}")
+
+        # Summary table
+        if all_comparisons:
+            logger.info(f"\n{'='*60}")
+            logger.info("ATTITUDE COMPARISON SUMMARY")
+            logger.info(f"{'='*60}")
+
+            # Group by attitude, average across games and models
+            by_attitude: dict[Attitude, list[AttitudeComparisonMetrics]] = defaultdict(list)
+            for m in all_comparisons:
+                by_attitude[m.attitude].append(m)
+
+            for attitude, metrics_list in sorted(by_attitude.items(), key=lambda x: x[0].value):
+                own_base = attitude.to_base_attitude()
+                d_own = np.mean([
+                    m.d_vs_collective if own_base == Attitude.COLLECTIVE else m.d_vs_exploitative
+                    for m in metrics_list
+                ])
+                d_other = np.mean([
+                    m.d_vs_exploitative if own_base == Attitude.COLLECTIVE else m.d_vs_collective
+                    for m in metrics_list
+                ])
+                ratio = np.mean([m.proximity_ratio for m in metrics_list if not np.isnan(m.proximity_ratio)])
+                logger.info(
+                    f"  {attitude.value} (base={own_base.value}): "
+                    f"d_to_own_base={d_own:.2f}, d_to_other_base={d_other:.2f}, "
+                    f"mean_ratio={ratio:.2f}"
+                )

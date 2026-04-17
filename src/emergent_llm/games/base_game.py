@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
-from emergent_llm.common import Action, GameDescription, GameHistory, GameState
+from emergent_llm.common import Action, GameDescription, GameHistory, GameState, PlayerHistory
 from emergent_llm.players.base_player import BasePlayer
 
 
@@ -90,14 +90,12 @@ class BaseGame(ABC):
         state = self.get_state()
 
         action_enums = [
-            player(state=state, history=None) if self.history is None else
+            player(state=state, history=PlayerHistory.empty()) if self.history is None else
             player(state=state, history=self.history.for_player(i))
             for i, player in enumerate(players)
         ]
 
         actions = Action.to_bool_array(action_enums)
-
-        # Calculate payoffs for this round
         payoffs = self._calculate_payoffs(actions)
 
         if self.history is None:

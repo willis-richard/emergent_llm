@@ -12,8 +12,7 @@ class BaseStrategy(ABC):
         """For initialising member variables. Names need to be unique"""
 
     @abstractmethod
-    def __call__(self, state: GameState,
-                 history: None | PlayerHistory) -> Action:
+    def __call__(self, state: GameState, history: PlayerHistory) -> Action:
         """For computing the action"""
 
 
@@ -30,8 +29,7 @@ class BasePlayer(ABC):
         """
 
     @abstractmethod
-    def __call__(self, state: GameState,
-                 history: None | PlayerHistory) -> Action:
+    def __call__(self, state: GameState, history: PlayerHistory) -> Action:
         """
         Player's strategy function.
 

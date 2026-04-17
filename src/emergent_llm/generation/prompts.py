@@ -179,7 +179,8 @@ So player i's payoff is:
   pi_i = (1 - c_i) + (k / n) * sum_j c_j
 
 INFORMATION AVAILABLE
-- After each round, all players observe every player's past actions and payoffs
+- After each round, each player observes how many of the other players cooperated that round
+- Players are anonymous: you cannot tell which specific player cooperated
 - No communication, no signaling, and no coordination channel
 
 TASK
@@ -211,8 +212,8 @@ def create_strategy_user_prompt(
 
     return f"""{format_game_description(game_name)}
 
-Standard game theory assumptions hold:
-- Perfect information: All players can observe all other players' actions and payoffs from previous rounds
+Standard game theory assumptions hold for anonymous players:
+- Aggregate observation: After each round, you observe how many of your opponents cooperated, but not which ones.
 - Common knowledge: All players know the game rules, parameters and payoff structure
 - Simultaneous actions: This is a normal-form game
 - Repeated interaction: The game is played for multiple rounds (r > 1)
@@ -291,9 +292,7 @@ class Strategy(BaseStrategy):
             return Action.C  # or Action.D
 
         # Subsequent rounds logic
-        # Example - count opponent cooperators in the most recent round:
-        cooperators = sum(history.opponent_actions[-1, :])
-        if cooperators >= self.game_description.n_players // 2:
+        if history.cooperators[-1] >= self.game_description.n_players // 4:
             return Action.C
         return Action.D
 ```"""
@@ -318,14 +317,13 @@ class PlayerHistory:
     Game history from this player's perspective.
     All arrays are READ-ONLY.
     \"\"\"
-    my_actions: NDArray[np.bool_]    # This player's actions, indexed [round]
-    my_payoffs: NDArray[np.float64]  # This player's payoffs, indexed [round]
-    opponent_actions: NDArray[np.bool_]    # Opponents' actions, indexed [round, player]
-    opponent_payoffs: NDArray[np.float64]  # Opponents' payoffs, indexed [round, player]
+    my_actions: NDArray[np.bool_]           # [round] — this player's actions
+    my_payoffs: NDArray[np.float64]         # [round] — this player's payoffs
+    opponent_cooperators: NDArray[np.int_]  # [round] — count of cooperating opponents
 
 # Boolean Encoding:
 # - True/1 means COOPERATE (Action.C)
 # - False/0 means DEFECT (Action.D)
-# Arrays are 0-indexed:
-# - First round history is at index 0, so opponent_actions[0, 0] is opponent 1's action in round 0
+# opponent_cooperators[r] is in [0, n_opponents].
+# Round indexing is 0-based: opponent_cooperators[0] is round 0, [-1] is the most recent round.
 ```"""
