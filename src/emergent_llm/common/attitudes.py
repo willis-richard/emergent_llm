@@ -6,10 +6,13 @@ class Attitude(StrEnum):
     """Player attitudes for strategy generation."""
     COLLECTIVE = "collective"
     PROSOCIAL = "prosocial"
-    COMMUNAL = "communal"
+    ALTRUISTIC = "altruistic"
+    COOPERATIVE = "cooperative"
+
     EXPLOITATIVE = "exploitative"
     AGGRESSIVE = "aggressive"
-    OPPORTUNISTIC = "opportunistic"
+    PREDATORY = "predatory"
+    PARASITIC = "parasitic"
 
     def __str__(self):
         return self.value
@@ -22,7 +25,7 @@ class Attitude(StrEnum):
         return [Attitude.COLLECTIVE, Attitude.EXPLOITATIVE]
 
     def to_base_attitude(self) -> 'Attitude':
-        if self in {Attitude.COLLECTIVE, Attitude.PROSOCIAL, Attitude.COMMUNAL}:
+        if self in {Attitude.COLLECTIVE, Attitude.PROSOCIAL, Attitude.ALTRUISTIC, Attitude.COOPERATIVE}:
             return Attitude.COLLECTIVE
         return Attitude.EXPLOITATIVE
 
@@ -33,8 +36,4 @@ class Attitude(StrEnum):
 
 # Export for convenience
 COLLECTIVE = Attitude.COLLECTIVE
-PROSOCIAL = Attitude.PROSOCIAL
-COMMUNAL = Attitude.COMMUNAL
 EXPLOITATIVE = Attitude.EXPLOITATIVE
-AGGRESSIVE = Attitude.AGGRESSIVE
-OPPORTUNISTIC = Attitude.OPPORTUNISTIC

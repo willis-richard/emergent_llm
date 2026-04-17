@@ -74,7 +74,7 @@ class CulturalEvolution:
             self.gene_frequencies.append(frequencies)
             freq_str = ", ".join(
                 f"{gene}: {freq:.2%}" for gene, freq in frequencies.items())
-            self.debug.info(f"Gene frequencies: {freq_str}")
+            self.logger.debug(f"Gene frequencies: {freq_str}")
 
             if self._check_threshold(frequencies):
                 self.logger.info("Threshold reached - terminating")
