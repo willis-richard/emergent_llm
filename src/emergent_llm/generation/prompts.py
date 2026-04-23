@@ -212,22 +212,18 @@ def create_strategy_user_prompt(
 
     return f"""{format_game_description(game_name)}
 
-Standard game theory assumptions hold for anonymous players:
-- Aggregate observation: After each round, you observe how many of your opponents cooperated, but not which ones.
-- Common knowledge: All players know the game rules, parameters and payoff structure
-- Simultaneous actions: This is a normal-form game
-- Repeated interaction: The game is played for multiple rounds (r > 1)
-- No communication: Players cannot communicate, signal or otherwise share information
+Assumptions:
+- Common knowledge: all players know the game rules, parameters and payoff structure.
+- Aggregate observation: the players are anonymous. After each round, you observe how many of your opponents cooperated, but not which ones.
+- No communication: players cannot communicate or otherwise share information.
+- Opponents are independent strategies from other AI systems — no shared norms or predetermined coordination.
 
 Design a {attitude} strategy for this game that only depends on the game parameters{state}. Your strategy should be adaptive and robust to a wide range of opponent behaviours.
 
 1. Specify decision rules - When exactly do you cooperate vs defect?
 2. Handle edge cases - What do you do in the first round, last round, etc.?
-3. Be {attitude} - Clearly align with the {attitude} mindset
+3. Be {attitude} - Clearly align with the {attitude} mindset."""
 
-Your strategy will play in a tournament against independent strategies developed by other AI systems. You cannot rely on others sharing norms, nor can you assume any specific coordination mechanisms such as cooperation schedules or predetermined patterns.
-
-You only need to describe the strategy in natural language, including pseudocode if helpful. Later, the strategy will be implemented as an algorithm. This is all the information you will be provided with, questions are not possible."""
 
 def create_code_user_prompt(
         strategy_description: str,

@@ -194,7 +194,17 @@ def generate_strategy_description(config: LLMConfig,
                                   game_name: str,
                                   logger: logging.Logger = None) -> str:
     """Generate natural language strategy description."""
-    system_prompt = "You are an AI assistant with expertise in strategic thinking."
+    system_prompt = """You are an AI assistant with expertise in strategic thinking."
+
+Output only the strategy description itself — no preamble, no meta-commentary, no conclusion.
+
+Do not:
+- Restate the game rules, parameters, or payoff structure
+- Discuss why the strategy is good or weigh its tradeoffs
+- Add framing like "Here is...", "I'll design...", or "In summary..."
+- Hedge with caveats about tournament conditions or opponent uncertainty
+
+Use natural language with optional pseudocode. Be precise about decision rules and edge cases."""
     user_prompt = create_strategy_user_prompt(attitude, game_name)
 
     if logger:
