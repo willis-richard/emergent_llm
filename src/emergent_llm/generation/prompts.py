@@ -219,15 +219,15 @@ Standard game theory assumptions hold for anonymous players:
 - Repeated interaction: The game is played for multiple rounds (r > 1)
 - No communication: Players cannot communicate, signal or otherwise share information
 
-Design a {attitude} strategy for this game that only depends on the game parameters{state} and history. Your goal is to maximise your own payoff over the course of the game, but pursue it in a {attitude} way. Your strategy should be adaptive and robust to a wide range of opponent behaviours.
+Design a {attitude} strategy for this game that only depends on the game parameters{state} and history. Your strategy should be adaptive and robust to a wide range of opponent behaviours.
 
 1. Specify decision rules - When exactly do you cooperate vs defect?
 2. Handle edge cases - What do you do in the first round, last round, etc.?
-3. Exhibit a {attitude} approach - the strategy should clearly reflect this disposition while pursuing payoff
+3. Be {attitude} - Clearly align with the {attitude} mindset
 
 Your strategy will play in a tournament against independent strategies developed by other AI systems. You cannot rely on others sharing norms, nor can you assume any specific coordination mechanisms such as cooperation schedules or predetermined patterns.
 
-You only need to describe the strategy in natural language, including pseudocode if helpful. Later, the strategy will be implemented as an algorithm."""
+You only need to describe the strategy in natural language, including pseudocode if helpful. Later, the strategy will be implemented as an algorithm. This is all the information you will be provided with, questions are not possible."""
 
 
 def create_code_user_prompt(
