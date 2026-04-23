@@ -1,4 +1,4 @@
-"""Common Poll Resource implementation."""
+"""Common Pool Resource implementation."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,20 +7,27 @@ from typing import Sequence
 import numpy as np
 from numpy.typing import NDArray
 
-from emergent_llm.common import GameDescription, GameState
+from emergent_llm.common import GameDescription
 from emergent_llm.games.base_game import BaseGame
 from emergent_llm.players import BasePlayer
 
 
 @dataclass(frozen=True)
-class CommonPoolState(GameState):
+class CommonPoolState:
+    """State visible to common pool strategies."""
     current_stock: float
+
+    @classmethod
+    def print_definition(cls) -> str:
+        return ("@dataclass(frozen=True)\n"
+                "class CommonPoolState:\n"
+                "    current_stock: float\n")
 
 
 @dataclass(frozen=True)
 class CommonPoolDescription(GameDescription):
-    """Description for Public Goods Game."""
-    capacity: int  # capacity of the resource
+    """Description for Common Pool Game."""
+    capacity: int
 
     def __post_init__(self):
         super().__post_init__()
@@ -71,23 +78,24 @@ class CommonPoolGame(BaseGame):
 
     def _calculate_payoffs(self,
                            actions: NDArray[np.bool_]) -> NDArray[np.float64]:
-        """Calculate payoffs for a single round."""
         share = 0.5 * self.stock / self.description.n_players
-
         payoffs = share + share * (~actions).astype(np.float64)
 
         self.stock -= np.sum(payoffs)
-        self.stock = max(self.stock, 0)  # added in case of float precision errors
+        self.stock = max(self.stock, 0)
         self.stock += 2 * self.stock * (1 -
                                         self.stock / self.description.capacity)
         self.stock = min(self.stock, self.description.capacity)
 
         return payoffs
 
-    def get_state(self):
-        return CommonPoolState(self.current_round, current_stock=self.stock)
+    @classmethod
+    def has_state(cls) -> bool:
+        return True
+
+    def get_state(self) -> CommonPoolState:
+        return CommonPoolState(current_stock=self.stock)
 
     def reset(self):
-        """Reset game to initial state."""
         super().reset()
         self.stock = self.description.capacity

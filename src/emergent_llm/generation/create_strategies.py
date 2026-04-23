@@ -21,19 +21,20 @@ import openai
 from google import genai
 from google.genai import errors as genai_errors
 
-from emergent_llm.common import Attitude
+from emergent_llm.common import Attitude, GameDescription
 from emergent_llm.generation.prompts import (
     HEADER_IMPORTS,
     create_code_user_prompt,
     create_strategy_user_prompt,
 )
 from emergent_llm.generation.test_strategies import test_strategy_class
+from emergent_llm.games import get_game_type
 from emergent_llm.players import (
     BaseStrategy,)
 
 LOCAL_IMPORTS = """from emergent_llm.players import BaseStrategy
 from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription, CommonPoolDescription, CommonPoolState
-from emergent_llm.common import Action, C, D, PlayerHistory, GameState"""
+from emergent_llm.common import Action, C, D, PlayerHistory"""
 
 
 def setup_logging(log_file: Path) -> logging.Logger:
@@ -226,9 +227,11 @@ def generate_strategy_code(config: LLMConfig,
     if logger:
         logger.info(f"Generated code: {response}")
 
+    _, game_description_class = get_game_type(game_name)
+
     # Clean and validate the code
     code = clean_generated_code(response)
-    validate_strategy_code(code)
+    validate_strategy_code(code, game_description_class)
     return code
 
 
@@ -276,7 +279,8 @@ def clean_generated_code(response: str) -> str:
     return code
 
 
-def validate_strategy_code(code: str):
+def validate_strategy_code(code: str,
+                           game_description_class: type[GameDescription]):
     """Validate strategy code for safety and correctness."""
 
     def is_safe_node(node):
@@ -345,6 +349,12 @@ def validate_strategy_code(code: str):
         required_methods = {'__init__', '__call__'}
         found_methods = set()
 
+        # Pick the expected __call__ signature based on whether this game has state
+        if game_description_class.has_state():
+            expected_call_args = ['self', 'history', 'state']
+        else:
+            expected_call_args = ['self', 'history']
+
         for node in class_def.body:
             if isinstance(node, ast.FunctionDef):
                 found_methods.add(node.name)
@@ -360,9 +370,10 @@ def validate_strategy_code(code: str):
                 # Validate __call__ method
                 elif node.name == '__call__':
                     args = [arg.arg for arg in node.args.args]
-                    if args != ['self', 'state', 'history']:
+                    if args != expected_call_args:
                         raise ValueError(
-                            "__call__ must have signature (self, state, history)"
+                            f"__call__ must have signature {tuple(expected_call_args)}, "
+                            f"got {tuple(args)}"
                         )
 
         # Check required methods exist

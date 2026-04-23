@@ -7,60 +7,19 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
-from emergent_llm.common import Action, GameDescription, GameHistory, GameState, PlayerHistory
+from emergent_llm.common import Action, GameDescription, GameHistory, PlayerHistory
 from emergent_llm.players.base_player import BasePlayer
 
 
 @dataclass
 class GameResult:
     """Results from a single game."""
-    player_names: list[str]  # Player names
-    total_payoffs: list[float]  # Total scores by player
-    total_cooperations: list[int]  # Number of cooperate actions by player
-    cooperations_by_round: list[
-        int]  # Number of cooperate actions in each round
-    history: GameHistory  # Complete game history
-    description: GameDescription  # Game parameters and rules
-
-    def log_match_result(self, match_id: str = "", logger=None) -> str:
-        """Log match result in clean DataFrame format."""
-        lines = []
-
-        # Header
-        lines.append("=" * 60)
-        if match_id:
-            lines.append(f"MATCH: {match_id}")
-        lines.append("=" * 60)
-
-        # Player list with their actual names and strategies
-        lines.append("PLAYERS:")
-        for i, player_name in enumerate(self.player_names):
-            lines.append(f"  {i}: {player_name}")
-        lines.append("")
-
-        lines.append("ACTIONS:")
-        actions_df = pd.DataFrame(self.history.actions_as_string_array())
-        lines.append(actions_df.to_string(index=True))
-        lines.append("")
-
-        lines.append("PAYOFFS:")
-        payoffs_df = pd.DataFrame(self.history.payoffs)
-        lines.append(payoffs_df.to_string(index=True, float_format='%.3f'))
-        lines.append("")
-
-        # Final scores
-        lines.append("TOTAL SCORES:")
-        for i, total_payoff in enumerate(self.total_payoffs):
-            lines.append(f"  Player {i}: {total_payoff:.3f}")
-        lines.append(f"Average: {np.mean(self.total_payoffs):.3f}")
-        lines.append("=" * 60)
-
-        result_str = "\n".join(lines)
-
-        if logger:
-            logger.info(result_str)
-
-        return result_str
+    player_names: list[str]
+    total_payoffs: list[float]
+    total_cooperations: list[int]
+    cooperations_by_round: list[int]
+    history: GameHistory
+    description: GameDescription
 
 
 class BaseGame(ABC):
@@ -68,30 +27,30 @@ class BaseGame(ABC):
 
     def __init__(self, players: Sequence[BasePlayer],
                  description: GameDescription):
-        """Initialize game with players and description."""
         if len(players) != description.n_players:
             raise ValueError(f"Number of players ({len(players)}) must match "
                              f"description.n_players ({description.n_players})")
 
         self.players: Sequence[BasePlayer] = players
         self.description: GameDescription = description
-
-        # Initialize game state
         self.history: GameHistory | None = None
-        self.current_round: int = 0
 
     @abstractmethod
     def _calculate_payoffs(self,
                            actions: NDArray[np.bool_]) -> NDArray[np.float64]:
         """Calculate payoffs for a single round given actions."""
 
+    def get_state(self):
+        """Return game-specific state, or None if the game has no extra state."""
+        return None
+
     def _play_round(self, players: Sequence[BasePlayer]):
         """Play a single round of the game."""
         state = self.get_state()
 
         action_enums = [
-            player(state=state, history=PlayerHistory.empty()) if self.history is None else
-            player(state=state, history=self.history.for_player(i))
+            player(history=PlayerHistory.empty(), state=state) if self.history is None else
+            player(history=self.history.for_player(i), state=state)
             for i, player in enumerate(players)
         ]
 
@@ -102,8 +61,6 @@ class BaseGame(ABC):
             self.history = GameHistory(actions=actions, payoffs=payoffs)
         else:
             self.history.update(actions, payoffs)
-
-        self.current_round += 1
 
     def play_game(self) -> GameResult:
         """Play a complete game for the number of rounds specified in description."""
@@ -122,12 +79,8 @@ class BaseGame(ABC):
             history=self.history,
             description=self.description)
 
-    def get_state(self) -> GameState:
-        return GameState(self.current_round)
-
     def reset(self):
         """Reset game to initial state."""
         self.history = None
-        self.current_round = 0
         for player in self.players:
             player.reset()

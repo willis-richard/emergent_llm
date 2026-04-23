@@ -8,30 +8,32 @@ from emergent_llm.common import (
     C,
     D,
     GameDescription,
-    GameState,
     Gene,
-    PlayerHistory,
 )
-from emergent_llm.games import CollectiveRiskDescription, PublicGoodsDescription, CommonPoolDescription
+from emergent_llm.games import (
+    CollectiveRiskDescription,
+    CommonPoolDescription,
+    PublicGoodsDescription,
+)
 from emergent_llm.generation import StrategyRegistry
 from emergent_llm.players import BaseStrategy, LLMPlayer, StrategySpec
 from emergent_llm.tournament import (
     BaseTournamentConfig,
+    BatchCulturalEvolution,
+    BatchCulturalEvolutionConfig,
+    BatchCulturalEvolutionResults,
     BatchFairTournament,
     BatchFairTournamentResults,
     BatchMixtureTournament,
     BatchMixtureTournamentResults,
     BatchTournamentConfig,
+    CulturalEvolution,
+    CulturalEvolutionConfig,
+    CulturalEvolutionResults,
     FairTournament,
     FairTournamentResults,
     MixtureTournament,
     MixtureTournamentResults,
-    CulturalEvolutionConfig,
-    CulturalEvolution,
-    CulturalEvolutionResults,
-    BatchCulturalEvolutionConfig,
-    BatchCulturalEvolution,
-    BatchCulturalEvolutionResults
 )
 
 # Setup logging
@@ -49,7 +51,7 @@ class CollectiveStrategy(BaseStrategy):
     def __init__(self, game_description):
         pass
 
-    def __call__(self, state, history):
+    def __call__(self, history):
         return C
 
 
@@ -57,7 +59,7 @@ class SelfishStrategy(BaseStrategy):
     def __init__(self, game_description):
         pass
 
-    def __call__(self, state, history):
+    def __call__(self, history):
         return D
 
 

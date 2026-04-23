@@ -3,37 +3,37 @@ from typing import Callable
 
 import numpy as np
 
-from emergent_llm.common import C, D, Action, GameState, PlayerHistory
+from emergent_llm.common import C, D, Action, PlayerHistory
 
-Cooperator = lambda _, __: C
-Defector = lambda _, __: D
-Random = lambda _, __: random.choice([C, D])
-RandomCooperator = lambda _, __: C if np.random.random() < 0.9 else D
-RandomDefector = lambda _, __: D if np.random.random() < 0.9 else C
+Cooperator = lambda _: C
+Defector = lambda _: D
+Random = lambda _: random.choice([C, D])
+RandomCooperator = lambda _: C if np.random.random() < 0.9 else D
+RandomDefector = lambda _: D if np.random.random() < 0.9 else C
 
 
 class GradualDefector:
     def __init__(self, threshold=10):
         self.threshold = threshold
 
-    def __call__(self, state: GameState, _: PlayerHistory):
-        return C if state.round_number <= self.threshold else D
+    def __call__(self, history: PlayerHistory):
+        return C if history.round_number <= self.threshold else D
 
 
 class PeriodicDefector:
     def __init__(self, period):
         self.period = period
 
-    def __call__(self, state: GameState, _: PlayerHistory):
-        return D if state.round_number % self.period == 0 else C
+    def __call__(self, history: PlayerHistory):
+        return D if history.round_number % self.period == 0 else C
 
 
 class Altenator:
     def __init__(self, initial_action: Action):
         self.action = initial_action
 
-    def __call__(self, state: GameState, _: PlayerHistory):
-        return self.action if state.round_number % 2 == 0 else self.action.flip()
+    def __call__(self, history: PlayerHistory):
+        return self.action if history.round_number % 2 == 0 else self.action.flip()
 
 
 class ConditionalCooperator:
@@ -42,8 +42,8 @@ class ConditionalCooperator:
         self.threshold = threshold
         self.include_self = include_self
 
-    def __call__(self, state: GameState, history: PlayerHistory) -> Action:
-        if state.round_number == 0:
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
             return self.initial_action
 
         last_opponent_cooperators = int(history.opponent_cooperators[-1])
@@ -59,8 +59,8 @@ class ConditionalDefector:
         self.threshold = threshold
         self.include_self = include_self
 
-    def __call__(self, state: GameState, history: PlayerHistory) -> Action:
-        if state.round_number == 0:
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
             return self.initial_action
 
         last_opponent_cooperators = int(history.opponent_cooperators[-1])
@@ -76,16 +76,16 @@ class HistoricalCooperator:
         self.threshold = threshold
         self.include_self = include_self
 
-    def __call__(self, state: GameState, history: PlayerHistory) -> Action:
-        if state.round_number == 0:
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
             return self.initial_action
 
         total_opponent_coops = int(history.opponent_cooperators.sum())
         if self.include_self:
             total = total_opponent_coops + int(history.my_actions.sum())
-            avg = total / state.round_number
+            avg = total / history.round_number
         else:
-            avg = total_opponent_coops / state.round_number
+            avg = total_opponent_coops / history.round_number
         return C if avg >= self.threshold else D
 
 
@@ -94,8 +94,8 @@ class AntiTFT:
         self.initial_action = initial_action
         self.threshold = threshold
 
-    def __call__(self, state: GameState, history: PlayerHistory) -> Action:
-        if state.round_number == 0:
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
             return self.initial_action
         return D if int(history.opponent_cooperators[-1]) >= self.threshold else C
 
@@ -105,36 +105,36 @@ class FirstImpressions:
         self.initial_action = initial_action
         self.threshold = threshold
 
-    def __call__(self, state: GameState, history: PlayerHistory) -> Action:
-        if state.round_number == 0:
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
             return self.initial_action
         return C if int(history.opponent_cooperators[0]) >= self.threshold else D
 
 
 class Flipper:
     def __init__(self, flip_action: Action, n_rounds: int,
-                 default: Callable[[GameState, PlayerHistory], Action]):
+                 default: Callable[[PlayerHistory], Action]):
         self.flip_action = flip_action
         self.n_rounds = n_rounds
         self.default = default
 
-    def __call__(self, state: GameState, history: PlayerHistory) -> Action:
-        if state.round_number >= self.n_rounds and \
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number >= self.n_rounds and \
            all(a == self.flip_action
                for a in Action.from_bool_array(history.my_actions[-self.n_rounds:])):
             return self.flip_action.flip()
-        return self.default(state, history)
+        return self.default(history)
 
 
 class SpecialRounds:
-    def __init__(self, default: Callable[[GameState, PlayerHistory], Action],
-                 special: Callable[[GameState, PlayerHistory], Action],
+    def __init__(self, default: Callable[[PlayerHistory], Action],
+                 special: Callable[[PlayerHistory], Action],
                  rounds: list[int]):
         self.default = default
         self.special = special
         self.rounds = rounds
 
-    def __call__(self, state: GameState, history: PlayerHistory) -> Action:
-        if state.round_number in self.rounds:
-            return self.special(state, history)
-        return self.default(state, history)
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number in self.rounds:
+            return self.special(history)
+        return self.default(history)

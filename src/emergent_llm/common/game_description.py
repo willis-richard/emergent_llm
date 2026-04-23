@@ -5,25 +5,6 @@ from dataclasses import asdict, dataclass, fields
 
 
 @dataclass(frozen=True)
-class GameState:
-    """Base state information available to all games."""
-    round_number: int  # Current round number (0-indexed)
-
-    @classmethod
-    def print_definition(cls) -> str:
-        """Print the definition, for use in the prompts"""
-        definition = "@dataclass(frozen=True)\n"
-        definition += f"class {cls.__name__}:\n"
-
-        for field in fields(cls):
-            type_name = field.type.__name__ if hasattr(
-                field.type, '__name__') else str(field.type)
-            definition += f"    {field.name}: {type_name}\n"
-
-        return definition
-
-
-@dataclass(frozen=True)
 class GameDescription(ABC):
     """Base class for all game descriptions."""
     n_players: int
@@ -61,42 +42,36 @@ class GameDescription(ABC):
         return f"{class_name}({', '.join(params)})"
 
     @classmethod
-    def game_state_type(cls) -> type[GameState]:
+    def has_state(cls) -> bool:
         """
-        Return the game state class for use with this description
+        Whether this game exposes per-round state to strategies.
+
+        Games that override this to return True must also supply a state object
+        via BaseGame.get_state(), and their strategies receive it as a second
+        argument to __call__.
         """
-        return GameState
+        return False
 
     @classmethod
     @abstractmethod
     def game_type(cls) -> 'type[BaseGame]':
-        """
-        Return the game class for use with this description
-        """
+        """Return the game class for use with this description"""
 
     @abstractmethod
     def max_social_welfare(self) -> float:
-        """
-        Return the highest possible social welfare (per player)
-        """
+        """Return the highest possible social welfare (per player)"""
 
     @abstractmethod
     def min_social_welfare(self) -> float:
-        """
-        Return the lowest possible social welfare (per player)
-        """
+        """Return the lowest possible social welfare (per player)"""
 
     @abstractmethod
     def max_payoff(self) -> float:
-        """
-        Return the highest possible individual payoff in the game
-        """
+        """Return the highest possible individual payoff in the game"""
 
     @abstractmethod
     def min_payoff(self) -> float:
-        """
-        Return the highest possible individual payoff in the game
-        """
+        """Return the lowest possible individual payoff in the game"""
 
     def normalised_max_social_welfare(self) -> float:
         return self.max_social_welfare() / self.n_rounds

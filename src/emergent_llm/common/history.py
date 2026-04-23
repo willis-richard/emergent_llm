@@ -27,6 +27,11 @@ class PlayerHistory:
         self.my_payoffs.flags.writeable = False
         self.opponent_cooperators.flags.writeable = False
 
+    @property
+    def round_number(self) -> int:
+        """Current round index (0 on first call, equal to rounds completed so far)."""
+        return len(self.my_actions)
+
     @classmethod
     def empty(cls) -> "PlayerHistory":
         """Construct an empty history for round 0."""

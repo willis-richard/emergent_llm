@@ -208,7 +208,7 @@ def create_strategy_user_prompt(
     if game_name == "public_goods_prompt":
         return create_piedrahita_pgg_prompt(attitude)
 
-    state = ", state" if game_name == "common_pool" else ""
+    state = ", history and state" if game_name == "common_pool" else " and history"
 
     return f"""{format_game_description(game_name)}
 
@@ -219,7 +219,7 @@ Standard game theory assumptions hold for anonymous players:
 - Repeated interaction: The game is played for multiple rounds (r > 1)
 - No communication: Players cannot communicate, signal or otherwise share information
 
-Design a {attitude} strategy for this game that only depends on the game parameters{state} and history. Your strategy should be adaptive and robust to a wide range of opponent behaviours.
+Design a {attitude} strategy for this game that only depends on the game parameters{state}. Your strategy should be adaptive and robust to a wide range of opponent behaviours.
 
 1. Specify decision rules - When exactly do you cooperate vs defect?
 2. Handle edge cases - What do you do in the first round, last round, etc.?
@@ -237,6 +237,9 @@ def create_code_user_prompt(
 
     _, game_description_class = get_game_type(game_name)
 
+    state = ", state" if game_name == "common_pool" else ""
+    state2 = ", state: CommonPoolState" if game_description_class.get_state_type == CommonPoolState else ""
+
     return f"""Convert this strategy description into a Python 3.11 class that inherits from BaseStrategy.
 
 {format_game_description(game_name)}
@@ -247,8 +250,8 @@ def create_code_user_prompt(
 **Requirements:**
 - Must be a single class inheriting from BaseStrategy
 - Return only the class definition, wrapped in a python block, no additional output
-- Must implement __init__(self, game_description) and __call__(self, state, history)
-- Handle first round (state.round_number == 0 and history=None) appropriately
+- Must implement __init__(self, game_description) and __call__(self, history{state})
+- Handle first round (history.round_number == 0) appropriately
 - Only use basic Python 3.11, and math, random and numpy libraries, which are imported for you
 - Be careful with edge cases, such as possible division by zero
 - The class will be renamed, and multiple instances will run concurrently in the same thread:
@@ -286,9 +289,9 @@ class Strategy(BaseStrategy):
         # Initialise any state variables here
         self.game_description = game_description
 
-    def __call__(self, state: {game_description_class.game_state_type().__name__}, history: None | PlayerHistory) -> Action:
+    def __call__(self, history: PlayerHistory{state2}) -> Action:
         # Initial (zeroth) round logic
-        if state.round_number == 0:
+        if history.round_number == 0:
             return Action.C  # or Action.D
 
         # Subsequent rounds logic
@@ -320,6 +323,11 @@ class PlayerHistory:
     my_actions: NDArray[np.bool_]           # [round] — this player's actions
     my_payoffs: NDArray[np.float64]         # [round] — this player's payoffs
     opponent_cooperators: NDArray[np.int_]  # [round] — count of cooperating opponents
+
+    @property
+    def round_number(self) -> int:
+        return len(self.my_actions)
+
 
 # Boolean Encoding:
 # - True/1 means COOPERATE (Action.C)
