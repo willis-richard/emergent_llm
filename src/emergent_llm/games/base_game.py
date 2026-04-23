@@ -40,17 +40,16 @@ class BaseGame(ABC):
                            actions: NDArray[np.bool_]) -> NDArray[np.float64]:
         """Calculate payoffs for a single round given actions."""
 
-    def get_state(self):
-        """Return game-specific state, or None if the game has no extra state."""
+    def get_current_stock(self):
         return None
 
     def _play_round(self, players: Sequence[BasePlayer]):
         """Play a single round of the game."""
-        state = self.get_state()
+        stock = self.get_current_stock()
 
         action_enums = [
-            player(history=PlayerHistory.empty(), state=state) if self.history is None else
-            player(history=self.history.for_player(i), state=state)
+            player(history=PlayerHistory.empty(), current_stock=stock) if self.history is None else
+            player(history=self.history.for_player(i), current_stock=stock)
             for i, player in enumerate(players)
         ]
 
@@ -80,7 +79,6 @@ class BaseGame(ABC):
             description=self.description)
 
     def reset(self):
-        """Reset game to initial state."""
         self.history = None
         for player in self.players:
             player.reset()

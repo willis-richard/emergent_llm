@@ -33,7 +33,7 @@ from emergent_llm.players import (
     BaseStrategy,)
 
 LOCAL_IMPORTS = """from emergent_llm.players import BaseStrategy
-from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription, CommonPoolDescription, CommonPoolState
+from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription, CommonPoolDescription
 from emergent_llm.common import Action, C, D, PlayerHistory"""
 
 
@@ -350,8 +350,8 @@ def validate_strategy_code(code: str,
         found_methods = set()
 
         # Pick the expected __call__ signature based on whether this game has state
-        if game_description_class.has_state():
-            expected_call_args = ['self', 'history', 'state']
+        if game_description_class.has_stock():
+            expected_call_args = ['self', 'history', 'current_stock']
         else:
             expected_call_args = ['self', 'history']
 

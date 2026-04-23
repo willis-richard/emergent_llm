@@ -42,12 +42,12 @@ class GameDescription(ABC):
         return f"{class_name}({', '.join(params)})"
 
     @classmethod
-    def has_state(cls) -> bool:
+    def has_stock(cls) -> bool:
         """
-        Whether this game exposes per-round state to strategies.
+        Whether this game exposes per-round stock level to strategies.
 
-        Games that override this to return True must also supply a state object
-        via BaseGame.get_state(), and their strategies receive it as a second
+        Games that override this to return True must also supply a float via
+        BaseGame.get_current_stock(), and their strategies receive it as a second
         argument to __call__.
         """
         return False

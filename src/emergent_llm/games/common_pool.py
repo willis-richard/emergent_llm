@@ -13,18 +13,6 @@ from emergent_llm.players import BasePlayer
 
 
 @dataclass(frozen=True)
-class CommonPoolState:
-    """State visible to common pool strategies."""
-    current_stock: float
-
-    @classmethod
-    def print_definition(cls) -> str:
-        return ("@dataclass(frozen=True)\n"
-                "class CommonPoolState:\n"
-                "    current_stock: float\n")
-
-
-@dataclass(frozen=True)
 class CommonPoolDescription(GameDescription):
     """Description for Common Pool Game."""
     capacity: int
@@ -37,8 +25,8 @@ class CommonPoolDescription(GameDescription):
             )
 
     @classmethod
-    def game_state_type(cls) -> type[CommonPoolState]:
-        return CommonPoolState
+    def has_stock(cls) -> bool:
+        return True
 
     @classmethod
     def game_type(cls) -> type[CommonPoolGame]:
@@ -63,9 +51,7 @@ class CommonPoolDescription(GameDescription):
 
 class CommonPoolGame(BaseGame):
     """
-    Common pool resource with growth rate of 2 * x * (1 - x / capacity)
-
-    Rules:
+    Common pool resource with growth rate of 2 * x * (1 - x / capacity).
     - Defect consumes stock/n
     - Cooperate consumes stock/2n
     - Remaining stock grows by growth rate
@@ -83,18 +69,13 @@ class CommonPoolGame(BaseGame):
 
         self.stock -= np.sum(payoffs)
         self.stock = max(self.stock, 0)
-        self.stock += 2 * self.stock * (1 -
-                                        self.stock / self.description.capacity)
+        self.stock += 2 * self.stock * (1 - self.stock / self.description.capacity)
         self.stock = min(self.stock, self.description.capacity)
 
         return payoffs
 
-    @classmethod
-    def has_state(cls) -> bool:
-        return True
-
-    def get_state(self) -> CommonPoolState:
-        return CommonPoolState(current_stock=self.stock)
+    def get_current_stock(self) -> float:
+        return self.stock
 
     def reset(self):
         super().reset()

@@ -30,7 +30,7 @@ class LLMPlayer(BasePlayer):
             f"{strategy_class.__module__}.{strategy_class.__name__}")
         self.game_description: GameDescription = game_description
         self.strategy_class: type[BaseStrategy] = strategy_class
-        self._takes_state = game_description.has_state()
+        self._takes_stock = game_description.has_stock()
 
         self.logger = logging.getLogger(f"{repr(self)}")
 
@@ -43,10 +43,10 @@ class LLMPlayer(BasePlayer):
         self.strategy_function = self.strategy_class(self.game_description)
         self.error_count = 0
 
-    def __call__(self, history: PlayerHistory, state=None) -> Action:
+    def __call__(self, history: PlayerHistory, current_stock=None) -> Action:
         try:
-            if self._takes_state:
-                action = self.strategy_function(history, state)
+            if self._takes_stock:
+                action = self.strategy_function(history, current_stock)
             else:
                 action = self.strategy_function(history)
 
@@ -88,7 +88,7 @@ class SimplePlayer(BasePlayer):
     def reset(self):
         pass
 
-    def __call__(self, history: PlayerHistory, state=None) -> Action:
+    def __call__(self, history: PlayerHistory, current_stock=None) -> Action:
         return self.strategy_function(history)
 
 

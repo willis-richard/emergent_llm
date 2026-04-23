@@ -5,23 +5,23 @@ from emergent_llm.common import Action, GameDescription, PlayerHistory, PlayerId
 
 
 class BaseStrategy(ABC):
-    """Abstract base class for strategies. State is game-specific and optional."""
+    """Abstract base class for strategies. Stock is game-specific and optional."""
 
     @abstractmethod
     def __init__(self, game_description: GameDescription):
         """For initialising member variables."""
 
     @abstractmethod
-    def __call__(self, history: PlayerHistory, state=None) -> Action:
+    def __call__(self, history: PlayerHistory, current_stock=None) -> Action:
         """
         Compute the action for the current round.
 
-        For games without extra state (public_goods, collective_risk), strategies
+        For games without stock (public_goods, collective_risk), strategies
         should be written as `def __call__(self, history) -> Action` and the
-        `state` argument will never be inspected.
+        `current_stock` argument will never be inspected.
 
-        For common_pool, state is a CommonPoolState and strategies should be
-        written as `def __call__(self, history, state) -> Action`.
+        For common_pool, current_stock is a float and strategies should be
+        written as `def __call__(self, history, current_stock) -> Action`.
         """
 
 
@@ -36,14 +36,8 @@ class BasePlayer(ABC):
         """Prepare for a new game"""
 
     @abstractmethod
-    def __call__(self, history: PlayerHistory, state=None) -> Action:
-        """
-        Player's strategy function.
-
-        Args:
-            history: Player-specific view of game history
-            state: Game-specific state, or None for games without extra state.
-        """
+    def __call__(self, history: PlayerHistory, current_stock=None) -> Action:
+        pass
 
     def __repr__(self):
         return f"{self.id.name}[{self.__class__.__name__}]"

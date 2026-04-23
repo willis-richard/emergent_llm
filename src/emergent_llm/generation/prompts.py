@@ -229,7 +229,6 @@ Your strategy will play in a tournament against independent strategies developed
 
 You only need to describe the strategy in natural language, including pseudocode if helpful. Later, the strategy will be implemented as an algorithm. This is all the information you will be provided with, questions are not possible."""
 
-
 def create_code_user_prompt(
         strategy_description: str,
         game_name: str) -> str:
@@ -237,8 +236,9 @@ def create_code_user_prompt(
 
     _, game_description_class = get_game_type(game_name)
 
-    state = ", state" if game_name == "common_pool" else ""
-    state2 = ", state: CommonPoolState" if game_description_class.get_state_type == CommonPoolState else ""
+    has_stock = game_description_class.has_stock()
+    stock_arg = ", current_stock" if has_stock else ""
+    stock_sig = ", current_stock: float" if has_stock else ""
 
     return f"""Convert this strategy description into a Python 3.11 class that inherits from BaseStrategy.
 
@@ -250,7 +250,7 @@ def create_code_user_prompt(
 **Requirements:**
 - Must be a single class inheriting from BaseStrategy
 - Return only the class definition, wrapped in a python block, no additional output
-- Must implement __init__(self, game_description) and __call__(self, history{state})
+- Must implement __init__(self, game_description) and __call__(self, history{stock_arg})
 - Handle first round (history.round_number == 0) appropriately
 - Only use basic Python 3.11, and math, random and numpy libraries, which are imported for you
 - Be careful with edge cases, such as possible division by zero
@@ -289,17 +289,16 @@ class Strategy(BaseStrategy):
         # Initialise any state variables here
         self.game_description = game_description
 
-    def __call__(self, history: PlayerHistory{state2}) -> Action:
+    def __call__(self, history: PlayerHistory{stock_sig}) -> Action:
         # Initial (zeroth) round logic
         if history.round_number == 0:
             return Action.C  # or Action.D
 
         # Subsequent rounds logic
-        if history.cooperators[-1] >= self.game_description.n_players // 4:
+        if history.opponent_cooperators[-1] >= self.game_description.n_players // 4:
             return Action.C
         return Action.D
 ```"""
-
 
 def get_interface_description(
         game_description_class: type[GameDescription]) -> str:
@@ -311,8 +310,6 @@ def get_interface_description(
 
 
 {game_description_class.print_definition()}
-
-{game_description_class.game_state_type().print_definition()}
 
 @dataclass
 class PlayerHistory:
