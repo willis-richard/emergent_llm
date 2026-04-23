@@ -748,11 +748,9 @@ def parse_arguments() -> argparse.Namespace:
         required=True)
     parser.add_argument("--strategies_dir", type=str, default="strategies")
     parser.add_argument(
-        "--attitudes",
-        type=str,
-        default=",".join(attitude.value for attitude in Attitude.base_attitudes()),
-        help=("Comma-separated attitudes to generate. Defaults to the original "
-              "base attitudes (collective,selfish)."),
+        "--full_attitudes",
+        action="store_true",
+        help=("Use the full set of Attitudes, instead of just collective, selfish."),
     )
 
     # Phase selection
@@ -795,7 +793,7 @@ def parse_selected_attitudes(attitude_values: str) -> list[Attitude]:
 def main():
     """Main function."""
     args = parse_arguments()
-    selected_attitudes = parse_selected_attitudes(args.attitudes)
+    selected_attitudes = list(Attitude) if args.full_attitudes else Attitude.base_attitudes()
 
     # Create output directory structure
     strategies_dir = Path(args.strategies_dir) / args.game_name
