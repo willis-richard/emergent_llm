@@ -33,12 +33,12 @@ MODELS_MAP = {
     "llama3.1-70b[collective]": "Llama 3.1 70b[Collective]",
     "mistral-7b[collective]": "Mistral 7b[Collective]",
     "deepseek-r1-distill-llama-70b[collective]": "DeepSeek R1[Collective]",
-    "gpt-5-mini[exploitative]": "GPT 5 Mini[Exploitative]",
-    "gemini-2.5-flash[exploitative]": "Gemini 2.5 Flash[Exploitative]",
-    "claude-haiku-4-5[exploitative]": "Claude Haiku 4.5[Exploitative]",
-    "llama3.1-70b[exploitative]": "Llama 3.1 70b[Exploitative]",
-    "mistral-7b[exploitative]": "Mistral 7b[Exploitative]",
-    "deepseek-r1-distill-llama-70b[exploitative]": "DeepSeek R1[Exploitative]",
+    "gpt-5-mini[selfish]": "GPT 5 Mini[Selfish]",
+    "gemini-2.5-flash[selfish]": "Gemini 2.5 Flash[Selfish]",
+    "claude-haiku-4-5[selfish]": "Claude Haiku 4.5[Selfish]",
+    "llama3.1-70b[selfish]": "Llama 3.1 70b[Selfish]",
+    "mistral-7b[selfish]": "Mistral 7b[Selfish]",
+    "deepseek-r1-distill-llama-70b[selfish]": "DeepSeek R1[Selfish]",
 }
 
 
@@ -154,19 +154,19 @@ class MixtureTournamentSummary:
             ]
             n_collective = sum(1 for attitude in base_attitudes
                                if attitude == Attitude.COLLECTIVE)
-            n_exploitative = sum(1 for attitude in base_attitudes
-                                 if attitude == Attitude.EXPLOITATIVE)
+            n_selfish = sum(1 for attitude in base_attitudes
+                                 if attitude == Attitude.SELFISH)
 
-            mixture_key = MixtureKey(n_collective, n_exploitative)
-            group_size = n_collective + n_exploitative
+            mixture_key = MixtureKey(n_collective, n_selfish)
+            group_size = n_collective + n_selfish
 
             if mixture_key not in mixture_stats:
                 mixture_stats[mixture_key] = MixtureResult(
                     group_size=group_size,
                     n_collective=n_collective,
-                    n_exploitative=n_exploitative,
+                    n_selfish=n_selfish,
                     collective_scores=[],
-                    exploitative_scores=[],
+                    selfish_scores=[],
                     matches_played=0)
 
             stats = mixture_stats[mixture_key]
@@ -174,20 +174,20 @@ class MixtureTournamentSummary:
                                                match_result.total_payoffs):
                 if player_id.attitude.to_base_attitude() == Attitude.COLLECTIVE:
                     stats.collective_scores.append(total_payoff)
-                elif player_id.attitude.to_base_attitude() == Attitude.EXPLOITATIVE:
-                    stats.exploitative_scores.append(total_payoff)
+                elif player_id.attitude.to_base_attitude() == Attitude.SELFISH:
+                    stats.selfish_scores.append(total_payoff)
             stats.matches_played += 1
 
         rows = []
         for result in mixture_stats.values():
             rows.append({
                 'group_size': result.group_size,
-                'exploitative_ratio': result.exploitative_ratio,
+                'selfish_ratio': result.selfish_ratio,
                 'collective_ratio': result.collective_ratio,
                 'n_collective': result.n_collective,
-                'n_exploitative': result.n_exploitative,
+                'n_selfish': result.n_selfish,
                 'mean_collective_score': result.mean_collective_score,
-                'mean_exploitative_score': result.mean_exploitative_score,
+                'mean_selfish_score': result.mean_selfish_score,
                 'mean_social_welfare': result.mean_social_welfare,
                 'matches_played': result.matches_played,
             })
@@ -268,7 +268,7 @@ class CulturalEvolutionSummary:
 
         for generation, gen_result in enumerate(generation_results):
             collective_payoffs = []
-            exploitative_payoffs = []
+            selfish_payoffs = []
             all_payoffs = []
             cooperations = []
 
@@ -279,8 +279,8 @@ class CulturalEvolutionSummary:
                 row_attitude = Attitude(row['player_attitude']).to_base_attitude()
                 if row_attitude == Attitude.COLLECTIVE:
                     collective_payoffs.append(row['mean_payoff'])
-                elif row_attitude == Attitude.EXPLOITATIVE:
-                    exploitative_payoffs.append(row['mean_payoff'])
+                elif row_attitude == Attitude.SELFISH:
+                    selfish_payoffs.append(row['mean_payoff'])
 
             gen_freqs = gene_frequency_history[generation]
             collective_freq = sum(freq for gene, freq in gen_freqs.items()
@@ -291,16 +291,16 @@ class CulturalEvolutionSummary:
                 'collective_mean_payoff':
                     np.mean(collective_payoffs)
                     if collective_payoffs else np.nan,
-                'exploitative_mean_payoff':
-                    np.mean(exploitative_payoffs)
-                    if exploitative_payoffs else np.nan,
+                'selfish_mean_payoff':
+                    np.mean(selfish_payoffs)
+                    if selfish_payoffs else np.nan,
                 'overall_mean_payoff':
                     np.mean(all_payoffs),
                 'cooperation_rate':
                     np.mean(cooperations),
                 'collective_frequency':
                     collective_freq,
-                'exploitative_frequency':
+                'selfish_frequency':
                     1 - collective_freq,
             })
 
@@ -413,20 +413,20 @@ class MixtureResult:
     """Results for a specific mixture configuration."""
     group_size: int
     n_collective: int
-    n_exploitative: int
+    n_selfish: int
     collective_scores: list[float]
-    exploitative_scores: list[float]
+    selfish_scores: list[float]
     matches_played: int
 
     def __post_init__(self):
-        if not (self.n_collective + self.n_exploitative == self.group_size):
+        if not (self.n_collective + self.n_selfish == self.group_size):
             raise ValueError(
-                f"n_collective ({self.n_collective}) + n_exploitative ({self.n_exploitative}) "
+                f"n_collective ({self.n_collective}) + n_selfish ({self.n_selfish}) "
                 f"must equal group_size ({self.group_size})")
 
     @property
-    def exploitative_ratio(self) -> float:
-        return self.n_exploitative / self.group_size
+    def selfish_ratio(self) -> float:
+        return self.n_selfish / self.group_size
 
     @property
     def collective_ratio(self) -> float:
@@ -438,13 +438,13 @@ class MixtureResult:
             self.collective_scores)) if self.collective_scores else np.nan
 
     @property
-    def mean_exploitative_score(self) -> float:
+    def mean_selfish_score(self) -> float:
         return float(np.mean(
-            self.exploitative_scores)) if self.exploitative_scores else np.nan
+            self.selfish_scores)) if self.selfish_scores else np.nan
 
     @property
     def mean_social_welfare(self) -> float:
-        all_scores = self.collective_scores + self.exploitative_scores
+        all_scores = self.collective_scores + self.selfish_scores
         return float(np.mean(all_scores)) if all_scores else np.nan
 
 
@@ -551,7 +551,7 @@ class MixtureTournamentResults:
 
     config: BaseTournamentConfig
     collective_player_ids: list[PlayerId]
-    exploitative_player_ids: list[PlayerId]
+    selfish_player_ids: list[PlayerId]
     summary: MixtureTournamentSummary
     match_results: list[MatchResult] | None = None
 
@@ -568,8 +568,8 @@ class MixtureTournamentResults:
             'collective_player_ids': [
                 asdict(pid) for pid in self.collective_player_ids
             ],
-            'exploitative_player_ids': [
-                asdict(pid) for pid in self.exploitative_player_ids
+            'selfish_player_ids': [
+                asdict(pid) for pid in self.selfish_player_ids
             ],
             'result_type': 'MixtureTournamentResults',
         }
@@ -577,7 +577,7 @@ class MixtureTournamentResults:
         if style == OutputStyle.SUMMARY or self.match_results is None:
             data['summary'] = self.summary.to_dict()
         else:
-            all_players = self.collective_player_ids + self.exploitative_player_ids
+            all_players = self.collective_player_ids + self.selfish_player_ids
             player_id_to_index = {pid: i for i, pid in enumerate(all_players)}
             data['match_results'] = [
                 mr.serialise(player_id_to_index) for mr in self.match_results
@@ -599,12 +599,12 @@ class MixtureTournamentResults:
         collective_ids = [
             PlayerId.from_dict(d) for d in data['collective_player_ids']
         ]
-        exploitative_ids = [
-            PlayerId.from_dict(d) for d in data['exploitative_player_ids']
+        selfish_ids = [
+            PlayerId.from_dict(d) for d in data['selfish_player_ids']
         ]
 
         if 'match_results' in data:
-            all_players = collective_ids + exploitative_ids
+            all_players = collective_ids + selfish_ids
             match_results = [
                 MatchResult.from_dict(mr, all_players)
                 for mr in data['match_results']
@@ -617,7 +617,7 @@ class MixtureTournamentResults:
 
         return cls(config=config,
                    collective_player_ids=collective_ids,
-                   exploitative_player_ids=exploitative_ids,
+                   selfish_player_ids=selfish_ids,
                    summary=summary,
                    match_results=match_results)
 
@@ -639,8 +639,8 @@ class MixtureTournamentResults:
         n_collective = sorted_results['n_collective'].values
         collective_scores = sorted_results[
             'mean_collective_score'].values / self.config.game_description.n_rounds
-        exploitative_scores = sorted_results[
-            'mean_exploitative_score'].values / self.config.game_description.n_rounds
+        selfish_scores = sorted_results[
+            'mean_selfish_score'].values / self.config.game_description.n_rounds
 
         collective_scores = np.roll(collective_scores, -1)
 
@@ -651,8 +651,8 @@ class MixtureTournamentResults:
                 marker='o',
                 clip_on=False)
         ax.plot(n_collective,
-                exploitative_scores,
-                label='Exploitative',
+                selfish_scores,
+                label='Selfish',
                 lw=0.75,
                 marker='s',
                 clip_on=False)
@@ -884,8 +884,8 @@ class CulturalEvolutionResults:
                 lw=0.75,
                 clip_on=False)
         ax.plot(self.generation_stats_df.index,
-                self.generation_stats_df['exploitative_frequency'],
-                label='Exploitative',
+                self.generation_stats_df['selfish_frequency'],
+                label='Selfish',
                 marker='s',
                 lw=0.75,
                 clip_on=False)
@@ -940,8 +940,8 @@ class CulturalEvolutionResults:
                 lw=0.75,
                 clip_on=False)
         ax.plot(self.generation_stats_df.index,
-                self.generation_stats_df['exploitative_mean_payoff'] / n_rounds,
-                label='Exploitative',
+                self.generation_stats_df['selfish_mean_payoff'] / n_rounds,
+                label='Selfish',
                 marker='s',
                 lw=0.75,
                 clip_on=False)
@@ -1124,7 +1124,7 @@ class BatchMixtureTournamentResults:
         pivot_df.index = [f"{ratio:.0%}" for ratio in pivot_df.index]
 
         output = "=== SOCIAL WELFARE SUMMARY TABLE ==="
-        output += "\nRows: Exploitative player ratio, Columns: Group size"
+        output += "\nRows: Selfish player ratio, Columns: Group size"
         output += pivot_df.to_string(float_format='%.3f')
         return output
 
@@ -1224,16 +1224,16 @@ class BatchMixtureTournamentResults:
 
             collective_scores = group_data['mean_collective_score'].values
             rolled_collective_scores = np.roll(collective_scores, -1)[:-1]
-            exploitative_scores = group_data[
-                'mean_exploitative_score'].values[:-1]
-            difference = exploitative_scores - rolled_collective_scores
+            selfish_scores = group_data[
+                'mean_selfish_score'].values[:-1]
+            difference = selfish_scores - rolled_collective_scores
             normalised_difference = difference / gd.n_rounds
 
             n_collective = group_data['n_collective'].values
             rolled_n_collective = np.roll(n_collective, -1)[:-1] - 1
-            n_exploitative = group_data['n_exploitative'].values[:-1] - 1
+            n_selfish = group_data['n_selfish'].values[:-1] - 1
             opponent_proportion = rolled_n_collective / (rolled_n_collective +
-                                                         n_exploitative)
+                                                         n_selfish)
 
             ax.plot(opponent_proportion * 100,
                     normalised_difference,
@@ -1288,7 +1288,7 @@ class BatchCulturalEvolutionResults:
 
             n_rounds = run.config.game_description.n_rounds
             normalised_collective_payoff = run.generation_stats_df.iloc[-1]['collective_mean_payoff'] / n_rounds
-            normalised_exploitative_payoff = run.generation_stats_df.iloc[-1]['exploitative_mean_payoff'] / n_rounds
+            normalised_selfish_payoff = run.generation_stats_df.iloc[-1]['selfish_mean_payoff'] / n_rounds
             normalised_social_welfare = run.generation_stats_df.iloc[-1]['overall_mean_payoff'] / n_rounds
 
             run_rows.append({
@@ -1300,7 +1300,7 @@ class BatchCulturalEvolutionResults:
                 'winning_frequency': winning_frequency,
                 'threshold_met': winning_frequency >= run.config.threshold_pct,
                 'normalised_collective_payoff': normalised_collective_payoff,
-                'normalised_exploitative_payoff': normalised_exploitative_payoff,
+                'normalised_selfish_payoff': normalised_selfish_payoff,
                 'normalised_social_welfare': normalised_social_welfare})
 
         object.__setattr__(self, '_run_summary_df', pd.DataFrame(run_rows))
@@ -1429,7 +1429,7 @@ class BatchCulturalEvolutionResults:
         min_social_welfare = self.config.evolution_config.game_description.min_social_welfare() / n_rounds
         proportion = (social_welfare - min_social_welfare) / (max_social_welfare - min_social_welfare)
         lines.append(f"Normalised collective payoff: {self.run_summary_df.normalised_collective_payoff.mean():.2f}")
-        lines.append(f"Normalised exploitative payoff: {self.run_summary_df.normalised_exploitative_payoff.mean():.2f}")
+        lines.append(f"Normalised selfish payoff: {self.run_summary_df.normalised_selfish_payoff.mean():.2f}")
         lines.append(f"Normalised social welfare: {social_welfare:.2f}")
         lines.append(f"Maximum social welfare: {max_social_welfare:.2f}")
         lines.append(f"Minimum social welfare: {min_social_welfare:.2f}")

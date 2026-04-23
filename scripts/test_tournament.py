@@ -4,7 +4,7 @@ from pathlib import Path
 
 from emergent_llm.common import (
     COLLECTIVE,
-    EXPLOITATIVE,
+    SELFISH,
     C,
     D,
     GameDescription,
@@ -53,7 +53,7 @@ class CollectiveStrategy(BaseStrategy):
         return C
 
 
-class ExploitativeStrategy(BaseStrategy):
+class SelfishStrategy(BaseStrategy):
     def __init__(self, game_description):
         pass
 
@@ -73,16 +73,16 @@ def create_test_population(game_description):
             strategy_class=CollectiveStrategy,
         ))
 
-    exploitative_players = []
+    selfish_players = []
     for i in range(18):
-        exploitative_players.append(LLMPlayer(
+        selfish_players.append(LLMPlayer(
             name=f"llm_aggr_{i}",
-            gene=Gene("", EXPLOITATIVE),
+            gene=Gene("", SELFISH),
             game_description=game_description,
-            strategy_class=ExploitativeStrategy,
+            strategy_class=SelfishStrategy,
         ))
 
-    return collective_players, exploitative_players
+    return collective_players, selfish_players
 
 def run_fair_tournament(game_description):
     """Run tournament with Public Goods Game."""
@@ -110,7 +110,7 @@ def run_mixture_tournament(game_description):
     # Create and run tournament
     tournament = MixtureTournament(
         collective_players=c_p,
-        exploitative_players=a_p,
+        selfish_players=a_p,
         config=config
     )
 
@@ -129,8 +129,8 @@ def run_batch_fair_tournament(generator_name):
         model_name="DummyModel",
     )
 
-    strategies = [CollectiveStrategy] * 96 + [ExploitativeStrategy] * 96
-    genes = [Gene("", COLLECTIVE)] * 96 + [Gene("", EXPLOITATIVE)] * 96
+    strategies = [CollectiveStrategy] * 96 + [SelfishStrategy] * 96
+    genes = [Gene("", COLLECTIVE)] * 96 + [Gene("", SELFISH)] * 96
 
     # Create and run tournament
     tournament = BatchFairTournament(
@@ -156,7 +156,7 @@ def run_batch_mixture_tournament(generator_name):
     # Create and run tournament
     tournament = BatchMixtureTournament(
         collective_specs=[StrategySpec(Gene("", COLLECTIVE), CollectiveStrategy)]*96,
-        exploitative_specs=[StrategySpec(Gene("", EXPLOITATIVE), ExploitativeStrategy)]*96,
+        selfish_specs=[StrategySpec(Gene("", SELFISH), SelfishStrategy)]*96,
         config=config
     )
 

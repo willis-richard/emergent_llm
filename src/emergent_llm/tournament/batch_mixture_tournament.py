@@ -13,17 +13,17 @@ class BatchMixtureTournament:
     """Tournament that runs mixture tournaments across multiple group sizes."""
 
     def __init__(self, collective_specs: list[StrategySpec],
-                 exploitative_specs: list[StrategySpec],
+                 selfish_specs: list[StrategySpec],
                  config: BatchTournamentConfig):
 
         self.collective_specs = collective_specs
-        self.exploitative_specs = exploitative_specs
+        self.selfish_specs = selfish_specs
         self.config = config
 
         self.logger = logging.getLogger(__name__)
         self.logger.info(
             f"Initialised multi-group tournament with {len(collective_specs)} collective "
-            f"and {len(exploitative_specs)} exploitative strategies")
+            f"and {len(selfish_specs)} selfish strategies")
 
         # Validate we have enough strategies for largest group size
         max_group_size = max(config.group_sizes)
@@ -31,10 +31,10 @@ class BatchMixtureTournament:
             raise ValueError(
                 f"Need at least {max_group_size} collective players for largest group size, "
                 f"got {len(collective_specs)}")
-        if len(exploitative_specs) < max_group_size:
+        if len(selfish_specs) < max_group_size:
             raise ValueError(
-                f"Need at least {max_group_size} exploitative players for largest group size, "
-                f"got {len(exploitative_specs)}")
+                f"Need at least {max_group_size} selfish players for largest group size, "
+                f"got {len(selfish_specs)}")
 
         self.all_results: dict[int, MixtureTournamentResults] = {}
 
@@ -109,14 +109,14 @@ class BatchMixtureTournament:
             spec.create_player(f"{spec.gene.attitude}_{i}", game_description)
             for i, spec in enumerate(self.collective_specs)
         ]
-        exploitative_players = [
+        selfish_players = [
             spec.create_player(f"{spec.gene.attitude}_{i}", game_description)
-            for i, spec in enumerate(self.exploitative_specs)
+            for i, spec in enumerate(self.selfish_specs)
         ]
 
         mixture_tournament = MixtureTournament(
             collective_players=collective_players,
-            exploitative_players=exploitative_players,
+            selfish_players=selfish_players,
             config=mixture_config)
 
         return mixture_tournament.run_tournament()

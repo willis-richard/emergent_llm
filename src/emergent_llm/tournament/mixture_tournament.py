@@ -10,22 +10,22 @@ from emergent_llm.tournament.results import MatchResult, MixtureTournamentResult
 
 
 class MixtureTournament(BaseTournament):
-    """Tournament testing different mixtures of collective vs exploitative players for a single group size."""
+    """Tournament testing different mixtures of collective vs selfish players for a single group size."""
 
     def __init__(self, collective_players: list[LLMPlayer],
-                 exploitative_players: list[LLMPlayer],
+                 selfish_players: list[LLMPlayer],
                  config: BaseTournamentConfig):
         """
         Initialize mixture tournament.
 
         Args:
             collective_players: List of collective players
-            exploitative_players: List of exploitative players
+            selfish_players: List of selfish players
             config: Tournament configuration
         """
         super().__init__(config)
         self.collective_players: list[LLMPlayer] = collective_players
-        self.exploitative_players: list[LLMPlayer] = exploitative_players
+        self.selfish_players: list[LLMPlayer] = selfish_players
 
         group_size = config.game_description.n_players
 
@@ -34,9 +34,9 @@ class MixtureTournament(BaseTournament):
             raise ValueError(
                 f"Need at least {group_size} collective players, got {len(collective_players)}"
             )
-        if len(exploitative_players) < group_size:
+        if len(selfish_players) < group_size:
             raise ValueError(
-                f"Need at least {group_size} exploitative players, got {len(exploitative_players)}"
+                f"Need at least {group_size} selfish players, got {len(selfish_players)}"
             )
 
     def run_tournament(self) -> MixtureTournamentResults:
@@ -50,8 +50,8 @@ class MixtureTournament(BaseTournament):
         # This is a bit hacky
         step_size = max(1, group_size // 64)
         mixture_keys = [
-            MixtureKey(group_size - n_exploitative, n_exploitative)
-            for n_exploitative in range(0, group_size + 1, step_size)
+            MixtureKey(group_size - n_selfish, n_selfish)
+            for n_selfish in range(0, group_size + 1, step_size)
         ]
 
         if self.config.n_processes == 1 or group_size <= 32:
@@ -70,7 +70,7 @@ class MixtureTournament(BaseTournament):
         return MixtureTournamentResults(
             config=self.config,
             collective_player_ids=[p.id for p in self.collective_players],
-            exploitative_player_ids=[p.id for p in self.exploitative_players],
+            selfish_player_ids=[p.id for p in self.selfish_players],
             summary=summary,
             match_results=match_results)
 
@@ -102,11 +102,11 @@ class MixtureTournament(BaseTournament):
                 random.sample(self.collective_players,
                               mixture_key.n_collective))
 
-        # Sample exploitative players
-        if mixture_key.n_exploitative > 0:
+        # Sample selfish players
+        if mixture_key.n_selfish > 0:
             players.extend(
-                random.sample(self.exploitative_players,
-                              mixture_key.n_exploitative))
+                random.sample(self.selfish_players,
+                              mixture_key.n_selfish))
 
         # Shuffle to randomize positions
         random.shuffle(players)

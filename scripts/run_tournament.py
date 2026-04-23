@@ -1,4 +1,4 @@
-"""Run mixture tournament testing collective vs exploitative player ratios."""
+"""Run mixture tournament testing collective vs selfish player ratios."""
 
 import argparse
 import logging
@@ -77,18 +77,18 @@ def main():
 
     # Load strategy classes
     logger.info(f"Loading strategies from {args.strategies}...")
-    collective_specs, exploitative_specs = StrategyRegistry.load_file(args.strategies)
+    collective_specs, selfish_specs = StrategyRegistry.load_file(args.strategies)
 
     logger.info(f"Found {len(collective_specs)} collective strategy classes")
-    logger.info(f"Found {len(exploitative_specs)} exploitative strategy classes")
+    logger.info(f"Found {len(selfish_specs)} selfish strategy classes")
 
-    if not collective_specs or not exploitative_specs:
-        raise ValueError("Need both collective and exploitative strategy classes")
+    if not collective_specs or not selfish_specs:
+        raise ValueError("Need both collective and selfish strategy classes")
 
     # Create and run tournament (automatically loads completed groups)
     tournament = BatchMixtureTournament(
         collective_specs=collective_specs,
-        exploitative_specs=exploitative_specs,
+        selfish_specs=selfish_specs,
         config=config
     )
 

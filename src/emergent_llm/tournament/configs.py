@@ -25,7 +25,7 @@ class OutputStyle(StrEnum):
 @dataclass(frozen=True)
 class MixtureKey:
     n_collective: int
-    n_exploitative: int
+    n_selfish: int
 
 
 @dataclass

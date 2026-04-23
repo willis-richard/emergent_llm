@@ -329,11 +329,11 @@ class AttitudeComparisonMetrics:
     d_vs_collective_ci_lower: float
     d_vs_collective_ci_upper: float
     centroid_dist_collective: float
-    # vs exploitative
-    d_vs_exploitative: float
-    d_vs_exploitative_ci_lower: float
-    d_vs_exploitative_ci_upper: float
-    centroid_dist_exploitative: float
+    # vs selfish
+    d_vs_selfish: float
+    d_vs_selfish_ci_lower: float
+    d_vs_selfish_ci_upper: float
+    centroid_dist_selfish: float
     # ratio: d_to_own_base / d_to_other_base (< 1 means closer to own base)
     proximity_ratio: float
 
@@ -343,8 +343,8 @@ class AttitudeComparisonMetrics:
             f"(n={self.n_strategies}): "
             f"d_coll={self.d_vs_collective:.2f} "
             f"[{self.d_vs_collective_ci_lower:.2f}, {self.d_vs_collective_ci_upper:.2f}], "
-            f"d_expl={self.d_vs_exploitative:.2f} "
-            f"[{self.d_vs_exploitative_ci_lower:.2f}, {self.d_vs_exploitative_ci_upper:.2f}], "
+            f"d_expl={self.d_vs_selfish:.2f} "
+            f"[{self.d_vs_selfish_ci_lower:.2f}, {self.d_vs_selfish_ci_upper:.2f}], "
             f"ratio(own/other)={self.proximity_ratio:.2f}"
         )
 
@@ -394,27 +394,27 @@ def compute_participation_ratio(X: np.ndarray) -> float:
 
 def compute_between_set_metrics(
         X_collective: np.ndarray,
-        X_exploitative: np.ndarray) -> tuple[float, float]:
+        X_selfish: np.ndarray) -> tuple[float, float]:
     """
     Compute between-set metrics.
 
     Returns:
         (centroid_distance, cohens_d)
     """
-    if len(X_collective) == 0 or len(X_exploitative) == 0:
+    if len(X_collective) == 0 or len(X_selfish) == 0:
         return np.nan, np.nan
 
     centroid_c = X_collective.mean(axis=0)
-    centroid_e = X_exploitative.mean(axis=0)
+    centroid_e = X_selfish.mean(axis=0)
     centroid_distance = np.linalg.norm(centroid_c - centroid_e)
 
     # Cohen's d: centroid distance / pooled within-set std
     # Pooled std: sqrt of average variance across both sets
     var_c = np.var(X_collective, axis=0).mean() if len(X_collective) > 1 else 0
-    var_e = np.var(X_exploitative,
-                   axis=0).mean() if len(X_exploitative) > 1 else 0
+    var_e = np.var(X_selfish,
+                   axis=0).mean() if len(X_selfish) > 1 else 0
 
-    n_c, n_e = len(X_collective), len(X_exploitative)
+    n_c, n_e = len(X_collective), len(X_selfish)
     pooled_var = ((n_c - 1) * var_c +
                   (n_e - 1) * var_e) / (n_c + n_e - 2) if (n_c + n_e) > 2 else 1
     pooled_std = np.sqrt(pooled_var *
@@ -483,7 +483,7 @@ def bootstrap_cohens_d(
 def compute_attitude_comparison(
     X_nonbase: np.ndarray,
     X_collective: np.ndarray,
-    X_exploitative: np.ndarray,
+    X_selfish: np.ndarray,
     game: str,
     model: str,
     attitude: Attitude,
@@ -492,15 +492,15 @@ def compute_attitude_comparison(
     """Compare a non-base attitude to both base attitudes in original feature space."""
 
     d_c, ci_c_lo, ci_c_hi = bootstrap_cohens_d(X_nonbase, X_collective, n_bootstrap)
-    d_e, ci_e_lo, ci_e_hi = bootstrap_cohens_d(X_nonbase, X_exploitative, n_bootstrap)
+    d_e, ci_e_lo, ci_e_hi = bootstrap_cohens_d(X_nonbase, X_selfish, n_bootstrap)
 
     centroid_c = float(np.linalg.norm(
         X_nonbase.mean(axis=0) - X_collective.mean(axis=0)
     )) if len(X_nonbase) > 0 and len(X_collective) > 0 else np.nan
 
     centroid_e = float(np.linalg.norm(
-        X_nonbase.mean(axis=0) - X_exploitative.mean(axis=0)
-    )) if len(X_nonbase) > 0 and len(X_exploitative) > 0 else np.nan
+        X_nonbase.mean(axis=0) - X_selfish.mean(axis=0)
+    )) if len(X_nonbase) > 0 and len(X_selfish) > 0 else np.nan
 
     # Proximity ratio: distance to own base / distance to other base
     own_base = attitude.to_base_attitude()
@@ -518,10 +518,10 @@ def compute_attitude_comparison(
         d_vs_collective_ci_lower=ci_c_lo,
         d_vs_collective_ci_upper=ci_c_hi,
         centroid_dist_collective=centroid_c,
-        d_vs_exploitative=d_e,
-        d_vs_exploitative_ci_lower=ci_e_lo,
-        d_vs_exploitative_ci_upper=ci_e_hi,
-        centroid_dist_exploitative=centroid_e,
+        d_vs_selfish=d_e,
+        d_vs_selfish_ci_lower=ci_e_lo,
+        d_vs_selfish_ci_upper=ci_e_hi,
+        centroid_dist_selfish=centroid_e,
         proximity_ratio=ratio,
     )
 
@@ -706,7 +706,7 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
     attitudes = Attitude.base_attitudes()
     attitude_names = {
         Attitude.COLLECTIVE: "Collective",
-        Attitude.EXPLOITATIVE: "Exploitative"
+        Attitude.SELFISH: "Selfish"
     }
 
     # Extract unique models across all genes
@@ -837,7 +837,7 @@ def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
     game_colors = dict(
         zip(games,
             plt.colormaps.get_cmap('Set1')(np.linspace(0, 1, len(games)))))
-    attitude_markers = {Attitude.COLLECTIVE: 'o', Attitude.EXPLOITATIVE: 's'}
+    attitude_markers = {Attitude.COLLECTIVE: 'o', Attitude.SELFISH: 's'}
 
     fig, axes = plt.subplots(n_rows,
                              n_cols,
@@ -855,7 +855,7 @@ def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
             genes_for_game = pca_data[game]['genes']
             color = game_colors[game]
 
-            for attitude in [Attitude.COLLECTIVE, Attitude.EXPLOITATIVE]:
+            for attitude in [Attitude.COLLECTIVE, Attitude.SELFISH]:
                 matching_genes = [
                     g for g in genes_for_game
                     if g.model == model and g.attitude == attitude
@@ -935,7 +935,7 @@ def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
                    marker='s',
                    color='gray',
                    markersize=8,
-                   label='Exploitative'))
+                   label='Selfish'))
 
     fig.legend(handles=legend_handles,
                loc='upper center',
@@ -969,7 +969,7 @@ def find_centroid_strategies(X, labels, game_labels, pca_data, games):
 
         models = sorted(set(g.model for g in genes))
         for model in models:
-            for attitude in [Attitude.COLLECTIVE, Attitude.EXPLOITATIVE]:
+            for attitude in [Attitude.COLLECTIVE, Attitude.SELFISH]:
                 matching_genes = [
                     g for g in genes
                     if g.model == model and g.attitude == attitude
@@ -1290,7 +1290,7 @@ if __name__ == "__main__":
     find_centroid_strategies(X_all, labels_all, game_labels, pca_data, args.games)
 
     logger.info(f"\n{'='*60}")
-    logger.info("BETWEEN-SET METRICS (Collective vs Exploitative)")
+    logger.info("BETWEEN-SET METRICS (Collective vs Selfish)")
     logger.info(f"{'='*60}")
 
     for game_name in args.games:
@@ -1306,27 +1306,27 @@ if __name__ == "__main__":
                 g for g in genes
                 if g.model == model and g.attitude == Attitude.COLLECTIVE
             ]
-            exploitative_genes = [
+            selfish_genes = [
                 g for g in genes
-                if g.model == model and g.attitude == Attitude.EXPLOITATIVE
+                if g.model == model and g.attitude == Attitude.SELFISH
             ]
 
-            if not collective_genes or not exploitative_genes:
+            if not collective_genes or not selfish_genes:
                 continue
 
             # Get corresponding feature vectors
             mask = game_labels == game_name
             X_collective = X_all[
                 mask & np.isin(labels_all, [str(g) for g in collective_genes])]
-            X_exploitative = X_all[
+            X_selfish = X_all[
                 mask &
-                np.isin(labels_all, [str(g) for g in exploitative_genes])]
+                np.isin(labels_all, [str(g) for g in selfish_genes])]
 
-            if len(X_collective) == 0 or len(X_exploitative) == 0:
+            if len(X_collective) == 0 or len(X_selfish) == 0:
                 continue
 
             centroid_dist, cohens_d = compute_between_set_metrics(
-                X_collective, X_exploitative)
+                X_collective, X_selfish)
             metrics = BetweenSetMetrics(game=game_name,
                                         model=model,
                                         centroid_distance=centroid_dist,
@@ -1358,12 +1358,12 @@ if __name__ == "__main__":
                     X_all, labels_all, game_labels, game_name,
                     pca_data, model, Attitude.COLLECTIVE,
                 )
-                X_exploitative = get_feature_vectors_for_gene(
+                X_selfish = get_feature_vectors_for_gene(
                     X_all, labels_all, game_labels, game_name,
-                    pca_data, model, Attitude.EXPLOITATIVE,
+                    pca_data, model, Attitude.SELFISH,
                 )
 
-                if len(X_collective) == 0 or len(X_exploitative) == 0:
+                if len(X_collective) == 0 or len(X_selfish) == 0:
                     continue
 
                 for attitude in non_base_attitudes:
@@ -1375,7 +1375,7 @@ if __name__ == "__main__":
                         continue
 
                     metrics = compute_attitude_comparison(
-                        X_nb, X_collective, X_exploitative,
+                        X_nb, X_collective, X_selfish,
                         game_name, model, attitude,
                         n_bootstrap=1000,
                     )
@@ -1396,11 +1396,11 @@ if __name__ == "__main__":
             for attitude, metrics_list in sorted(by_attitude.items(), key=lambda x: x[0].value):
                 own_base = attitude.to_base_attitude()
                 d_own = np.mean([
-                    m.d_vs_collective if own_base == Attitude.COLLECTIVE else m.d_vs_exploitative
+                    m.d_vs_collective if own_base == Attitude.COLLECTIVE else m.d_vs_selfish
                     for m in metrics_list
                 ])
                 d_other = np.mean([
-                    m.d_vs_exploitative if own_base == Attitude.COLLECTIVE else m.d_vs_collective
+                    m.d_vs_selfish if own_base == Attitude.COLLECTIVE else m.d_vs_collective
                     for m in metrics_list
                 ])
                 ratio = np.mean([m.proximity_ratio for m in metrics_list if not np.isnan(m.proximity_ratio)])

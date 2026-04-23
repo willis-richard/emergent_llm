@@ -9,10 +9,10 @@ class Attitude(StrEnum):
     ALTRUISTIC = "altruistic"
     COOPERATIVE = "cooperative"
 
-    EXPLOITATIVE = "exploitative"
-    AGGRESSIVE = "aggressive"
-    PREDATORY = "predatory"
-    PARASITIC = "parasitic"
+    SELFISH = "selfish"
+    SELFINTERESTED = "self-interested"
+    OPPORTUNISTIC = "opportunistic"
+    INDIVIDUALISTIC = "individualistic"
 
     def __str__(self):
         return self.value
@@ -22,18 +22,18 @@ class Attitude(StrEnum):
 
     @staticmethod
     def base_attitudes() -> list['Attitude']:
-        return [Attitude.COLLECTIVE, Attitude.EXPLOITATIVE]
+        return [Attitude.COLLECTIVE, Attitude.SELFISH]
 
     def to_base_attitude(self) -> 'Attitude':
         if self in {Attitude.COLLECTIVE, Attitude.PROSOCIAL, Attitude.ALTRUISTIC, Attitude.COOPERATIVE}:
             return Attitude.COLLECTIVE
-        return Attitude.EXPLOITATIVE
+        return Attitude.SELFISH
 
     def flip(self):
         assert self in self.base_attitudes(), f"{self.value} not a base attitude"
-        return COLLECTIVE if self.value == EXPLOITATIVE else EXPLOITATIVE
+        return COLLECTIVE if self.value == SELFISH else SELFISH
 
 
 # Export for convenience
 COLLECTIVE = Attitude.COLLECTIVE
-EXPLOITATIVE = Attitude.EXPLOITATIVE
+SELFISH = Attitude.SELFISH

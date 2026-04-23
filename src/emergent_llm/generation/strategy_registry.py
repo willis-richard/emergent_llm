@@ -112,12 +112,12 @@ class StrategyRegistry:
             s for s in all_specs
             if s.gene.attitude.to_base_attitude() == Attitude.COLLECTIVE
         ]
-        exploitative = [
+        selfish = [
             s for s in all_specs
-            if s.gene.attitude.to_base_attitude() == Attitude.EXPLOITATIVE
+            if s.gene.attitude.to_base_attitude() == Attitude.SELFISH
         ]
 
-        return collective, exploitative
+        return collective, selfish
 
     def sample_spec(self, gene: Gene) -> StrategySpec:
         """

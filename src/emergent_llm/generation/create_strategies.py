@@ -731,7 +731,7 @@ def parse_arguments() -> argparse.Namespace:
         type=str,
         default=",".join(attitude.value for attitude in Attitude.base_attitudes()),
         help=("Comma-separated attitudes to generate. Defaults to the original "
-              "base attitudes (collective,exploitative)."),
+              "base attitudes (collective,selfish)."),
     )
 
     # Phase selection

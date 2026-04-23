@@ -29,7 +29,7 @@ class LLMPlayer(BasePlayer):
 
         Args:
             name: Player name
-            attitude: Player's attitude (collective/exploitative)
+            attitude: Player's attitude (collective/selfish)
             game_description: Game description
             strategy_class: Callable class implementing the strategy
             max_errors: Number of tolerated errors
