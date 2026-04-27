@@ -5,7 +5,6 @@ import logging
 import pickle
 from collections import defaultdict
 from dataclasses import dataclass
-from itertools import product
 from multiprocessing import Pool
 from pathlib import Path
 
@@ -21,13 +20,16 @@ from emergent_llm.common import (
     C,
     D,
     GameHistory,
-    GameState,
     Gene,
-    PlayerHistory,
     setup,
 )
 from emergent_llm.games import STANDARD_GENERATORS, get_game_type
-from emergent_llm.generation import StrategyRegistry
+from emergent_llm.generation import (
+    CooperatorCounts,
+    FixedCooperatorCount,
+    StrategyRegistry,
+    make_fixed_opponents,
+)
 from emergent_llm.players import (
     BasePlayer,
     ConditionalCooperator,
@@ -39,8 +41,6 @@ from emergent_llm.players import (
 )
 
 FIGSIZE, FORMAT = setup('fullscreen')
-
-CooperatorCounts = tuple[int, ...]  # cooperator count per round
 
 GAME_MAPPING = {
     'public_goods': ' Public Goods Game',
@@ -173,17 +173,6 @@ def load_features(game_name: str, gene: Gene,
 # =============================================================================
 
 
-class FixedCooperatorCount:
-    """Opponent that cooperates in round r iff its index < the prescribed count."""
-
-    def __init__(self, opponent_index: int, counts: list[int]):
-        self.opponent_index = opponent_index
-        self.counts = counts
-
-    def __call__(self, state: GameState, _: PlayerHistory):
-        return C if self.opponent_index < self.counts[state.round_number] else D
-
-
 def play_games(player: LLMPlayer, n_games: int,
                combo: CooperatorCounts) -> list[GameHistory]:
     n_opponents = args.n_players - 1
@@ -204,16 +193,16 @@ def play_games(player: LLMPlayer, n_games: int,
     return histories
 
 
-def compute_features(player: BasePlayer,
-                     n_games: int) -> dict[CooperatorCounts, float]:
+def compute_features(player: BasePlayer, n_games: int) -> dict[CooperatorCounts, float]:
     features: dict[CooperatorCounts, float] = {}
-    for combo in unique_combos:
-        histories = play_games(player, n_games, combo)
+    for combo, opponents in make_fixed_opponents(args.n_players - 1, args.n_rounds):
+        players = [player] + opponents
+        histories = [game_class(players, description).play_game().history
+                     for _ in range(n_games)]
         for r in range(args.n_rounds):
             context: CooperatorCounts = combo[:r]
             actions = [Action(history.actions[r, 0]) for history in histories]
-            features[context] = float(
-                Action.to_bool_array(actions).mean())
+            features[context] = float(Action.to_bool_array(actions).mean())
     return features
 
 
@@ -1086,11 +1075,6 @@ if __name__ == "__main__":
 
     logger.info(f"Running diversity.py for games: {args.games}")
 
-    # Globals shared across all games
-    n_opponents = args.n_players - 1
-    unique_combos: tuple[CooperatorCounts, ...] = tuple(
-        product(range(n_opponents + 1), repeat=args.n_rounds - 1))
-
     # ==========================================================================
     # PHASE 1: Load/compute features for each game (with caching)
     # ==========================================================================
@@ -1173,10 +1157,6 @@ if __name__ == "__main__":
     baseline_X = [list(d.values()) for d in baseline_features.values()]
     n_features = len(baseline_X[0])
     baseline_X = np.array(baseline_X + [[0.5] * n_features])
-
-    logger.info(
-        f"Features:\n{len(unique_combos)} unique opponent action combinations of length {args.n_rounds - 1}\nGiving rise to {n_features} features in total (including histories of shorter length)."
-    )
 
     # ==========================================================================
     # PHASE 3: Combined PCA (fit on base attitudes only, project everything)
