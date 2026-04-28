@@ -10,7 +10,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.ticker import MaxNLocator, MultipleLocator
+from matplotlib.ticker import MaxNLocator, MultipleLocator, PercentFormatter
 
 from emergent_llm.common import Attitude, Gene, PlayerId, setup
 from emergent_llm.games import get_description_type
@@ -1170,41 +1170,38 @@ class BatchMixtureTournamentResults:
         fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
 
         group_sizes = sorted(self.mixture_results.keys())
-        gd = self.mixture_results[group_sizes[-1]].config.game_description
 
         for group_size in group_sizes:
+            gd = self.mixture_results[group_size].config.game_description
+            min_welfare = gd.min_social_welfare()
+            max_welfare = gd.max_social_welfare()
+
             group_data = self.combined_df[self.combined_df['group_size'] ==
-                                          group_size]
+                                        group_size]
             group_data = group_data.sort_values('collective_ratio')
 
+            efficiency = ((group_data['mean_social_welfare'] - min_welfare) /
+                        (max_welfare - min_welfare))
+
             ax.plot(group_data['collective_ratio'] * 100,
-                    group_data['mean_social_welfare'] / gd.n_rounds,
+                    efficiency,
                     label=f'n={group_size}',
                     lw=1.5,
                     marker='o')
 
         ax.set_xlabel('Proportion of collective prompts (%)')
-        ax.set_ylabel('Normalised reward')
+        ax.set_ylabel('Welfare efficiency (%)')
         ax.set_xlim(0, 100)
-        ax.set_ylim(math.floor(gd.normalised_min_payoff()),
-                    math.ceil(gd.normalised_max_social_welfare()))
-        ax.yaxis.set_major_locator(MultipleLocator(1))
-
-        plt.axhline(y=gd.normalised_min_social_welfare(),
-                    color='grey',
-                    alpha=0.3,
-                    linestyle='-')
-        plt.axhline(y=gd.normalised_max_social_welfare(),
-                    color='grey',
-                    alpha=0.3,
-                    linestyle='-')
+        ax.set_ylim(0, 1)
+        ax.yaxis.set_major_locator(MultipleLocator(0.2))
+        ax.yaxis.set_major_formatter(PercentFormatter(xmax=1))
 
         ax.legend(bbox_to_anchor=(-0.13, 1.4),
-                  loc='upper left',
-                  ncol=len(group_sizes),
-                  frameon=False,
-                  handletextpad=0.4,
-                  columnspacing=0.6)
+                loc='upper left',
+                ncol=len(group_sizes),
+                frameon=False,
+                handletextpad=0.4,
+                columnspacing=0.6)
 
         output_file = self.config.output_dir / f"social_welfare.{FORMAT}"
         output_file.parent.mkdir(parents=True, exist_ok=True)
