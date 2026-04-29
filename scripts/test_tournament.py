@@ -51,7 +51,7 @@ class CollectiveStrategy(BaseStrategy):
     def __init__(self, game_description):
         pass
 
-    def __call__(self, history):
+    def __call__(self, history, current_stock=None):
         return C
 
 
@@ -59,7 +59,7 @@ class SelfishStrategy(BaseStrategy):
     def __init__(self, game_description):
         pass
 
-    def __call__(self, history):
+    def __call__(self, history, current_stock=None):
         return D
 
 

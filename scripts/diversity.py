@@ -97,14 +97,18 @@ def parse_args():
                         help="Number of players per game")
     parser.add_argument("--n_rounds",
                         type=int,
-                        default=5,
+                        default=7,
                         help="Number of rounds per game")
     parser.add_argument("--n_games",
                         type=int,
-                        default=50,
+                        default=30,
                         help="Number of games for each trajectory")
 
     # Execution parameters
+    parser.add_argument("--log_level",
+                        type=str,
+                        default="INFO",
+                        help="Logging level to use")
     parser.add_argument("--n_processes",
                         type=int,
                         default=1,
@@ -173,36 +177,16 @@ def load_features(game_name: str, gene: Gene,
 # =============================================================================
 
 
-def play_games(player: LLMPlayer, n_games: int,
-               combo: CooperatorCounts) -> list[GameHistory]:
-    n_opponents = args.n_players - 1
-    # Append a dummy count for the final round (opponent actions don't
-    # affect the feature we record for that round)
-    counts_with_final = list(combo) + [0]
-    # last round action of opponents does not matter
-    opponents = [
-        SimplePlayer(f"opponent_{i}", FixedCooperatorCount(i, counts_with_final))
-        for i in range(n_opponents)
-    ]
-
-    players = [player] + opponents
-    histories = [
-        game_class(players, description).play_game().history
-        for _ in range(n_games)
-    ]
-    return histories
-
-
 def compute_features(player: BasePlayer, n_games: int) -> dict[CooperatorCounts, float]:
     features: dict[CooperatorCounts, float] = {}
-    for combo, opponents in make_fixed_opponents(args.n_players - 1, args.n_rounds):
+    for combo, opponents in zip(unique_combos, fixed_opponents):
         players = [player] + opponents
-        histories = [game_class(players, description).play_game().history
-                     for _ in range(n_games)]
+        game = game_class(players, description)
+        histories = [game.play_game().history for _ in range(n_games)]
+        # stack once, slice per round
+        player_actions = np.array([h.actions[:, 0] for h in histories])
         for r in range(args.n_rounds):
-            context: CooperatorCounts = combo[:r]
-            actions = [Action(history.actions[r, 0]) for history in histories]
-            features[context] = float(Action.to_bool_array(actions).mean())
+            features[combo[:r]] = float(player_actions[:, r].mean())
     return features
 
 
@@ -1070,10 +1054,19 @@ if __name__ == "__main__":
     output_dir = get_output_dir(args)
 
     log_file = output_dir / "logs" / "diversity.log"
-    setup_logging(log_file)
+    setup_logging(log_file, args.log_level)
     logger = logging.getLogger(__name__)
 
     logger.info(f"Running diversity.py for games: {args.games}")
+
+    # Globals shared across all games
+    n_opponents = args.n_players - 1
+    unique_combos: tuple[CooperatorCounts] = tuple(
+        combo for combo, _ in make_fixed_opponents(n_opponents, args.n_rounds)
+    )
+    fixed_opponents: tuple[tuple[SimplePlayer]] = tuple(
+        opponents for _, opponents in make_fixed_opponents(n_opponents, args.n_rounds)
+    )
 
     # ==========================================================================
     # PHASE 1: Load/compute features for each game (with caching)
@@ -1157,6 +1150,10 @@ if __name__ == "__main__":
     baseline_X = [list(d.values()) for d in baseline_features.values()]
     n_features = len(baseline_X[0])
     baseline_X = np.array(baseline_X + [[0.5] * n_features])
+
+    logger.info(
+        f"Features:\n{len(unique_combos)} unique opponent action combinations of length {args.n_rounds - 1}\nGiving rise to {n_features} features in total (including histories of shorter length)."
+    )
 
     # ==========================================================================
     # PHASE 3: Combined PCA (fit on base attitudes only, project everything)
