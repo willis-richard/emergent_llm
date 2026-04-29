@@ -1,5 +1,5 @@
 """Game history classes for tournament and player use."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from numpy.typing import NDArray
@@ -32,48 +32,47 @@ class PlayerHistory:
         """Current round index (0 on first call, equal to rounds completed so far)."""
         return len(self.my_actions)
 
-    @classmethod
-    def empty(cls) -> "PlayerHistory":
-        """Construct an empty history for round 0."""
-        return cls(
-            my_actions=np.zeros(0, dtype=np.bool_),
-            my_payoffs=np.zeros(0, dtype=np.float64),
-            opponent_cooperators=np.zeros(0, dtype=np.int_),
-        )
-
 
 @dataclass
 class GameHistory:
     """
-    Complete game history for tournament/logging use.
-    This retains the full per-player information.
+    Game history sized for n_rounds × n_players. Rounds are recorded one at a
+    time via `record`. Until a round is recorded, its row is zero-filled and
+    excluded from views and aggregates.
     """
-    actions: NDArray[np.bool_]    # [round, player]
-    payoffs: NDArray[np.float64]  # [round, player]
+    n_rounds: int
+    n_players: int
+    actions: NDArray[np.bool_] = field(init=False)
+    payoffs: NDArray[np.float64] = field(init=False)
+    round_number: int = field(init=False, default=0)
 
     def __post_init__(self):
-        if self.actions.dtype != np.bool_:
-            raise TypeError(
-                f"actions must be boolean array, got {self.actions.dtype}")
-        if self.payoffs.dtype != np.float64:
-            raise TypeError(
-                f"payoffs must be float64 array, got {self.payoffs.dtype}")
-        if self.actions.ndim == 1:
-            self.actions = self.actions.reshape(1, -1)
-        if self.payoffs.ndim == 1:
-            self.payoffs = self.payoffs.reshape(1, -1)
+        if self.n_rounds <= 0:
+            raise ValueError(f"n_rounds must be positive, got {self.n_rounds}")
+        if self.n_players <= 0:
+            raise ValueError(f"n_players must be positive, got {self.n_players}")
+        self.actions = np.zeros((self.n_rounds, self.n_players), dtype=np.bool_)
+        self.payoffs = np.zeros((self.n_rounds, self.n_players), dtype=np.float64)
+
+    def record(self,
+               actions_row: NDArray[np.bool_],
+               payoffs_row: NDArray[np.float64]) -> None:
+        """Write the next round's results."""
+        r = self.round_number
+        assert r < self.n_rounds, f"Game already complete"
+        self.actions[r] = actions_row
+        self.payoffs[r] = payoffs_row
+        self.round_number += 1
 
     def for_player(self, player_index: int) -> PlayerHistory:
-        """
-        Create an anonymised, aggregated view for the given player.
-        """
-        my_actions = self.actions[:, player_index]
-        my_payoffs = self.payoffs[:, player_index]
+        """Anonymised view for the given player, covering rounds recorded so far."""
+        r = self.round_number
+        my_actions = self.actions[:r, player_index]
+        my_payoffs = self.payoffs[:r, player_index]
 
-        opponent_mask = np.ones(self.actions.shape[1], dtype=bool)
+        opponent_mask = np.ones(self.n_players, dtype=bool)
         opponent_mask[player_index] = False
-        opponent_actions = self.actions[:, opponent_mask]
-        opponent_cooperators = opponent_actions.sum(axis=1).astype(np.int_)
+        opponent_cooperators = self.actions[:r][:, opponent_mask].sum(axis=1).astype(np.int_)
 
         return PlayerHistory(
             my_actions=my_actions,
@@ -81,20 +80,11 @@ class GameHistory:
             opponent_cooperators=opponent_cooperators,
         )
 
-    def update(self, actions: NDArray[np.bool_], payoffs: NDArray[np.float64]):
-        if actions.ndim == 1:
-            actions = actions.reshape(1, -1)
-        if payoffs.ndim == 1:
-            payoffs = payoffs.reshape(1, -1)
-
-        self.actions = np.vstack([self.actions, actions])
-        self.payoffs = np.vstack([self.payoffs, payoffs])
-
     def total_payoffs(self) -> list[float]:
-        return self.payoffs.sum(axis=0).tolist()
+        return self.payoffs[:self.round_number].sum(axis=0).tolist()
 
     def total_cooperations(self) -> list[int]:
-        return self.actions.sum(axis=0).tolist()
+        return self.actions[:self.round_number].sum(axis=0).tolist()
 
     def cooperations_by_round(self) -> list[int]:
-        return self.actions.sum(axis=1).tolist()
+        return self.actions[:self.round_number].sum(axis=1).tolist()

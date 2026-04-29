@@ -4,10 +4,9 @@ from dataclasses import dataclass
 from typing import Sequence
 
 import numpy as np
-import pandas as pd
 from numpy.typing import NDArray
 
-from emergent_llm.common import Action, GameDescription, GameHistory, PlayerHistory
+from emergent_llm.common import Action, GameDescription, GameHistory
 from emergent_llm.players.base_player import BasePlayer
 
 
@@ -28,47 +27,45 @@ class BaseGame(ABC):
     def __init__(self, players: Sequence[BasePlayer],
                  description: GameDescription):
         if len(players) != description.n_players:
-            raise ValueError(f"Number of players ({len(players)}) must match "
-                             f"description.n_players ({description.n_players})")
+            raise ValueError(
+                f"Number of players ({len(players)}) must match "
+                f"description.n_players ({description.n_players})"
+            )
 
         self.players: Sequence[BasePlayer] = players
         self.description: GameDescription = description
-        self.history: GameHistory | None = None
+        self.history: GameHistory = GameHistory(
+            n_rounds=self.description.n_rounds,
+            n_players=self.description.n_players,
+        )
 
     @abstractmethod
-    def _calculate_payoffs(self,
-                           actions: NDArray[np.bool_]) -> NDArray[np.float64]:
+    def _calculate_payoffs(
+            self, actions: NDArray[np.bool_]) -> NDArray[np.float64]:
         """Calculate payoffs for a single round given actions."""
 
     def get_current_stock(self):
         return None
 
-    def _play_round(self, players: Sequence[BasePlayer]):
-        """Play a single round of the game."""
+    def _play_round(self, players: Sequence[BasePlayer]) -> None:
+        """Play a single round, recording into self.history."""
         stock = self.get_current_stock()
 
         action_enums = [
-            player(history=PlayerHistory.empty(), current_stock=stock) if self.history is None else
             player(history=self.history.for_player(i), current_stock=stock)
             for i, player in enumerate(players)
         ]
 
         actions = Action.to_bool_array(action_enums)
         payoffs = self._calculate_payoffs(actions)
-
-        if self.history is None:
-            self.history = GameHistory(actions=actions, payoffs=payoffs)
-        else:
-            self.history.update(actions, payoffs)
+        self.history.record(actions, payoffs)
 
     def play_game(self) -> GameResult:
-        """Play a complete game for the number of rounds specified in description."""
+        """Play a complete game for the number of rounds in description."""
         self.reset()
 
         for _ in range(self.description.n_rounds):
             self._play_round(self.players)
-
-        assert self.history is not None
 
         return GameResult(
             player_names=[p.id.name for p in self.players],
@@ -76,9 +73,14 @@ class BaseGame(ABC):
             total_cooperations=self.history.total_cooperations(),
             cooperations_by_round=self.history.cooperations_by_round(),
             history=self.history,
-            description=self.description)
+            description=self.description,
+        )
 
-    def reset(self):
-        self.history = None
+    def reset(self) -> None:
+        """Prepare for a new game. Safe to call repeatedly to reuse the game object."""
+        self.history = GameHistory(
+            n_rounds=self.description.n_rounds,
+            n_players=self.description.n_players,
+        )
         for player in self.players:
             player.reset()
