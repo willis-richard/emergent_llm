@@ -53,6 +53,7 @@ class GameHistory:
             raise ValueError(f"n_players must be positive, got {self.n_players}")
         self.actions = np.zeros((self.n_rounds, self.n_players), dtype=np.bool_)
         self.payoffs = np.zeros((self.n_rounds, self.n_players), dtype=np.float64)
+        self._round_coop_counts = np.zeros(self.n_rounds, dtype=np.int_)
 
     def record(self,
                actions_row: NDArray[np.bool_],
@@ -62,6 +63,7 @@ class GameHistory:
         assert r < self.n_rounds, f"Game already complete"
         self.actions[r] = actions_row
         self.payoffs[r] = payoffs_row
+        self._round_coop_counts[r] = actions_row.sum()
         self.round_number += 1
 
     def for_player(self, player_index: int) -> PlayerHistory:
@@ -70,9 +72,7 @@ class GameHistory:
         my_actions = self.actions[:r, player_index]
         my_payoffs = self.payoffs[:r, player_index]
 
-        opponent_mask = np.ones(self.n_players, dtype=bool)
-        opponent_mask[player_index] = False
-        opponent_cooperators = self.actions[:r][:, opponent_mask].sum(axis=1).astype(np.int_)
+        opponent_cooperators = (self._round_coop_counts[:r] - my_actions.astype(np.int_))
 
         return PlayerHistory(
             my_actions=my_actions,

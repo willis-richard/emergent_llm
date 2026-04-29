@@ -1101,8 +1101,11 @@ if __name__ == "__main__":
                 f"Computing {n_strategies} strategies for {gene} in {len(chunks)} chunks"
             )
 
-            with Pool(processes=args.n_processes) as pool:
-                chunk_results = pool.map(compute_strategy_chunk, chunks)
+            if args.n_processes == 1:
+                chunk_results = [compute_strategy_chunk(c) for c in chunks]
+            else:
+                with Pool(processes=args.n_processes) as pool:
+                    chunk_results = pool.map(compute_strategy_chunk, chunks)
 
             # Aggregate results
             strategy_features = {}
