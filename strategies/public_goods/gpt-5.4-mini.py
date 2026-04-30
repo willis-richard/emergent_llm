@@ -1478,3 +1478,10953 @@ class Strategy_INDIVIDUALISTIC_4(BaseStrategy):
                 self.stable = True
                 return Action.C
         return Action.D
+
+class Strategy_COLLECTIVE_5(BaseStrategy):
+    """
+    Threshold-based public-goods strategy with an establishment phase,
+    recovery safeguards, and an endgame rule.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.theta_high = 0.5
+        self.theta_low = 1 / 3
+        n_opp = max(0, self.game_description.n_players - 1)
+        self.high_coop_count = math.ceil(n_opp / 2) if n_opp > 0 else 0
+        self.low_coop_count = math.ceil(n_opp / 3) if n_opp > 0 else 0
+        self.forced_coop_remaining = 0
+        self.defect_until_positive = False
+        self.one_round_defect = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        r = history.round_number
+        total_rounds = self.game_description.n_rounds
+        if r == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        n_opp = max(0, self.game_description.n_players - 1)
+        current_round = r + 1
+        observed_rounds = len(opp)
+        total_opp_coops = int(np.sum(opp)) if observed_rounds > 0 else 0
+        s_t = total_opp_coops / (n_opp * observed_rounds) if n_opp > 0 and observed_rounds > 0 else 0.0
+        last_a = int(opp[-1]) if observed_rounds > 0 else 0
+        prev_a = int(opp[-2]) if observed_rounds > 1 else None
+        if observed_rounds >= 2:
+            last_two_high = int(opp[-1]) >= self.high_coop_count and int(opp[-2]) >= self.high_coop_count
+            last_two_zero = int(opp[-1]) == 0 and int(opp[-2]) == 0
+            collapse = int(opp[-2]) >= self.high_coop_count and int(opp[-1]) < self.low_coop_count
+            if last_two_high:
+                self.forced_coop_remaining = 2
+            if last_two_zero:
+                self.defect_until_positive = True
+            if collapse:
+                self.one_round_defect = True
+        if self.defect_until_positive and any((int(x) > 0 for x in opp)):
+            self.defect_until_positive = False
+        if current_round >= total_rounds - 1:
+            if n_opp > 0 and s_t >= self.theta_high and (last_a >= self.high_coop_count):
+                return Action.C
+            return Action.D
+        if self.forced_coop_remaining > 0:
+            self.forced_coop_remaining -= 1
+            return Action.C
+        if self.defect_until_positive:
+            return Action.D
+        if self.one_round_defect:
+            self.one_round_defect = False
+            return Action.D
+        if s_t >= self.theta_high:
+            return Action.C
+        if s_t <= self.theta_low:
+            return Action.D
+        if prev_a is not None:
+            if last_a > prev_a:
+                return Action.C
+            if last_a < prev_a:
+                return Action.D
+        if observed_rounds > 0:
+            return Action.C if bool(history.my_actions[-1]) else Action.D
+        return Action.C
+
+class Strategy_COLLECTIVE_6(BaseStrategy):
+    """
+    Cooperative-by-default public goods strategy with a two-round recovery rule.
+
+    State:
+    - mode: "build" or "punish"
+    - streak: consecutive strong-cooperation rounds observed during punishment
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.mode = 'build'
+        self.streak = 0
+        n = int(getattr(game_description, 'n_players', 0))
+        k = float(getattr(game_description, 'k', 0.0))
+        n_opponents = max(0, n - 1)
+        if n_opponents <= 0 or not k > 1.0:
+            self.q = 0
+            self.Q = 0
+        else:
+            q_val = math.ceil(n_opponents * (1.0 - 1.0 / k))
+            self.q = max(0, min(n_opponents, int(q_val)))
+            self.Q = max(0, min(n_opponents, self.q + 1))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            self.mode = 'build'
+            self.streak = 0
+            return Action.C
+        m_prev = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        n_rounds = int(getattr(self.game_description, 'n_rounds', 0))
+        is_last_round = n_rounds > 0 and round_number >= n_rounds - 1
+        if self.mode == 'build':
+            if m_prev < self.q:
+                self.mode = 'punish'
+                self.streak = 0
+                return Action.D
+            return Action.C if not is_last_round else Action.C
+        action = Action.D
+        if m_prev >= self.Q:
+            self.streak += 1
+        else:
+            self.streak = 0
+        if self.streak >= 2:
+            self.mode = 'build'
+            self.streak = 0
+        return action
+
+class Strategy_COLLECTIVE_7(BaseStrategy):
+    """
+    Three-state strategy for the repeated N-player Public Goods Game:
+    cooperative -> punishing -> probation, with threshold-based reactions
+    to observed opponent cooperation rates.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.state = 'cooperative'
+        self.punish_left = 0
+        self.last_q = None
+        self.prev_q = None
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = max(2, int(self.game_description.n_players))
+        opp_count = n - 1
+
+        def q_from_round_idx(idx: int):
+            if idx < 0 or idx >= len(history.opponent_cooperators):
+                return None
+            if opp_count <= 0:
+                return 0.0
+            return float(history.opponent_cooperators[idx]) / float(opp_count)
+        round_number = history.round_number
+        if round_number == 0:
+            self.state = 'cooperative'
+            self.punish_left = 0
+            self.last_q = None
+            self.prev_q = None
+            return Action.C
+        self.prev_q = self.last_q
+        self.last_q = q_from_round_idx(round_number - 1)
+        threshold = 0.5
+        if self.state == 'punishing':
+            self.punish_left = max(0, self.punish_left - 1)
+            action = Action.D
+            if self.punish_left == 0:
+                self.state = 'probation'
+            return action
+        if self.state == 'probation':
+            if self.last_q is not None and self.last_q >= threshold:
+                self.state = 'cooperative'
+                return Action.C
+            return Action.D
+        if self.state == 'cooperative':
+            below_last = self.last_q is not None and self.last_q < threshold
+            below_prev = self.prev_q is not None and self.prev_q < threshold
+            if round_number >= 2 and below_last and below_prev:
+                self.state = 'punishing'
+                self.punish_left = 2
+                self.punish_left = max(0, self.punish_left - 1)
+                action = Action.D
+                if self.punish_left == 0:
+                    self.state = 'probation'
+                return action
+            if round_number == 1:
+                if below_last:
+                    self.state = 'punishing'
+                    self.punish_left = 2
+                    self.punish_left = max(0, self.punish_left - 1)
+                    action = Action.D
+                    if self.punish_left == 0:
+                        self.state = 'probation'
+                    return action
+                return Action.C
+            return Action.C if self.last_q is not None and self.last_q >= threshold else Action.D
+        return Action.D
+
+class Strategy_COLLECTIVE_8(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Start with cooperation.
+    - Track a smoothed cooperation score and consecutive low-cooperation streaks.
+    - Defect after repeated weak cooperation, but return to cooperation quickly
+      once cooperation is restored.
+    - Tighten cooperation requirements in the last two rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(getattr(game_description, 'n_players', 0))
+        self.n_rounds = int(getattr(game_description, 'n_rounds', 0))
+        self.h = 1.0
+        self.l = 0
+        self.state = 'cooperative'
+        self.last_seen_round = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            self.h = 1.0
+            self.l = 0
+            self.state = 'cooperative'
+            self.last_seen_round = 0
+            return Action.C
+        opp_counts = history.opponent_cooperators
+        last_opp = int(opp_counts[-1]) if len(opp_counts) > 0 else 0
+        n_opponents = max(self.n_players - 1, 0)
+        m_t = last_opp
+        m_rate = m_t / n_opponents if n_opponents > 0 else 0.0
+        if self.last_seen_round < round_number:
+            if m_rate < 0.5:
+                self.l += 1
+            else:
+                self.l = 0
+            self.h = 2.0 / 3.0 * self.h + 1.0 / 3.0 * m_rate
+            self.last_seen_round = round_number
+        next_round = round_number + 1
+        final_round = self.n_rounds
+        if next_round == 1:
+            self.state = 'cooperative'
+            return Action.C
+        if final_round > 0 and next_round == final_round:
+            if m_rate >= 0.5 and self.h >= 0.5:
+                self.state = 'cooperative'
+                return Action.C
+            self.state = 'defensive'
+            return Action.D
+        if final_round > 0 and next_round >= final_round - 1:
+            if m_rate >= 2.0 / 3.0:
+                self.state = 'cooperative'
+                return Action.C
+            self.state = 'defensive'
+            return Action.D
+        if self.l >= 2:
+            self.state = 'defensive'
+            return Action.D
+        if self.h >= 0.5:
+            self.state = 'cooperative'
+            return Action.C
+        self.state = 'defensive'
+        return Action.D
+
+class Strategy_COLLECTIVE_9(BaseStrategy):
+    """
+    Collective-alignment strategy for the repeated N-player Public Goods Game.
+
+    - Cooperate in round 1.
+    - Maintain an internal cooperation_mode.
+    - Update the mode from observed opponent cooperation rates with restoration/defection triggers.
+    - Use a stricter final-round rule based on the latest observed cooperation rate.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperation_mode = True
+        self._processed_rounds = 0
+        self._last_observed_m = None
+        self._same_m_streak = 0
+        self._last_mode_change_round = -1
+        self._my_defect_streak = 0
+        self._my_cooperate_streak = 0
+        self._consecutive_high_p = 0
+
+    def _thresholds(self):
+        if self.game_description.n_players == 2:
+            return (0.0, 1.0)
+        return (1.0 / 3.0, 2.0 / 3.0)
+
+    def _update_state_from_round(self, round_index: int, history: PlayerHistory) -> None:
+        n = self.game_description.n_players
+        if n <= 1:
+            return
+        m = int(history.opponent_cooperators[round_index])
+        opp_count = max(1, n - 1)
+        p = m / opp_count
+        low_th, high_th = self._thresholds()
+        if self._last_observed_m is not None and m == self._last_observed_m:
+            self._same_m_streak += 1
+        else:
+            self._same_m_streak = 1
+        self._last_observed_m = m
+        my_action = bool(history.my_actions[round_index])
+        if my_action:
+            self._my_cooperate_streak += 1
+            self._my_defect_streak = 0
+        else:
+            self._my_defect_streak += 1
+            self._my_cooperate_streak = 0
+        if p >= high_th:
+            self._consecutive_high_p += 1
+        else:
+            self._consecutive_high_p = 0
+        if p == 1.0:
+            self.cooperation_mode = True
+            self._last_mode_change_round = round_index
+            return
+        if p == 0.0:
+            self.cooperation_mode = False
+            self._last_mode_change_round = round_index
+            return
+        if self._my_defect_streak >= 3 and p >= high_th:
+            self.cooperation_mode = True
+            self._last_mode_change_round = round_index
+            return
+        if self._my_cooperate_streak >= 3 and p <= low_th:
+            self.cooperation_mode = False
+            self._last_mode_change_round = round_index
+            return
+        if p <= low_th:
+            self.cooperation_mode = False
+            self._last_mode_change_round = round_index
+            return
+        if p >= high_th and self._consecutive_high_p >= 2:
+            self.cooperation_mode = True
+            self._last_mode_change_round = round_index
+            return
+        if self._same_m_streak >= 2:
+            if p >= high_th:
+                self.cooperation_mode = True
+            elif p <= low_th:
+                self.cooperation_mode = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            self.cooperation_mode = True
+            self._processed_rounds = 0
+            self._last_observed_m = None
+            self._same_m_streak = 0
+            self._last_mode_change_round = -1
+            self._my_defect_streak = 0
+            self._my_cooperate_streak = 0
+            self._consecutive_high_p = 0
+            return Action.C
+        start = self._processed_rounds
+        end = current_round
+        if start < end:
+            for t in range(start, end):
+                self._update_state_from_round(t, history)
+            self._processed_rounds = end
+        if current_round == n_rounds - 1:
+            latest_m = int(history.opponent_cooperators[-1])
+            opp_count = max(1, self.game_description.n_players - 1)
+            p_latest = latest_m / opp_count
+            low_th, high_th = self._thresholds()
+            if self.cooperation_mode and p_latest >= 0.5:
+                return Action.C
+            return Action.D
+        return Action.C if self.cooperation_mode else Action.D
+
+class Strategy_COLLECTIVE_10(BaseStrategy):
+    """
+    Cooperative start, majority-based cooperation, and synchronized two-round punishment
+    when cooperation falls below a broad majority threshold.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = max(2, int(getattr(game_description, 'n_players', 2)))
+        self.n_players = n
+        self.n_rounds = max(1, int(getattr(game_description, 'n_rounds', 1)))
+        self.L = math.ceil((n - 1) / 2) if n > 1 else 0
+        self.H = math.ceil(2 * (n - 1) / 3) if n > 1 else 0
+        self.mode = 'build'
+        self.recover = 0
+        self.punish_left = 0
+        self.processed_rounds = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        rounds_seen = history.round_number
+        start = min(self.processed_rounds, rounds_seen)
+        self.processed_rounds = start
+        for idx in range(start, rounds_seen):
+            x_t = int(history.opponent_cooperators[idx]) if idx < len(history.opponent_cooperators) else 0
+            if self.punish_left > 0:
+                self.punish_left -= 1
+            if x_t < self.L:
+                self.recover = 0
+                self.punish_left = max(self.punish_left, 2)
+                self.mode = 'punish'
+            elif x_t >= self.H:
+                self.recover += 1
+                if self.recover >= 2 and self.punish_left == 0:
+                    self.mode = 'cooperate'
+            else:
+                self.recover = 0
+                if self.punish_left == 0:
+                    self.mode = 'cooperate'
+            self.processed_rounds += 1
+        if rounds_seen == 0 or rounds_seen == 1:
+            return Action.C
+        if self.punish_left > 0 or self.mode == 'punish':
+            return Action.D
+        if rounds_seen >= self.n_rounds - 1:
+            if rounds_seen == 0:
+                return Action.C
+            last_x = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+            return Action.C if last_x >= self.L else Action.D
+        return Action.C
+
+class Strategy_COLLECTIVE_11(BaseStrategy):
+    """
+    Conditional cooperation with a moving majority threshold and short-memory forgiveness.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self._threshold = 1.0 / self.k if self.k != 0 else float('inf')
+        self._H = min(3, self.r - 1) if self.r > 1 else 1
+        self._last_round_seen = -1
+        self._last_action = Action.C
+        self._defect_streak = 0
+        self._coop_streak = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = int(history.round_number)
+        if t == 0:
+            action = Action.C if self.k > 1.0 else Action.D
+            self._last_round_seen = 0
+            self._last_action = action
+            self._defect_streak = 0 if action == Action.C else 1
+            self._coop_streak = 1 if action == Action.C else 0
+            return action
+        opp = history.opponent_cooperators
+        n_opponents = max(1, self.n - 1)
+
+        def coop_rate(count: int) -> float:
+            return count / n_opponents
+        past_len = len(opp)
+        if past_len == 0:
+            avg_recent = 0.0
+            recent_rates = []
+        else:
+            h = min(self._H, past_len)
+            recent_counts = opp[past_len - h:past_len]
+            recent_rates = [coop_rate(int(x)) for x in recent_counts]
+            avg_recent = float(np.mean(recent_rates)) if len(recent_rates) > 0 else 0.0
+        threshold = self._threshold
+        if self.n == 2:
+            last_rate = coop_rate(int(opp[-1])) if past_len > 0 else 0.0
+        else:
+            last_rate = coop_rate(int(opp[-1])) if past_len > 0 else 0.0
+        if t < self.r - 1:
+            coop = avg_recent >= threshold and last_rate >= threshold - 1.0 / (2.0 * n_opponents)
+        else:
+            if len(recent_rates) == 0:
+                recent_good = False
+            else:
+                recent_good = sum((1 for x in recent_rates if x >= threshold)) >= max(0, self._H - 1)
+            coop = avg_recent >= threshold and recent_good
+        action = Action.C if coop else Action.D
+        if past_len > 0:
+            observed_now = coop_rate(int(opp[-1]))
+            if action == Action.C:
+                self._coop_streak += 1
+                self._defect_streak = 0
+            else:
+                self._defect_streak += 1
+                self._coop_streak = 0
+            self._last_action = action
+        else:
+            self._last_action = action
+        self._last_round_seen = t
+        return action
+
+class Strategy_COLLECTIVE_12(BaseStrategy):
+    """
+    Adaptive public-goods strategy with a cooperative default, threshold-based
+    response to observed cooperation, and endgame/recovery safeguards.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.n_opponents = max(0, self.n_players - 1)
+        if self.n_opponents <= 0 or self.k <= 0:
+            initial_threshold = 1
+        else:
+            initial_threshold = math.ceil(self.n_opponents / self.k)
+        if self.n_opponents <= 0:
+            initial_threshold = 0
+        else:
+            initial_threshold = max(1, min(int(initial_threshold), self.n_opponents))
+        self.threshold = initial_threshold
+        self.total_opponent_cooperations = 0
+        self.completed_rounds = 0
+        self.cooperation_rate = 0.0
+        self.last_observed_x = None
+        self.second_last_observed_x = None
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number + 1
+        if history.round_number == 0:
+            self.completed_rounds = 0
+            self.total_opponent_cooperations = 0
+            self.cooperation_rate = 0.0
+            self.last_observed_x = None
+            self.second_last_observed_x = None
+            return Action.C
+        x = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        self.completed_rounds = history.round_number
+        self.total_opponent_cooperations = int(np.sum(history.opponent_cooperators)) if len(history.opponent_cooperators) > 0 else 0
+        denom = self.completed_rounds * self.n_opponents
+        self.cooperation_rate = self.total_opponent_cooperations / denom if denom > 0 else 0.0
+        if len(history.opponent_cooperators) >= 2:
+            prev_x = int(history.opponent_cooperators[-2])
+            curr_x = int(history.opponent_cooperators[-1])
+            if prev_x >= self.threshold and curr_x >= self.threshold:
+                self.threshold = max(1, self.threshold - 1) if self.n_opponents > 0 else 0
+            elif prev_x < self.threshold and curr_x < self.threshold:
+                self.threshold = min(self.n_opponents, self.threshold + 1) if self.n_opponents > 0 else 0
+        if self.n_opponents > 0:
+            self.threshold = max(1, min(self.threshold, self.n_opponents))
+        else:
+            self.threshold = 0
+        if current_round >= self.n_rounds - 1:
+            return Action.C if x == self.n_opponents else Action.D
+        if x == 0:
+            return Action.D
+        if x >= self.threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_13(BaseStrategy):
+    """
+    Conditional public-goods strategy with:
+    - initial cooperation,
+    - immediate withdrawal after zero cooperation,
+    - strong reciprocity when cooperation is broadly present,
+    - short-memory punishment during low-cooperation streaks,
+    - recovery when cooperation reappears strongly enough,
+    - special final-round behavior.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n_players = int(game_description.n_players)
+        n_opponents = max(0, n_players - 1)
+        self.n_opponents = n_opponents
+        self.half_threshold = math.ceil(n_opponents / 2) if n_opponents > 0 else 0
+        self.high_threshold = math.ceil(2 * n_opponents / 3) if n_opponents > 0 else 0
+        self.low_streak = 0
+        self.defecting_state = False
+        self.last_action = Action.C
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        n_rounds = int(self.game_description.n_rounds)
+        if round_number == 0:
+            self.last_action = Action.C
+            return Action.C
+        if round_number == n_rounds - 1:
+            last_m = int(history.opponent_cooperators[-1])
+            action = Action.C if last_m >= self.half_threshold else Action.D
+            self.last_action = action
+            return action
+        last_m = int(history.opponent_cooperators[-1])
+        prev_action = Action.C if bool(history.my_actions[-1]) else Action.D
+        low_streak = 0
+        for m in history.opponent_cooperators[::-1]:
+            if int(m) < self.half_threshold:
+                low_streak += 1
+            else:
+                break
+        recent_window = history.opponent_cooperators[-3:] if round_number >= 3 else history.opponent_cooperators
+        recent_medium_or_better = 0
+        for m in recent_window:
+            if int(m) >= self.half_threshold:
+                recent_medium_or_better += 1
+        recovery_ready = recent_medium_or_better >= 2
+        if last_m == 0:
+            action = Action.D
+        elif last_m >= self.high_threshold:
+            action = Action.C
+            low_streak = 0
+            self.defecting_state = False
+        elif last_m >= self.half_threshold:
+            action = prev_action
+        elif low_streak >= 2 and (not recovery_ready):
+            action = Action.D
+            self.defecting_state = True
+        else:
+            action = prev_action
+        self.low_streak = low_streak
+        self.last_action = action
+        return action
+
+class Strategy_COLLECTIVE_14(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Start by cooperating.
+    - Track smoothed cooperation with exponential averaging.
+    - Defect when cooperation drops clearly.
+    - Recover to cooperation when the group improves.
+    - Preserve current action during stable cooperation unless a forcing rule applies.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.high = 0.6
+        self.low = 0.35
+        self.recover = 0.5
+        n = max(2, int(getattr(game_description, 'n_players', 2)))
+        self.floor = 1.0 / n
+        self.alpha = 0.7
+        self._a0 = 1.0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = max(2, int(getattr(self.game_description, 'n_players', 2)))
+        alpha = float(self.alpha)
+        if history.round_number == 0:
+            return Action.C
+        my_actions = history.my_actions
+        opp_counts = history.opponent_cooperators
+        rounds = history.round_number
+        A = self._a0
+        last_q = 1.0
+        for t in range(rounds):
+            my_coop = bool(my_actions[t])
+            m_t = int(opp_counts[t]) if t < len(opp_counts) else 0
+            m_t = max(0, min(m_t, n - 1))
+            total_coop_including_self = m_t + (1 if my_coop else 0)
+            last_q = total_coop_including_self / n
+            A = alpha * A + (1.0 - alpha) * last_q
+        stable_three = False
+        if len(opp_counts) >= 3:
+            stable_three = int(opp_counts[-1]) == int(opp_counts[-2]) == int(opp_counts[-3])
+        last_my_action = Action.C if bool(my_actions[-1]) else Action.D
+        forced_switch = False
+        if last_my_action == Action.D and A >= self.recover:
+            forced_switch = True
+            proposed = Action.C
+        elif A <= self.low:
+            forced_switch = True
+            proposed = Action.D
+        elif A >= self.high:
+            forced_switch = True
+            proposed = Action.C
+        else:
+            proposed = Action.C if last_q >= self.recover else Action.D
+        if stable_three and (not forced_switch):
+            proposed = last_my_action
+        return proposed
+
+class Strategy_COLLECTIVE_15(BaseStrategy):
+    """
+    Phased conditional-cooperation strategy for the repeated n-player public goods game.
+
+    Core behavior:
+    - Cooperate in round 1.
+    - Cooperate when recent cooperation meets a benchmark threshold.
+    - Defect after repeated low-cooperation rounds.
+    - Escalate cooperation after sustained full cooperation.
+    - End conservatively unless the late-game history has been stable.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self._eps = 1e-09
+
+    def _benchmark(self, m_history: NDArray[np.int_]) -> int:
+        """
+        Compute B_t from the observed opponent cooperation history up to round t.
+        """
+        if self.n <= 2:
+            return 1
+        if math.isclose(self.k, self.n, rel_tol=1e-09, abs_tol=1e-09):
+            return 1
+        base = math.ceil((self.n - 1) / self.k) if self.k > 0 else self.n - 1
+        med = int(math.ceil(float(np.median(m_history)))) if len(m_history) > 0 else 0
+        return max(1, int(base), med)
+
+    def _benchmark_at(self, m_history: NDArray[np.int_], idx: int) -> int:
+        """
+        Benchmark for the prefix ending at idx (inclusive).
+        """
+        if idx < 0:
+            return 1
+        return self._benchmark(m_history[:idx + 1])
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        m_hist = history.opponent_cooperators
+        last_m = int(m_hist[-1])
+        n_opponents = max(self.n - 1, 1)
+        q_last = last_m / n_opponents
+        if self.n == 2:
+            return Action.C if last_m >= 1 else Action.D
+        if t == self.r - 1:
+            if t >= 3:
+                stable = True
+                for idx in range(t - 3, t):
+                    b = self._benchmark_at(m_hist, idx)
+                    if int(m_hist[idx]) < b:
+                        stable = False
+                        break
+                return Action.C if stable else Action.D
+            return Action.D
+        if last_m == 0:
+            return Action.D
+        b_last = self._benchmark(m_hist)
+        if last_m >= b_last and q_last >= 0.5:
+            return Action.C
+        if t >= 2:
+            prev_m = int(m_hist[-2])
+            b_prev = self._benchmark_at(m_hist, t - 2)
+            if last_m < b_last and prev_m < b_prev:
+                return Action.D
+        if t >= 2 and int(m_hist[-1]) == self.n - 1 and (int(m_hist[-2]) == self.n - 1):
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_16(BaseStrategy):
+    """
+    Strategy for the N-Player Public Goods Game.
+
+    Round 1: cooperate.
+    Later rounds:
+      - Cooperate when the most recent cooperation level is high and the
+        recent average is high.
+      - Use a stricter recovery rule after low-cooperation rounds.
+      - If history is unavailable or invalid, default to C on round 1 and D
+        afterwards.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        try:
+            n = int(self.game_description.n_players)
+            if n < 2:
+                return Action.D
+            round_number = int(history.round_number)
+            if round_number == 0:
+                return Action.C
+            opp = history.opponent_cooperators
+            if opp is None or len(opp) == 0:
+                return Action.D
+            last = int(opp[-1])
+            if n <= 3:
+                high = n - 1
+            else:
+                high = int(math.ceil(2 * (n - 1) / 3))
+            recover = int(math.ceil((n - 1) / 2))
+            m = min(3, len(opp))
+            if m <= 0:
+                return Action.D
+            recent = opp[-m:]
+            avg = float(np.mean(recent)) if len(recent) > 0 else 0.0
+            if last < recover:
+                if len(opp) >= 2 and int(opp[-1]) >= high and (int(opp[-2]) >= high) and (avg >= high):
+                    return Action.C
+                return Action.D
+            if last < high:
+                return Action.C if avg >= high else Action.D
+            return Action.C if avg >= high else Action.D
+        except Exception:
+            try:
+                if int(history.round_number) == 0:
+                    return Action.C
+            except Exception:
+                pass
+            return Action.D
+
+class Strategy_COLLECTIVE_17(BaseStrategy):
+    """
+    Threshold-based public goods strategy:
+    - Cooperate in round 1.
+    - Estimate prior total cooperation from observed opponent cooperation and own last action.
+    - Cooperate when estimated cooperation is at or above a size-dependent threshold.
+    - Defect after repeated low cooperation, and return to cooperation after sustained success.
+    - In the final round, follow the previous round's threshold status.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = int(getattr(game_description, 'n_players', 0) or 0)
+        if n <= 4:
+            self.threshold = max(0, n - 1)
+        elif n <= 8:
+            self.threshold = int(math.ceil(0.75 * max(0, n - 1)))
+        else:
+            self.threshold = int(math.ceil(0.8 * max(0, n - 1)))
+        self._n_rounds = int(getattr(game_description, 'n_rounds', 0) or 0)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        my_actions = history.my_actions
+
+        def estimated_total_at(idx: int) -> int:
+            try:
+                opp_count = int(opp[idx])
+            except Exception:
+                opp_count = 0
+            my_coop = 1
+            if 0 <= idx < len(my_actions):
+                try:
+                    my_coop = 1 if bool(my_actions[idx]) else 0
+                except Exception:
+                    my_coop = 1
+            return opp_count + my_coop
+        last_idx = round_number - 1
+        last_total = estimated_total_at(last_idx)
+        if self._n_rounds > 0 and round_number >= self._n_rounds - 1:
+            return Action.C if last_total >= self.threshold else Action.D
+        if round_number >= 3:
+            try:
+                a = int(opp[-1])
+                b = int(opp[-2])
+                c = int(opp[-3])
+                if a == b == c:
+                    return Action.C if a >= self.threshold - 1 else Action.D
+            except Exception:
+                pass
+        low_streak = 0
+        high_streak = 0
+        max_checks = min(round_number, len(opp))
+        for offset in range(1, max_checks + 1):
+            total = estimated_total_at(round_number - offset)
+            if total < self.threshold:
+                low_streak += 1
+                high_streak = 0
+            else:
+                high_streak += 1
+                low_streak = 0
+        if low_streak >= 2:
+            return Action.D
+        if high_streak >= 2:
+            return Action.C
+        return Action.C if last_total >= self.threshold else Action.D
+
+class Strategy_COLLECTIVE_18(BaseStrategy):
+    """
+    Cooperative threshold strategy with trust states and recovery tracking.
+    Starts by cooperating, defects immediately after below-threshold group behavior,
+    and returns to cooperation only after sustained recovery.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        denom = max(1, self.n_players - 1)
+        self._denom = denom
+        self.theta = max(0.5, 1.0 - 1.0 / self.k) if self.k != 0 else 0.5
+        self.trust = 'high'
+        self.good_streak = 0
+        self._last_processed_round = 0
+
+    def _process_observed_history(self, history: PlayerHistory) -> None:
+        """
+        Update internal trust state from any newly observed completed rounds.
+        """
+        current_rounds = history.round_number
+        start = self._last_processed_round
+        end = current_rounds
+        for t in range(start, end):
+            if t < 0 or t >= len(history.opponent_cooperators):
+                continue
+            x_t = int(history.opponent_cooperators[t])
+            q_t = x_t / self._denom
+            if q_t < self.theta:
+                self.trust = 'low'
+                self.good_streak = 0
+        self._last_processed_round = current_rounds
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        self._process_observed_history(history)
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        q_prev = 0.0
+        if len(history.opponent_cooperators) >= 1:
+            q_prev = int(history.opponent_cooperators[-1]) / self._denom
+        q_prev2_available = len(history.opponent_cooperators) >= 2
+        q_prev2 = 0.0
+        if q_prev2_available:
+            q_prev2 = int(history.opponent_cooperators[-2]) / self._denom
+        if self.trust == 'high':
+            if q_prev >= self.theta:
+                return Action.C
+            self.trust = 'low'
+            self.good_streak = 0
+            return Action.D
+        can_recover_now = q_prev >= self.theta and (t == 1 or (q_prev2_available and q_prev2 >= self.theta))
+        if can_recover_now:
+            self.good_streak += 1
+            if self.good_streak >= 2:
+                self.trust = 'high'
+            return Action.C
+        self.good_streak = 0
+        return Action.D
+
+class Strategy_COLLECTIVE_19(BaseStrategy):
+    """
+    Majority-support threshold strategy for the repeated N-player Public Goods Game.
+
+    Starts by cooperating. Then:
+    - stays cooperative while at least q opponents cooperated in the previous round,
+    - switches to defect immediately when support falls below q,
+    - returns to cooperation only after two consecutive supported rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.mode = 'COOPERATE'
+        self.streak = 0
+        self.q = max(0, math.ceil((game_description.n_players - 1) / 2))
+        self._processed_rounds = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        while self._processed_rounds < round_number:
+            m_t = int(history.opponent_cooperators[self._processed_rounds])
+            if m_t >= self.q:
+                self.streak = min(self.streak + 1, 2)
+            else:
+                self.streak = 0
+            if self.mode == 'COOPERATE' and m_t < self.q:
+                self.mode = 'DEFEND'
+            elif self.mode == 'DEFEND' and self.streak == 2:
+                self.mode = 'COOPERATE'
+            self._processed_rounds += 1
+        if round_number == 0:
+            return Action.C
+        return Action.C if self.mode == 'COOPERATE' else Action.D
+
+class Strategy_COLLECTIVE_20(BaseStrategy):
+    """
+    Threshold-based conditional cooperation:
+    start by cooperating, then continue cooperating only after observing
+    two consecutive rounds with at least ceil((n-1)/k) cooperating opponents.
+    If cooperation drops below threshold, defect until the threshold is met
+    in two consecutive rounds again.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = max(2, int(game_description.n_players))
+        k = float(game_description.k)
+        if k <= 0:
+            self.threshold = n
+        else:
+            self.threshold = int(math.ceil((n - 1) / k))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        trust = True
+        streak = 0
+        threshold = self.threshold
+        for x_t in history.opponent_cooperators:
+            if int(x_t) >= threshold:
+                streak += 1
+                if streak >= 2:
+                    trust = True
+            else:
+                streak = 0
+                trust = False
+        return Action.C if trust else Action.D
+
+class Strategy_COLLECTIVE_21(BaseStrategy):
+    """
+    Collective Adaptive Contribution Strategy.
+
+    Cooperate when estimated opponent support is sufficiently high, when recent
+    cooperation is improving, or in the opening round. Apply endgame caution,
+    a short defection cooldown after two consecutive zero-cooperation rounds,
+    and a near-unanimity boost when the group is clearly aligned.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.initial_support = 0.5
+        self.smoothing_denominator = 3.0
+
+    def _threshold(self, round_index_1_based: int) -> float:
+        r = max(self.n_rounds, 1)
+        if r <= 1:
+            base = 1.0 / self.k if self.k != 0 else 1.0
+        else:
+            base = 1.0 / self.k + 0.1 * (1.0 - (round_index_1_based - 1) / (r - 1))
+        if base < 0.0:
+            return 0.0
+        if base > 1.0:
+            return 1.0
+        return base
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        current_round = round_number + 1
+        n_players = self.n_players
+        n_opponents = max(n_players - 1, 1)
+        if round_number == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        S = self.initial_support
+        zero_streak = 0
+        cooldown_remaining = 0
+        for t in range(round_number):
+            m_t = int(opp[t])
+            if m_t == 0:
+                zero_streak += 1
+            else:
+                zero_streak = 0
+            if zero_streak >= 2:
+                cooldown_remaining = 2
+            support = m_t / n_opponents
+            S = (2.0 * S + support) / self.smoothing_denominator
+            if cooldown_remaining > 0:
+                cooldown_remaining -= 1
+        if round_number >= 2:
+            if int(opp[-1]) == 0 and int(opp[-2]) == 0:
+                return Action.D
+        if round_number >= 1 and int(opp[-1]) == n_opponents:
+            return Action.C
+        if current_round >= self.n_rounds - 1:
+            if current_round == self.n_rounds:
+                return Action.C if int(opp[-1]) == n_opponents else Action.D
+            return Action.C if int(opp[-1]) >= max(n_players - 2, 0) else Action.D
+        if cooldown_remaining > 0:
+            return Action.D
+        theta_t = self._threshold(current_round)
+        p_hat = S
+        trend_improving = False
+        if round_number >= 2:
+            m_prev = int(opp[-1])
+            m_prev_prev = int(opp[-2])
+            trend_improving = m_prev > m_prev_prev or m_prev == n_opponents
+        should_cooperate = p_hat >= theta_t or trend_improving
+        if current_round == 1:
+            should_cooperate = True
+        return Action.C if should_cooperate else Action.D
+
+class Strategy_COLLECTIVE_22(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Starts with cooperation.
+    - Cooperates when observed cooperation is near or above the viability threshold.
+    - Defects temporarily after a collapse or during persistent low cooperation.
+    - Reverts to cooperation immediately when the group recovers enough support.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = int(game_description.n_players)
+        k = float(game_description.k)
+        if k > 0:
+            self.q = int(math.ceil((n - 1) / k))
+        else:
+            self.q = n
+        self.threshold = self.q - 1
+        self.n_players = n
+        self.n_rounds = int(game_description.n_rounds)
+        self.recovery_remaining = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            self.recovery_remaining = 0
+            return Action.C
+        threshold = self.threshold
+        n_rounds = self.n_rounds
+        if threshold <= 0:
+            return Action.C
+        if threshold > self.n_players - 1:
+            return Action.C if t == 0 else Action.D
+        x_prev = int(history.opponent_cooperators[-1])
+        m_prev = float(history.opponent_cooperators[0])
+        alpha = 0.5
+        for idx in range(1, t):
+            x = float(history.opponent_cooperators[idx])
+            m_prev = alpha * x + (1.0 - alpha) * m_prev
+        if x_prev == 0:
+            self.recovery_remaining = 2
+        if self.recovery_remaining > 0:
+            if x_prev >= threshold:
+                self.recovery_remaining = 0
+            else:
+                self.recovery_remaining -= 1
+                return Action.D
+        if t >= 3:
+            if int(history.opponent_cooperators[-1]) < threshold and int(history.opponent_cooperators[-2]) < threshold and (int(history.opponent_cooperators[-3]) < threshold):
+                if x_prev < threshold:
+                    return Action.D
+        if t == n_rounds - 1:
+            return Action.C if x_prev >= threshold else Action.D
+        if x_prev >= threshold or m_prev >= threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_23(BaseStrategy):
+    """
+    Cooperate initially, then condition cooperation on a cooperative majority,
+    stability, and a simple tolerance-based escalation rule.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        denom = self.k if self.k > 0 else 1.0
+        self.threshold = math.ceil((self.n_players - 1) / denom)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        opp_counts = history.opponent_cooperators
+        last_x = int(opp_counts[-1])
+        if round_number == self.n_rounds - 1:
+            if round_number >= 2:
+                prev_x = int(opp_counts[-2])
+                if last_x >= self.threshold and last_x >= prev_x:
+                    return Action.C
+                return Action.D
+            return Action.C if last_x >= self.threshold else Action.D
+        t = 0
+        for x in reversed(opp_counts):
+            if int(x) < self.threshold:
+                t += 1
+            else:
+                break
+        if t >= 2:
+            return Action.D
+        q = last_x / max(self.n_players - 1, 1)
+        threshold_ok = last_x >= self.threshold
+        majority_ok = q >= 0.5
+        if round_number >= 2:
+            prev_x = int(opp_counts[-2])
+            nondecreasing_ok = last_x >= prev_x
+        else:
+            nondecreasing_ok = True
+        if threshold_ok and majority_ok and nondecreasing_ok:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_24(BaseStrategy):
+    """
+    Synchronized threshold strategy for the repeated N-player Public Goods Game.
+    Cooperates by default when the group is stable, defects to reset after weak
+    cooperation, and tightens cooperation requirements near the end.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.n_opponents = max(0, self.n_players - 1)
+        self._eps = 1e-12
+        self.s0 = 1.0
+
+    def _is_close(self, a: float, b: float) -> bool:
+        return abs(a - b) <= self._eps
+
+    def _opponent_rate(self, count: int) -> float:
+        if self.n_opponents <= 0:
+            return 0.0
+        return float(count) / float(self.n_opponents)
+
+    def _smoothed_rate_up_to_previous(self, history: PlayerHistory) -> float:
+        s = self.s0
+        for count in history.opponent_cooperators:
+            m = self._opponent_rate(int(count))
+            s = 0.6 * s + 0.4 * m
+        return float(s)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = int(history.round_number)
+        if t == 0:
+            return Action.C
+        prev_count = int(history.opponent_cooperators[-1])
+        m_prev = self._opponent_rate(prev_count)
+        s_prev = self._smoothed_rate_up_to_previous(history)
+        have_two = t >= 2
+        if have_two:
+            prev2_count = int(history.opponent_cooperators[-2])
+            m_prev2 = self._opponent_rate(prev2_count)
+            nondecreasing_trend = m_prev >= m_prev2 - self._eps
+        else:
+            m_prev2 = None
+            nondecreasing_trend = False
+        remaining_including_current = self.n_rounds - t
+        if t == self.n_rounds - 1:
+            if self._is_close(m_prev, 1.0) and self._is_close(s_prev, 1.0):
+                return Action.C
+            return Action.D
+        if self._is_close(m_prev, 0.0):
+            return Action.D
+        if self._is_close(m_prev, 1.0):
+            return Action.C
+        if remaining_including_current <= 3:
+            m_thresh = 0.75
+            s_thresh = 0.65
+            m_ok = m_prev > m_thresh or self._is_close(m_prev, m_thresh)
+            s_ok = s_prev > s_thresh or self._is_close(s_prev, s_thresh)
+            if (self._is_close(m_prev, m_thresh) or self._is_close(s_prev, s_thresh)) and (not nondecreasing_trend):
+                return Action.D
+            if m_ok and s_ok:
+                return Action.C
+            return Action.D
+        m_thresh = s_prev - 0.25
+        s_ok = s_prev > 0.5 or self._is_close(s_prev, 0.5)
+        m_ok = m_prev > m_thresh or self._is_close(m_prev, m_thresh)
+        if (self._is_close(s_prev, 0.5) or self._is_close(m_prev, m_thresh)) and (not nondecreasing_trend):
+            return Action.D
+        if s_ok and m_ok:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_25(BaseStrategy):
+    """
+    Shared target-cooperation strategy with gradual escalation, threshold-based
+    cooperation, and selective forgiveness/recovery.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.tau = 1.0 / self.k if self.k != 0 else float('inf')
+        self.eps = 1e-12
+        self.step = 1.0 / max(1, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        next_round = current_round + 1
+        if current_round == 0:
+            return Action.C
+        n_others = max(1, self.n_players - 1)
+        recent_counts = history.opponent_cooperators
+        recent_len = len(recent_counts)
+        m_values = []
+        for idx in range(recent_len):
+            m_values.append(float(recent_counts[idx]) / n_others)
+
+        def ge(a: float, b: float) -> bool:
+            return a >= b - self.eps
+
+        def lt(a: float, b: float) -> bool:
+            return a < b - self.eps
+
+        def approx(a: float, b: float) -> bool:
+            return abs(a - b) <= self.eps or abs(a - b) <= self.step * 0.51
+        last3 = m_values[-3:] if len(m_values) >= 3 else m_values[:]
+        bar_m = sum(last3) / len(last3) if last3 else 0.0
+        above_streak = 0
+        below_streak = 0
+        for m in reversed(m_values):
+            if ge(m, self.tau):
+                above_streak += 1
+                below_streak = 0
+            else:
+                below_streak += 1
+                above_streak = 0
+        if above_streak >= 2:
+            return Action.C
+        if below_streak >= 2:
+            return Action.D
+        if next_round == self.n_rounds:
+            if ge(bar_m, self.tau):
+                threshold_hits = 0
+                for m in last3:
+                    if ge(m, self.tau):
+                        threshold_hits += 1
+                if threshold_hits >= 2:
+                    return Action.C
+            return Action.D
+        if next_round <= min(3, self.n_rounds - 1):
+            last_m = m_values[-1]
+            if ge(last_m, self.tau):
+                return Action.C
+            if next_round >= 3 and len(m_values) >= 2:
+                prev_m = m_values[-2]
+                if approx(last_m, self.tau - self.step) and ge(prev_m, self.tau):
+                    return Action.C
+            return Action.D
+        if ge(bar_m, self.tau):
+            return Action.C
+        if m_values:
+            last_m = m_values[-1]
+            if self.tau - self.step - self.eps <= last_m < self.tau - self.eps:
+                return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_26(BaseStrategy):
+    """
+    Group-responsive public goods strategy:
+    - Start with cooperation.
+    - Sustain cooperation when opponent cooperation is at least a minimal stable level
+      and trends are not deteriorating.
+    - Defect quickly when cooperation collapses.
+    - Re-enter cooperation immediately once a strong cooperative majority returns.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.t_high = math.ceil(self.n_opponents / 2) if self.n_opponents > 0 else 0
+        self.t_low = math.floor(self.n_opponents / 3) if self.n_opponents > 0 else 0
+        self.window = max(1, min(3, self.n_rounds - 1)) if self.n_rounds > 1 else 1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        last_m = int(opp[-1]) if len(opp) > 0 else 0
+        if t == self.n_rounds - 1:
+            return Action.C if last_m >= self.t_low else Action.D
+        start = max(0, t - self.window)
+        recent = opp[start:t] if t > 0 else opp[:0]
+        if len(recent) > 0:
+            avg = float(np.mean(recent))
+        else:
+            avg = 0.0
+        prev_m = int(opp[-2]) if t >= 2 and len(opp) >= 2 else last_m
+        trend = last_m - prev_m if t >= 2 else 0
+        if last_m >= self.t_high:
+            return Action.C
+        if len(recent) >= self.window and np.all(recent == 0):
+            return Action.D
+        if last_m == 0:
+            return Action.D
+        if avg < self.t_low:
+            return Action.D
+        if trend < 0 and last_m <= self.t_low:
+            return Action.D
+        if avg >= self.t_low and last_m >= self.t_low and (trend >= 0) and (last_m > 0):
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_27(BaseStrategy):
+    """
+    Smoothed conditional cooperation strategy for the repeated N-player Public Goods Game.
+
+    - Starts by cooperating.
+    - Maintains cooperation while smoothed opponent cooperation stays above a keep threshold.
+    - Defects after observed collapse.
+    - Returns to cooperation only after a sufficiently strong and stable recovery signal.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = max(2, int(game_description.n_players))
+        k = float(game_description.k) if game_description.k is not None else 1.0
+        self.n_players = n
+        self.k = k
+        self.theta_keep = 1.0 / k if k != 0 else float('inf')
+        self.theta_return = max(0.5, (1.0 / k if k != 0 else float('inf')) - 0.25 * ((1.0 / k if k != 0 else float('inf')) - 1.0 / n))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        denom = max(1, self.n_players - 1)
+        f_values = [float(x) / denom for x in opp]
+        L = f_values[0]
+        if round_number >= 2:
+            for idx in range(1, round_number):
+                L = (2.0 * L + f_values[idx]) / 3.0
+        last_f = f_values[-1]
+        last_action_was_cooperate = bool(history.my_actions[-1])
+        is_last_round_to_play = round_number == self.game_description.n_rounds - 1
+        if is_last_round_to_play and round_number >= 2:
+            if f_values[-1] == 0.0 and f_values[-2] == 0.0:
+                return Action.D
+        if not last_action_was_cooperate:
+            if last_f >= self.theta_return:
+                recent_window = f_values[-2:] if round_number >= 2 else f_values[-1:]
+                if any((f >= self.theta_return for f in recent_window)):
+                    return Action.C
+            return Action.D
+        if L >= self.theta_keep and last_f > 0.0:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_28(BaseStrategy):
+    """
+    Default-to-cooperation public goods strategy with:
+    - an initial cooperative move,
+    - an early-game responsive phase based on the most recent round,
+    - a cumulative threshold rule after round 3,
+    - immediate recovery after cooperation improves,
+    - and stability-biased cooperation when the last two rounds were good.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.n_opponents = max(1, self.n_players - 1)
+        raw_threshold = 1.0 / self.k + 1.0 / (2.0 * self.n_opponents)
+        self.q_star = min(1.0, raw_threshold)
+        self.recovery_margin = 1.0 / (2.0 * self.n_opponents)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = int(history.round_number)
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        last_count = int(opp[-1]) if len(opp) > 0 else 0
+        last_rate = last_count / self.n_opponents
+        cumulative_count = 0
+        if len(opp) > 0:
+            for value in opp:
+                cumulative_count += int(value)
+        cumulative_rate = cumulative_count / len(opp) / self.n_opponents if len(opp) > 0 else 0.0
+        if t >= self.n_rounds - 1:
+            return Action.C if cumulative_rate >= self.q_star else Action.D
+        if t <= 3:
+            return Action.C if last_rate >= self.q_star else Action.D
+        prev_action = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else True
+        prev2_action = bool(history.my_actions[-2]) if len(history.my_actions) > 1 else False
+        last_two_good = False
+        if len(opp) >= 2:
+            prev_rate = int(opp[-2]) / self.n_opponents
+            last_two_good = prev_rate >= self.q_star and last_rate >= self.q_star
+        if last_two_good:
+            return Action.C
+        if not prev_action and last_rate >= self.q_star:
+            return Action.C
+        if cumulative_rate >= self.q_star + self.recovery_margin:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_29(BaseStrategy):
+    """
+    Phase-based conditional cooperation strategy for the N-player Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.s = 0.5
+        self.q_history = []
+        self.coop_streak = 0
+        self.defect_streak = 0
+        self.strong_left = 0
+        self.punish_left = 0
+        self.emergency_reset = False
+        self.forgiveness_counter = 0
+        self.last_processed_round = 0
+
+    def _compute_q(self, opponent_count: int) -> float:
+        n_players = self.game_description.n_players
+        denom = n_players - 1
+        if denom <= 0:
+            return 0.0
+        return opponent_count / denom
+
+    def _update_state(self, history: PlayerHistory) -> None:
+        start = self.last_processed_round
+        end = history.round_number
+        if end <= start:
+            return
+        for idx in range(start, end):
+            opp_c = int(history.opponent_cooperators[idx])
+            q = self._compute_q(opp_c)
+            self.q_history.append(q)
+            self.s = 0.7 * self.s + 0.3 * q
+            if q >= 0.75:
+                self.coop_streak += 1
+            else:
+                self.coop_streak = 0
+            if q <= 0.25:
+                self.defect_streak += 1
+            else:
+                self.defect_streak = 0
+            if self.strong_left > 0:
+                self.strong_left -= 1
+                if q == 0:
+                    self.strong_left = 0
+            elif self.coop_streak >= 2:
+                self.strong_left = 2
+            if self.punish_left > 0:
+                self.punish_left -= 1
+            elif self.defect_streak >= 2:
+                self.punish_left = 2
+            if len(self.q_history) >= 2 and self.q_history[-1] == 0 and (self.q_history[-2] == 0):
+                self.emergency_reset = True
+            elif q >= 0.5:
+                self.emergency_reset = False
+            self.last_processed_round = idx + 1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        self._update_state(history)
+        round_num = history.round_number
+        n_rounds = self.game_description.n_rounds
+        if round_num == 0:
+            return Action.C
+        last_q = self.q_history[-1] if self.q_history else 0.0
+        prev_q = self.q_history[-2] if len(self.q_history) >= 2 else last_q
+        avg_q = sum(self.q_history) / len(self.q_history) if self.q_history else 0.0
+        if round_num == n_rounds - 1:
+            return Action.C if last_q >= 0.5 else Action.D
+        if round_num == n_rounds - 2:
+            return Action.C if last_q >= 0.5 or self.s >= 0.55 else Action.D
+        if self.emergency_reset:
+            return Action.D
+        if self.strong_left > 0:
+            return Action.C
+        if self.punish_left > 0:
+            return Action.D
+        default_cooperate = self.s >= 0.55 or avg_q >= 0.5 or (len(self.q_history) >= 3 and sum((1 for q in self.q_history[-3:] if q >= 0.5)) >= 2)
+        if default_cooperate:
+            self.forgiveness_counter = 0
+            return Action.C
+        if last_q >= 0.5:
+            self.forgiveness_counter += 1
+            if self.forgiveness_counter % 3 == 0:
+                return Action.C
+        else:
+            self.forgiveness_counter = 0
+        return Action.D
+
+class Strategy_COLLECTIVE_30(BaseStrategy):
+    """
+    Adaptive threshold strategy for the N-player Public Goods Game.
+
+    Starts by cooperating, then tracks opponent cooperation rate against a
+    dynamic target. It rewards sustained cooperation, defects against broad
+    defection, and includes several hard bounds to stabilize behavior.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = max(2, int(game_description.n_players))
+        self.delta = 1.0 / max(1, n - 1)
+        self.target = 1.0
+        self.last_processed_round = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_players = max(2, int(self.game_description.n_players))
+        n_opponents = max(1, n_players - 1)
+        if history.round_number == 0:
+            self.target = 1.0
+            self.last_processed_round = 0
+            return Action.C
+        target = 1.0
+        zero_streak = 0
+        full_streak = 0
+        same_count_streak = 0
+        defect_streak = 0
+        opp = history.opponent_cooperators
+        my = history.my_actions
+        total_obs = len(opp)
+        for idx in range(total_obs):
+            count = int(opp[idx])
+            x = count / n_opponents if n_opponents > 0 else 0.0
+            if count == 0:
+                zero_streak += 1
+            else:
+                zero_streak = 0
+            if count >= n_opponents:
+                full_streak += 1
+            else:
+                full_streak = 0
+            if idx == 0:
+                same_count_streak = 1
+            else:
+                same_count_streak = same_count_streak + 1 if int(opp[idx - 1]) == count else 1
+            if not bool(my[idx]):
+                defect_streak += 1
+            else:
+                defect_streak = 0
+            cooperated = bool(my[idx])
+            if cooperated:
+                if x >= target:
+                    target = min(1.0, target + self.delta)
+                else:
+                    target = max(0.0, target - 2.0 * self.delta)
+            elif x >= target:
+                target = max(0.0, target - self.delta)
+            else:
+                target = min(1.0, target + self.delta)
+        self.target = target
+        self.last_processed_round = history.round_number
+        if total_obs == 0:
+            return Action.C
+        last_count = int(opp[-1])
+        last_x = last_count / n_opponents if n_opponents > 0 else 0.0
+        last_my_action = bool(my[-1]) if len(my) > 0 else True
+        if history.round_number == int(self.game_description.n_rounds) - 1:
+            return Action.C if last_x >= 0.5 else Action.D
+        if zero_streak >= 2 and last_x == 0.0:
+            return Action.D
+        if defect_streak >= 2 and last_x >= self.target:
+            return Action.C
+        if full_streak >= 2 and last_x >= 1.0:
+            return Action.C
+        if last_count >= max(0, n_opponents - 1):
+            return Action.C
+        if last_x <= 0.5:
+            return Action.D
+        if same_count_streak >= 3:
+            return Action.D if last_count == 0 else Action.C if last_my_action else Action.D
+        return Action.C if last_x >= self.target else Action.D
+
+class Strategy_COLLECTIVE_31(BaseStrategy):
+    """
+    Collective-threshold public goods strategy with escalation, forgiveness,
+    and stricter endgame cooperation requirements.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        if self.k > 0:
+            theta = self.n_players / self.k - 1.0
+        else:
+            theta = 0.0
+        self.target_count = int(math.ceil(theta * max(self.n_players - 1, 0)))
+
+    def _median_recent(self, values: NDArray[np.int_]) -> float:
+        if len(values) == 0:
+            return 0.0
+        return float(np.median(values))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        last_m = int(opp[-1])
+        in_final_two = t >= max(self.n_rounds - 2, 0)
+        if t == self.n_rounds - 1:
+            if len(opp) >= 3:
+                if last_m <= int(opp[-2]) <= int(opp[-3]):
+                    return Action.D
+            if last_m < self.target_count:
+                return Action.D
+        if len(opp) >= 2 and int(opp[-1]) < self.target_count - 1 and (int(opp[-2]) < self.target_count - 1):
+            if last_m < self.target_count:
+                return Action.D
+        if in_final_two:
+            return Action.C if last_m >= self.target_count + 1 else Action.D
+        avg_so_far = float(np.mean(opp)) if len(opp) > 0 else 0.0
+        earlier = opp[:-1]
+        if len(earlier) > 3:
+            recent_window = earlier[-3:]
+        else:
+            recent_window = earlier
+        delta = float(last_m - self._median_recent(recent_window))
+        if len(history.my_actions) > 0 and (not bool(history.my_actions[-1])):
+            if len(opp) >= 2 and last_m >= self.target_count and (int(opp[-2]) >= self.target_count - 1):
+                return Action.C
+        if last_m >= self.target_count and avg_so_far >= self.target_count - 1 and (delta >= -1):
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_32(BaseStrategy):
+    """
+    Support-first public goods strategy with a threshold-triggered cooldown and probe return.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = int(getattr(game_description, 'n_players', 0) or 0)
+        k = float(getattr(game_description, 'k', 0.0) or 0.0)
+        if k <= 0:
+            self.support_threshold = 0
+            self.cooldown_length = 1
+        else:
+            self.support_threshold = int(math.ceil(max(0, n - 1) / k))
+            self.cooldown_length = max(1, int(math.ceil(n / k) - 1))
+        self.mode = 'support'
+        self.cooldown = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        last_opponents = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if self.mode == 'support':
+            if last_opponents >= self.support_threshold:
+                return Action.C
+            self.mode = 'cooldown'
+            self.cooldown = 1
+            return Action.D
+        if self.cooldown < self.cooldown_length:
+            self.cooldown += 1
+            return Action.D
+        if last_opponents >= self.support_threshold:
+            self.mode = 'support'
+            self.cooldown = 0
+        else:
+            self.mode = 'cooldown'
+            self.cooldown = 1
+        return Action.C
+
+class Strategy_PROSOCIAL_5(BaseStrategy):
+    """
+    Cooperation-first public goods strategy with exponential smoothing,
+    low-cooperation punishment, forgiveness on recovery, and a final-round rule.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self._opponents = max(self.n_players - 1, 0)
+
+    def _q_values(self, history: PlayerHistory):
+        if self._opponents <= 0:
+            return []
+        counts = history.opponent_cooperators
+        return [float(c) / float(self._opponents) for c in counts]
+
+    def _smoothed_m(self, q_values):
+        if not q_values:
+            return 0.0
+        m = float(q_values[0])
+        for q in q_values[1:]:
+            m = 0.7 * m + 0.3 * float(q)
+        return m
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        q_values = self._q_values(history)
+        current_round = round_number + 1
+        q_last = q_values[-1] if len(q_values) >= 1 else None
+        q_prev = q_values[-2] if len(q_values) >= 2 else None
+        m_prev = self._smoothed_m(q_values)
+        if current_round == self.n_rounds:
+            if q_last is not None and q_prev is not None and (q_last <= 0.25) and (q_prev <= 0.25):
+                return Action.D
+            return Action.C
+        if q_last is not None and q_last <= 0.25:
+            return Action.D
+        if m_prev >= 0.6:
+            return Action.C
+        if q_last is not None and q_prev is not None and (q_last >= 0.75) and (q_prev >= 0.75):
+            return Action.C
+        if 0.25 < m_prev < 0.6:
+            if current_round % 2 == 1:
+                return Action.C
+            if q_last is None or q_prev is None:
+                return Action.C
+            return Action.C if q_last >= q_prev else Action.D
+        return Action.D
+
+class Strategy_PROSOCIAL_6(BaseStrategy):
+    """
+    Cooperative by default, with brief defensive defections triggered only by
+    sustained low opponent cooperation and low trust. Trust is updated from
+    observed rounds using an exponential moving average, and the strategy
+    cooperates unconditionally in the first and final rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.trust = 1.0
+        self._last_processed_round = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_players = self.game_description.n_players
+        n_rounds = self.game_description.n_rounds
+        if history.round_number >= max(0, n_rounds - 1):
+            return Action.C
+        end_round = min(history.round_number, len(history.opponent_cooperators))
+        for idx in range(self._last_processed_round, end_round):
+            if n_players > 1:
+                q_prev = float(history.opponent_cooperators[idx]) / float(n_players - 1)
+            else:
+                q_prev = 0.0
+            self.trust = 0.6 * self.trust + 0.4 * q_prev
+        self._last_processed_round = end_round
+        if history.round_number == 0:
+            return Action.C
+        last_opponents = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        threshold = math.ceil((n_players - 1) / 2) if n_players >= 2 else 1
+        if self.trust < 0.5 and last_opponents < threshold:
+            return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_7(BaseStrategy):
+    """
+    Prosocial Adaptive Threshold Strategy.
+
+    - Cooperates in the first round.
+    - Uses the running average of past cooperation shares as a benchmark.
+    - Applies warm-start, recovery bias, and exact-threshold cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.threshold = 0.5
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.n_players if self.n_players > 0 else 1
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        last_opp_coop = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        last_my_action = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else True
+        last_total_coop = last_opp_coop + (1 if last_my_action else 0)
+        last_share = last_total_coop / n
+        if last_share >= self.threshold:
+            return Action.C
+        if t >= 2 and len(history.opponent_cooperators) >= 2 and (len(history.my_actions) >= 2):
+            prev_opp_coop = int(history.opponent_cooperators[-2])
+            prev_my_action = bool(history.my_actions[-2])
+            prev_total_coop = prev_opp_coop + (1 if prev_my_action else 0)
+            if last_total_coop >= prev_total_coop + 1:
+                return Action.C
+        total_share = 0.0
+        for idx in range(t):
+            opp = int(history.opponent_cooperators[idx])
+            me = 1 if bool(history.my_actions[idx]) else 0
+            total_share += (opp + me) / n
+        benchmark = total_share / t if t > 0 else 0.0
+        if benchmark >= self.threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_8(BaseStrategy):
+    """
+    Generous public-goods strategy:
+    - Start cooperatively.
+    - Stay open while cooperation is acceptable.
+    - Switch to cautious only after two consecutive low-cooperation rounds.
+    - Return to open immediately when cooperation recovers sufficiently.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n_players = int(getattr(game_description, 'n_players', 0))
+        n_opponents = max(0, n_players - 1)
+        self.high_threshold = int(math.ceil(n_opponents / 2)) if n_opponents > 0 else 0
+        self.low_threshold = int(math.ceil(n_opponents / 3)) if n_opponents > 0 else 0
+        self.mode = 'open'
+        self.low_streak = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        n_rounds = int(getattr(self.game_description, 'n_rounds', 0))
+        if round_number == 0:
+            self.mode = 'open'
+            self.low_streak = 0
+            return Action.C
+        last_cooperators = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if self.mode == 'open':
+            action = Action.C
+        elif last_cooperators >= self.high_threshold:
+            action = Action.C
+            self.mode = 'open'
+            self.low_streak = 0
+        else:
+            action = Action.D
+        if self.mode == 'open':
+            if last_cooperators < self.low_threshold:
+                self.low_streak += 1
+            else:
+                self.low_streak = 0
+            if self.low_streak >= 2:
+                self.mode = 'cautious'
+        elif last_cooperators >= self.high_threshold:
+            self.mode = 'open'
+            self.low_streak = 0
+        if n_rounds > 0 and round_number == n_rounds - 1:
+            if self.mode == 'open':
+                return Action.C
+            return Action.C if last_cooperators >= self.high_threshold else Action.D
+        return action
+
+class Strategy_PROSOCIAL_9(BaseStrategy):
+    """
+    Adaptive Generous Reciprocity for the repeated n-player Public Goods Game.
+
+    - Starts with cooperation.
+    - Uses a smoothed cooperation score to avoid overreacting.
+    - Defects for a single round after clear group defection.
+    - Cooperates immediately when cooperation is strong.
+    - Ends cooperatively unless the group is collapsing.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.n_opponents = max(self.n_players - 1, 1)
+        self.smoothing_alpha = 0.7
+        self.smoothing_beta = 0.3
+        self.initial_score = 1.0
+        self.low_coop_threshold = 0.2
+        self.mid_coop_threshold = 0.4
+        self.high_coop_threshold = 0.7
+        self.last_round_threshold = 0.5
+        self.score_threshold = 0.5
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        score = self.initial_score
+        opp_counts = history.opponent_cooperators
+        rounds_played = len(opp_counts)
+        for i in range(rounds_played):
+            x_i = float(opp_counts[i]) / float(self.n_opponents)
+            score = self.smoothing_alpha * score + self.smoothing_beta * x_i
+            if score < 0.0:
+                score = 0.0
+            elif score > 1.0:
+                score = 1.0
+        x_last = float(opp_counts[-1]) / float(self.n_opponents)
+        if t == self.n_rounds - 1:
+            return Action.C if x_last >= self.last_round_threshold else Action.D
+        if x_last <= self.low_coop_threshold:
+            return Action.D
+        if x_last >= self.high_coop_threshold:
+            return Action.C
+        if x_last >= self.mid_coop_threshold and score >= self.score_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_10(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Cooperate initially and in the final round.
+    - Track an exponentially smoothed cooperation benchmark.
+    - Cooperate unless cooperation has been below benchmark for two consecutive rounds.
+    - Briefly forgive all-defection by cooperating once more after such a round.
+    - Lock into cooperation after three consecutive fully cooperative opponent rounds,
+      unless sustained weakness appears again.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = max(2, int(game_description.n_players))
+        self.r = max(1, int(game_description.n_rounds))
+        self.benchmark_init = 0.5
+        self.smoothing = 0.8
+        self.threshold_offset = 1.0 / self.n if self.n > 0 else 0.0
+        self.benchmark = self.benchmark_init
+        self.bad_streak = 0
+        self.coop_streak = 0
+        self.locked_cooperation = False
+        self.force_cooperate_next = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            self.benchmark = self.benchmark_init
+            self.bad_streak = 0
+            self.coop_streak = 0
+            self.locked_cooperation = False
+            self.force_cooperate_next = False
+            return Action.C
+        benchmark = self.benchmark_init
+        bad_streak = 0
+        coop_streak = 0
+        locked_cooperation = False
+        force_cooperate_next = False
+        total_players = self.n
+        max_opponents = max(0, total_players - 1)
+        n_hist = round_number
+        for t in range(n_hist):
+            opp = int(history.opponent_cooperators[t]) if t < len(history.opponent_cooperators) else 0
+            if opp < 0:
+                opp = 0
+            elif opp > max_opponents:
+                opp = max_opponents
+            my_action = 1 if bool(history.my_actions[t]) else 0
+            q_t = (opp + my_action) / total_players if total_players > 0 else 0.0
+            if opp == max_opponents and max_opponents > 0:
+                coop_streak += 1
+            elif max_opponents == 0:
+                coop_streak += 1
+            else:
+                coop_streak = 0
+            if coop_streak >= 3:
+                locked_cooperation = True
+            if opp == 0:
+                force_cooperate_next = True
+            else:
+                force_cooperate_next = False
+            benchmark = self.smoothing * benchmark + (1.0 - self.smoothing) * q_t
+            if q_t < benchmark - self.threshold_offset:
+                bad_streak += 1
+            else:
+                bad_streak = 0
+            if q_t >= benchmark - self.threshold_offset:
+                locked_cooperation = locked_cooperation and bad_streak < 2
+        self.benchmark = benchmark
+        self.bad_streak = bad_streak
+        self.coop_streak = coop_streak
+        self.locked_cooperation = locked_cooperation
+        self.force_cooperate_next = force_cooperate_next
+        if round_number >= self.r - 1:
+            return Action.C
+        if self.force_cooperate_next:
+            return Action.C
+        if self.locked_cooperation and self.bad_streak < 2:
+            return Action.C
+        last_opp = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if last_opp < 0:
+            last_opp = 0
+        elif last_opp > max_opponents:
+            last_opp = max_opponents
+        last_my_action = 1 if bool(history.my_actions[-1]) else 0
+        last_q = (last_opp + last_my_action) / total_players if total_players > 0 else 0.0
+        if last_q >= self.benchmark - self.threshold_offset:
+            return Action.C
+        return Action.D if self.bad_streak >= 2 else Action.C
+
+class Strategy_PROSOCIAL_11(BaseStrategy):
+    """
+    Forgiving public-goods strategy:
+    - Cooperate in round 1.
+    - Cooperate if recent opponent cooperation is at or above half,
+      or if the immediately previous round met the cooperation threshold.
+    - Defect after two consecutive low-cooperation rounds until the
+      opponents recover to the threshold.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.opponent_count = max(1, self.n_players - 1)
+        self.threshold = math.ceil(self.opponent_count / 2)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        last_m = int(opp[-1])
+        last_q = last_m / self.opponent_count
+        L = min(3, t)
+        if L <= 0:
+            avg_q = 0.0
+        else:
+            recent = opp[-L:]
+            avg_q = float(np.mean(recent)) / self.opponent_count
+        recent_good = avg_q >= 0.5
+        last_good = last_m >= self.threshold
+        two_consecutive_low = False
+        if t >= 2:
+            prev_m = int(opp[-2])
+            two_consecutive_low = last_m < self.threshold and prev_m < self.threshold
+        if recent_good or last_good:
+            return Action.C
+        if two_consecutive_low:
+            return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_12(BaseStrategy):
+    """
+    Threshold-and-recovery public goods strategy.
+
+    - Cooperates in round 1.
+    - Cooperates when recent opponent cooperation is sufficiently high.
+    - Defects during sustained low cooperation.
+    - Recovers immediately after observing a positive cooperation rate
+      following a period of all-zero cooperation.
+    - Special-cases n=2 by mirroring the opponent's previous action.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = 0.5
+        self.escalation_threshold = 2.0 / 3.0
+        self.window_length = max(1, min(3, game_description.n_rounds - 1))
+        self.num_players = game_description.n_players
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        opp_counts = history.opponent_cooperators
+        n_opponents = max(1, self.num_players - 1)
+        if self.num_players == 2:
+            return Action.C if opp_counts[-1] >= 1 else Action.D
+        q_values = [float(c) / float(n_opponents) for c in opp_counts]
+        q_prev = q_values[-1]
+        window = min(self.window_length, len(q_values))
+        recent_q = q_values[-window:] if window > 0 else []
+        bar_q_prev = float(np.mean(recent_q)) if recent_q else 0.0
+        if q_prev > 0.0:
+            had_any_positive_before = any((q > 0.0 for q in q_values[:-1]))
+            if not had_any_positive_before:
+                return Action.C
+        elif all((q == 0.0 for q in q_values)):
+            return Action.D
+        if round_number == self.game_description.n_rounds - 1:
+            if q_prev >= self.threshold or bar_q_prev >= self.threshold:
+                return Action.C
+            return Action.D
+        if q_prev >= self.threshold or bar_q_prev >= self.threshold or q_prev >= self.escalation_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_13(BaseStrategy):
+    """
+    Cooperative baseline with smoothed opponent cooperation, forgiveness,
+    recovery after strong cooperation, and temporary defection after collapse.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(getattr(game_description, 'n_players', 2))
+        self.n_opponents = max(1, self.n_players - 1)
+        self.H = 1.0
+        self.last_move = Action.C
+        self.zero_streak = 0
+        self.last_processed_round = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = int(history.round_number)
+        while self.last_processed_round < current_round:
+            idx = self.last_processed_round
+            coop_count = int(history.opponent_cooperators[idx]) if idx < len(history.opponent_cooperators) else 0
+            denom = self.n_opponents if self.n_opponents > 0 else 1
+            h_t = coop_count / denom
+            if h_t == 0:
+                self.zero_streak += 1
+            else:
+                self.zero_streak = 0
+            self.H = 0.7 * self.H + 0.3 * h_t
+            self.last_processed_round += 1
+        if current_round == 0:
+            move = Action.C
+        else:
+            prev_idx = current_round - 1
+            coop_count_prev = int(history.opponent_cooperators[prev_idx]) if prev_idx < len(history.opponent_cooperators) else 0
+            denom = self.n_opponents if self.n_opponents > 0 else 1
+            h_prev = coop_count_prev / denom
+            if h_prev >= 0.75:
+                self.H = max(self.H, 0.75)
+            is_last_round = current_round == self.game_description.n_rounds - 1
+            if self.zero_streak >= 2 and self.H < 0.4:
+                move = Action.D
+            else:
+                if is_last_round:
+                    move = Action.C if self.H >= 0.35 else Action.D
+                else:
+                    move = Action.C if self.H >= 0.5 else Action.D
+                if self.last_move == Action.D and h_prev >= 0.5:
+                    move = Action.C
+        self.last_move = move
+        return move
+
+class Strategy_PROSOCIAL_14(BaseStrategy):
+    """
+    Forgiving, prosocial public goods strategy with smoothed cooperation tracking,
+    strong reciprocity in cooperative environments, and temporary defection after
+    sustained zero-cooperation streaks.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.n_opponents = max(0, self.n - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        if self.n == 2:
+            last_opp_coops = int(history.opponent_cooperators[-1]) if round_number > 0 else 0
+            return Action.C if last_opp_coops >= 1 else Action.D
+        opp_coops = history.opponent_cooperators
+        my_actions = history.my_actions
+        s = 0.0
+        for t in range(round_number):
+            m_t = int(opp_coops[t]) if t < len(opp_coops) else 0
+            observed_rate = (m_t + 1) / self.n if self.n > 0 else 0.0
+            if t == 0:
+                s = observed_rate
+            else:
+                s = 0.7 * s + 0.3 * observed_rate
+        last_m = int(opp_coops[-1])
+        last_my = bool(my_actions[-1])
+        last_total_cooperators = last_m + (1 if last_my else 0)
+        zero_streak = 0
+        for idx in range(round_number - 1, -1, -1):
+            if int(opp_coops[idx]) == 0:
+                zero_streak += 1
+            else:
+                break
+        if last_m > 0:
+            zero_streak = 0
+        if last_m == self.n_opponents:
+            return Action.C
+        if last_total_cooperators >= max(0, self.n - 2):
+            return Action.C
+        if zero_streak >= 3:
+            return Action.D
+        if zero_streak >= 2 and last_m == 0:
+            return Action.D
+        if round_number >= self.r - 2:
+            return Action.C if s >= 0.35 else Action.D
+        return Action.C if s >= 0.45 else Action.D
+
+class Strategy_PROSOCIAL_15(BaseStrategy):
+    """
+    Cooperation-threshold strategy with smoothed opponent cooperation estimate,
+    recovery after defection, late-round caution, a temporary prosocial floor
+    after sustained full cooperation, and special handling for n=2 / near-trivial
+    public-goods settings.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.lambda_ = 0.5
+        self.rho = 1.0
+        self.last_history_len = 0
+        self.floor_remaining = 0
+        self.last_floor_trigger_len = -1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = max(2, int(self.game_description.n_players))
+        r = max(1, int(self.game_description.n_rounds))
+        k = float(self.game_description.k)
+        t = history.round_number + 1
+        opp = history.opponent_cooperators
+        opp_count = len(opp)
+        if history.round_number < self.last_history_len:
+            self.rho = 1.0
+            self.floor_remaining = 0
+            self.last_floor_trigger_len = -1
+            self.last_history_len = 0
+        rho = 1.0
+        if n > 1 and opp_count > 0:
+            denom = max(1, n - 1)
+            for m in opp:
+                rho = (1.0 - self.lambda_) * rho + self.lambda_ * (float(m) / denom)
+        self.rho = rho
+        tau = 1.0 / k if k > 0 else 1.0
+        epsilon = 1.0 / (2.0 * max(1, n - 1))
+        threshold = tau - epsilon
+        trigger_count = int(math.ceil(max(0.0, (n - 1) * threshold)))
+        if k >= (n - 1) / n:
+            self.last_history_len = history.round_number
+            return Action.C
+        if n == 2:
+            if history.round_number == 0:
+                self.last_history_len = history.round_number
+                return Action.C
+            last_opp = int(opp[-1]) if opp_count > 0 else 0
+            action = Action.C if last_opp >= 1 else Action.D
+            self.last_history_len = history.round_number
+            return action
+        if opp_count >= 2 and int(opp[-1]) == n - 1 and (int(opp[-2]) == n - 1):
+            if self.last_floor_trigger_len != history.round_number:
+                self.floor_remaining = max(self.floor_remaining, 3)
+                self.last_floor_trigger_len = history.round_number
+        if self.floor_remaining > 0:
+            self.floor_remaining -= 1
+            self.last_history_len = history.round_number
+            return Action.C
+        if history.round_number == 0:
+            self.last_history_len = history.round_number
+            return Action.C
+        if t == r:
+            last_m = int(opp[-1]) if opp_count > 0 else 0
+            action = Action.C if last_m >= trigger_count else Action.D
+            self.last_history_len = history.round_number
+            return action
+        if len(history.my_actions) > 0 and (not bool(history.my_actions[-1])):
+            last_m = int(opp[-1]) if opp_count > 0 else 0
+            action = Action.C if last_m >= trigger_count else Action.D
+            self.last_history_len = history.round_number
+            return action
+        action = Action.C if self.rho >= threshold else Action.D
+        self.last_history_len = history.round_number
+        return action
+
+class Strategy_PROSOCIAL_16(BaseStrategy):
+    """
+    Cooperate by default, and defect only immediately after a round in which
+    fewer than half of the other players cooperated. Returns to cooperation
+    as soon as cooperation among opponents reaches at least a simple majority.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n_players = getattr(game_description, 'n_players', 2)
+        self.majority_threshold = int(math.ceil(max(1, n_players - 1) / 2))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        last_opponent_cooperators = int(history.opponent_cooperators[-1])
+        if last_opponent_cooperators >= self.majority_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_17(BaseStrategy):
+    """
+    Cooperative-first public goods strategy with threshold-based reciprocity,
+    short-term forgiveness, and endgame cooperation bias.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.n_opponents = max(0, self.n_players - 1)
+        self._coop_threshold = 0.6
+        self._recover_threshold = 0.4
+        self._endgame_threshold = 0.5
+        self._forgiveness_step = 1.0 / self.n_opponents if self.n_opponents > 0 else 1.0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        q_last = opp[-1] / self.n_opponents if self.n_opponents > 0 else 0.0
+        q_prev = opp[-2] / self.n_opponents if t >= 2 and self.n_opponents > 0 else None
+        my_actions = history.my_actions
+        last_action_was_defect = bool(len(my_actions) > 0 and (not my_actions[-1]))
+        prev_action_was_defect = bool(len(my_actions) > 1 and (not my_actions[-2]))
+        last_two_high = False
+        if t >= 2 and self.n_opponents > 0:
+            last_two_high = opp[-1] / self.n_opponents >= self._coop_threshold and opp[-2] / self.n_opponents >= self._coop_threshold
+        if t == self.n_rounds - 1:
+            return Action.C if q_last >= self._endgame_threshold else Action.D
+        if t == self.n_rounds - 2:
+            if last_two_high:
+                return Action.C
+        if last_two_high:
+            return Action.C
+        if last_action_was_defect and q_prev is not None and (q_last >= q_prev + self._forgiveness_step):
+            return Action.C
+        if q_last >= self._coop_threshold:
+            return Action.C
+        if q_last >= self._recover_threshold:
+            if q_prev is not None and q_last < q_prev:
+                if q_prev is not None and q_prev < self._coop_threshold:
+                    return Action.D
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_18(BaseStrategy):
+    """
+    Temporary-reset public goods strategy:
+
+    - Cooperate in round 1.
+    - Thereafter, cooperate whenever recent cooperation or short-run trend is healthy.
+    - Defect only after sustained low cooperation for two consecutive rounds.
+    - Immediately return to cooperation after any defection unless low cooperation persists.
+    - Special-case n = 2 to follow the single opponent's last-two-actions rule.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_opponents = max(0, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if self.n_players == 2:
+            if history.round_number >= 2:
+                if not bool(history.opponent_cooperators[-1]) and (not bool(history.opponent_cooperators[-2])):
+                    return Action.D
+            return Action.C
+        opp_counts = history.opponent_cooperators
+        last_count = int(opp_counts[-1])
+        denom = self.n_players - 1
+        if denom <= 0:
+            return Action.C
+        recent_coop = last_count / denom
+        window = opp_counts[-3:] if len(opp_counts) >= 3 else opp_counts
+        if len(window) > 0:
+            trend = float(np.mean(window)) / denom
+        else:
+            trend = 0.0
+        low_now = recent_coop <= 1 / 4 and trend <= 1 / 3
+        low_prev = False
+        if history.round_number >= 2:
+            prev_count = int(opp_counts[-2])
+            prev_recent = prev_count / denom
+            prev_window = opp_counts[-4:-1] if len(opp_counts) >= 4 else opp_counts[:-1]
+            if len(prev_window) > 0:
+                prev_trend = float(np.mean(prev_window)) / denom
+            else:
+                prev_trend = prev_recent
+            low_prev = prev_recent <= 1 / 4 and prev_trend <= 1 / 3
+        if recent_coop >= 1 / 2 or trend >= 2 / 3:
+            return Action.C
+        if low_now and low_prev:
+            return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_19(BaseStrategy):
+    """
+    Forgiving threshold strategy for the repeated N-player Public Goods Game.
+
+    - Cooperate on the first round.
+    - Cooperate when the previous round's observed opponent cooperation rate
+      is at least 1/2.
+    - Forgive a single low-cooperation round, but defect after sustained
+      low cooperation.
+    - Return to cooperation immediately when cooperation reappears.
+    - In the final round, prefer cooperation when the environment is not
+      clearly hostile and past own cooperation has been at least half.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self._threshold = 0.5
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        n_opponents = max(1, self.n_players - 1)
+        last_opponent_cooperators = int(history.opponent_cooperators[-1])
+        q_last = last_opponent_cooperators / n_opponents
+        low_streak = 0
+        for count in history.opponent_cooperators[::-1]:
+            q = int(count) / n_opponents
+            if q < self._threshold:
+                low_streak += 1
+            else:
+                break
+        my_coop_rate = 0.0
+        if round_number > 0:
+            my_coop_rate = float(np.mean(history.my_actions.astype(np.bool_)))
+        if round_number >= self.n_rounds - 1:
+            if q_last >= self._threshold:
+                return Action.C
+            if my_coop_rate >= self._threshold and q_last > 0.0:
+                return Action.C
+            return Action.D
+        if q_last > self._threshold:
+            return Action.C
+        if abs(q_last - self._threshold) <= 1e-12:
+            if round_number > 0 and bool(history.my_actions[-1]):
+                return Action.C
+            return Action.C
+        if low_streak == 1:
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_20(BaseStrategy):
+    """
+    Conditional cooperation strategy with:
+    - initial cooperation,
+    - short moving average of recent opponent cooperation rates,
+    - threshold-based recovery after defections,
+    - simple endgame behavior.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.n_opponents = max(0, self.n - 1)
+        self.half_threshold = 0.5
+        self.opponent_majority_threshold = math.ceil(self.n_opponents / 2) if self.n_opponents > 0 else 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        n_rounds = int(self.game_description.n_rounds)
+        if t == 0:
+            return Action.C
+        last_m = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if self.n_opponents > 0:
+            last_rate = last_m / self.n_opponents
+        else:
+            last_rate = 0.0
+        if t == n_rounds - 1:
+            return Action.C if last_rate >= self.half_threshold else Action.D
+        if self.n == 2:
+            return Action.C if last_m >= 1 else Action.D
+        L = min(3, t)
+        start = max(0, len(history.opponent_cooperators) - L)
+        recent_counts = history.opponent_cooperators[start:]
+        recent_rates = []
+        if self.n_opponents > 0:
+            for m in recent_counts:
+                recent_rates.append(float(m) / self.n_opponents)
+        else:
+            recent_rates.append(0.0)
+        bar_q = float(np.mean(recent_rates)) if len(recent_rates) > 0 else 0.0
+        if bar_q >= self.half_threshold:
+            return Action.C
+        if last_m >= self.opponent_majority_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_21(BaseStrategy):
+    """
+    Cooperation-first public goods strategy:
+    - Cooperate in the first round.
+    - Cooperate in the final two rounds unconditionally.
+    - Otherwise cooperate unless the last one or two observed opponent-cooperation
+      counts were both below the majority threshold.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.threshold = math.ceil((self.n_players - 1) / 2)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        if round_number >= max(0, self.n_rounds - 2):
+            return Action.C
+        if len(history.opponent_cooperators) >= 1:
+            if int(history.opponent_cooperators[-1]) >= self.threshold:
+                return Action.C
+        if len(history.opponent_cooperators) >= 2:
+            if int(history.opponent_cooperators[-2]) >= self.threshold:
+                return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_22(BaseStrategy):
+    """
+    Cooperative-start public goods strategy with short-window retaliation and
+    quick recovery. It cooperates in the first two rounds, then uses the
+    average opponent cooperation rate over a lookback window of up to 3 rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(getattr(game_description, 'n_players', 0))
+        self.n_rounds = int(getattr(game_description, 'n_rounds', 0))
+        self.k = float(getattr(game_description, 'k', 0.0))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0 or round_number == 1:
+            return Action.C
+        L = min(3, round_number - 1)
+        opp = history.opponent_cooperators
+        n_opponents = max(0, self.n_players - 1)
+
+        def q_for_round(round_idx: int) -> float:
+            """Compute q for a given round index using its preceding L rounds."""
+            if n_opponents <= 0 or round_idx <= 0:
+                return 0.0
+            l_local = min(3, round_idx)
+            start = round_idx - l_local
+            if start < 0:
+                start = 0
+            window = opp[start:round_idx]
+            denom = l_local * n_opponents
+            if denom <= 0:
+                return 0.0
+            return float(np.sum(window)) / float(denom)
+        current_q = q_for_round(round_number - 1)
+        if self.n_rounds > 0 and round_number >= self.n_rounds - 2:
+            return Action.C if current_q >= 0.5 else Action.D
+        if bool(history.my_actions[-1]) is False:
+            recent_qs = []
+            for r in range(round_number - L, round_number):
+                if r >= 2:
+                    recent_qs.append(q_for_round(r))
+                elif r >= 0:
+                    recent_qs.append(1.0)
+            if recent_qs and all((q < 0.5 for q in recent_qs)):
+                return Action.D
+            return Action.C
+        return Action.C if current_q >= 0.5 else Action.D
+
+class Strategy_PROSOCIAL_23(BaseStrategy):
+    """
+    Adaptive conditional cooperator for the N-player Public Goods Game.
+
+    - Starts by cooperating.
+    - Continues cooperating when recent cooperation is high.
+    - Defects after sustained low cooperation.
+    - Forgives immediately when cooperation recovers.
+    - Ends cooperatively unless the group has clearly collapsed.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.tau_high = 0.75
+        self.tau_mid = 0.5
+        self.tau_low = 0.25
+        self.high_count = int(math.ceil(self.tau_high * self.n_opponents))
+        self.mid_count = int(math.ceil(self.tau_mid * self.n_opponents))
+        self.low_count = int(math.ceil(self.tau_low * self.n_opponents))
+        self.trust = 1
+        self.last_action = Action.C
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number + 1
+        opp = history.opponent_cooperators
+        if history.round_number == 0:
+            self.trust = 1
+            self.last_action = Action.C
+            return Action.C
+        last_opp = int(opp[-1])
+        last_rate = last_opp / self.n_opponents if self.n_opponents > 0 else 0.0
+        has_prev = len(opp) >= 2
+        prev_opp = int(opp[-2]) if has_prev else last_opp
+        prev_rate = prev_opp / self.n_opponents if self.n_opponents > 0 else 0.0
+        if has_prev and prev_opp != last_opp:
+            avg_rate = 0.5 * (last_rate + prev_rate)
+            if avg_rate >= self.tau_mid:
+                self.trust = 1
+                self.last_action = Action.C
+                return Action.C
+            self.trust = 0
+            self.last_action = Action.D
+            return Action.D
+        if t == self.n_rounds:
+            if last_opp < self.low_count:
+                self.trust = 0
+                self.last_action = Action.D
+                return Action.D
+            self.trust = 1
+            self.last_action = Action.C
+            return Action.C
+        if last_opp >= self.high_count:
+            self.trust = 1
+            self.last_action = Action.C
+            return Action.C
+        if last_opp < self.mid_count:
+            self.trust = 0
+            self.last_action = Action.D
+            return Action.D
+        if self.last_action == Action.D and last_opp >= self.high_count:
+            self.trust = 1
+            self.last_action = Action.C
+            return Action.C
+        sharp_drop = has_prev and last_opp < prev_opp and (last_opp < self.low_count)
+        if sharp_drop:
+            self.trust = 0
+            self.last_action = Action.D
+            return Action.D
+        self.trust = 1
+        self.last_action = Action.C
+        return Action.C
+
+class Strategy_PROSOCIAL_24(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    start by cooperating, then continue cooperating while the observed cooperation
+    level among opponents meets the running threshold, with gradual threshold
+    updates and a small stabilization rule for slight declines.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(getattr(game_description, 'n_players', 0) or 0)
+        self.n_rounds = int(getattr(game_description, 'n_rounds', 0) or 0)
+        self.n_opponents = max(self.n_players - 1, 0)
+        self.initial_threshold = 1.0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history is None:
+            return Action.C
+        round_number = int(getattr(history, 'round_number', 0) or 0)
+        if round_number <= 0:
+            return Action.C
+        opponent_counts = getattr(history, 'opponent_cooperators', None)
+        if opponent_counts is None:
+            return Action.C
+        try:
+            counts_list = list(opponent_counts)
+        except Exception:
+            return Action.C
+        if len(counts_list) == 0:
+            return Action.C
+        denom = self.n_opponents
+        if denom <= 0:
+            return Action.C
+        rates = []
+        last_known_rate = 1.0
+        for x in counts_list:
+            try:
+                xi = int(x)
+            except Exception:
+                xi = None
+            if xi is None:
+                rho = last_known_rate
+            else:
+                if xi < 0:
+                    xi = 0
+                if xi > denom:
+                    xi = denom
+                rho = xi / denom
+                last_known_rate = rho
+            rates.append(rho)
+        last_rho = rates[-1]
+        is_final_round = self.n_rounds > 0 and round_number >= self.n_rounds - 1
+        theta = self.initial_threshold
+        if len(rates) >= 2:
+            for rho in rates[:-1]:
+                theta = 0.5 * theta + 0.5 * rho
+        if len(rates) >= 2:
+            prev_rho = rates[-2]
+            if 0.0 < last_rho < prev_rho:
+                return Action.C
+        if last_rho <= 0.0:
+            return Action.D
+        if is_final_round:
+            return Action.C if last_rho >= theta else Action.D
+        return Action.C if last_rho >= theta else Action.D
+
+class Strategy_PROSOCIAL_25(BaseStrategy):
+    """
+    Adaptive conditional cooperation with forgiveness, stability, and endgame commitment.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self._opp_count = max(self.n - 1, 0)
+        self._half_opp = math.ceil(self._opp_count / 2) if self._opp_count > 0 else 0
+        self._two_thirds_opp = math.ceil(2 * self._opp_count / 3) if self._opp_count > 0 else 0
+        self._one_third_floor_opp = math.floor(self._opp_count / 3) if self._opp_count > 0 else 0
+
+    def _compute_smoothed_stats(self, history: PlayerHistory):
+        s_values = []
+        trends = []
+        s_prev = 0.0
+        for m in history.opponent_cooperators:
+            if self._opp_count > 0:
+                coop_rate = float(m) / float(self._opp_count)
+            else:
+                coop_rate = 0.0
+            s_curr = 0.7 * s_prev + 0.3 * coop_rate
+            s_values.append(s_curr)
+            trends.append(s_curr - s_prev)
+            s_prev = s_curr
+        return (s_values, trends)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        if self.n == 2:
+            last_opp = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+            return Action.C if last_opp > 0 else Action.D
+        s_values, trends = self._compute_smoothed_stats(history)
+        last_m = int(history.opponent_cooperators[-1])
+        last_s = float(s_values[-1]) if s_values else 0.0
+        last_trend = float(trends[-1]) if trends else 0.0
+        prev_s = float(s_values[-2]) if len(s_values) >= 2 else 0.0
+        prev_trend = float(trends[-2]) if len(trends) >= 2 else 0.0
+        prev_m = int(history.opponent_cooperators[-2]) if len(history.opponent_cooperators) >= 2 else 0
+        last_my_action = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else False
+        second_last_s = float(s_values[-2]) if len(s_values) >= 2 else None
+        next_round = t + 1
+        if next_round == self.r:
+            return Action.C if last_m >= self._half_opp and last_s >= 0.6 else Action.D
+        if next_round == self.r - 1:
+            return Action.C if last_m >= self._half_opp else Action.D
+        severe_collapse = last_m <= self._one_third_floor_opp
+        stable_now = last_s >= 0.75 and (second_last_s is not None and second_last_s >= 0.75)
+        if stable_now and (not severe_collapse):
+            return Action.C
+        if not last_my_action and last_m >= self._two_thirds_opp:
+            return Action.C
+        if 0.4 <= last_s < 0.5:
+            return Action.C
+        if prev_s >= 0.5 and prev_trend >= -0.15 and (prev_m > self._one_third_floor_opp):
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_26(BaseStrategy):
+    """
+    Graduated conditional cooperation with forgiveness, recovery, and endgame stability.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.n_opponents = max(0, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        last_m = int(history.opponent_cooperators[-1]) if t >= 1 else 0
+        half_others = self.n_opponents / 2.0
+        n_over_2 = self.n_opponents / 2.0
+
+        def frac_coop(m: int) -> float:
+            if self.n_opponents <= 0:
+                return 0.0
+            return float(m) / float(self.n_opponents)
+        f_vals = [frac_coop(int(x)) for x in history.opponent_cooperators]
+        F_t = f_vals[0]
+        for i in range(1, len(f_vals)):
+            F_t = (2.0 * F_t + f_vals[i]) / 3.0
+        if t < 3:
+            L_t = 0.0
+        else:
+            L_t = f_vals[-1] - f_vals[-2]
+        recent = f_vals[-3:] if len(f_vals) >= 3 else f_vals
+        low_recent = 0
+        for f in recent:
+            if f < 0.5:
+                low_recent += 1
+        if t == self.n_rounds - 1:
+            if F_t >= 2.0 / 3.0 and last_m >= self.n_opponents / 2.0:
+                return Action.C
+            return Action.D
+        if t == 1:
+            if last_m >= half_others:
+                return Action.C
+            return Action.D
+        if t == 2:
+            if last_m >= 1:
+                return Action.C
+            return Action.D
+        last_my_action = bool(history.my_actions[-1])
+        if not last_my_action and last_m >= half_others:
+            return Action.C
+        if 0.5 <= F_t < 2.0 / 3.0 and last_m >= 1:
+            return Action.C
+        if F_t < 0.5:
+            return Action.D
+        if len(f_vals) >= 2 and f_vals[-1] == 0.0 and (f_vals[-2] == 0.0):
+            return Action.D
+        if L_t <= -0.5:
+            return Action.D
+        if F_t >= 2.0 / 3.0 and L_t >= -(1.0 / 3.0) and (low_recent < 2):
+            return Action.C
+        return Action.C
+
+class Strategy_PROSOCIAL_27(BaseStrategy):
+    """
+    Cooperative-with-forgiveness public goods strategy:
+    - Start by cooperating.
+    - Track recent opponent cooperation rates.
+    - Use a stronger early-game and endgame cooperation bias.
+    - Defect briefly after sustained free-riding, but recover quickly.
+    - Never defect for more than two consecutive rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m_opponents = max(1, self.n_players - 1)
+        self.early_rounds = max(1, math.ceil(0.2 * self.n_rounds))
+        self.last_two_start = max(0, self.n_rounds - 2)
+        self.last_round_index = max(0, self.n_rounds - 1)
+
+    def _recent_q_values(self, history: PlayerHistory):
+        opp = history.opponent_cooperators
+        if len(opp) == 0:
+            return []
+        q_values = []
+        start = max(0, len(opp) - 3)
+        for x in opp[start:]:
+            q_values.append(float(x) / self.m_opponents)
+        return q_values
+
+    def _mean_recent_q(self, history: PlayerHistory) -> float:
+        q_values = self._recent_q_values(history)
+        if not q_values:
+            return 0.0
+        return float(np.mean(np.array(q_values, dtype=float)))
+
+    def _last_two_smoothed_below(self, history: PlayerHistory, threshold: float) -> bool:
+        opp = history.opponent_cooperators
+        if len(opp) < 2:
+            return False
+        smoothed = []
+        for end in range(max(1, len(opp) - 1), len(opp) + 1):
+            start = max(0, end - 3)
+            vals = [float(x) / self.m_opponents for x in opp[start:end]]
+            if vals:
+                smoothed.append(float(np.mean(np.array(vals, dtype=float))))
+        if len(smoothed) < 2:
+            return False
+        return smoothed[-1] < threshold and smoothed[-2] < threshold
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        last_q = float(history.opponent_cooperators[-1]) / self.m_opponents
+        Q = self._mean_recent_q(history)
+        if len(history.my_actions) >= 2:
+            if not bool(history.my_actions[-1]) and (not bool(history.my_actions[-2])):
+                return Action.C
+        if t == self.last_round_index:
+            return Action.C if last_q > 0.0 else Action.D
+        if t >= self.last_two_start:
+            if Q >= 0.3:
+                return Action.C
+        threshold = 0.25 if t < self.early_rounds else 0.4
+        cooperate = Q >= threshold
+        if last_q == 0.0:
+            if Q < 0.2:
+                cooperate = False
+            else:
+                cooperate = True
+        elif last_q <= 0.2:
+            if self._last_two_smoothed_below(history, threshold):
+                cooperate = False
+            else:
+                cooperate = True
+        if not cooperate and Q >= threshold:
+            cooperate = True
+        return Action.C if cooperate else Action.D
+
+class Strategy_PROSOCIAL_28(BaseStrategy):
+    """
+    Adaptive cooperation strategy for the repeated N-player Public Goods Game.
+
+    Starts with cooperation, tracks a smoothed estimate of opponent cooperation,
+    escalates to defection only after sustained weak cooperation, and recovers
+    quickly when cooperation rebounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.tau = 0.5
+        self.alpha = 0.5
+        self.s = 1.0
+        self.d = 0
+        self.last_action = Action.C
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = self.game_description.n_rounds
+        n_players = self.game_description.n_players
+        n_opponents = max(n_players - 1, 1)
+        round_number = history.round_number
+        if round_number == 0:
+            self.s = 1.0
+            self.d = 0
+            self.last_action = Action.C
+            return Action.C
+        last_opp_coop = int(history.opponent_cooperators[-1])
+        p_last = last_opp_coop / n_opponents
+        self.s = self.alpha * p_last + (1.0 - self.alpha) * self.s
+        if p_last >= self.tau:
+            self.d = 0
+        else:
+            self.d += 1
+        current_round = round_number + 1
+        if current_round == n_rounds:
+            action = Action.C if last_opp_coop > 0 else Action.D
+            self.last_action = action
+            return action
+        if self.last_action == Action.D:
+            if round_number < 2:
+                action = Action.C
+                self.last_action = action
+                return action
+            prev_opp_coop = int(history.opponent_cooperators[-2])
+            p_prev = prev_opp_coop / n_opponents
+            if not (p_last < self.tau and p_prev < self.tau):
+                action = Action.C
+                self.last_action = action
+                return action
+        if self.s >= self.tau and self.d <= 2 and (current_round < n_rounds or last_opp_coop > 0):
+            action = Action.C
+        else:
+            action = Action.D
+        self.last_action = action
+        return action
+
+class Strategy_PROSOCIAL_29(BaseStrategy):
+    """
+    Cooperate initially, forgive isolated low-cooperation rounds, and defect only
+    after sustained opponent under-cooperation. Cooperate again once cooperation
+    recovers, and always cooperate in the first two rounds and the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self._m = max(0, game_description.n_players - 1)
+        self._threshold = math.ceil(self._m / 2) if self._m > 0 else 0
+        self._bad_streak = 0
+        self._last_s = None
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        total_rounds = self.game_description.n_rounds
+        if round_number > 0:
+            self._last_s = int(history.opponent_cooperators[-1])
+        if round_number == 0 or round_number == 1 or round_number == total_rounds - 1:
+            if self._last_s is not None and self._last_s >= self._threshold:
+                self._bad_streak = 0
+            return Action.C
+        last_s = self._last_s if self._last_s is not None else self._threshold
+        if last_s >= self._threshold:
+            self._bad_streak = 0
+            return Action.C
+        self._bad_streak += 1
+        if self._bad_streak == 1:
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_30(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Start by cooperating.
+    - Maintain a smoothed estimate of opponents' cooperation.
+    - Reward full cooperation, punish total defection, and otherwise follow a 1/2 threshold.
+    - In the final round, mirror the current estimate exactly.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.lambda_ = 2.0 / 3.0
+        self.threshold = 0.5
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_players = int(self.game_description.n_players)
+        n_rounds = int(self.game_description.n_rounds)
+        n_opponents = max(0, n_players - 1)
+        if history.round_number == 0:
+            return Action.C
+        q = 1.0
+        opp_coops = history.opponent_cooperators
+        my_actions = history.my_actions
+        for idx in range(history.round_number):
+            m_t = int(opp_coops[idx]) if idx < len(opp_coops) else 0
+            if n_opponents > 0:
+                s_t = m_t / n_opponents
+            else:
+                s_t = 0.0
+            q = self.lambda_ * q + (1.0 - self.lambda_) * s_t
+            my_played_coop = bool(my_actions[idx]) if idx < len(my_actions) else False
+            if my_played_coop and m_t == 0:
+                q = 0.0
+            elif not my_played_coop and m_t == n_opponents:
+                q = 1.0
+        last_m = int(opp_coops[-1]) if len(opp_coops) > 0 else 0
+        prev_m = int(opp_coops[-2]) if len(opp_coops) > 1 else None
+        if history.round_number == n_rounds - 1:
+            return Action.C if q >= self.threshold else Action.D
+        if last_m == n_opponents:
+            return Action.C
+        if last_m == 0:
+            return Action.D
+        if prev_m is not None and n_opponents > 0:
+            last_share = last_m / n_opponents
+            prev_share = prev_m / n_opponents
+            if last_share < self.threshold and prev_share < self.threshold:
+                return Action.C if q >= self.threshold else Action.D
+        return Action.C if q >= self.threshold else Action.D
+
+class Strategy_PROSOCIAL_31(BaseStrategy):
+    """
+    Adaptive Reciprocity with Forgiveness for the N-Player Public Goods Game.
+
+    The strategy starts with cooperation, tracks an internal trust score and
+    cooperation streaks from observed opponent behavior, forgives brief dips
+    in cooperation, and becomes more cautious in the final rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.E = 0.5
+        self.m = 0
+        self.f = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        n_opponents = max(0, self.n_players - 1)
+        last_count = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else None
+        if n_opponents > 0 and last_count is not None:
+            x = last_count / n_opponents
+        else:
+            x = 1.0
+        E = 0.5
+        m = 0
+        f = 0
+        for count in history.opponent_cooperators:
+            if n_opponents > 0:
+                xt = float(count) / n_opponents
+            else:
+                xt = 1.0
+            E = 0.6 * E + 0.4 * xt
+            if xt >= 0.5:
+                f += 1
+                m = 0
+            else:
+                m += 1
+                f = 0
+            if xt >= 0.75:
+                E = max(E, 0.7)
+                m = 0
+        self.E = E
+        self.m = m
+        self.f = f
+        if t >= self.n_rounds - 1:
+            if x >= 0.33 or self.E >= 0.4:
+                return Action.C
+            return Action.D
+        if x >= 0.75:
+            return Action.C
+        if n_opponents > 0 and last_count == 0:
+            return Action.D
+        if n_opponents > 0 and last_count == n_opponents:
+            return Action.C
+        if 0 < x < 0.25:
+            if self.m >= 2:
+                return Action.D
+            return Action.C
+        if self.m >= 2:
+            return Action.D
+        if self.E >= 0.45 or x >= 0.5 or self.f >= 2:
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_32(BaseStrategy):
+    """
+    Conditional cooperation with smoothed reputation, forgiveness, and a conservative
+    defection threshold after repeated low cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self._coop_threshold = 0.5
+        self._strict_coop_threshold = 2.0 / 3.0
+        self._strict_defect_threshold = 1.0 / 3.0
+        self._smooth_alpha_prev = 0.7
+        self._smooth_alpha_obs = 0.3
+        self._initial_Q = 1.0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        opp_counts = history.opponent_cooperators
+        n_opponents = max(1, self.n_players - 1)
+        Q_t = self._initial_Q
+        q_values = []
+        for idx in range(round_number):
+            m_t = int(opp_counts[idx])
+            if m_t < 0:
+                m_t = 0
+            if m_t > n_opponents:
+                m_t = n_opponents
+            q_t = m_t / n_opponents
+            q_values.append(q_t)
+            Q_t = self._smooth_alpha_prev * Q_t + self._smooth_alpha_obs * q_t
+        q_last = q_values[-1]
+        if q_last >= self._strict_coop_threshold:
+            return Action.C
+        if q_last >= self._coop_threshold:
+            return Action.C
+        if round_number >= 2:
+            q_prev = q_values[-2]
+            if q_last < self._strict_defect_threshold and q_prev < self._strict_defect_threshold and (Q_t < self._coop_threshold):
+                return Action.D
+            if q_last < self._coop_threshold and q_prev < self._coop_threshold and (Q_t < self._coop_threshold):
+                return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_5(BaseStrategy):
+    """
+    Cooperative Public Goods strategy with bounded defensive probing after
+    sustained collapse signals.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n_players = max(2, int(getattr(game_description, 'n_players', 2)))
+        self.majority = math.ceil((n_players - 1) / 2)
+        self.near_all = n_players - 2 if n_players > 3 else 1
+        self.bad_streak = 0
+        self.probe_timer = 0
+        self._last_processed_round = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        n_rounds = int(getattr(self.game_description, 'n_rounds', 0))
+        if round_number == 0:
+            self.bad_streak = 0
+            self.probe_timer = 0
+            self._last_processed_round = 0
+            return Action.C
+        if self._last_processed_round < round_number:
+            last_opponents = int(history.opponent_cooperators[-1])
+            if self.probe_timer > 0:
+                if last_opponents >= self.majority:
+                    self.bad_streak = 0
+                if last_opponents < self.near_all:
+                    self.probe_timer = 2
+                    self.bad_streak = 0
+            elif last_opponents >= self.majority:
+                self.bad_streak = 0
+            else:
+                self.bad_streak += 1
+                if last_opponents < self.near_all:
+                    self.probe_timer = 2
+                    self.bad_streak = 0
+                elif self.bad_streak >= 2:
+                    self.probe_timer = 2
+                    self.bad_streak = 0
+            self._last_processed_round = round_number
+        if round_number == n_rounds - 1:
+            return Action.C
+        if self.probe_timer > 0:
+            self.probe_timer -= 1
+            return Action.C
+        return Action.C
+
+class Strategy_ALTRUISTIC_6(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Cooperate initially and on the final round.
+    - Use a 3-round moving average of opponent cooperation.
+    - Defect temporarily after two consecutive zero-cooperation rounds by opponents.
+    - Trigger a short cooperation burst after strong cooperation by opponents.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.coop_threshold = 0.4
+        self.majority_threshold = math.ceil(self.n_opponents / 2) if self.n_opponents > 0 else 0
+        self._stubborn_defection_streak = 0
+        self._forced_coop_remaining = 0
+        self._last_seen_round = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number + 1
+        last_h = int(history.opponent_cooperators[-1]) if history.round_number > 0 else None
+        if t == 1:
+            self._last_seen_round = t
+            return Action.C
+        if t == self.n_rounds:
+            if last_h is not None:
+                if last_h == 0:
+                    self._stubborn_defection_streak += 1
+                else:
+                    self._stubborn_defection_streak = 0
+                if last_h >= self.majority_threshold and self.n_opponents > 0:
+                    self._forced_coop_remaining = 2
+            self._last_seen_round = t
+            return Action.C
+        if last_h is not None:
+            if last_h == 0:
+                self._stubborn_defection_streak += 1
+            else:
+                self._stubborn_defection_streak = 0
+            if self.n_opponents > 0 and last_h >= self.majority_threshold:
+                self._forced_coop_remaining = 2
+        if self._forced_coop_remaining > 0:
+            self._forced_coop_remaining -= 1
+            self._last_seen_round = t
+            return Action.C
+        if self._stubborn_defection_streak >= 2:
+            self._last_seen_round = t
+            return Action.D
+        window = min(3, history.round_number)
+        if window <= 0 or self.n_opponents <= 0:
+            q_t = 0.0
+        else:
+            recent = history.opponent_cooperators[-window:]
+            H_t = float(np.mean(recent))
+            q_t = H_t / float(self.n_opponents)
+        if q_t >= self.coop_threshold:
+            action = Action.C
+        else:
+            action = Action.D
+        if last_h is not None and 0 < last_h < self.majority_threshold and (abs(q_t - self.coop_threshold) <= 1e-12):
+            action = Action.C
+        self._last_seen_round = t
+        return action
+
+class Strategy_ALTRUISTIC_7(BaseStrategy):
+    """
+    Adaptive cooperative strategy for the repeated N-player Public Goods Game.
+
+    - Cooperates in round 1.
+    - In later rounds, cooperates unless recent opponent cooperation is weak for
+      two straight rounds and the final-round exception does not apply.
+    - Defects only under sustained low cooperation, but returns to cooperation
+      immediately when cooperation recovers.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.threshold_half = math.ceil((self.n - 1) / 2)
+        self.threshold_third = math.ceil((self.n - 1) / 3)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        if self.n == 2:
+            if t >= 2:
+                last_two = opp[-2:]
+                if int(last_two[0]) == 0 and int(last_two[1]) == 0:
+                    return Action.D
+            return Action.C
+        last = int(opp[-1]) if t >= 1 else None
+        prev = int(opp[-2]) if t >= 2 else None
+        if t >= self.r - 2:
+            return Action.C
+        if t >= 1:
+            if last is not None and last >= self.threshold_half:
+                return Action.C
+            if t >= 2 and last is not None and (prev is not None):
+                if last > 0 and prev >= self.threshold_third:
+                    return Action.C
+        avg_two = None
+        if t >= 2:
+            avg_two = (prev + last) / 2.0
+        if t < 2:
+            return Action.C
+        if not (prev < self.threshold_third and last < self.threshold_third):
+            return Action.C
+        if avg_two is not None and avg_two < self.threshold_third:
+            return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_8(BaseStrategy):
+    """
+    Forgiving, mostly cooperative public-goods strategy with short, reactive defections
+    when cooperation drops sharply, and a strong bias toward returning to cooperation
+    as soon as the environment becomes cooperative again.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.opponent_count = max(0, self.n - 1)
+        self.majority_threshold = math.ceil(self.opponent_count / 2) if self.opponent_count > 0 else 0
+        self.drop_threshold = math.ceil(self.opponent_count / 3) if self.opponent_count > 0 else 0
+        self.benchmark = round(0.6 * self.opponent_count)
+        self.small_game_benchmark = math.ceil(self.opponent_count / 2) if self.opponent_count > 0 else 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        opp = history.opponent_cooperators
+        if t == 0:
+            return Action.C
+        if self.opponent_count <= 0:
+            return Action.C
+        last = int(opp[-1])
+        if t == 1:
+            return Action.C if last >= self.majority_threshold else Action.D
+        prev = int(opp[-2])
+        two_last_good = last >= self.majority_threshold and prev >= self.majority_threshold
+        if t == self.r - 1:
+            if len(opp) >= 3:
+                recent_three = opp[-3:]
+                if all((int(x) >= self.majority_threshold for x in recent_three)):
+                    return Action.C
+            if last < self.majority_threshold and prev < self.majority_threshold:
+                return Action.D
+            return Action.C
+        if last >= self.majority_threshold:
+            return Action.C
+        if two_last_good:
+            return Action.C
+        if prev - last >= self.drop_threshold and self.drop_threshold > 0:
+            return Action.D
+        m = min(3, t)
+        if m <= 0:
+            return Action.C
+        recent = opp[-m:]
+        denom = float(m * self.opponent_count)
+        recent_rate = float(sum((int(x) for x in recent))) / denom if denom > 0 else 1.0
+        prev_round_benchmark = self.small_game_benchmark if self.r <= 3 else self.benchmark
+        prev_round_ok = last >= prev_round_benchmark
+        if recent_rate >= 0.5 and prev_round_ok:
+            return Action.C
+        if last < self.majority_threshold and prev < self.majority_threshold:
+            return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_9(BaseStrategy):
+    """
+    Cooperative public-goods strategy:
+    - Start by cooperating.
+    - Continue cooperating by default.
+    - Switch to defection only after sustained evidence of low cooperation.
+    - Return to cooperation immediately when cooperation recovers.
+    - Always cooperate in the final two rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.n_opponents = max(0, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        if t >= self.n_rounds - 2:
+            return Action.C
+        opp = history.opponent_cooperators
+        if len(opp) == 0 or self.n_opponents == 0:
+            return Action.C
+        last_a = int(opp[-1])
+        window = min(3, t)
+        recent_sum = 0
+        for idx in range(t - window, t):
+            recent_sum += int(opp[idx])
+        h_t = recent_sum / (window * self.n_opponents)
+        if bool(history.my_actions[-1]) is False:
+            if last_a / self.n_opponents >= 0.5:
+                return Action.C
+            if t >= 2 and int(opp[-1]) > int(opp[-2]):
+                return Action.C
+        severe_free_riding = h_t < 0.35
+        persistent_decline = False
+        if t >= 3:
+            persistent_decline = int(opp[-1]) < int(opp[-2]) and int(opp[-2]) < int(opp[-3])
+        near_universal_defection = False
+        if t >= 2:
+            near_universal_defection = int(opp[-1]) <= 1 and int(opp[-2]) <= 1
+        if severe_free_riding or persistent_decline or near_universal_defection:
+            return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_10(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Cooperate first.
+    - Track opponent cooperation rate.
+    - Use a threshold schedule with simple trend-based adjustments.
+    - Defect after sustained zero cooperation; cooperate unconditionally after sustained full cooperation.
+    - End generously unless the previous round had zero opponent cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        n_opponents = self.n_players - 1
+        if n_opponents <= 0:
+            return Action.C
+        opp_counts = history.opponent_cooperators
+        last_count = int(opp_counts[-1])
+        last_q = last_count / n_opponents
+        if self.n_players == 2:
+            if round_number == 1:
+                return Action.C
+            prev_q = int(opp_counts[-2]) / n_opponents
+            if last_q >= 1.0:
+                return Action.C
+            if prev_q < 1.0 and last_q < 1.0:
+                return Action.D
+            return Action.C
+        next_round = round_number + 1
+        if next_round == self.n_rounds:
+            return Action.D if last_count == 0 else Action.C
+        q_values = [int(x) / n_opponents for x in opp_counts]
+        if len(q_values) >= 2 and q_values[-1] == 1.0 and (q_values[-2] == 1.0):
+            return Action.C
+        if len(q_values) >= 3 and q_values[-1] == 0.0 and (q_values[-2] == 0.0) and (q_values[-3] == 0.0):
+            return Action.D
+        if next_round <= 2:
+            theta = 0.5
+        else:
+            theta = max(0.5, 1.0 - 1.0 / math.sqrt(next_round - 1))
+        if len(q_values) >= 3:
+            dq1 = q_values[-1] - q_values[-2]
+            dq2 = q_values[-2] - q_values[-3]
+            step = 1.0 / (2.0 * n_opponents)
+            if dq1 > 0 and dq2 > 0:
+                theta = max(0.5, theta - step)
+            elif dq1 < 0 and dq2 < 0:
+                theta = min(1.0, theta + step)
+        return Action.C if last_q >= theta else Action.D
+
+class Strategy_ALTRUISTIC_11(BaseStrategy):
+    """
+    Generous Adaptive Cooperation for the repeated N-player Public Goods Game.
+    Starts cooperatively, updates a smoothed cooperation estimate from prior rounds,
+    cooperates in response to moderate cooperation or sustained streaks, and always
+    cooperates in the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.p = 0.5
+        self.s = 0
+        self._last_seen_rounds = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_players = self.game_description.n_players
+        n_rounds = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            self.p = 0.5
+            self.s = 0
+            self._last_seen_rounds = 0
+            return Action.C
+        if current_round != self._last_seen_rounds:
+            self._last_seen_rounds = current_round
+        if current_round >= n_rounds - 1:
+            return Action.C
+        last_opp = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        denom = max(1, n_players - 1)
+        q = last_opp / denom
+        self.p = (2.0 * self.p + q) / 3.0
+        if q >= 0.5:
+            self.s += 1
+        else:
+            self.s = 0
+        if q >= 0.5 or self.p >= 0.5 or self.s >= 2:
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_12(BaseStrategy):
+    """
+    Cooperation-first public goods strategy with smoothed opponent cooperation
+    tracking, a defection response to sustained zero cooperation, and an endgame
+    safeguard.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.alpha = 0.35
+        self.n_opponents = max(0, game_description.n_players - 1)
+        self.majority_threshold = math.ceil(self.n_opponents / 2) if self.n_opponents > 0 else 0
+        self.q_threshold = 0.4
+        self.L = max(2, math.floor(game_description.n_rounds / 4))
+        self.initial_M = self.n_opponents / 2.0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        rounds_played = history.round_number
+        M = self.initial_M
+        zero_streak = 0
+        for idx in range(rounds_played):
+            m = int(opp[idx])
+            M = (1.0 - self.alpha) * M + self.alpha * m
+            if m == 0:
+                zero_streak += 1
+            else:
+                zero_streak = 0
+        if rounds_played >= self.game_description.n_rounds - 1:
+            return Action.D if zero_streak >= self.L else Action.C
+        if zero_streak >= self.L:
+            return Action.D
+        q = M / self.n_opponents if self.n_opponents > 0 else 0.0
+        m_last = int(opp[-1])
+        if q >= self.q_threshold or m_last >= self.majority_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_13(BaseStrategy):
+    """
+    Generous start, then condition cooperation on recent and average opponent
+    cooperation, with brief defection as protection against sustained defection.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.n_players
+        r = self.n_rounds
+        k = self.k
+        if history.round_number == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        my_actions = history.my_actions
+        rounds_played = history.round_number
+
+        def total_cooperators(round_idx: int) -> int:
+            return int(opp[round_idx]) + (1 if bool(my_actions[round_idx]) else 0)
+
+        def coop_rate(round_idx: int) -> float:
+            denom = max(1, n - 1)
+            return float(opp[round_idx]) / denom
+        tau = max(0.5, 1.0 / k) if k > 0 else 1.0
+        if rounds_played == r - 1:
+            if rounds_played >= 2:
+                q_prev1 = coop_rate(rounds_played - 1)
+                q_prev2 = coop_rate(rounds_played - 2)
+                if q_prev1 < tau and q_prev2 < tau:
+                    return Action.D
+            elif rounds_played >= 1:
+                q_prev1 = coop_rate(rounds_played - 1)
+                if q_prev1 < tau:
+                    return Action.D
+            return Action.C
+        if rounds_played >= 2:
+            last_total = total_cooperators(rounds_played - 1)
+            if last_total != 0:
+                for idx in range(rounds_played - 2, -1, -1):
+                    if total_cooperators(idx) == n and total_cooperators(idx + 1) == n:
+                        return Action.C
+        q_prev = coop_rate(rounds_played - 1)
+        h_prev = float(np.mean([coop_rate(i) for i in range(rounds_played)])) if rounds_played > 0 else 0.0
+        if n == 2:
+            if rounds_played >= 2:
+                if coop_rate(rounds_played - 1) >= tau or coop_rate(rounds_played - 2) >= tau:
+                    return Action.C
+                return Action.D
+            return Action.C if q_prev >= tau else Action.D
+        if q_prev >= tau:
+            return Action.C
+        if h_prev >= tau:
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_14(BaseStrategy):
+    """
+    Adaptive threshold strategy for the repeated N-player Public Goods Game.
+
+    - Cooperate in round 1.
+    - Track a cooperation threshold tau in [0, 1].
+    - Respond cooperatively to sustained or majority cooperation, while
+      requiring repeated noncooperation before switching to defection.
+    - Default to cooperation if history is unavailable or ambiguous.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.tau = 1.0
+        self.step = 0.0 if game_description.n_rounds <= 0 else 1.0 / (2.0 * game_description.n_rounds)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        try:
+            if history is None:
+                return Action.C
+        except Exception:
+            return Action.C
+        n = int(self.game_description.n_players)
+        r = int(self.game_description.n_rounds)
+        n_opponents = max(0, n - 1)
+        try:
+            if history.round_number == 0:
+                return Action.C
+        except Exception:
+            return Action.C
+        try:
+            m = int(history.opponent_cooperators[-1])
+        except Exception:
+            return Action.C
+        if n_opponents <= 0:
+            p = 1.0
+        elif n == 2:
+            p = 1.0 if m > 0 else 0.0
+        else:
+            p = m / float(n_opponents)
+        prev_action = Action.C
+        try:
+            if len(history.my_actions) > 0 and bool(history.my_actions[-1]):
+                prev_action = Action.C
+            else:
+                prev_action = Action.D
+        except Exception:
+            prev_action = Action.C
+        if m == n_opponents:
+            action = Action.C
+            self.tau = min(1.0, self.tau + self.step)
+            return action
+        if m == 0:
+            if history.round_number >= 2:
+                try:
+                    prev_m = int(history.opponent_cooperators[-2])
+                except Exception:
+                    prev_m = None
+                if prev_m == 0:
+                    action = Action.D
+                    self.tau = max(0.0, self.tau - self.step)
+                    return action
+                else:
+                    return Action.C
+            else:
+                return Action.C
+        if history.round_number >= 2:
+            try:
+                prev_m = int(history.opponent_cooperators[-2])
+            except Exception:
+                prev_m = None
+            if prev_m is not None and m == prev_m:
+                return prev_action
+        if history.round_number >= r - 1:
+            threshold = max(0.5, self.tau - self.step)
+        else:
+            threshold = self.tau
+        if p >= threshold:
+            action = Action.C
+            self.tau = min(1.0, self.tau + self.step)
+        else:
+            action = Action.D
+            self.tau = max(0.0, self.tau - self.step)
+        return action
+
+class Strategy_ALTRUISTIC_15(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Cooperates in round 1.
+    - Uses recent cooperation, long-run average cooperation, forgiveness, and recovery
+      rules to decide in later rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.n_opponents = max(1, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = int(history.round_number)
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        N = self.n_opponents
+        last_opp = int(opp[-1]) if len(opp) > 0 else 0
+        recent = last_opp / N
+        total_opp = int(np.sum(opp)) if len(opp) > 0 else 0
+        avg = total_opp / (N * t) if t > 0 and N > 0 else 0.0
+        momentum = recent if t > 1 else avg
+        prev_one = last_opp > 0
+        prev_zero = last_opp == 0
+        if t == self.n_rounds - 1:
+            if avg >= 1 / 3:
+                return Action.C
+            return Action.D
+        if recent >= 1 / 2:
+            return Action.C
+        if avg >= 1 / 2 and momentum >= 1 / 3:
+            return Action.C
+        if prev_one and avg >= 1 / 3:
+            return Action.C
+        if prev_zero and avg < 2 / 3:
+            return Action.D
+        if prev_zero and avg < 1 / 2:
+            return Action.D
+        if avg >= 1 / 3 and recent >= 1 / 3:
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_16(BaseStrategy):
+    """
+    Cooperative-by-default adaptive strategy for the repeated N-player Public Goods Game.
+
+    - Starts by cooperating.
+    - Uses a declining cooperation threshold over time.
+    - Becomes slightly more forgiving if cooperation has been broadly acceptable historically.
+    - Defects for exactly one round after very low cooperation, then recovers.
+    - Uses a gentler endgame rule in the last two rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.base_threshold_floor = 0.5
+        self._forced_defect_next = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            self._forced_defect_next = False
+            return Action.C
+        if self.n_opponents <= 0:
+            self._forced_defect_next = False
+            return Action.C
+        last_round_opponent_coops = int(history.opponent_cooperators[-1])
+        last_round_fraction = last_round_opponent_coops / self.n_opponents
+        acceptable_rounds = 0
+        if round_number > 0:
+            cutoff = (self.n_opponents + 1) / 2.0
+            for c in history.opponent_cooperators:
+                if float(c) >= cutoff:
+                    acceptable_rounds += 1
+        needed_acceptable = math.ceil(round_number / 2) if round_number > 0 else 0
+        historical_adjustment = acceptable_rounds >= needed_acceptable
+        if self.n_rounds <= 1:
+            tau_t = 0.5
+        else:
+            tau_t = max(0.5, 1.0 - round_number / (self.n_rounds - 1) * 0.5)
+        if round_number >= self.n_rounds - 2:
+            tau_t = min(tau_t, 1.0 / 3.0)
+        if round_number == self.n_rounds - 1 and self.n_rounds >= 2:
+            penultimate_tau = max(0.5, 1.0 - (round_number - 1) / (self.n_rounds - 1) * 0.5)
+            tau_t = min(tau_t, penultimate_tau)
+        threshold = tau_t
+        if historical_adjustment:
+            threshold = max(0.0, tau_t - 1.0 / self.n_opponents)
+        if self._forced_defect_next:
+            if last_round_fraction >= 0.5:
+                self._forced_defect_next = False
+                return Action.C
+            self._forced_defect_next = False
+            return Action.D
+        if last_round_fraction < 0.25:
+            self._forced_defect_next = True
+            return Action.D
+        if last_round_fraction >= threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_17(BaseStrategy):
+    """
+    Cooperative public-goods strategy with memory-based retaliation,
+    forgiveness, and endgame bias toward cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.s = 0.0
+        self.processed_rounds = 0
+        self.zero_streak = 0
+        self.locked_cooperate = False
+        self.force_defect_next_round = False
+        self.recent_qs = []
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        total_rounds = self.game_description.n_rounds
+        denom = max(1, n - 1)
+        if history.round_number == 0:
+            self.processed_rounds = 0
+            return Action.C
+        while self.processed_rounds < history.round_number:
+            obs = int(history.opponent_cooperators[self.processed_rounds])
+            q = obs / denom
+            self.s = 0.7 * self.s + q
+            if q == 0:
+                self.zero_streak += 1
+            else:
+                self.zero_streak = 0
+            self.recent_qs.append(q)
+            if len(self.recent_qs) > 3:
+                self.recent_qs = self.recent_qs[-3:]
+            if len(self.recent_qs) == 3 and all((x >= 0.5 for x in self.recent_qs)):
+                self.locked_cooperate = True
+            if self.zero_streak >= 2:
+                self.force_defect_next_round = True
+            self.processed_rounds += 1
+        last_q = float(history.opponent_cooperators[-1]) / denom if history.round_number > 0 else 0.0
+        prev_was_defect = bool(history.my_actions[-1]) is False if history.round_number > 0 else False
+        current_round_index = history.round_number
+        is_final_round = current_round_index == total_rounds - 1
+        if self.locked_cooperate:
+            return Action.C
+        if prev_was_defect and last_q >= 1 / 3:
+            return Action.C
+        if self.force_defect_next_round:
+            self.force_defect_next_round = False
+            return Action.D
+        if is_final_round and last_q >= 1 / 3:
+            return Action.C
+        if last_q >= 0.5 or self.s >= 0.5:
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_18(BaseStrategy):
+    """
+    Altruistic public-goods strategy:
+    - Start with unconditional cooperation.
+    - Cooperate whenever there is evidence of reciprocation.
+    - Use bounded defection only after sustained complete defection.
+    - Restore cooperation immediately after any sign of cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.n_opponents = max(1, self.n_players - 1)
+        self.max_punishment_streak = 2
+
+    def _recent_counts(self, history: PlayerHistory, length: int):
+        if length <= 0:
+            return np.array([], dtype=np.int_)
+        start = max(0, history.round_number - length)
+        return history.opponent_cooperators[start:history.round_number]
+
+    def _avg_rate(self, counts: NDArray[np.int_]) -> float:
+        if len(counts) == 0:
+            return 0.0
+        return float(np.mean(counts) / self.n_opponents)
+
+    def _punishment_streak_from_history(self, history: PlayerHistory) -> int:
+        if history.round_number == 0:
+            return 0
+        streak = 0
+        for a in history.my_actions[::-1]:
+            if bool(a):
+                break
+            streak += 1
+            if streak >= self.max_punishment_streak:
+                break
+        return streak
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number + 1
+        if history.round_number == 0:
+            return Action.C
+        opp_counts = history.opponent_cooperators
+        belief = self._avg_rate(opp_counts)
+        if t == 2:
+            s_1 = int(opp_counts[-1]) if len(opp_counts) >= 1 else 0
+            if s_1 == self.n_opponents:
+                return Action.C
+            return Action.D if s_1 == 0 else Action.C
+        if t == self.n_rounds:
+            s_prev = int(opp_counts[-1]) if len(opp_counts) >= 1 else 0
+            if s_prev > 0:
+                return Action.C
+            if history.round_number >= 3:
+                last_three = opp_counts[-3:]
+                if len(last_three) == 3 and np.all(last_three == 0):
+                    return Action.D
+            return Action.C
+        s_prev = int(opp_counts[-1]) if len(opp_counts) >= 1 else 0
+        s_prev2 = int(opp_counts[-2]) if len(opp_counts) >= 2 else None
+        punishment_streak = self._punishment_streak_from_history(history)
+        if punishment_streak >= self.max_punishment_streak:
+            return Action.C
+        last_two_zero = s_prev == 0 and (s_prev2 == 0 if s_prev2 is not None else False)
+        if last_two_zero and belief < 0.25:
+            return Action.D
+        if belief >= 0.5:
+            return Action.C
+        recent_three = self._recent_counts(history, 3)
+        if len(recent_three) > 0:
+            recent_three_rate = self._avg_rate(recent_three)
+            if s_prev > 0 and recent_three_rate >= 1.0 / 3.0:
+                return Action.C
+        return Action.C
+
+class Strategy_ALTRUISTIC_19(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Cooperate in round 1.
+    - In early rounds, cooperate if at least half of opponents cooperated last round.
+    - In later rounds, cooperate if at least two-thirds of opponents cooperated last round.
+    - If the previous round was just one cooperation below the active threshold,
+      cooperate on every third consecutive occurrence of that near-miss state.
+    - In the final round, require at least two-thirds opponent cooperation.
+    - Default to cooperation if history is unavailable.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.half_round_cutoff = math.ceil(self.n_rounds / 2)
+        self.early_threshold_count = math.ceil(self.n_opponents / 2) if self.n_opponents > 0 else 0
+        self.late_threshold_count = math.ceil(2 * self.n_opponents / 3) if self.n_opponents > 0 else 0
+
+    def _near_threshold_streak(self, history: PlayerHistory, required_count: int) -> int:
+        """
+        Count consecutive trailing rounds where opponent cooperation was exactly
+        one below the required threshold.
+        """
+        if history is None:
+            return 0
+        if history.round_number <= 0:
+            return 0
+        opp = history.opponent_cooperators
+        streak = 0
+        target = required_count - 1
+        for idx in range(len(opp) - 1, -1, -1):
+            if int(opp[idx]) == target:
+                streak += 1
+            else:
+                break
+        return streak
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history is None:
+            return Action.C
+        t = history.round_number + 1
+        if history.round_number == 0:
+            return Action.C
+        if not hasattr(history, 'opponent_cooperators') or history.opponent_cooperators is None:
+            return Action.C
+        if len(history.opponent_cooperators) == 0:
+            return Action.C
+        last_m = int(history.opponent_cooperators[-1])
+        last_m = max(0, min(last_m, self.n_opponents))
+        if t == self.n_rounds:
+            return Action.C if self.n_opponents == 0 or last_m / self.n_opponents >= 2.0 / 3.0 else Action.D
+        required = self.early_threshold_count if t <= self.half_round_cutoff else self.late_threshold_count
+        if last_m == self.n_opponents:
+            return Action.C
+        if last_m == 0:
+            return Action.D
+        if required > 0 and last_m == required - 1:
+            streak = self._near_threshold_streak(history, required)
+            if streak > 0 and streak % 3 == 0:
+                return Action.C
+        if self.n_opponents == 0:
+            return Action.C
+        q_last = last_m / self.n_opponents
+        theta = 0.5 if t <= self.half_round_cutoff else 2.0 / 3.0
+        return Action.C if q_last >= theta else Action.D
+
+class Strategy_ALTRUISTIC_20(BaseStrategy):
+    """
+    Altruistic trigger-and-recovery public goods strategy:
+    - Cooperate on the first round.
+    - Cooperate after sufficient opponent cooperation.
+    - After repeated low cooperation, defect briefly.
+    - Reward any full cooperation streak with a short cooperation boost.
+    - On the final round, defect only after sustained low cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self._last_processed_round = 0
+        self._low_streak = 0
+        self._boost_remaining = 0
+        self._threshold = math.ceil((self.n_players - 1) / 2) if self.n_players >= 2 else 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        start = min(self._last_processed_round, current_round)
+        for idx in range(start, current_round):
+            h = int(history.opponent_cooperators[idx])
+            if h == self.n_players - 1:
+                self._boost_remaining = 2
+                self._low_streak = 0
+            elif h < self._threshold:
+                self._low_streak += 1
+                if self._low_streak >= 3:
+                    self._boost_remaining = 2
+                    self._low_streak = 0
+            else:
+                self._low_streak = 0
+        self._last_processed_round = current_round
+        if self._boost_remaining > 0:
+            self._boost_remaining -= 1
+            return Action.C
+        if current_round == self.n_rounds - 1:
+            if self.n_rounds == 2:
+                return Action.D if int(history.opponent_cooperators[-1]) < self._threshold else Action.C
+            if current_round >= 3:
+                last_three = history.opponent_cooperators[-3:]
+                if all((int(x) < self._threshold for x in last_three)):
+                    return Action.D
+            return Action.C
+        h = int(history.opponent_cooperators[-1])
+        if h == self.n_players - 1:
+            self._boost_remaining = 1
+            self._low_streak = 0
+            return Action.C
+        if h >= self._threshold:
+            self._low_streak = 0
+            return Action.C
+        self._low_streak += 1
+        if self._low_streak >= 3:
+            self._boost_remaining = 2
+            self._low_streak = 0
+        return Action.D
+
+class Strategy_ALTRUISTIC_21(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Starts with cooperation.
+    - Tracks recent opponent cooperation via a smoothed score S and goodwill score B.
+    - Defects only under persistently low cooperation and negative goodwill.
+    - Becomes unconditional cooperator after two consecutive high-cooperation rounds.
+    - Uses a late-game safeguard in the final two rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.goodwill = 0
+        self.recent_score = 0.0
+        self.consecutive_high = 0
+        self.unconditional_cooperate = False
+        self._processed_rounds = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_players = self.game_description.n_players
+        total_rounds = self.game_description.n_rounds
+        opponents = max(n_players - 1, 1)
+        start = self._processed_rounds
+        end = history.round_number
+        if end < start:
+            start = 0
+            self.goodwill = 0
+            self.recent_score = 0.0
+            self.consecutive_high = 0
+            self.unconditional_cooperate = False
+        for t in range(start, end):
+            opp_coop = int(history.opponent_cooperators[t])
+            m_t = opp_coop / opponents
+            self.recent_score = 0.7 * self.recent_score + 0.3 * m_t
+            if m_t >= 0.5:
+                self.goodwill = min(self.goodwill + 1, 3)
+                self.consecutive_high += 1
+            else:
+                self.goodwill = max(self.goodwill - 1, -3)
+                self.consecutive_high = 0
+            if self.consecutive_high >= 2:
+                self.unconditional_cooperate = True
+        self._processed_rounds = end
+        if history.round_number == 0:
+            return Action.C
+        if self.unconditional_cooperate:
+            return Action.C
+        last_opp_coop = int(history.opponent_cooperators[-1]) if history.round_number > 0 else 0
+        prev_round_had_opponent_coop = last_opp_coop > 0
+        next_round_index = history.round_number
+        if next_round_index >= total_rounds - 2:
+            if next_round_index == total_rounds - 1 and history.round_number >= 3 and (int(history.opponent_cooperators[-1]) == 0) and (int(history.opponent_cooperators[-2]) == 0) and (int(history.opponent_cooperators[-3]) == 0):
+                return Action.D
+            return Action.C
+        if self.recent_score >= 0.5:
+            return Action.C
+        if self.goodwill >= 0:
+            return Action.C
+        if prev_round_had_opponent_coop:
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_22(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Start by cooperating.
+    - Maintain a short memory of opponent cooperation rates from the last up to 3 rounds.
+    - Cooperate when cooperation is recent, average cooperation is sufficiently high, or in the early game.
+    - Defect only after two consecutive zero-cooperation observations, with a special final-round rule.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.n_opponents = max(0, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        opp_coop = history.opponent_cooperators
+        last_count = int(opp_coop[-1]) if len(opp_coop) > 0 else 0
+        if self.n_opponents > 0:
+            q_last = last_count / self.n_opponents
+        else:
+            q_last = 0.0
+        recent_rates = []
+        max_len = min(3, len(opp_coop))
+        if max_len > 0:
+            for idx in range(len(opp_coop) - max_len, len(opp_coop)):
+                count = int(opp_coop[idx])
+                rate = count / self.n_opponents if self.n_opponents > 0 else 0.0
+                recent_rates.append(rate)
+        Q_t = float(np.mean(recent_rates)) if recent_rates else 0.0
+        zero_two_in_a_row = False
+        if len(opp_coop) >= 2:
+            zero_two_in_a_row = int(opp_coop[-1]) == 0 and int(opp_coop[-2]) == 0
+        if round_number == self.n_rounds - 1:
+            return Action.D if zero_two_in_a_row else Action.C
+        if round_number == 1:
+            return Action.C
+        if Q_t >= 0.5 or q_last > 0:
+            return Action.C
+        if zero_two_in_a_row:
+            return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_23(BaseStrategy):
+    """
+    Cooperative, forgiving public-goods strategy with persistence, recovery,
+    and endgame protection against late exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.n_opponents = max(0, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = int(history.round_number)
+        if t == 0:
+            return Action.C
+        H_prev = int(history.opponent_cooperators[-1])
+        H_prev2 = int(history.opponent_cooperators[-2]) if t >= 2 else H_prev
+        my_prev = bool(history.my_actions[-1])
+        my_prev2 = bool(history.my_actions[-2]) if t >= 2 else my_prev
+        if self.n_opponents > 0:
+            p = H_prev / self.n_opponents
+        else:
+            p = 0.0
+        s = 0
+        idx = t - 1
+        while idx >= 0 and bool(history.my_actions[idx]):
+            s += 1
+            idx -= 1
+        d = 0
+        idx = t - 1
+        while idx >= 1:
+            if int(history.opponent_cooperators[idx]) <= int(history.opponent_cooperators[idx - 1]):
+                d += 1
+                idx -= 1
+            else:
+                break
+        if t >= self.n_rounds - 1:
+            if t >= 2:
+                if H_prev == 0 and H_prev2 == 0:
+                    return Action.D
+            return Action.C
+        if t == self.n_rounds - 2:
+            if H_prev == 0 and H_prev2 == 0:
+                return Action.D
+            return Action.C
+        if self.n_players == 2:
+            if H_prev == 0 and t >= 2:
+                if int(history.opponent_cooperators[-2]) == 0:
+                    return Action.D
+            return Action.C
+        if H_prev >= 1:
+            return Action.C
+        if t >= 2 and H_prev > H_prev2:
+            return Action.C
+        if t >= 2 and H_prev < H_prev2:
+            if t >= 3:
+                H_prev3 = int(history.opponent_cooperators[-3])
+                if H_prev2 < H_prev3 and (not my_prev) and (not my_prev2):
+                    pass
+                else:
+                    if my_prev:
+                        return Action.C
+                    return Action.C
+            else:
+                if my_prev:
+                    return Action.C
+                return Action.C
+        if H_prev >= self.n_players - 2:
+            return Action.C
+        if p >= 0.5:
+            return Action.C
+        if H_prev == 0:
+            if t >= 2 and int(history.opponent_cooperators[-2]) == 0:
+                return Action.D
+            return Action.C
+        if my_prev and H_prev > int(history.opponent_cooperators[-2]) if t >= 2 else False:
+            return Action.C
+        if s < 2:
+            return Action.C
+        if d < 2:
+            return Action.C
+        if H_prev >= 1:
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_24(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Start with cooperation.
+    - Cooperate after near-universal cooperation or after recent recovery.
+    - Defect only after sustained low cooperation, and only briefly.
+    - Cooperate in the final round(s) except for the specified edge case in the penultimate round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m_opponents = max(1, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number + 1
+        m = self.m_opponents
+        if history.round_number == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        last_x = int(opp[-1])
+        if t == self.n_rounds:
+            return Action.C
+        if t == self.n_rounds - 1:
+            if history.round_number >= 2 and int(opp[-1]) == 0 and (int(opp[-2]) == 0):
+                return Action.D
+            return Action.C
+        lookback = min(3, history.round_number)
+        if lookback <= 0:
+            recent_avg = 1.0
+        else:
+            recent_sum = 0
+            for x in opp[-lookback:]:
+                recent_sum += int(x)
+            recent_avg = recent_sum / (lookback * m) if m > 0 else 1.0
+        if last_x >= m / 2:
+            return Action.C
+        if recent_avg >= 0.5:
+            return Action.C
+        if last_x >= m - 1:
+            return Action.C
+        low_streak = 0
+        threshold = m / 2
+        for x in reversed(opp):
+            if int(x) < threshold:
+                low_streak += 1
+            else:
+                break
+        if low_streak == 1:
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_25(BaseStrategy):
+    """
+    Trust-based conditional cooperation for the repeated N-player public goods game.
+
+    - Start by cooperating.
+    - Maintain an inferred trust score from recent opponent cooperation.
+    - Cooperate when trust exceeds a decreasing threshold.
+    - Defect after two consecutive low-cooperation rounds, but immediately
+      return to cooperation once opponent cooperation recovers.
+    - In the final round, defect only if the previous two rounds were both weak.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m_opponents = max(0, self.n_players - 1)
+
+    def _theta(self, round_index_1based: int) -> float:
+        if self.n_rounds <= 1:
+            return 0.25
+        frac = (round_index_1based - 1) / (self.n_rounds - 1)
+        return max(0.25, 0.75 - 0.25 * frac)
+
+    def _clip01(self, x: float) -> float:
+        return 0.0 if x < 0.0 else 1.0 if x > 1.0 else x
+
+    def _compute_trust(self, history: PlayerHistory) -> float:
+        t_trust = 1.0
+        opp = history.opponent_cooperators
+        r_so_far = history.round_number
+        for t in range(r_so_far):
+            start = max(0, t - 2)
+            window = opp[start:t + 1]
+            if len(window) == 0 or self.m_opponents == 0:
+                q_t = 1.0
+            else:
+                q_t = float(np.mean(window / self.m_opponents))
+            t_trust = self._clip01(0.6 * t_trust + 0.4 * q_t)
+        return t_trust
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number + 1
+        m = self.m_opponents
+        opp = history.opponent_cooperators
+        if history.round_number == 0:
+            return Action.C
+        last_x = int(opp[-1]) if len(opp) > 0 else 0
+        prev_x = int(opp[-2]) if len(opp) > 1 else None
+        half_m = m / 2.0
+        if last_x >= half_m:
+            return Action.C
+        if prev_x is not None and last_x < half_m and (prev_x < half_m):
+            if t == self.n_rounds:
+                return Action.D
+            return Action.D
+        if len(opp) > 0:
+            near_full_threshold = max(0, m - 1)
+            if all((int(x) >= near_full_threshold for x in opp)):
+                return Action.C
+        if t == self.n_rounds:
+            if prev_x is not None and last_x < half_m and (prev_x < half_m):
+                return Action.D
+        trust = self._compute_trust(history)
+        theta_t = self._theta(t)
+        return Action.C if trust >= theta_t else Action.D
+
+class Strategy_ALTRUISTIC_26(BaseStrategy):
+    """
+    Cooperative public-goods strategy with trust-first behavior,
+    temporary defensive defection after repeated low cooperation,
+    and immediate recovery when reciprocity returns.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_opponents = max(0, game_description.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        m = self.n_opponents
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        last_x = int(opp[-1])
+        low_threshold = math.floor(m / 4) if m > 0 else 0
+        high_threshold = m / 2
+        window = opp[max(0, t - 3):t]
+        w_prev = float(np.mean(window)) if len(window) > 0 else 0.0
+        z_prev = 0
+        for idx in range(t - 1, -1, -1):
+            if int(opp[idx]) <= low_threshold:
+                z_prev += 1
+            else:
+                break
+        is_last_round = t == self.game_description.n_rounds - 1
+        if is_last_round:
+            if w_prev < m / 4 and z_prev >= 2:
+                return Action.D
+            return Action.C
+        if w_prev < m / 4 and z_prev >= 2:
+            return Action.D
+        if w_prev >= high_threshold:
+            return Action.C
+        if last_x >= 1 and z_prev == 0:
+            return Action.C
+        return Action.C
+
+class Strategy_ALTRUISTIC_27(BaseStrategy):
+    """
+    Short-memory public goods strategy:
+    - Cooperate by default
+    - Trigger a one-round defect only after sustained low opponent cooperation
+    - Immediately return to cooperation afterward
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.mode = 'cooperate'
+        self.window = max(2, math.ceil(game_description.n_rounds / 5))
+        self.n_opponents = max(0, game_description.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            self.mode = 'cooperate'
+            return Action.C
+        if t >= self.game_description.n_rounds - 1:
+            self.mode = 'cooperate'
+            return Action.C
+        if self.mode == 'test-defect':
+            self.mode = 'cooperate'
+            return Action.D
+        if self.n_opponents <= 0:
+            return Action.C
+        start = max(0, t - self.window)
+        recent_q = history.opponent_cooperators[start:t]
+        if len(recent_q) == 0:
+            return Action.C
+        recent_s = recent_q.astype(np.float64) / float(self.n_opponents)
+        bar_s = float(np.mean(recent_s))
+        L = 0
+        idx = t - 1
+        while idx >= 0:
+            if history.opponent_cooperators[idx] / float(self.n_opponents) < 0.5:
+                L += 1
+                idx -= 1
+            else:
+                break
+        if bar_s < 0.5 and L >= 2:
+            self.mode = 'test-defect'
+            return Action.D
+        self.mode = 'cooperate'
+        return Action.C
+
+class Strategy_ALTRUISTIC_28(BaseStrategy):
+    """
+    Generous Conditional Cooperation for the N-Player Public Goods Game.
+
+    - Start with cooperation.
+    - In the middle rounds, cooperate if opponent cooperation is at or above
+      a threshold based on k, with a small forgiveness mechanism.
+    - In the final round, cooperate if at least one opponent cooperated last round.
+    - For n=2, use a stricter reactive rule after two consecutive opponent defections.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        if self.k > 0:
+            self.theta = max(0.5, (self.k - 1.0) / self.k)
+        else:
+            self.theta = 0.5
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        if len(history.opponent_cooperators) < 1:
+            return Action.C
+        last_coop = int(history.opponent_cooperators[-1])
+        n_opponents = max(1, self.n_players - 1)
+        if t >= self.n_rounds - 1:
+            return Action.C if last_coop >= 1 else Action.D
+        if self.n_players == 2:
+            if len(history.opponent_cooperators) >= 2:
+                prev1 = int(history.opponent_cooperators[-1])
+                prev2 = int(history.opponent_cooperators[-2])
+                if prev1 == 0 and prev2 == 0:
+                    return Action.D
+                return Action.C if prev1 >= 1 else Action.D
+            return Action.C if last_coop >= 1 else Action.D
+        current_rate = last_coop / n_opponents
+        if len(history.opponent_cooperators) >= 2:
+            prev2 = int(history.opponent_cooperators[-2]) / n_opponents
+            observed_rate = 0.5 * (current_rate + prev2)
+        else:
+            observed_rate = current_rate
+        low_streak = 0
+        idx = len(history.opponent_cooperators) - 1
+        while idx >= 0:
+            c = int(history.opponent_cooperators[idx])
+            if c == 0:
+                break
+            if c / n_opponents < self.theta:
+                low_streak += 1
+                idx -= 1
+            else:
+                break
+        if observed_rate >= self.theta:
+            return Action.C
+        if low_streak > 0 and low_streak % 3 == 0:
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_29(BaseStrategy):
+    """
+    Cooperative-first public goods strategy with a single defensive defection
+    only under sustained collapse, and immediate recovery once cooperation
+    improves.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self._coop_threshold = 0.5
+        self._collapse_threshold = 0.33
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        n_opponents = max(1, self.n_players - 1)
+        past_counts = history.opponent_cooperators
+        past_len = len(past_counts)
+
+        def q_at(idx: int) -> float:
+            if idx < 0 or idx >= past_len:
+                return 0.0
+            return float(past_counts[idx]) / float(n_opponents)
+        if round_number == self.n_rounds - 1:
+            if past_len >= 3 and q_at(past_len - 1) < self._collapse_threshold and (q_at(past_len - 2) < self._collapse_threshold) and (q_at(past_len - 3) < self._collapse_threshold):
+                return Action.D
+            return Action.C
+        if round_number in (1, 2):
+            return Action.C
+        if past_len >= 3:
+            if q_at(past_len - 1) < self._collapse_threshold and q_at(past_len - 2) < self._collapse_threshold and (q_at(past_len - 3) < self._collapse_threshold):
+                return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_30(BaseStrategy):
+    """
+    Public goods strategy:
+    - Cooperate in round 1.
+    - If the game has only 2 rounds, always cooperate.
+    - For n=2, use a simple tit-for-tat style rule: cooperate iff the other player cooperated last round.
+    - Otherwise, cooperate if the observed average cooperation among opponents is at least 1/2,
+      or if the most recent round had at least one cooperating opponent.
+    - Defect only when the observed average is below 1/2 and the last two observed rounds
+      both had zero cooperating opponents.
+    - After defecting, return to cooperation at the first later round with any opponent cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self._last_action_defected = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            self._last_action_defected = False
+            return Action.C
+        if self.n_rounds == 2:
+            self._last_action_defected = False
+            return Action.C
+        last_opp = int(history.opponent_cooperators[-1]) if round_number > 0 else 0
+        if self.n_players == 2:
+            action = Action.C if last_opp > 0 else Action.D
+            self._last_action_defected = action == Action.D
+            return action
+        if self._last_action_defected and last_opp > 0:
+            self._last_action_defected = False
+            return Action.C
+        opp_count = max(self.n_players - 1, 1)
+        total_opp_coops = int(np.sum(history.opponent_cooperators[:round_number]))
+        avg_fraction = total_opp_coops / (round_number * opp_count) if round_number > 0 else 0.0
+        last_two_zero = False
+        if round_number >= 2:
+            last_two_zero = int(history.opponent_cooperators[-1]) == 0 and int(history.opponent_cooperators[-2]) == 0
+        if avg_fraction >= 0.5 or last_opp > 0:
+            self._last_action_defected = False
+            return Action.C
+        if avg_fraction < 0.5 and last_two_zero:
+            self._last_action_defected = True
+            return Action.D
+        self._last_action_defected = False
+        return Action.C
+
+class Strategy_ALTRUISTIC_31(BaseStrategy):
+    """
+    Cooperative strategy for the N-Player Public Goods Game.
+
+    - Start by cooperating.
+    - Continue cooperating while opponent cooperation remains moderate.
+    - Forgive brief collapses after a sustained cooperative history.
+    - Defect only after sustained low reciprocity.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.n_opponents = max(1, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = int(history.round_number)
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        n_obs = len(opp)
+
+        def coop_rate(count: int) -> float:
+            denom = self.n_opponents
+            if denom <= 0:
+                return 0.0
+            return float(count) / float(denom)
+        p_vals = [coop_rate(int(x)) for x in opp]
+        p_prev = p_vals[-1] if n_obs >= 1 else 1.0
+        A_prev = float(np.mean(p_vals)) if n_obs >= 1 else 1.0
+        A_prev_prev = float(np.mean(p_vals[:-1])) if n_obs >= 2 else 1.0
+        if t == self.n_rounds - 1:
+            if p_prev >= 1.0:
+                return Action.C
+            return Action.C if A_prev >= 0.5 else Action.D
+        if p_prev >= 1.0:
+            return Action.C
+        if p_prev <= 0.0:
+            if t >= 3 and A_prev_prev >= 0.5:
+                return Action.C
+            return Action.D
+        if A_prev >= 0.5:
+            return Action.C
+        if t >= 3 and p_prev >= A_prev_prev and (A_prev_prev >= 0.4):
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_32(BaseStrategy):
+    """
+    Forgiving cooperation strategy for the repeated N-player Public Goods Game.
+
+    Starts with cooperation, rewards sustained collective participation,
+    forgives brief drops, punishes persistent free-riding, and favors
+    cooperation in the endgame unless cooperation has clearly collapsed.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.n_opponents = max(0, self.n_players - 1)
+
+    def _coop_rate_from_history(self, history: PlayerHistory, round_idx: int) -> float:
+        if round_idx < 0 or round_idx >= history.round_number:
+            return 0.0
+        if self.n_opponents <= 0:
+            return 0.0
+        return float(history.opponent_cooperators[round_idx]) / float(self.n_opponents)
+
+    def _moving_average(self, rates: list[float], end_idx: int) -> float:
+        if end_idx < 0 or not rates:
+            return 0.0
+        if end_idx <= 2:
+            window = 3
+        else:
+            window = 5
+        start = max(0, end_idx - window + 1)
+        segment = rates[start:end_idx + 1]
+        if not segment:
+            return 0.0
+        return float(sum(segment)) / float(len(segment))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        coop_rates = [self._coop_rate_from_history(history, idx) for idx in range(t)]
+        last_rate = coop_rates[-1]
+        prev_rate = coop_rates[-2] if t >= 2 else 0.0
+        prev2_rate = coop_rates[-3] if t >= 3 else 0.0
+        h_prev = self._moving_average(coop_rates, t - 1)
+        h_prevprev = self._moving_average(coop_rates, t - 2)
+        trend = h_prev - h_prevprev
+        if t >= self.n_rounds - 2:
+            if last_rate < 1.0 / 3.0 and prev_rate < 1.0 / 3.0:
+                return Action.D
+            return Action.C
+        if last_rate < 1.0 / 3.0 and prev_rate < 1.0 / 3.0:
+            return Action.D
+        if last_rate < 1.0 / 3.0 and prev_rate < 1.0 / 3.0:
+            return Action.D
+        if last_rate < 1.0 / 3.0 and prev_rate < 1.0 / 3.0:
+            return Action.D
+        if last_rate < 1.0 / 3.0 and prev_rate < 1.0 / 3.0:
+            return Action.D
+        if last_rate < 1.0 / 3.0 and prev_rate < 1.0 / 3.0:
+            return Action.D
+        if last_rate >= 1.0 / 2.0:
+            if len(coop_rates) >= 3 and prev2_rate >= 2.0 / 3.0 and (prev_rate >= 2.0 / 3.0) and (last_rate >= 2.0 / 3.0):
+                return Action.C
+            if last_rate >= 1.0 / 2.0:
+                return Action.C
+            if h_prev >= 1.0 / 3.0 and trend >= -0.1:
+                return Action.C
+            if last_rate < 1.0 / 3.0 and prev_rate >= 1.0 / 2.0:
+                return Action.C
+            return Action.C
+        if len(coop_rates) >= 3 and prev2_rate >= 2.0 / 3.0 and (prev_rate >= 2.0 / 3.0) and (last_rate >= 2.0 / 3.0):
+            return Action.C
+        if last_rate >= 1.0 / 2.0:
+            return Action.C
+        if h_prev >= 1.0 / 3.0 and trend >= -0.1:
+            return Action.C
+        if last_rate < 1.0 / 3.0 and prev_rate >= 1.0 / 2.0:
+            return Action.C
+        if last_rate < 1.0 / 3.0 and prev_rate < 1.0 / 3.0:
+            return Action.D
+        return Action.D
+
+class Strategy_BENEVOLENT_5(BaseStrategy):
+    """
+    Forgiving cooperation strategy:
+    - Start by cooperating.
+    - Cooperate unless the two most recent rounds were both insufficiently cooperative
+      by the opponents (below the threshold q).
+    - Return to cooperation immediately after any sufficiently cooperative round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n_players = int(getattr(game_description, 'n_players', 0))
+        self.q = max(0, math.ceil(max(0, n_players - 1) / 2))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        last_count = int(history.opponent_cooperators[-1])
+        last_good = last_count >= self.q
+        if last_good:
+            return Action.C
+        if history.round_number == 1:
+            return Action.C
+        prev_count = int(history.opponent_cooperators[-2])
+        prev_good = prev_count >= self.q
+        if not prev_good:
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_6(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Start with cooperation.
+    - Reward any meaningful cooperation, especially near the end of the game.
+    - Defect to avoid rewarding persistent free-riding or sustained collapse.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_opponents = max(0, self.n_players - 1)
+        t = int(history.round_number)
+        try:
+            my_actions = history.my_actions
+            opp = history.opponent_cooperators
+        except Exception:
+            return Action.C
+        if t == 0:
+            return Action.C
+        if len(opp) < t or len(my_actions) < t:
+            return Action.C
+        last_m = int(opp[-1]) if len(opp) > 0 else 0
+        prev_m = int(opp[-2]) if len(opp) > 1 else 0
+        last_my_action = bool(my_actions[-1]) if len(my_actions) > 0 else True
+        if t >= max(0, self.n_rounds - 2):
+            return Action.C if last_m > 0 else Action.D
+        if len(opp) >= 2 and int(opp[-1]) == 0 and (int(opp[-2]) == 0):
+            return Action.D
+        if last_my_action is False and last_m > prev_m:
+            return Action.C
+        if last_my_action is True and last_m == 0:
+            return Action.D
+        if last_m == 0:
+            return Action.D
+        if n_opponents > 0 and last_m == n_opponents:
+            return Action.C
+        total_m = 0
+        for x in opp:
+            total_m += int(x)
+        if n_opponents <= 0:
+            return Action.C
+        p_t = total_m / (n_opponents * t) if n_opponents * t > 0 else 1.0
+        threshold_m = math.ceil(n_opponents / 2)
+        if p_t >= 0.5 and last_m >= threshold_m:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_7(BaseStrategy):
+    """
+    Three-state public goods strategy:
+    - Opening: cooperate for the first two rounds.
+    - Normal: cooperate if the recent 2-round opponent cooperation average meets threshold.
+    - Forgiveness / endgame: defect only while opponent cooperation remains below threshold.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = int(getattr(game_description, 'n_players', 0))
+        k = float(getattr(game_description, 'k', 1.0))
+        self.n_players = n
+        self.k = k
+        self.threshold = max(0.5, 1.0 / k if k > 0 else 1.0)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        n_rounds = int(getattr(self.game_description, 'n_rounds', 0))
+        if round_number == 0 or round_number == 1:
+            return Action.C
+        if round_number < 2:
+            return Action.C
+        n_opponents = max(0, self.n_players - 1)
+        if n_opponents <= 0:
+            return Action.C
+        last_q = float(history.opponent_cooperators[-1]) / n_opponents if round_number >= 1 else 1.0
+        if n_rounds > 0 and round_number >= max(0, n_rounds - 2):
+            return Action.C if last_q >= self.threshold else Action.D
+        if round_number >= 1 and bool(history.my_actions[-1]) is False:
+            return Action.C if last_q >= self.threshold else Action.D
+        if round_number < 2:
+            return Action.C
+        q_prev1 = float(history.opponent_cooperators[-1]) / n_opponents
+        q_prev2 = float(history.opponent_cooperators[-2]) / n_opponents
+        recent_average = (q_prev1 + q_prev2) / 2.0
+        return Action.C if recent_average >= self.threshold else Action.D
+
+class Strategy_BENEVOLENT_8(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Start by cooperating.
+    - Cooperate when recent cooperation is at least a clear majority.
+    - Defect only after sustained low cooperation, with quick recovery.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.majority_threshold = math.ceil((self.n - 1) / 2)
+        self.low_threshold = math.floor((self.n - 1) / 3)
+
+    def _smoothed_cooperation(self, history: PlayerHistory) -> float:
+        """
+        Compute s_t from the observed history, where:
+        s_0 = 1
+        s_t = 0.5 * s_{t-1} + 0.5 * (m_t / (n-1))
+        """
+        s = 1.0
+        n_opponents = max(self.n - 1, 1)
+        for m in history.opponent_cooperators:
+            s = 0.5 * s + 0.5 * (float(m) / float(n_opponents))
+        return s
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        if self.n == 2:
+            last_m = int(history.opponent_cooperators[-1])
+            if last_m >= 1:
+                return Action.C
+            if t >= 2 and int(history.opponent_cooperators[-2]) == 0:
+                return Action.D
+            return Action.D
+        last_m = int(history.opponent_cooperators[-1])
+        s_prev = self._smoothed_cooperation(history)
+        if last_m == self.n - 1:
+            return Action.C
+        in_protection = False
+        if t >= 2:
+            prev_m = int(history.opponent_cooperators[-2])
+            if last_m <= self.low_threshold and prev_m <= self.low_threshold:
+                in_protection = True
+        if in_protection:
+            if last_m >= self.majority_threshold:
+                return Action.C
+            return Action.D
+        if self.r == 2 and t == 1:
+            if last_m >= self.majority_threshold:
+                return Action.C
+            return Action.D
+        if t == self.r - 1:
+            if last_m >= self.majority_threshold and s_prev >= 0.5:
+                return Action.C
+            return Action.D
+        if s_prev >= 0.5 and last_m >= self.majority_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_9(BaseStrategy):
+    """
+    Start with cooperation, respond immediately to full cooperation or full defection,
+    forgive isolated weak defections, and cooperate whenever the running average
+    opponent cooperation rate is at least one-half.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.q = max(1, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        h_t = int(opp[-1])
+        h_prev = int(opp[-2]) if t >= 2 else None
+        if t == self.n_rounds - 1:
+            return Action.C if h_t > 0 else Action.D
+        if t >= 2 and h_t == 0 and (h_prev == 0):
+            return Action.D
+        if h_t == self.q:
+            return Action.C
+        if h_t == 0:
+            return Action.D
+        if t >= 2 and (h_prev == self.q or h_t == self.q):
+            return Action.C
+        avg_h = float(np.mean(opp)) if t > 0 else 0.0
+        avg_s = avg_h / self.q if self.q > 0 else 0.0
+        return Action.C if avg_s >= 0.5 else Action.D
+
+class Strategy_BENEVOLENT_10(BaseStrategy):
+    """
+    Threshold-forgiving conditional cooperation strategy for the N-player Public Goods Game.
+    Starts cooperatively, maintains a bounded punishment counter for low cooperation,
+    and reverts to cooperation when observed cooperation is acceptable.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = max(2, int(game_description.n_players))
+        self.n_players = n
+        self.final_round_index = max(0, int(game_description.n_rounds) - 1)
+        self.acceptable_threshold = math.ceil((n - 1) / 2)
+        self.low_threshold = math.floor((n - 1) / 3)
+        self._punish_remaining = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        last_cooperators = int(history.opponent_cooperators[-1]) if round_number > 0 else 0
+        prev_cooperators = int(history.opponent_cooperators[-2]) if round_number > 1 else None
+        if round_number == self.final_round_index:
+            return Action.C if last_cooperators >= self.acceptable_threshold else Action.D
+        if self.n_players == 2:
+            if self._punish_remaining > 0:
+                self._punish_remaining -= 1
+                return Action.D
+            if last_cooperators >= 1:
+                return Action.C
+            self._punish_remaining = 1
+            self._punish_remaining -= 1
+            return Action.D
+        if self._punish_remaining > 0:
+            self._punish_remaining -= 1
+            return Action.D
+        if last_cooperators <= self.low_threshold:
+            if prev_cooperators is not None and prev_cooperators <= self.low_threshold:
+                self._punish_remaining = 3
+            else:
+                self._punish_remaining = 2
+            self._punish_remaining -= 1
+            return Action.D
+        if last_cooperators >= self.acceptable_threshold:
+            return Action.C
+        return Action.C
+
+class Strategy_BENEVOLENT_11(BaseStrategy):
+    """
+    Threshold-based public goods strategy:
+    - Start with cooperation.
+    - Continue cooperating while at least half of the opponents cooperated
+      in the previous round.
+    - Defect for a round when cooperation among opponents falls below the
+      threshold, then immediately return to cooperation once the threshold
+      is met again.
+    - Default to cooperation if history is missing or incomplete.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n_players = getattr(game_description, 'n_players', 2)
+        n_players = n_players if isinstance(n_players, int) else 2
+        self.n_players = max(2, n_players)
+        self.threshold = math.ceil((self.n_players - 1) / 2)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history is None:
+            return Action.C
+        round_number = getattr(history, 'round_number', 0)
+        if round_number == 0:
+            return Action.C
+        opponents = getattr(history, 'opponent_cooperators', None)
+        if opponents is None or len(opponents) == 0:
+            return Action.C
+        last_opponent_cooperators = int(opponents[-1])
+        if last_opponent_cooperators >= self.threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_12(BaseStrategy):
+    """
+    Benevolent public-goods strategy:
+    - Cooperate initially.
+    - Cooperate whenever the previous round met the cooperation floor.
+    - Defect only after a recent round fell below the floor, and keep defecting
+      until cooperation recovers.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = getattr(game_description, 'n_players', 0)
+        self.floor = math.ceil(n / 2) if n and n > 0 else 1
+        if self.floor < 1:
+            self.floor = 1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        n_players = getattr(self.game_description, 'n_players', 0)
+        floor = self.floor if self.floor >= 1 else 1
+        my_actions = history.my_actions
+        opp_coop = history.opponent_cooperators
+        bad_streak = 0
+        rounds_played = history.round_number
+        for idx in range(rounds_played - 1, -1, -1):
+            my_cooperated = bool(my_actions[idx])
+            x_t = int(opp_coop[idx]) if idx < len(opp_coop) else 0
+            if x_t < 0:
+                x_t = 0
+            T_t = x_t + (1 if my_cooperated else 0)
+            if T_t >= floor:
+                break
+            bad_streak += 1
+        if bad_streak == 0:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_13(BaseStrategy):
+    """
+    Start with cooperation, reward broad cooperation, forgive isolated defections,
+    and retaliate briefly only after sustained low cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m_opponents = max(0, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        if self.m_opponents <= 0:
+            return Action.C
+        if t == self.n_rounds - 1:
+            if self.n_rounds == 2 and self.n_players > 2:
+                prev_x = int(history.opponent_cooperators[-1])
+                if prev_x < self.m_opponents / 2.0:
+                    return Action.D
+            return Action.C
+        last_x = int(history.opponent_cooperators[-1])
+        q = last_x / float(self.m_opponents)
+        if q >= 0.5:
+            return Action.C
+        sustained_low = False
+        if t >= 2:
+            prev_x = int(history.opponent_cooperators[-2])
+            prev_q = prev_x / float(self.m_opponents)
+            sustained_low = prev_q < 0.5 and q < 0.5
+        if self.n_players == 2:
+            if sustained_low:
+                return Action.D
+            return Action.C
+        if last_x >= self.m_opponents - 1 and (not sustained_low):
+            return Action.C
+        if sustained_low:
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_14(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Start with cooperation.
+    - Track recent cooperation intensity via H and streaks via S.
+    - Defect briefly after fully uncooperative rounds.
+    - Use a long-run fallback when cooperation remains weak.
+    - On the final round, cooperate only if the last two observed rounds were sufficiently cooperative.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.n_opponents = max(0, self.n_players - 1)
+        self._default_action = Action.C
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        opponent_cooperators = history.opponent_cooperators
+        observed_rounds = round_number
+
+        def coop_rate_for_round(idx: int) -> float:
+            if self.n_opponents <= 0:
+                return 0.0
+            return float(opponent_cooperators[idx]) / float(self.n_opponents)
+        H = 1.0
+        S = 0
+        coop_rates = []
+        for t in range(observed_rounds):
+            h_t = coop_rate_for_round(t)
+            coop_rates.append(h_t)
+            if t >= 1:
+                H = 0.6 * H + 0.4 * h_t
+            if h_t >= 0.6:
+                S += 1
+            else:
+                S = 0
+        last_m = int(opponent_cooperators[-1])
+        last_h = coop_rates[-1] if coop_rates else 0.0
+        if round_number >= self.n_rounds - 1:
+            if observed_rounds >= 2 and coop_rates[-1] >= 0.5 and (coop_rates[-2] >= 0.5):
+                return Action.C
+            return Action.D
+        last_zero_index = -1
+        for idx in range(observed_rounds - 1, -1, -1):
+            if int(opponent_cooperators[idx]) == 0:
+                last_zero_index = idx
+                break
+        if last_zero_index >= 0:
+            rounds_since_zero = observed_rounds - 1 - last_zero_index
+            if rounds_since_zero < 2:
+                return Action.D
+        fallback_active = False
+        if observed_rounds >= 4:
+            last4 = coop_rates[-4:]
+            low_count = sum((1 for h in last4 if h < 0.5))
+            if low_count >= 3:
+                fallback_active = True
+        if fallback_active:
+            if observed_rounds >= 2 and coop_rates[-1] >= 0.5 and (coop_rates[-2] >= 0.5):
+                fallback_active = False
+            else:
+                return Action.D
+        if H >= 0.5 and S < 2 and (last_m > 0):
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_15(BaseStrategy):
+    """
+    Benevolently biased adaptive public-goods strategy:
+    - Cooperate on the first round.
+    - Track a smoothed cooperation target based on observed opponent cooperation.
+    - Favor cooperation on ties and after isolated low-cooperation rounds.
+    - Defect only after clear, persistent low cooperation or on the final round
+      following a completely uncooperative previous round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.alpha = 0.5
+        self.n_opponents = max(0, game_description.n_players - 1)
+
+    def _smoothed_target(self, observed_counts: NDArray[np.int_]) -> int:
+        target = self.n_opponents
+        for m in observed_counts:
+            target = int(math.floor((1.0 - self.alpha) * target + self.alpha * int(m) + 0.5))
+        return max(0, min(self.n_opponents, target))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        observed = history.opponent_cooperators
+        last_m = int(observed[-1]) if len(observed) > 0 else 0
+        if round_number == self.game_description.n_rounds - 1:
+            return Action.D if last_m == 0 else Action.C
+        if len(observed) > 0 and np.all(observed == self.n_opponents):
+            return Action.C
+        if len(observed) >= 2 and int(observed[-1]) == 0 and (int(observed[-2]) == 0):
+            return Action.D
+        current_target = self._smoothed_target(observed)
+        next_target = int(math.floor((1.0 - self.alpha) * current_target + self.alpha * last_m + 0.5))
+        next_target = max(0, min(self.n_opponents, next_target))
+        if last_m >= next_target:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_16(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Start with cooperation.
+    - Track a smoothed cooperation score and an exploitation counter.
+    - Defect after sustained total defection, but forgive quickly after renewed cooperation.
+    - Prefer cooperation in mixed/uncertain histories and in the final round if conditions are favorable.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        rounds_total = self.game_description.n_rounds
+        n_opponents = max(0, n - 1)
+        if history.round_number == 0:
+            return Action.C
+        s = 0.5
+        e = 0
+        all_q_one = True
+        for m in history.opponent_cooperators:
+            if n_opponents > 0:
+                q = float(m) / float(n_opponents)
+            else:
+                q = 0.0
+            if q != 1.0:
+                all_q_one = False
+            s = 0.7 * s + 0.3 * q
+            if q == 0.0:
+                e += 1
+            else:
+                e = max(0, e - 1)
+        if all_q_one:
+            return Action.C
+        last_m = int(history.opponent_cooperators[-1])
+        last_q = float(last_m) / float(n_opponents) if n_opponents > 0 else 0.0
+        next_round = history.round_number + 1
+        if e >= 2 and last_q > 0.0:
+            e = 0
+            return Action.C
+        if next_round == rounds_total:
+            if s >= 0.5 or last_m > 0:
+                return Action.C
+            return Action.D
+        if e >= 2:
+            return Action.D
+        if s >= 0.6:
+            return Action.C
+        if 0.4 <= s < 0.6:
+            if n == 2:
+                return Action.C if last_m >= 1 else Action.D
+            return Action.C if last_m >= n_opponents / 2.0 else Action.D
+        return Action.D
+
+class Strategy_BENEVOLENT_17(BaseStrategy):
+    """
+    Threshold-based trust/caution strategy for the repeated N-player Public Goods Game.
+
+    - Cooperate in round 1.
+    - Track a trust/cautious state from past cooperation levels.
+    - In non-final rounds:
+      - trust: cooperate if at least half of opponents cooperated last round.
+      - cautious: cooperate only if all opponents cooperated last round.
+    - In the final round:
+      - cooperate if at least half of opponents cooperated in the previous round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.threshold = self.n_players // 2
+        self.state_trust = 'trust'
+        self.state_cautious = 'cautious'
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        state = self.state_trust
+        last_index = round_number - 1
+        for t in range(round_number):
+            opp_c = int(history.opponent_cooperators[t])
+            my_c = bool(history.my_actions[t])
+            if my_c and opp_c < self.threshold:
+                state = self.state_cautious
+            if opp_c == self.n_players - 1:
+                state = self.state_trust
+        prev_opp_c = int(history.opponent_cooperators[last_index])
+        if round_number == self.n_rounds - 1:
+            return Action.C if prev_opp_c >= self.threshold else Action.D
+        if state == self.state_trust:
+            return Action.C if prev_opp_c >= self.threshold else Action.D
+        return Action.C if prev_opp_c == self.n_players - 1 else Action.D
+
+class Strategy_BENEVOLENT_18(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Cooperates initially.
+    - Tracks opponent cooperation rate over time.
+    - Continues cooperating when cooperation is sustained or improving.
+    - Defects when cooperation is persistently low.
+    - Uses a simpler endgame rule based on average observed cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.n_opponents = max(0, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        if self.n_opponents <= 0:
+            return Action.C
+        observed = history.opponent_cooperators
+        last_m = int(observed[-1])
+        last_m = max(0, min(self.n_opponents, last_m))
+        q_t = last_m / self.n_opponents
+        total_m = float(np.sum(observed))
+        total_m = max(0.0, min(total_m, float(self.n_opponents * round_number)))
+        A_t = total_m / (self.n_opponents * round_number) if round_number > 0 else 0.0
+        if round_number >= self.n_rounds - 1:
+            return Action.C if A_t >= 0.5 else Action.D
+        b_t = max(0.25, A_t)
+        if last_m == self.n_opponents:
+            return Action.C
+        if last_m == 0 and A_t < 0.6:
+            return Action.D
+        if A_t >= 0.6:
+            return Action.C
+        if q_t >= b_t - 0.15:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_19(BaseStrategy):
+    """
+    Score-based reciprocal strategy for the N-player Public Goods Game.
+
+    - Starts with cooperation.
+    - Updates an internal cooperation score from observed opponent cooperation rates.
+    - Biases toward cooperation on ties and on moderate cooperation from others.
+    - Handles the final round with a simple, responsive rule.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self._n_opponents = max(0, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        prev_opponents = int(history.opponent_cooperators[-1])
+        if self._n_opponents > 0:
+            q_prev = prev_opponents / self._n_opponents
+        else:
+            q_prev = 0.0
+        if round_number == self.n_rounds - 1:
+            if self.n_players == 2:
+                return Action.C if prev_opponents >= 1 else Action.D
+            return Action.D if q_prev <= 1.0 / 3.0 else Action.C
+        score = 0
+        for m in history.opponent_cooperators[:round_number]:
+            m_int = int(m)
+            if self._n_opponents > 0:
+                q = m_int / self._n_opponents
+            else:
+                q = 0.0
+            if self.n_players == 2:
+                if q >= 1.0:
+                    score = min(3, score + 1)
+                elif q <= 0.0:
+                    score = max(-3, score - 1)
+            elif q >= 2.0 / 3.0:
+                score = min(3, score + 1)
+            elif q <= 1.0 / 3.0:
+                score = max(-3, score - 1)
+        if self.n_players == 2:
+            if prev_opponents >= 1:
+                score = max(score, 0)
+            elif prev_opponents <= 0:
+                score = min(score, -1)
+        elif q_prev >= 0.5:
+            score = max(score, 0)
+        elif q_prev <= 1.0 / 3.0:
+            score = min(score, -1)
+        return Action.C if score >= 0 else Action.D
+
+class Strategy_BENEVOLENT_20(BaseStrategy):
+    """
+    Start by cooperating. Continue cooperating unless there have been at least
+    two consecutive low-cooperation rounds by opponents, in which case defect
+    temporarily. Always cooperate in the final round, except for the special
+    two-round edge case where a low first round leads to defection in round 2.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.n_opponents = max(0, self.n_players - 1)
+
+    def _cooperation_rate(self, opponent_count: int) -> float:
+        if self.n_opponents <= 0:
+            return 0.0
+        return float(opponent_count) / float(self.n_opponents)
+
+    def _streaks_from_history(self, history: PlayerHistory) -> tuple[int, int]:
+        low_streak = 0
+        high_streak = 0
+        for count in history.opponent_cooperators:
+            q = self._cooperation_rate(int(count))
+            if q < 1.0 / 3.0:
+                low_streak += 1
+            else:
+                low_streak = 0
+            if q >= 0.5:
+                high_streak += 1
+            else:
+                high_streak = 0
+        return (low_streak, high_streak)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        low_streak, high_streak = self._streaks_from_history(history)
+        if self.n_rounds == 2 and round_number == 1:
+            last_q = self._cooperation_rate(int(history.opponent_cooperators[-1]))
+            return Action.D if last_q < 1.0 / 3.0 else Action.C
+        if round_number == self.n_rounds - 1:
+            return Action.C
+        if high_streak > 0 and low_streak == 0:
+            return Action.C
+        if low_streak >= 2:
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_21(BaseStrategy):
+    """
+    Trust-first public goods strategy:
+    - Cooperate in round 1.
+    - Track consecutive "bad" and "good" opponent-cooperation streaks from history.
+    - Defect for at most one round after two consecutive bad rounds with no intervening good streak.
+    - Return to cooperation immediately unless bad behavior persists.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = max(2, int(game_description.n_players))
+        self.n_players = n
+        self.bad_threshold = math.floor((n - 1) / 3)
+        self.good_threshold = math.ceil((n - 1) / 2)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        if len(opp) == 0:
+            return Action.C
+        bad_streak = 0
+        good_streak = 0
+        for x in opp[::-1]:
+            x_int = int(x)
+            if x_int >= self.good_threshold:
+                good_streak += 1
+                bad_streak = 0
+            elif x_int <= self.bad_threshold:
+                bad_streak += 1
+                good_streak = 0
+            else:
+                bad_streak = 0
+                good_streak = 0
+                break
+        if bad_streak >= 2 and good_streak == 0:
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_22(BaseStrategy):
+    """
+    Begin with cooperation, keep cooperating while recent opposition cooperation
+    remains at least half, forgive one low-cooperation round, and defect only
+    after two consecutive low-cooperation observations. Always cooperate on the
+    final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n_players = max(2, int(game_description.n_players))
+        self.threshold = math.ceil((n_players - 1) / 2)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round >= n_rounds - 1:
+            return Action.C
+        f = 0
+        opponents = history.opponent_cooperators
+        for idx in range(len(opponents) - 1, -1, -1):
+            if opponents[idx] >= self.threshold:
+                break
+            f += 1
+            if f >= 2:
+                break
+        if f <= 1:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_23(BaseStrategy):
+    """
+    Generous conditional cooperation with late-game lock-in:
+    start by cooperating, reward any visible cooperation quickly,
+    defect only after repeated total collapse, and end by cooperating.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.forgiveness_counter = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = int(history.round_number) + 1
+        n_opponents = max(self.n_players - 1, 1)
+        if t == 1:
+            self.forgiveness_counter = 0
+            return Action.C
+        opp = history.opponent_cooperators
+        q_prev = float(opp[-1]) / n_opponents if len(opp) >= 1 else 0.0
+        q_prev2 = float(opp[-2]) / n_opponents if len(opp) >= 2 else None
+        previously_played_d = False
+        if len(history.my_actions) >= 1:
+            previously_played_d = not bool(history.my_actions[-1])
+        if t >= self.n_rounds:
+            self.forgiveness_counter = 0
+            return Action.C
+        if t >= self.n_rounds - 2 and q_prev > 0:
+            self.forgiveness_counter = 0
+            return Action.C
+        if q_prev >= 0.5:
+            self.forgiveness_counter = 0
+            return Action.C
+        if q_prev >= 1 / 3 and q_prev2 is not None and (q_prev > q_prev2):
+            self.forgiveness_counter = 0
+            return Action.C
+        if t <= 3 and q_prev > 0:
+            self.forgiveness_counter = 0
+            return Action.C
+        if previously_played_d and q_prev >= 1 / 3:
+            self.forgiveness_counter = 0
+            return Action.C
+        if q_prev == 0.0 and t < self.n_rounds - 1:
+            q_prev_prev = float(opp[-2]) / n_opponents if len(opp) >= 2 else None
+            if q_prev_prev == 0.0:
+                self.forgiveness_counter = 1
+                return Action.D
+        if self.forgiveness_counter > 0 and q_prev > 0:
+            self.forgiveness_counter = 0
+            return Action.C
+        self.forgiveness_counter = 0
+        return Action.C
+
+class Strategy_BENEVOLENT_24(BaseStrategy):
+    """
+    Forgiving threshold public-goods strategy:
+    - Cooperate in round 1.
+    - Thereafter, cooperate if at least half (rounded up) of opponents cooperated last round.
+    - If cooperation falls below the threshold, be forgiving once (cooperate on the first low round),
+      then defect only after two consecutive low-cooperation rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.low_streak = 0
+        self.last_action = Action.C
+        n_players = getattr(game_description, 'n_players', 0)
+        n_opponents = max(0, n_players - 1)
+        self.threshold = math.ceil(n_opponents / 2) if n_opponents > 0 else 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            self.low_streak = 0
+            self.last_action = Action.C
+            return Action.C
+        n_opponents = max(0, self.game_description.n_players - 1)
+        threshold = math.ceil(n_opponents / 2) if n_opponents > 0 else 0
+        x = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if x >= threshold:
+            self.low_streak = 0
+            self.last_action = Action.C
+            return Action.C
+        self.low_streak += 1
+        if self.low_streak == 1:
+            self.last_action = Action.C
+            return Action.C
+        self.last_action = Action.D
+        return Action.D
+
+class Strategy_BENEVOLENT_25(BaseStrategy):
+    """
+    Trustful cooperation with a three-state memory:
+    - Open: cooperate by default
+    - Guarded: defect after a sustained break in opponent cooperation
+    - Recovering: cautious return to cooperation after partial improvement
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = max(2, int(game_description.n_players))
+        self.n_opponents = max(0, self.n_players - 1)
+        self.majority_threshold = math.ceil(self.n_opponents / 2) if self.n_opponents > 0 else 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        state_open = 'OPEN'
+        state_guarded = 'GUARDED'
+        state_recovering = 'RECOVERING'
+        state = state_open
+        opp = history.opponent_cooperators
+        rounds_seen = len(opp)
+        for m_t in opp:
+            if m_t >= self.majority_threshold:
+                state = state_open
+            elif m_t == 0:
+                state = state_guarded
+            elif state == state_open:
+                state = state_open
+            elif state == state_guarded:
+                state = state_recovering
+            else:
+                state = state_recovering
+        last_m = int(opp[-1]) if rounds_seen >= 1 else 0
+        prev_m = int(opp[-2]) if rounds_seen >= 2 else 0
+        if state == state_open:
+            return Action.C
+        if state == state_recovering:
+            return Action.C if last_m >= 1 else Action.D
+        return Action.C if last_m > 0 and prev_m > 0 else Action.D
+
+class Strategy_BENEVOLENT_26(BaseStrategy):
+    """
+    Majority-sensitive, stateful public-goods strategy:
+    - Start by cooperating.
+    - Stay open under broad cooperation.
+    - Move to guarded/locked responses after sustained drops.
+    - Use a special endgame cooperation rule.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.majority_threshold = 0.5 if self.n == 2 else (self.n - 1) / 2.0
+        self.lock_threshold = (self.n - 1) / 3.0
+        self.state = 'open'
+        self.last_processed_round = 0
+        self.last_x = None
+        self.prev_x = None
+        self.open_reentry_streak = 0
+        self.stable_open = True
+
+    def _process_new_history(self, history: PlayerHistory) -> None:
+        target_rounds = history.round_number
+        if target_rounds <= self.last_processed_round:
+            return
+        for idx in range(self.last_processed_round, target_rounds):
+            x_t = int(history.opponent_cooperators[idx])
+            if x_t >= self.majority_threshold:
+                if self.state == 'open':
+                    self.open_reentry_streak += 1
+                    if self.open_reentry_streak >= 2:
+                        self.stable_open = True
+                else:
+                    self.open_reentry_streak = 0
+                    self.stable_open = False
+            else:
+                self.open_reentry_streak = 0
+                if self.state != 'open':
+                    self.stable_open = False
+            if x_t == self.n - 1:
+                self.state = 'open'
+                self.open_reentry_streak = 1
+                self.stable_open = False
+            elif x_t >= self.majority_threshold:
+                if self.state == 'open':
+                    self.state = 'open'
+                elif self.state == 'guarded':
+                    self.state = 'guarded'
+                else:
+                    self.state = 'guarded'
+                if self.state == 'open':
+                    self.open_reentry_streak = min(self.open_reentry_streak + 1, 2)
+            elif x_t > 0:
+                self.state = 'guarded'
+                self.open_reentry_streak = 0
+                self.stable_open = False
+            else:
+                if self.state == 'guarded' or self.prev_x == 0:
+                    self.state = 'locked'
+                else:
+                    self.state = 'guarded'
+                self.open_reentry_streak = 0
+                self.stable_open = False
+            self.prev_x = self.last_x
+            self.last_x = x_t
+        self.last_processed_round = target_rounds
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        self._process_new_history(history)
+        if history.round_number == 0:
+            return Action.C
+        x_prev = int(history.opponent_cooperators[-1])
+        if history.round_number >= max(0, self.r - 2):
+            return Action.C if x_prev >= self.majority_threshold else Action.D
+        if self.state == 'open':
+            if x_prev >= self.majority_threshold:
+                return Action.C
+            if self.stable_open:
+                return Action.D
+            return Action.C
+        if self.state == 'guarded':
+            return Action.C if x_prev >= self.majority_threshold else Action.D
+        return Action.D if x_prev <= self.lock_threshold else Action.C
+
+class Strategy_BENEVOLENT_27(BaseStrategy):
+    """
+    Adaptive cooperation strategy for the repeated N-player Public Goods Game.
+
+    - Starts with unconditional cooperation.
+    - Uses observed opponent cooperation rates to build a running mean and a
+      threshold that adapts over time.
+    - Cooperates quickly after cooperative recovery, but temporarily defects
+      when cooperation collapses or trends downward.
+    - Gives stronger cooperation preference in the endgame when a meaningful
+      cooperative baseline exists.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.last_tau = 0.5
+        self.last_mean_cooperation = 0.0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number + 1
+        if history.round_number == 0:
+            self.last_tau = 0.5
+            self.last_mean_cooperation = 0.0
+            return Action.C
+        if self.n_opponents <= 0:
+            m_rates = np.zeros(history.round_number, dtype=float)
+        else:
+            m_rates = np.asarray(history.opponent_cooperators, dtype=float) / float(self.n_opponents)
+        last_m = float(m_rates[-1]) if len(m_rates) > 0 else 0.0
+        h_prev = float(np.mean(m_rates)) if len(m_rates) > 0 else 0.0
+        self.last_mean_cooperation = h_prev
+        tau = 0.5
+        for m in m_rates:
+            tau = max(0.5, min(0.9, 0.7 * tau + 0.3 * float(m)))
+        self.last_tau = tau
+        s_recent = []
+        if len(m_rates) >= 2:
+            diffs = np.diff(m_rates)
+            s_recent = [float(x) for x in diffs[-3:]]
+        three_consecutive_drops = len(s_recent) >= 3 and all((s < 0.0 for s in s_recent[-3:]))
+        if t == self.n_rounds:
+            if last_m >= 0.5 or h_prev >= 0.6:
+                return Action.C
+            return Action.D
+        if math.isclose(last_m, 1.0, rel_tol=0.0, abs_tol=1e-12) or last_m > 1.0 - 1e-12:
+            return Action.C
+        if math.isclose(last_m, 0.0, rel_tol=0.0, abs_tol=1e-12) or last_m < 1e-12:
+            if history.round_number >= 3:
+                prev1 = float(m_rates[-2])
+                prev2 = float(m_rates[-3])
+                if prev1 >= 0.5 and prev2 >= 0.5:
+                    return Action.C
+            return Action.D
+        if three_consecutive_drops and last_m < 0.5:
+            return Action.D
+        if history.round_number >= 2:
+            if float(m_rates[-1]) >= 0.8 and float(m_rates[-2]) >= 0.8 and (last_m >= 0.6):
+                return Action.C
+        if last_m >= tau:
+            return Action.C
+        if h_prev >= 0.6 and last_m >= 0.4:
+            return Action.C
+        if t > math.floor(2 * self.n_rounds / 3) and h_prev >= 0.5:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_28(BaseStrategy):
+    """
+    Benevolent averaging strategy for the repeated n-player public goods game.
+
+    - Cooperate in round 1.
+    - Compute the running average of opponent cooperation rates.
+    - Cooperate while the average is at least 1/2, defect otherwise.
+    - If the last 3 observed rounds were all full cooperation, cooperate unconditionally.
+    - If the last 3 observed rounds were all zero cooperation, defect for the next 2 rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self._lockout_remaining = 0
+        self._full_coop_locked = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        n_rounds = self.game_description.n_rounds
+        m = max(1, n - 1)
+        t = history.round_number
+        if t == 0:
+            self._lockout_remaining = max(0, self._lockout_remaining)
+            return Action.C
+        opp = history.opponent_cooperators
+        if t >= 3:
+            last_three = opp[-3:]
+            if np.all(last_three == m):
+                self._full_coop_locked = True
+        if not self._full_coop_locked and t >= 3:
+            last_three = opp[-3:]
+            if np.all(last_three == 0) and self._lockout_remaining == 0:
+                self._lockout_remaining = 2
+        if self._full_coop_locked:
+            return Action.C
+        if self._lockout_remaining > 0:
+            self._lockout_remaining -= 1
+            return Action.D
+        if t <= 0:
+            return Action.C
+        coop_rates = opp.astype(np.float64) / float(m)
+        H_t = float(np.mean(coop_rates)) if len(coop_rates) > 0 else 0.0
+        if H_t >= 0.5:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_29(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Start by cooperating.
+    - Track consecutive rounds with low vs. high opponent cooperation.
+    - Defect only after two consecutive low-cooperation rounds.
+    - Cooperate whenever the recent group behavior is at or above the midpoint.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = max(2, int(game_description.n_players))
+        self.n_rounds = max(1, int(game_description.n_rounds))
+        self.k = float(game_description.k)
+        self.midpoint_threshold = math.ceil((self.n_players - 1) / 2)
+        self.low_streak = 0
+        self.high_streak = 0
+        self._last_seen_round = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            self.low_streak = 0
+            self.high_streak = 0
+            self._last_seen_round = 0
+            return Action.C
+        low_streak = 0
+        high_streak = 0
+        threshold = self.midpoint_threshold
+        opp_coops = history.opponent_cooperators
+        total_obs_rounds = len(opp_coops)
+        for idx in range(total_obs_rounds):
+            x_t = int(opp_coops[idx])
+            if x_t >= threshold:
+                high_streak += 1
+                low_streak = 0
+            else:
+                low_streak += 1
+                high_streak = 0
+        self.low_streak = low_streak
+        self.high_streak = high_streak
+        self._last_seen_round = round_number
+        if self.low_streak >= 2:
+            return Action.D
+        if self.high_streak >= 1:
+            return Action.C
+        return Action.C
+
+class Strategy_BENEVOLENT_30(BaseStrategy):
+    """
+    Trust-first public goods strategy:
+    - Cooperate in round 1.
+    - Reward majority cooperation immediately.
+    - Forgive temporary slippage if cooperation is improving.
+    - In the final two rounds, become stricter unless there is still some cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.opponent_count = max(0, self.n_players - 1)
+        self.majority_threshold = math.ceil(self.opponent_count / 2) if self.opponent_count > 0 else 0
+        self.last_two_rounds_start = max(0, self.n_rounds - 2)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        m_prev = int(opp[-1]) if len(opp) >= 1 else 0
+        m_prev2 = int(opp[-2]) if len(opp) >= 2 else None
+        if t >= self.last_two_rounds_start:
+            if len(opp) == 0:
+                return Action.C
+            if m_prev >= 1:
+                return Action.C
+            return Action.D
+        if m_prev == self.opponent_count:
+            return Action.C
+        if m_prev == 0:
+            return Action.D
+        if m_prev >= self.majority_threshold:
+            return Action.C
+        if m_prev2 is None:
+            return Action.C
+        if m_prev > m_prev2:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_31(BaseStrategy):
+    """
+    Start with cooperation, then use threshold-based reciprocity:
+    - Reward strong cooperation immediately.
+    - Defect briefly against sustained weak cooperation.
+    - Forgive quickly when cooperation returns.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(getattr(game_description, 'n_players', 0) or 0)
+        self.n_rounds = int(getattr(game_description, 'n_rounds', 0) or 0)
+        self.m = max(0, self.n_players - 1)
+        self.high = math.ceil(2 * self.m / 3) if self.m > 0 else 0
+        self.medium = math.ceil(self.m / 2) if self.m > 0 else 0
+        self.low = math.ceil(self.m / 3) if self.m > 0 else 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(getattr(history, 'round_number', 0) or 0)
+        if round_number == 0:
+            return Action.C
+        opp = getattr(history, 'opponent_cooperators', None)
+        if opp is None or len(opp) < round_number:
+            return Action.C
+        s_prev = int(opp[-1])
+        s_prev2 = int(opp[-2]) if round_number >= 2 and len(opp) >= 2 else None
+        if round_number == self.n_rounds - 1:
+            return Action.C if s_prev >= self.medium else Action.D
+        my_actions = getattr(history, 'my_actions', None)
+        if my_actions is not None and len(my_actions) >= 1 and (bool(my_actions[-1]) is False):
+            return Action.C if s_prev >= self.medium else Action.D
+        if self.m <= 0:
+            return Action.C
+        if s_prev >= self.high:
+            return Action.C
+        if self.medium <= s_prev < self.high:
+            if round_number >= 2 and s_prev2 is not None and (s_prev < self.medium) and (s_prev2 < self.medium):
+                return Action.D
+            return Action.C
+        if self.low <= s_prev < self.medium:
+            if s_prev2 is None:
+                return Action.C
+            if s_prev > s_prev2:
+                return Action.C
+            if s_prev == s_prev2 and round_number <= self.n_rounds / 2:
+                return Action.C
+            return Action.D
+        return Action.D
+
+class Strategy_BENEVOLENT_32(BaseStrategy):
+    """
+    Conditional public-goods strategy:
+    - Cooperate in round 1.
+    - Cooperate on the final round.
+    - Otherwise, cooperate if cooperation among opponents was sufficiently high
+      in the previous round, or if a single low-cooperation round is followed by
+      at least one cooperator.
+    - For n=2, this becomes: cooperate in rounds 1 and 2; afterward defect only
+      after two consecutive defections by the opponent.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.threshold = math.ceil(max(self.n_players - 1, 0) / 2)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        if t >= self.n_rounds - 1:
+            return Action.C
+        opp = history.opponent_cooperators
+        if self.n_players == 2:
+            if t == 1:
+                return Action.C
+            if opp[t - 1] > 0 or opp[t - 2] > 0:
+                return Action.C
+            return Action.D
+        a_t = int(opp[t - 1])
+        if a_t >= self.threshold:
+            return Action.C
+        if t >= 2:
+            a_t_minus_1 = int(opp[t - 2])
+            if a_t_minus_1 >= self.threshold and a_t > 0:
+                return Action.C
+        return Action.D
+
+class Strategy_SELFISH_5(BaseStrategy):
+    """
+    Always defect in every round, regardless of history.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self._defect_action = Action.D
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return self._defect_action
+
+class Strategy_SELFISH_6(BaseStrategy):
+    """
+    Always defect in every round, while optionally recording opponent cooperation
+    counts from history without using them to change the action.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.opponent_cooperation_history = []
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history is None:
+            return Action.D
+        round_number = getattr(history, 'round_number', 0)
+        if round_number <= 0:
+            return Action.D
+        try:
+            last_count = history.opponent_cooperators[-1]
+            self.opponent_cooperation_history.append(int(last_count))
+        except Exception:
+            pass
+        return Action.D
+
+class Strategy_SELFISH_7(BaseStrategy):
+    """
+    Always defects in every round, regardless of history or game state.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self._default_action = Action.D
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return self._default_action
+
+class Strategy_SELFISH_8(BaseStrategy):
+    """
+    Defect-by-default public goods strategy with:
+    - majority-and-baseline gated cooperation,
+    - a two-round cooldown after observing zero cooperation,
+    - a one-round cooperation burst after three consecutive full-cooperation rounds,
+    - and unconditional defection in the last two rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.majority_threshold = 0.5
+        self.full_coop_threshold = 1.0
+        self.zero_threshold = 0.0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.D
+        if round_number >= self.n_rounds - 2:
+            return Action.D
+        opponent_cooperators = history.opponent_cooperators
+        n_opponents = self.n_players - 1
+        q_values = []
+        for cnt in opponent_cooperators:
+            if n_opponents > 0:
+                q_values.append(float(cnt) / float(n_opponents))
+            else:
+                q_values.append(0.0)
+        last_q = q_values[-1] if q_values else 0.0
+        baseline = float(np.mean(q_values)) if q_values else 0.0
+        if len(q_values) >= 1 and q_values[-1] == self.zero_threshold:
+            return Action.D
+        if len(q_values) >= 2 and q_values[-2] == self.zero_threshold:
+            return Action.D
+        if len(q_values) >= 3 and (q_values[-1] == self.full_coop_threshold and q_values[-2] == self.full_coop_threshold and (q_values[-3] == self.full_coop_threshold)):
+            return Action.C
+        if last_q >= self.majority_threshold and baseline >= self.majority_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_9(BaseStrategy):
+    """
+    Always defect in every round of the repeated public goods game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_rounds = getattr(game_description, 'n_rounds', 0)
+        self.n_players = getattr(game_description, 'n_players', 0)
+        self.k = getattr(game_description, 'k', 0.0)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_10(BaseStrategy):
+    """
+    Always defects in every round, regardless of history.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = getattr(game_description, 'n_players', None)
+        self.n_rounds = getattr(game_description, 'n_rounds', None)
+        self.k = getattr(game_description, 'k', None)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history is None:
+            return Action.D
+        round_number = getattr(history, 'round_number', 0)
+        if round_number is None or round_number < 0:
+            return Action.D
+        return Action.D
+
+class Strategy_SELFISH_11(BaseStrategy):
+    """
+    Conservative public-goods strategy:
+    - Start by defecting.
+    - Cooperate only after sustained, near-unanimous opponent cooperation.
+    - Immediately defect after erosion and remain defecting until stability returns.
+    - Defect in the final two rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.W = 3
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.n_opponents = max(0, self.n_players - 1)
+        denom = max(1, self.n_opponents)
+        self.unanimous_threshold = (self.n_players - 2) / denom
+        self.erode_threshold = (self.n_players - 3) / denom
+        self.stable_threshold = (self.n_players - 2) / denom
+        self.window_slack = 1.0 / (2.0 * denom)
+        self.locked_defect = False
+        self.last_processed_round = -1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t >= max(0, self.n_rounds - 2):
+            return Action.D
+        if t == 0:
+            self.locked_defect = False
+            self.last_processed_round = 0
+            return Action.D
+        if self.last_processed_round != t:
+            if len(history.opponent_cooperators) > 0 and len(history.my_actions) > 0:
+                last_q = float(history.opponent_cooperators[-1]) / float(self.n_opponents) if self.n_opponents > 0 else 0.0
+                if bool(history.my_actions[-1]) and last_q < self.erode_threshold:
+                    self.locked_defect = True
+                if self.locked_defect:
+                    if len(history.opponent_cooperators) >= self.W:
+                        recent = history.opponent_cooperators[-self.W:]
+                        stable = True
+                        for x in recent:
+                            q = float(x) / float(self.n_opponents) if self.n_opponents > 0 else 0.0
+                            if q < self.stable_threshold:
+                                stable = False
+                                break
+                        if stable:
+                            self.locked_defect = False
+            self.last_processed_round = t
+        if self.locked_defect:
+            return Action.D
+        q_vals = []
+        for x in history.opponent_cooperators:
+            q_vals.append(float(x) / float(self.n_opponents) if self.n_opponents > 0 else 0.0)
+        if t < self.W:
+            if len(q_vals) > 0 and all((q >= self.unanimous_threshold for q in q_vals)):
+                return Action.C
+            return Action.D
+        recent_q = q_vals[-self.W:] if len(q_vals) >= self.W else q_vals
+        if len(recent_q) == 0:
+            return Action.D
+        s_t = float(np.mean(np.array(recent_q, dtype=float)))
+        if s_t == 1.0:
+            return Action.C
+        if s_t >= self.stable_threshold:
+            latest_q = recent_q[-1]
+            if latest_q >= s_t - self.window_slack:
+                return Action.C
+        return Action.D
+
+class Strategy_SELFISH_12(BaseStrategy):
+    """
+    Always defects in every round, regardless of history or game state.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_13(BaseStrategy):
+    """
+    Probe only in strongly and rising cooperative environments, then exploit briefly.
+    Default behavior is defection, with hard exit back to defection whenever cooperation
+    weakens or the final round approaches.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.lambda_ = 2.0 / 3.0
+        self.t_high = math.ceil((self.n - 1) / 2)
+        self.t_low = math.floor((self.n - 1) / 3)
+        self.mode = 'DEFECT'
+
+    def _rolling_average(self, values) -> float:
+        if len(values) == 0:
+            return 0.0
+        avg = float(values[0])
+        for v in values[1:]:
+            avg = self.lambda_ * avg + (1.0 - self.lambda_) * float(v)
+        return float(avg)
+
+    def _strong_and_rising(self, history: PlayerHistory, idx: int, avg_prev: float) -> bool:
+        if idx <= 0:
+            return False
+        m_prev = int(history.opponent_cooperators[idx - 1])
+        if m_prev < self.t_high:
+            return False
+        if avg_prev <= float(self.t_high):
+            return False
+        if idx >= 2:
+            m_prevprev = int(history.opponent_cooperators[idx - 2])
+            if not m_prev > m_prevprev:
+                return False
+        return True
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_no = int(history.round_number)
+        if round_no == 0:
+            self.mode = 'DEFECT'
+            return Action.D
+        if self.r <= 2 or round_no >= self.r - 1 or self.n <= 2:
+            self.mode = 'DEFECT'
+            return Action.D
+        opp = history.opponent_cooperators
+        avg_prev = self._rolling_average(opp[:round_no])
+        mode = 'DEFECT'
+        for idx in range(round_no):
+            m_t = int(opp[idx])
+            avg_t = self._rolling_average(opp[:idx + 1])
+            if mode == 'TEST':
+                mode = 'EXPLOIT' if m_t >= self.t_high else 'DEFECT'
+                continue
+            if mode == 'EXPLOIT':
+                if m_t >= self.t_low and avg_t > float(self.t_low + 1):
+                    mode = 'EXPLOIT'
+                else:
+                    mode = 'DEFECT'
+                continue
+            if idx >= 1:
+                m_prev = int(opp[idx - 1])
+                rising = True if idx < 2 else m_prev > int(opp[idx - 2])
+                if m_prev >= self.t_high and avg_t > float(self.t_high) and rising:
+                    mode = 'TEST'
+                else:
+                    mode = 'DEFECT'
+            else:
+                mode = 'DEFECT'
+        self.mode = mode
+        if self.mode == 'EXPLOIT':
+            m_prev = int(opp[-1])
+            if m_prev >= self.t_low and avg_prev > float(self.t_low + 1):
+                return Action.C
+            self.mode = 'DEFECT'
+            return Action.D
+        if self.mode == 'DEFECT':
+            if self._strong_and_rising(history, round_no, avg_prev):
+                self.mode = 'TEST'
+                return Action.C
+            return Action.D
+        if self.mode == 'TEST':
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_14(BaseStrategy):
+    """
+    Always defects in every round, regardless of history or game state.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_15(BaseStrategy):
+    """
+    Always defects in every round, regardless of history.
+    Tracks observed opponent cooperation counts only for bookkeeping.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.observed_opponent_cooperators = []
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history is not None and hasattr(history, 'opponent_cooperators'):
+            round_num = getattr(history, 'round_number', 0)
+            if round_num > 0:
+                try:
+                    self.observed_opponent_cooperators.append(int(history.opponent_cooperators[-1]))
+                except Exception:
+                    pass
+        return Action.D
+
+class Strategy_SELFISH_16(BaseStrategy):
+    """
+    Defect by default; cooperate only after sustained high cooperation
+    from opponents, and permanently defect after any clear drop in
+    cooperation. Never cooperate in the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.alpha = 0.75
+        self.beta = 0.5
+        self.mode = Action.D
+        self.coop_streak = 0
+        self.drop_streak = 0
+        self.locked = False
+        self._processed_rounds = 0
+        self._last_q = None
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_players = self.game_description.n_players
+        n_rounds = self.game_description.n_rounds
+        current_round = history.round_number
+        n_opponents = max(n_players - 1, 0)
+        while self._processed_rounds < current_round:
+            opp_count = int(history.opponent_cooperators[self._processed_rounds])
+            if n_opponents > 0:
+                q = opp_count / n_opponents
+            else:
+                q = 0.0
+            self._last_q = q
+            if q >= self.alpha:
+                self.coop_streak += 1
+                self.drop_streak = 0
+            elif q <= self.beta:
+                self.drop_streak += 1
+                self.coop_streak = 0
+                if self.drop_streak >= 1:
+                    self.locked = True
+            else:
+                self.coop_streak = 0
+                self.drop_streak = 0
+            self._processed_rounds += 1
+        if current_round == 0:
+            self.mode = Action.D
+            return Action.D
+        if current_round == n_rounds - 1:
+            self.mode = Action.D
+            return Action.D
+        if self.locked:
+            self.mode = Action.D
+            return Action.D
+        if self.coop_streak >= 2 and self._last_q is not None and (self._last_q >= self.alpha):
+            self.mode = Action.C
+            return Action.C
+        self.mode = Action.D
+        return Action.D
+
+class Strategy_SELFISH_17(BaseStrategy):
+    """
+    Always defects in every round, ignoring history entirely.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self._default_action = Action.D
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history is None:
+            return self._default_action
+        round_number = getattr(history, 'round_number', 0)
+        if round_number is None or round_number <= 0:
+            return self._default_action
+        my_actions = getattr(history, 'my_actions', None)
+        opponent_cooperators = getattr(history, 'opponent_cooperators', None)
+        if my_actions is None or opponent_cooperators is None:
+            return self._default_action
+        try:
+            if len(my_actions) < round_number or len(opponent_cooperators) < round_number:
+                return self._default_action
+        except Exception:
+            return self._default_action
+        return self._default_action
+
+class Strategy_SELFISH_18(BaseStrategy):
+    """
+    Always defects in every round, ignoring all history.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_19(BaseStrategy):
+    """
+    Always defect in every round, regardless of history.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self._default_action = Action.D
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return self._default_action
+
+class Strategy_SELFISH_20(BaseStrategy):
+    """
+    Always defects in every round, regardless of history or game state.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_21(BaseStrategy):
+    """
+    Always defect in every round, regardless of history or game conditions.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_22(BaseStrategy):
+    """
+    Always defects in every round, regardless of history or game state.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_23(BaseStrategy):
+    """
+    Always defects in every round of the repeated Public Goods Game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = getattr(game_description, 'n_players', 0)
+        self.n_rounds = getattr(game_description, 'n_rounds', 0)
+        self.k = getattr(game_description, 'k', 0.0)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_24(BaseStrategy):
+    """
+    Always defects in every round, regardless of history.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_25(BaseStrategy):
+    """
+    Always defects in every round, regardless of history or game parameters.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = getattr(game_description, 'n_players', None)
+        self.n_rounds = getattr(game_description, 'n_rounds', None)
+        self.k = getattr(game_description, 'k', None)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_26(BaseStrategy):
+    """
+    Threshold-based conditional cooperator for the N-player Public Goods Game.
+
+    - Starts with defection.
+    - Then cooperates only when recent opponent cooperation is sufficiently high,
+      using a short moving average of observed opponent cooperation rates.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n_players = int(getattr(game_description, 'n_players', 0))
+        k = float(getattr(game_description, 'k', 0.0))
+        self.n_players = n_players
+        self.n_opponents = max(0, n_players - 1)
+        self.k = k
+        self.threshold = 1.0 - 1.0 / k if k > 1.0 else 1.0
+        self.window = min(3, max(0, int(getattr(game_description, 'n_rounds', 0)) - 1))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        if self.n_opponents <= 0:
+            return Action.D
+        rounds_to_check = min(self.window if self.window > 0 else 1, history.round_number)
+        start_idx = history.round_number - rounds_to_check
+        recent_counts = history.opponent_cooperators[start_idx:history.round_number]
+        if len(recent_counts) == 0:
+            return Action.D
+        recent_rates = [float(c) / float(self.n_opponents) for c in recent_counts]
+        avg_q = float(np.mean(recent_rates)) if len(recent_rates) > 0 else 0.0
+        if avg_q >= self.threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_27(BaseStrategy):
+    """
+    Two-step threshold strategy for the repeated N-player Public Goods Game.
+
+    - Round 1: defect.
+    - Round 2: cooperate only if all opponents cooperated in round 1.
+    - Rounds 3 through r-1: cooperate only if the previous two rounds satisfy
+      the threshold, monotonicity, and persistence conditions.
+    - Final round: defect.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.m_opponents = max(0, self.n_players - 1)
+        if self.k > 1.0:
+            t = math.ceil(self.m_opponents * (1.0 - 1.0 / self.k))
+        else:
+            t = self.m_opponents
+        self.threshold = max(1, int(t))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        rn = int(history.round_number)
+        if rn < 0:
+            return Action.D
+        if rn == 0:
+            return Action.D
+        if rn >= self.n_rounds - 1:
+            return Action.D
+        opp = history.opponent_cooperators
+        if opp is None:
+            return Action.D
+        if rn == 1:
+            if len(opp) < 1:
+                return Action.D
+            return Action.C if int(opp[-1]) == self.m_opponents else Action.D
+        if len(opp) < 2:
+            return Action.D
+        x_prev = int(opp[-1])
+        x_prev2 = int(opp[-2])
+        if x_prev < self.threshold:
+            return Action.D
+        if x_prev2 < self.threshold - 1:
+            return Action.D
+        if x_prev < x_prev2:
+            return Action.D
+        return Action.C
+
+class Strategy_SELFISH_28(BaseStrategy):
+    """
+    Strictly selfish public-goods strategy:
+    defect initially, cooperate only when recent observed cooperation is already
+    sufficiently strong and stable, and fall back to permanent defection after
+    repeated weak rounds or in the endgame.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.permanent_defection = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = int(self.game_description.n_players)
+        r = int(self.game_description.n_rounds)
+        k = float(self.game_description.k)
+        if history.round_number == 0:
+            return Action.D
+        T = math.ceil(n / k) if k > 0 else n + 1
+        U = math.ceil((n - 1) / 2)
+        if T > n - 1:
+            self.permanent_defection = True
+            return Action.D
+        opp = history.opponent_cooperators
+        if len(opp) >= 2:
+            if opp[-1] < T and opp[-2] < T:
+                self.permanent_defection = True
+        if self.permanent_defection:
+            return Action.D
+        t = history.round_number
+        if t >= r - 2:
+            if len(opp) < 2:
+                return Action.D
+            last_two_ok = opp[-1] >= T and opp[-2] >= T
+            prior = opp[:-1]
+            if len(prior) == 0:
+                return Action.D
+            window = prior[-min(3, len(prior)):]
+            m_t = float(np.mean(window)) if len(window) > 0 else 0.0
+            return Action.C if last_two_ok and m_t >= T else Action.D
+        if len(opp) < 1:
+            return Action.D
+        x_t = int(opp[-1])
+        prior = opp[:-1]
+        w = min(3, len(prior))
+        if w <= 0:
+            return Action.D
+        recent = prior[-w:]
+        m_t = float(np.mean(recent)) if len(recent) > 0 else 0.0
+        h_t = float(np.mean(np.asarray(recent) >= U)) if len(recent) > 0 else 0.0
+        if x_t >= T and m_t >= T - 1 and (h_t >= 2.0 / 3.0):
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_29(BaseStrategy):
+    """
+    Always defect in every round of the repeated public goods game.
+    Records observed opponent cooperation counts for bookkeeping only.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.observed_opponent_cooperators = []
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            self.observed_opponent_cooperators.append(0)
+            return Action.D
+        last_count = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        self.observed_opponent_cooperators.append(last_count)
+        return Action.D
+
+class Strategy_SELFISH_30(BaseStrategy):
+    """
+    Always defects in every round, regardless of history or game state.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_31(BaseStrategy):
+    """
+    Default-defect strategy that only cooperates in the middle of the game
+    after sustained, non-declining majority cooperation by opponents, with
+    strict endgame defection and cooldowns after low-cooperation rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.half_threshold_count = int(math.ceil(self.n_opponents / 2)) if self.n_opponents > 0 else 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.D
+        if t == self.n_rounds - 1:
+            return Action.D
+        opp = history.opponent_cooperators
+        played_rounds = len(opp)
+
+        def rate_at(idx: int) -> float:
+            if self.n_opponents <= 0:
+                return 0.0
+            return float(opp[idx]) / float(self.n_opponents)
+        permanent_defect = False
+        last_low_idx = -10 ** 9
+        for i in range(played_rounds):
+            if rate_at(i) < 0.5:
+                if i > 0 and rate_at(i - 1) < 0.5:
+                    permanent_defect = True
+                    break
+                last_low_idx = i
+        if permanent_defect:
+            return Action.D
+        if t - last_low_idx <= 2 and last_low_idx >= 0:
+            return Action.D
+        if t == self.n_rounds - 2:
+            if played_rounds >= 2:
+                if rate_at(played_rounds - 1) == 1.0 and rate_at(played_rounds - 2) == 1.0:
+                    return Action.C
+            return Action.D
+        q_t = rate_at(played_rounds - 1)
+        streak = 0
+        for i in range(played_rounds - 1, -1, -1):
+            if rate_at(i) >= 0.5:
+                streak += 1
+            else:
+                break
+        if played_rounds >= 2:
+            q_prev = rate_at(played_rounds - 2)
+            drop = q_t < q_prev
+        else:
+            drop = False
+        if t <= self.n_rounds - 2 and streak >= 2 and (q_t >= 0.5) and (not drop):
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_32(BaseStrategy):
+    """
+    Always defect strategy for the repeated N-player public goods game.
+    Plays D in the first round and in every subsequent round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self._always_defect = Action.D
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history is None or history.round_number == 0:
+            return self._always_defect
+        return self._always_defect
+
+class Strategy_SELFINTERESTED_5(BaseStrategy):
+    """
+    Threshold-based public goods strategy with defection mode and recovery logic.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = max(2, int(game_description.n_players))
+        k = float(game_description.k)
+        self.n_players = n
+        self.n_rounds = max(1, int(game_description.n_rounds))
+        self.n_opponents = max(1, n - 1)
+        self.t_high = min(0.85, max(0.5, k / n + 0.15))
+        self.t_low = max(0.25, self.t_high - 0.2)
+        self.last_seen_round = 0
+        self.recent_rates = []
+        self.in_defection_mode = False
+        self.consecutive_highs = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        r_total = self.n_rounds
+        if t == 0:
+            self.last_seen_round = 0
+            self.recent_rates = []
+            self.in_defection_mode = False
+            self.consecutive_highs = 0
+            return Action.D
+        if t >= r_total - 1:
+            self._sync_state(history)
+            return Action.D
+        self._sync_state(history)
+        if self.in_defection_mode:
+            return Action.D
+        window = self.recent_rates[-3:]
+        if len(window) == 0:
+            return Action.D
+        avg_rate = float(sum(window)) / float(len(window))
+        last_rate = window[-1]
+        if avg_rate >= self.t_high and last_rate >= self.t_high:
+            if len(window) >= 2:
+                if window[-2] < self.t_low:
+                    return Action.D
+            return Action.C
+        return Action.D
+
+    def _sync_state(self, history: PlayerHistory) -> None:
+        """
+        Update internal state from the full observed history.
+        """
+        rounds_seen = history.round_number
+        if rounds_seen <= 0:
+            self.last_seen_round = 0
+            self.recent_rates = []
+            self.in_defection_mode = False
+            self.consecutive_highs = 0
+            return
+        rates = []
+        n_opps = self.n_opponents if self.n_opponents > 0 else 1
+        for idx in range(rounds_seen):
+            opp_count = int(history.opponent_cooperators[idx])
+            rho = opp_count / float(n_opps)
+            rates.append(rho)
+        self.recent_rates = rates[-3:]
+        self.last_seen_round = rounds_seen
+        in_mode = False
+        consec_high = 0
+        for rho in rates:
+            if in_mode:
+                if rho >= self.t_high:
+                    consec_high += 1
+                    if consec_high >= 2:
+                        in_mode = False
+                        consec_high = 0
+                else:
+                    consec_high = 0
+            elif rho < self.t_low:
+                in_mode = True
+                consec_high = 0
+        self.in_defection_mode = in_mode
+        self.consecutive_highs = consec_high
+
+class Strategy_SELFINTERESTED_6(BaseStrategy):
+    """
+    Threshold-based public goods strategy with cooperation, conditional retaliation,
+    and endgame defection.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = game_description.n_players
+        k = game_description.k
+        inv_k = 1.0 / k if k != 0 else float('inf')
+        self.H = min(0.9, inv_k + 0.1)
+        self.L = max(0.1, inv_k - 0.1)
+        self.n_players = n
+        self.n_rounds = game_description.n_rounds
+        self.n_opponents = max(0, n - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        current_round = round_number + 1
+        if round_number == 0:
+            return Action.C
+        if current_round >= self.n_rounds - 1:
+            return Action.D
+        if current_round == self.n_rounds - 2:
+            if round_number >= 1 and self.n_opponents > 0:
+                prev_m = history.opponent_cooperators[-1] / self.n_opponents
+                return Action.C if prev_m >= self.H else Action.D
+            return Action.D
+        if self.n_opponents > 0:
+            prev_m = history.opponent_cooperators[-1] / self.n_opponents
+        else:
+            prev_m = 0.0
+        if round_number >= 2 and self.n_opponents > 0:
+            prev_m2 = history.opponent_cooperators[-2] / self.n_opponents
+            if prev_m < self.L and prev_m2 < self.L:
+                return Action.D
+        if prev_m >= self.H:
+            return Action.C
+        if prev_m <= self.L:
+            return Action.D
+        if round_number >= 1:
+            return Action.C if history.my_actions[-1] else Action.D
+        return Action.D
+
+class Strategy_SELFINTERESTED_7(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Start with defection.
+    - Track recent cooperation ratios of opponents.
+    - Cooperate only when recent cooperation is strong and stable,
+      but defect in the endgame unless the immediately previous round
+      was unanimously cooperative among opponents.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m_opponents = max(0, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number + 1
+        if history.round_number == 0:
+            return Action.D
+        if self.m_opponents <= 0:
+            return Action.D
+        prev_opponents = int(history.opponent_cooperators[-1])
+        q_prev = prev_opponents / self.m_opponents
+        recent_qs = history.opponent_cooperators[-3:] if history.round_number >= 3 else history.opponent_cooperators[:]
+        S = 0
+        for x in recent_qs:
+            q = int(x) / self.m_opponents
+            if q >= 0.5:
+                S += 1
+            elif q >= 0.25:
+                S += 0
+            else:
+                S -= 1
+        if t >= self.n_rounds - 1:
+            if t == self.n_rounds - 1 and q_prev == 1.0:
+                return Action.C
+            return Action.D
+        if bool(history.my_actions[-1]) and q_prev < 0.25:
+            return Action.D
+        if not bool(history.my_actions[-1]) and history.round_number >= 2:
+            q_prev2 = int(history.opponent_cooperators[-2]) / self.m_opponents
+            if q_prev >= 0.75 and q_prev2 >= 0.75:
+                return Action.C
+        if q_prev >= 0.5 and S >= 1:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_8(BaseStrategy):
+    """
+    Defect by default, only entering a trust mode after observing unanimous
+    opponent cooperation in a previous non-final round. Cooperate in trust mode
+    only while unanimous opponent cooperation persists; defect on the last round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.mode = 'cold'
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = self.game_description.n_rounds
+        n_players = self.game_description.n_players
+        current_round = history.round_number
+        if current_round == 0:
+            self.mode = 'cold'
+            return Action.D
+        if n_rounds <= 1:
+            self.mode = 'cold'
+            return Action.D
+        if current_round == n_rounds - 1:
+            self.mode = 'cold'
+            return Action.D
+        last_opponent_cooperators = int(history.opponent_cooperators[-1])
+        unanimous_opponents = last_opponent_cooperators == n_players - 1
+        if not unanimous_opponents:
+            self.mode = 'cold'
+            return Action.D
+        if self.mode == 'cold':
+            if current_round >= 2:
+                self.mode = 'trust'
+            return Action.D
+        if current_round <= n_rounds - 2 and unanimous_opponents:
+            return Action.C
+        self.mode = 'cold'
+        return Action.D
+
+class Strategy_SELFINTERESTED_9(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Cooperate in round 1.
+    - Defect in the final round.
+    - In between, use a threshold rule with a small noise buffer:
+      * cooperate after sustained cooperation above threshold,
+      * defect after sustained cooperation below threshold,
+      * otherwise repeat the previous action.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        n_opponents = self.n_players - 1
+        self.n_opponents = n_opponents if n_opponents > 0 else 0
+        self.threshold = self.n_opponents * self.k / self.n_players if self.n_players > 0 else 0.0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        if round_number >= self.n_rounds - 1:
+            return Action.D
+        if round_number <= 0:
+            return Action.C
+        last_action = Action.C if bool(history.my_actions[-1]) else Action.D
+        last_m = int(history.opponent_cooperators[-1])
+        below_cutoff = self.threshold - 1.0
+        above_cutoff = self.threshold + 1.0
+        if round_number >= 2:
+            prev_m = int(history.opponent_cooperators[-2])
+            if last_m < below_cutoff and prev_m < below_cutoff:
+                return Action.D
+            if last_m > above_cutoff or prev_m > above_cutoff:
+                return Action.C
+        if last_m > above_cutoff:
+            return Action.C
+        if last_m < below_cutoff:
+            return Action.D
+        return last_action
+
+class Strategy_SELFINTERESTED_10(BaseStrategy):
+    """
+    Defect by default, but cooperate in non-final rounds only after observing
+    sufficiently many cooperating opponents in two consecutive rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = int(game_description.n_players)
+        k = float(game_description.k)
+        self.n_players = n
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = k
+        self.threshold = math.ceil((n - 1) / k) if k > 0 else math.inf
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0 or t == self.n_rounds - 1:
+            return Action.D
+        prev = int(history.opponent_cooperators[-1])
+        if prev < self.threshold:
+            return Action.D
+        if t == 1:
+            return Action.C
+        prev2 = int(history.opponent_cooperators[-2])
+        if prev2 >= self.threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_11(BaseStrategy):
+    """
+    Threshold-based cooperative strategy with a punishment state.
+
+    - Starts by cooperating.
+    - Uses the average recent opponent cooperation rate over up to the last 3 rounds.
+    - Enters punishment after a collapse in cooperation.
+    - Returns to cooperation only after a clear recovery.
+    - Always defects in the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.n_opponents = max(1, self.n_players - 1)
+        self.theta = 1.0 / self.k if self.k != 0 else float('inf')
+        self.recovery_threshold = self.theta + 1.0 / self.n_opponents
+        self.state = 'normal'
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            self.state = 'normal'
+            return Action.C
+        if round_number >= self.n_rounds - 1:
+            self.state = 'punish'
+            return Action.D
+        opp = history.opponent_cooperators
+        if len(opp) == 0:
+            self.state = 'punish'
+            return Action.D
+        recent = opp[-3:] if len(opp) >= 3 else opp
+        recent_mean_count = float(np.mean(recent)) if len(recent) > 0 else 0.0
+        q_bar = recent_mean_count / self.n_opponents
+        if opp[-1] == 0:
+            self.state = 'punish'
+            return Action.D
+        if len(opp) >= 3:
+            last_three_rates = opp[-3:] / self.n_opponents
+            if np.all(last_three_rates >= self.theta):
+                self.state = 'normal'
+                return Action.C
+        if self.state == 'punish':
+            if q_bar >= self.recovery_threshold:
+                self.state = 'normal'
+                return Action.C
+            return Action.D
+        if q_bar >= self.theta:
+            self.state = 'normal'
+            return Action.C
+        self.state = 'punish'
+        return Action.D
+
+class Strategy_SELFINTERESTED_12(BaseStrategy):
+    """
+    Always defects in every round, regardless of history or game parameters.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.always_defect = Action.D
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return self.always_defect
+
+class Strategy_SELFINTERESTED_13(BaseStrategy):
+    """
+    Threshold-based public goods strategy:
+    - Start with defection.
+    - Cooperate only after sufficiently high cooperation is observed.
+    - Require sustained cooperation signals to resume after defection.
+    - End with defection on the last round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = int(getattr(game_description, 'n_players', 0) or 0)
+        k = float(getattr(game_description, 'k', 0.0) or 0.0)
+        self.n_opponents = max(0, n - 1)
+        if k > 0:
+            q_star = math.ceil(self.n_opponents / k)
+        else:
+            q_star = self.n_opponents
+        if self.n_opponents > 0:
+            q_star = max(1, min(self.n_opponents, int(q_star)))
+        else:
+            q_star = 0
+        self.q_star = q_star
+        self.defection_mode = True
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        n_rounds = int(getattr(self.game_description, 'n_rounds', 0) or 0)
+        if round_number == 0:
+            self.defection_mode = True
+            return Action.D
+        if n_rounds > 0 and round_number >= n_rounds - 1:
+            self.defection_mode = True
+            return Action.D
+        x_prev = int(history.opponent_cooperators[-1]) if round_number >= 1 else 0
+        good_prev = x_prev >= self.q_star if self.q_star > 0 else True
+        good_prev2 = False
+        if round_number >= 2:
+            x_prev2 = int(history.opponent_cooperators[-2])
+            good_prev2 = x_prev2 >= self.q_star if self.q_star > 0 else True
+        else:
+            x_prev2 = None
+        if self.q_star == 0:
+            self.defection_mode = False
+        elif round_number == 1:
+            self.defection_mode = not good_prev
+        else:
+            self.defection_mode = not (good_prev and good_prev2 and (x_prev >= x_prev2))
+        if self.q_star == 0:
+            return Action.C
+        if round_number == 1:
+            return Action.C if good_prev else Action.D
+        if good_prev and good_prev2 and (x_prev >= x_prev2):
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_14(BaseStrategy):
+    """
+    Threshold-and-trend public goods strategy:
+    - Cooperate in the first round.
+    - Defect in the final round.
+    - In round 2, cooperate only if last round's opponent cooperation rate is high enough.
+    - From round 3 onward, cooperate only if recent cooperation remains high and stable.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.tau = max(0.5, 1.0 / self.k) if self.k != 0 else 0.5
+        self.drop = 1.0 / max(1, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = int(history.round_number) + 1
+        if t >= self.n_rounds:
+            return Action.D
+        if t == 1:
+            return Action.C
+        n_opp = max(1, self.n_players - 1)
+        if t == 2:
+            x_prev = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) >= 1 else 0
+            p_prev = x_prev / n_opp
+            return Action.C if p_prev >= self.tau else Action.D
+        if len(history.opponent_cooperators) >= 2:
+            x_prev = int(history.opponent_cooperators[-1])
+            x_prev2 = int(history.opponent_cooperators[-2])
+        elif len(history.opponent_cooperators) == 1:
+            x_prev = int(history.opponent_cooperators[-1])
+            x_prev2 = x_prev
+        else:
+            x_prev = 0
+            x_prev2 = 0
+        p_prev = x_prev / n_opp
+        p_prev2 = x_prev2 / n_opp
+        avg2 = (p_prev + p_prev2) / 2.0
+        if avg2 >= self.tau and p_prev >= p_prev2 - self.drop and (p_prev >= self.tau - self.drop):
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_15(BaseStrategy):
+    """
+    Start with defection, then cooperate only if the recent opponent cooperation
+    rate has been sufficiently high for the last observed rounds, while never
+    cooperating in the final two rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self._threshold = 1.0 / self.k if self.k != 0 else math.inf
+        self._n_opponents = max(1, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.D
+        if round_number >= self.n_rounds - 2:
+            return Action.D
+        last_opponents = int(history.opponent_cooperators[-1])
+        q_last = last_opponents / self._n_opponents
+        window = history.opponent_cooperators[-3:] if round_number >= 3 else history.opponent_cooperators
+        if len(window) == 0:
+            q_avg = 0.0
+        else:
+            q_avg = float(np.mean(window)) / self._n_opponents
+        if q_last >= self._threshold and q_avg >= self._threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_16(BaseStrategy):
+    """
+    Conservative threshold-based strategy for the N-player Public Goods Game.
+
+    - Round 1: defect.
+    - Middle rounds: cooperate only when cooperation is sufficiently high and stable.
+    - Final two rounds: defect.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = int(getattr(game_description, 'n_players', 0) or 0)
+        k = float(getattr(game_description, 'k', 0.0) or 0.0)
+        if k > 0:
+            self.threshold = int(math.ceil(max(n - 1, 0) / k))
+        else:
+            self.threshold = max(n - 1, 0)
+        self.waiting_for_restore = False
+        self.last_decision = Action.D
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        n_rounds = int(getattr(self.game_description, 'n_rounds', 0) or 0)
+        if round_number == 0:
+            self.waiting_for_restore = False
+            self.last_decision = Action.D
+            return Action.D
+        if n_rounds > 0 and round_number >= max(n_rounds - 2, 0):
+            self.waiting_for_restore = False
+            self.last_decision = Action.D
+            return Action.D
+        if len(history.opponent_cooperators) == 0:
+            self.last_decision = Action.D
+            return Action.D
+        x = int(history.opponent_cooperators[-1])
+        y = int(history.opponent_cooperators[-2]) if len(history.opponent_cooperators) >= 2 else None
+        if self.waiting_for_restore:
+            if x >= self.threshold:
+                self.waiting_for_restore = False
+            self.last_decision = Action.D
+            return Action.D
+        if x <= 0:
+            self.last_decision = Action.D
+            return Action.D
+        if len(history.my_actions) >= 2 and bool(history.my_actions[-2]) and (x < self.threshold):
+            self.waiting_for_restore = True
+            self.last_decision = Action.D
+            return Action.D
+        can_cooperate = x >= self.threshold
+        if can_cooperate and y is not None:
+            if x < y - 1:
+                can_cooperate = False
+        prev_action = bool(history.my_actions[-1])
+        prev_x = int(history.opponent_cooperators[-2]) if len(history.opponent_cooperators) >= 2 else None
+        if not can_cooperate and prev_action is False and (prev_x is not None):
+            if prev_x == self.threshold - 1 and x >= self.threshold + 1:
+                can_cooperate = True
+        action = Action.C if can_cooperate else Action.D
+        if action == Action.C:
+            self.last_decision = Action.C
+        else:
+            if len(history.my_actions) >= 1 and bool(history.my_actions[-1]) and (x < self.threshold):
+                self.waiting_for_restore = True
+            self.last_decision = Action.D
+        return action
+
+class Strategy_SELFINTERESTED_17(BaseStrategy):
+    """
+    Defect by default, cooperate only after sustained opponent cooperation,
+    and always defect in the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self._coop_threshold = 1.0 - 1.0 / self.k if self.k != 0 else 1.0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.D
+        if round_number >= self.n_rounds - 1:
+            return Action.D
+        opp_count = max(self.n_players - 1, 0)
+        if opp_count <= 0:
+            return Action.D
+        rates = history.opponent_cooperators.astype(float) / float(opp_count)
+        if round_number >= 2:
+            if rates[-1] >= self._coop_threshold and rates[-2] >= self._coop_threshold:
+                return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_18(BaseStrategy):
+    """
+    Trust-score driven public goods strategy:
+    - Defect by default
+    - Never cooperate in the first or last round
+    - Increase trust after strong cooperation by opponents
+    - Cooperate only after sustained high cooperation and sufficient remaining rounds
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = max(1, self.n_players - 1)
+        self.high_threshold = math.ceil(0.75 * self.m)
+        self.low_threshold = math.floor(0.25 * self.m)
+        self.trust_min = -3
+        self.trust_max = 3
+        self.trust = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = int(history.round_number)
+        if history is None:
+            return Action.D
+        if t == 0:
+            return Action.D
+        if t >= self.n_rounds - 1:
+            return Action.D
+        try:
+            s_prev = int(history.opponent_cooperators[-1])
+        except Exception:
+            return Action.D
+        if s_prev >= self.m:
+            self.trust += 2
+        elif s_prev >= self.high_threshold:
+            self.trust += 1
+        elif s_prev <= self.low_threshold:
+            self.trust -= 2
+        else:
+            self.trust -= 1
+        if self.trust < self.trust_min:
+            self.trust = self.trust_min
+        elif self.trust > self.trust_max:
+            self.trust = self.trust_max
+        if self.trust >= 2 and s_prev >= self.high_threshold and (self.n_rounds - 1 - t >= 2):
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_19(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Start by defecting.
+    - In the middle rounds, cooperate only after two consecutive high-cooperation observations,
+      defect immediately after low cooperation, otherwise keep the previous mode.
+    - Always defect in the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self._mode = Action.D
+        self._last_action = Action.D
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = self.game_description.n_rounds
+        n_players = self.game_description.n_players
+        n_opponents = max(0, n_players - 1)
+        high = math.ceil(2 * n_opponents / 3)
+        low = math.floor(n_opponents / 3)
+        round_number = history.round_number
+        if round_number == 0:
+            self._mode = Action.D
+            self._last_action = Action.D
+            return Action.D
+        if round_number >= n_rounds - 1:
+            self._mode = Action.D
+            self._last_action = Action.D
+            return Action.D
+        recent = history.opponent_cooperators[-2:] if round_number >= 2 else history.opponent_cooperators[-1:]
+        recent_list = recent.tolist() if hasattr(recent, 'tolist') else list(recent)
+        last_action = Action.C if bool(history.my_actions[-1]) else Action.D
+        current_mode = self._mode
+        if any((int(s) <= low for s in recent_list)):
+            current_mode = Action.D
+        elif len(recent_list) >= 2 and all((int(s) >= high for s in recent_list[-2:])):
+            current_mode = Action.C
+        elif len(recent_list) == 1:
+            s = int(recent_list[0])
+            if s >= high:
+                current_mode = Action.C
+            elif s <= low:
+                current_mode = Action.D
+            else:
+                current_mode = last_action
+        else:
+            current_mode = last_action
+        self._mode = current_mode
+        self._last_action = current_mode
+        return current_mode
+
+class Strategy_SELFINTERESTED_20(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Start by cooperating.
+    - Defect in the final round.
+    - In intermediate rounds, cooperate when opponent cooperation has been
+      consistently strong, with a small recovery boost after sustained good behavior.
+    - Special handling for n=2, r=2, and early all-zero opponent histories.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.n_opponents = max(0, self.n - 1)
+        self.half_threshold = int(math.ceil(self.n_opponents / 2))
+        self.three_threshold = int(math.ceil(self.n_opponents / 3))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t >= self.r - 1:
+            return Action.D
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        if self.n == 2:
+            return Action.C if opp[-1] >= 1 else Action.D
+        if self.r == 2:
+            if t == 1:
+                return Action.C if opp[0] >= self.half_threshold else Action.D
+            return Action.D
+        if len(opp) >= 2 and opp[0] == 0 and (opp[1] == 0) and (t >= 2):
+            return Action.D
+        avg_opp = 0.0
+        if t > 0:
+            avg_opp = float(np.mean(opp[:t]))
+        last_opp = int(opp[-1]) if len(opp) > 0 else 0
+        prev_opp = int(opp[-2]) if len(opp) > 1 else 0
+        S = 0
+        for x in opp[:t]:
+            if int(x) >= self.half_threshold:
+                S += 1
+            else:
+                S -= 1
+            if S > 2:
+                S = 2
+            elif S < -2:
+                S = -2
+        if S == 2 and last_opp >= self.three_threshold:
+            return Action.C
+        if S <= -1:
+            if last_opp >= self.half_threshold and prev_opp >= self.half_threshold:
+                return Action.C
+            return Action.D
+        if avg_opp >= self.half_threshold and last_opp >= self.half_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_21(BaseStrategy):
+    """
+    Conditional-cooperation trigger strategy with trust, slump tracking,
+    fast-response defection after sustained low cooperation, and hard endgame defection.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.trust = 0.5
+        self.slump = 0
+        self.last_seen = 0
+        self.low_streak = 0
+        self.high_streak = 0
+        self.forced_defect = False
+        self.cooperative_mode = True
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        m = max(0, n - 1)
+
+        def coop_rate_from_count(count: int) -> float:
+            if m <= 0:
+                return 0.5
+            return count / m
+        if history.round_number == 0:
+            return Action.D
+        if history.round_number >= r - 1:
+            return Action.D
+        if len(history.opponent_cooperators) > 0:
+            observed = int(history.opponent_cooperators[-1])
+        else:
+            observed = 0
+        self.last_seen = observed
+        coop_rate = coop_rate_from_count(observed)
+        prev_trust = self.trust if self.trust is not None else 0.5
+        self.trust = 0.7 * prev_trust + 0.3 * coop_rate
+        if coop_rate <= 1.0 / 3.0:
+            self.slump += 1
+        else:
+            self.slump = 0
+        if coop_rate < 0.5:
+            self.low_streak += 1
+        else:
+            self.low_streak = 0
+        if coop_rate >= 2.0 / 3.0:
+            self.high_streak += 1
+        else:
+            self.high_streak = 0
+        if self.low_streak >= 2:
+            self.forced_defect = True
+            self.cooperative_mode = False
+        if self.forced_defect and self.high_streak >= 2:
+            self.forced_defect = False
+            self.cooperative_mode = True
+            self.low_streak = 0
+        if self.forced_defect:
+            return Action.D
+        threshold = math.ceil(2 * m / 3) if m > 0 else 0
+        if self.trust >= 2.0 / 3.0 and self.slump < 2 and (self.last_seen >= threshold):
+            self.cooperative_mode = True
+            return Action.C
+        self.cooperative_mode = False
+        return Action.D
+
+class Strategy_SELFINTERESTED_22(BaseStrategy):
+    """
+    Defect initially and in the final two rounds.
+    Cooperate only after two consecutive rounds of near-universal opponent cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.threshold = max(0, self.n_players - 2)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.D
+        if round_number >= max(0, self.n_rounds - 2):
+            return Action.D
+        if self.n_players == 2:
+            if round_number < 3:
+                return Action.D
+            if history.opponent_cooperators[-1] >= 1 and history.opponent_cooperators[-2] >= 1:
+                return Action.C
+            return Action.D
+        if round_number == 1:
+            return Action.C if history.opponent_cooperators[-1] >= self.threshold else Action.D
+        if history.opponent_cooperators[-1] >= self.threshold and history.opponent_cooperators[-2] >= self.threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_23(BaseStrategy):
+    """
+    Always defects in every round, regardless of history or horizon.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.last_observed_opponent_cooperators = None
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number > 0:
+            self.last_observed_opponent_cooperators = int(history.opponent_cooperators[-1])
+        return Action.D
+
+class Strategy_SELFINTERESTED_24(BaseStrategy):
+    """
+    Always defect in every round, ignoring all history.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFINTERESTED_25(BaseStrategy):
+    """
+    Unconditional defection strategy for the repeated public goods game.
+    Always chooses D, regardless of history or game state.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.default_action = Action.D
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history is None:
+            return self.default_action
+        round_number = getattr(history, 'round_number', 0)
+        if round_number <= 0:
+            return self.default_action
+        my_actions = getattr(history, 'my_actions', None)
+        opponent_cooperators = getattr(history, 'opponent_cooperators', None)
+        if my_actions is None or opponent_cooperators is None:
+            return self.default_action
+        if len(my_actions) != round_number or len(opponent_cooperators) != round_number:
+            return self.default_action
+        return self.default_action
+
+class Strategy_SELFINTERESTED_26(BaseStrategy):
+    """
+    Probe with cooperation, defect in the final round,
+    and only return to cooperation after two consecutive
+    highly cooperative opponent rounds. A clearly uncooperative
+    round triggers a two-round defection cooldown.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.good_streak = 0
+        self.bad_streak = 0
+        self.cooldown = 0
+        self.last_seen_round = -1
+        n_opponents = max(0, self.game_description.n_players - 1)
+        self.good_threshold = math.ceil(2 * n_opponents / 3)
+        self.bad_threshold = math.floor(n_opponents / 3)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        last_round_index = self.game_description.n_rounds - 1
+        if round_number >= last_round_index:
+            self.last_seen_round = round_number
+            return Action.D
+        if round_number == 0:
+            self.good_streak = 0
+            self.bad_streak = 0
+            self.cooldown = 0
+            self.last_seen_round = 0
+            return Action.C
+        if self.last_seen_round != round_number:
+            x = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+            if x >= self.good_threshold:
+                self.good_streak += 1
+                self.bad_streak = 0
+            elif x <= self.bad_threshold:
+                self.bad_streak += 1
+                self.good_streak = 0
+                self.cooldown = 2
+            else:
+                self.good_streak = 0
+                self.bad_streak = 0
+            self.last_seen_round = round_number
+        if self.cooldown > 0:
+            self.cooldown -= 1
+            return Action.D
+        if self.good_streak >= 2:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_27(BaseStrategy):
+    """
+    Hysteresis public-goods strategy:
+    - Defect in round 0.
+    - Defect in the last round.
+    - For n = 2: cooperate iff the other player cooperated in the previous round.
+    - Otherwise: cooperate only after 2 consecutive qualifying rounds
+      (opponent cooperators >= ceil((n - 1) / k)).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = getattr(game_description, 'n_players', 0)
+        k = getattr(game_description, 'k', 0.0)
+        if isinstance(n, int) and n >= 2 and isinstance(k, (int, float)) and (k > 0):
+            self.threshold = int(math.ceil((n - 1) / k))
+        else:
+            self.threshold = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        gd = self.game_description
+        n = getattr(gd, 'n_players', 0)
+        r = getattr(gd, 'n_rounds', 0)
+        round_number = getattr(history, 'round_number', 0)
+        if round_number <= 0:
+            return Action.D
+        if isinstance(r, int) and r > 0 and (round_number >= r - 1):
+            return Action.D
+        opp = getattr(history, 'opponent_cooperators', None)
+        if opp is None or len(opp) == 0:
+            return Action.D
+        if isinstance(n, int) and n == 2:
+            return Action.C if int(opp[-1]) >= 1 else Action.D
+        if round_number < 2 or len(opp) < 2:
+            return Action.D
+        q = self.threshold
+        if q <= 0:
+            return Action.D
+        return Action.C if int(opp[-1]) >= q and int(opp[-2]) >= q else Action.D
+
+class Strategy_SELFINTERESTED_28(BaseStrategy):
+    """
+    Unconditional defection strategy for the repeated public goods game.
+    Always plays D in every round, regardless of history.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFINTERESTED_29(BaseStrategy):
+    """
+    Always defect in every round, regardless of history or game state.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFINTERESTED_30(BaseStrategy):
+    """
+    Cautious public-goods strategy:
+    - Defect in the first and last rounds.
+    - Cooperate only when recent opponent cooperation is sufficiently high,
+      stable, and above a threshold derived from n and k.
+    - Require a two-round reset after any weak round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.threshold = max(1, math.ceil(self.n_players - self.k))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.D
+        if round_number >= self.n_rounds - 1:
+            return Action.D
+        opp = history.opponent_cooperators
+        if len(opp) == 0:
+            return Action.D
+        last = int(opp[-1])
+        if last < self.threshold:
+            return Action.D
+        if round_number >= 2:
+            prev = int(opp[-2])
+            if last < prev:
+                return Action.D
+            if prev < self.threshold:
+                return Action.D
+        m = min(3, round_number)
+        if m <= 0:
+            return Action.D
+        recent = opp[-m:]
+        avg = float(np.mean(recent)) if m > 0 else 0.0
+        if avg >= self.threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_31(BaseStrategy):
+    """
+    Always defect strategy for the repeated public goods game.
+    Ignores all history and chooses D in every round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self._default_action = Action.D
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return self._default_action
+
+class Strategy_SELFINTERESTED_32(BaseStrategy):
+    """
+    Cooperate only after observing two consecutive rounds of unanimous
+    opponent cooperation, while always defecting in the first and last round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(getattr(game_description, 'n_players', 0))
+        self.n_rounds = int(getattr(game_description, 'n_rounds', 0))
+        self.opponent_count = max(0, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.D
+        if self.n_rounds > 0 and round_number >= self.n_rounds - 1:
+            return Action.D
+        if len(history.opponent_cooperators) == 0:
+            return Action.D
+        unanimous_last = history.opponent_cooperators[-1] == self.opponent_count
+        if round_number == 1:
+            return Action.C if unanimous_last else Action.D
+        if len(history.opponent_cooperators) >= 2:
+            unanimous_prev = history.opponent_cooperators[-2] == self.opponent_count
+            if unanimous_last and unanimous_prev:
+                return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_5(BaseStrategy):
+    """
+    Cautious majority-gated cooperation strategy for repeated N-player public goods game.
+
+    - Starts with defection.
+    - Cooperates only after recent majority cooperation and stable short-term cooperation.
+    - Defects immediately when cooperation weakens.
+    - Tightens cooperation requirement in the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.majority_threshold = math.ceil((self.n_players - 1) / 2) if self.n_players > 1 else 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.D
+        opp = history.opponent_cooperators
+        max_index = len(opp) - 1
+        last = int(opp[-1]) if len(opp) > 0 else 0
+
+        def recent_avg(window: int) -> float:
+            if len(opp) == 0:
+                return 0.0
+            start = max(0, len(opp) - window)
+            vals = opp[start:]
+            if len(vals) == 0 or self.n_players <= 1:
+                return 0.0
+            return float(np.mean(np.array(vals, dtype=float) / max(1, self.n_players - 1)))
+        if t == self.n_rounds - 1:
+            if len(opp) >= 3:
+                if int(opp[-1]) >= self.majority_threshold and int(opp[-2]) >= self.majority_threshold and (int(opp[-3]) >= self.majority_threshold):
+                    return Action.C
+            return Action.D
+        if len(opp) >= 2:
+            if int(opp[-1]) >= self.majority_threshold and int(opp[-2]) >= self.majority_threshold:
+                if recent_avg(3) >= 0.5:
+                    return Action.C
+                return Action.D
+        if last < self.majority_threshold:
+            return Action.D
+        if last >= self.majority_threshold and recent_avg(3) >= 0.5:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_6(BaseStrategy):
+    """
+    Adaptive public-goods strategy with cooperation probing, shock response,
+    exploitation cycles, and defecting tie-breaks.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self._n = int(game_description.n_players)
+        self._r = int(game_description.n_rounds)
+        self._m = max(0, self._n - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds_played = history.round_number
+        n_total = self._r
+        m = self._m
+        if n_rounds_played == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        my = history.my_actions
+        s = 0.0
+        full_streak = 0
+        last_full_streak_len = 0
+        full_coop_streak_start = None
+        shock_forced_rounds = set()
+        exploitation_active = False
+        exploitation_entry_round = None
+        for t in range(n_rounds_played):
+            x_t = int(opp[t]) if t < len(opp) else 0
+            q_t = x_t / m if m > 0 else 0.0
+            s = 0.7 * s + 0.3 * q_t
+            if x_t == m:
+                full_streak += 1
+            else:
+                full_streak = 0
+                exploitation_active = False
+                exploitation_entry_round = None
+            last_full_streak_len = full_streak
+            if not exploitation_active and full_streak >= 3:
+                exploitation_active = True
+                exploitation_entry_round = t
+            if t >= 1:
+                prev_x = int(opp[t - 1])
+                if prev_x > 0 and x_t <= prev_x // 2:
+                    shock_forced_rounds.add(t + 1)
+                    shock_forced_rounds.add(t + 2)
+        q_bar = s
+        x_last = int(opp[-1])
+        my_last = bool(my[-1])
+        recovery_action = None
+        if not my_last and x_last == m:
+            recovery_action = Action.C
+        elif my_last and x_last < math.ceil(0.5 * m):
+            recovery_action = Action.D
+        main_action = Action.D
+        if q_bar >= 0.8:
+            main_action = Action.C
+        elif 0.55 <= q_bar < 0.8:
+            main_action = Action.C if x_last >= math.ceil(0.75 * m) else Action.D
+        elif 0.3 <= q_bar < 0.55:
+            two_consecutive_full = n_rounds_played >= 2 and int(opp[-1]) == m and (int(opp[-2]) == m)
+            main_action = Action.C if two_consecutive_full else Action.D
+        else:
+            main_action = Action.D
+        last_round_action = None
+        if n_rounds_played == n_total - 1:
+            last_three_full = n_rounds_played >= 3 and int(opp[-1]) == m and (int(opp[-2]) == m) and (int(opp[-3]) == m)
+            last_round_action = Action.C if last_three_full else Action.D
+        shock_action = Action.D if n_rounds_played in shock_forced_rounds else None
+        exploitation_action = None
+        if exploitation_active and exploitation_entry_round is not None:
+            phase = (n_rounds_played - (exploitation_entry_round + 1)) % 3
+            exploitation_action = Action.C if phase == 0 else Action.D
+        suggestions = [main_action]
+        if recovery_action is not None:
+            suggestions.append(recovery_action)
+        if last_round_action is not None:
+            suggestions.append(last_round_action)
+        if shock_action is not None:
+            suggestions.append(shock_action)
+        if exploitation_action is not None:
+            suggestions.append(exploitation_action)
+        for act in suggestions:
+            if act == Action.D:
+                return Action.D
+        return Action.C
+
+class Strategy_OPPORTUNISTIC_7(BaseStrategy):
+    """
+    Adaptive public-goods strategy with three modes:
+    establish, harvest, and punish.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.m_opponents = max(0, self.n_players - 1)
+        if self.k > 0:
+            self.high_threshold = 1.0 / self.k
+        else:
+            self.high_threshold = 1.0
+        self.medium_threshold = self.high_threshold + 0.15
+        self.low_threshold = self.high_threshold - 0.1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.D
+        if len(history.opponent_cooperators) == 0:
+            return Action.D
+        last_x = int(history.opponent_cooperators[-1])
+        recent = last_x / self.m_opponents if self.m_opponents > 0 else 0.0
+        if t >= 2 and self.m_opponents > 0:
+            prev_x = int(history.opponent_cooperators[-2])
+            prev_recent = prev_x / self.m_opponents
+            trend = recent - prev_recent
+        else:
+            trend = 0.0
+        if t >= 2 and self.m_opponents > 0:
+            past_rates = [int(x) / self.m_opponents for x in history.opponent_cooperators[:t]]
+            avg_p = float(np.mean(past_rates)) if len(past_rates) > 0 else 0.0
+        else:
+            avg_p = recent
+        last_my_action_d = bool(history.my_actions[-1] == False)
+        if self.n_players == 2:
+            all_coop_so_far = bool(len(history.opponent_cooperators) > 0 and np.all(history.opponent_cooperators == 1))
+            if recent >= 1.0 and all_coop_so_far:
+                return Action.C
+            return Action.D
+        rounds_remaining = self.n_rounds - t
+        if rounds_remaining <= 0:
+            return Action.D
+        if rounds_remaining == 1:
+            return Action.D
+        if rounds_remaining == 2:
+            if recent >= 1.0 and avg_p >= self.high_threshold:
+                return Action.C
+            return Action.D
+        if rounds_remaining in (3, 4):
+            if recent > self.medium_threshold and avg_p >= self.high_threshold and (t >= 2) and (history.opponent_cooperators[-1] >= self.high_threshold * self.m_opponents) and (history.opponent_cooperators[-2] >= self.high_threshold * self.m_opponents):
+                return Action.C
+            return Action.D
+        if last_my_action_d:
+            last_two_ok = False
+            if t >= 2:
+                p_last = history.opponent_cooperators[-1] / self.m_opponents if self.m_opponents > 0 else 0.0
+                p_prev = history.opponent_cooperators[-2] / self.m_opponents if self.m_opponents > 0 else 0.0
+                last_two_ok = p_last >= self.medium_threshold or p_prev >= self.medium_threshold
+            else:
+                last_two_ok = recent >= self.medium_threshold
+            if recent > self.medium_threshold and last_two_ok:
+                return Action.C
+            return Action.D
+        if recent > self.medium_threshold and avg_p >= self.high_threshold and (trend >= 0.0):
+            return Action.C
+        if recent < self.high_threshold:
+            return Action.D
+        if recent >= self.high_threshold and trend < 0.0 and (avg_p < self.medium_threshold):
+            return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_8(BaseStrategy):
+    """
+    Conditional threshold strategy with a probing opening, trend-sensitive midgame,
+    punishment for repeated low cooperation, and endgame defection.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.low_streak = 0
+        self.history_f = []
+
+    def _mean(self, values):
+        if not values:
+            return 0.0
+        return float(sum(values)) / float(len(values))
+
+    def _trend(self, f_history):
+        r = self.n_rounds
+        L = max(1, int(math.floor(r / 5)))
+        if len(f_history) < L:
+            return 0.0
+        recent = f_history[-L:]
+        recent_avg = self._mean(recent)
+        prior_start = len(f_history) - 2 * L
+        prior_end = len(f_history) - L
+        if prior_start < 0:
+            prior_avg = recent_avg
+        else:
+            prior = f_history[prior_start:prior_end]
+            if len(prior) == 0:
+                prior_avg = recent_avg
+            else:
+                prior_avg = self._mean(prior)
+        return recent_avg - prior_avg
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        n = self.n_players
+        r = self.n_rounds
+        if t == 0:
+            return Action.C
+        last_opp_coop = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        denom = max(1, n - 1)
+        f_prev = float(last_opp_coop) / float(denom)
+        f_history = []
+        for x in history.opponent_cooperators:
+            f_history.append(float(int(x)) / float(denom))
+        H_prev = self._mean(f_history)
+        if f_prev < 1.0 / 3.0:
+            self.low_streak += 1
+        else:
+            self.low_streak = 0
+        if t == r - 1:
+            return Action.D
+        if t == r - 2:
+            if f_prev >= 1.0 and H_prev >= 2.0 / 3.0:
+                return Action.C
+            return Action.D
+        if self.low_streak >= 2:
+            return Action.D
+        S_prev = self._trend(f_history)
+        if f_prev >= 2.0 / 3.0:
+            return Action.C
+        if H_prev >= 0.5 and f_prev >= 0.5 and (S_prev >= 0.0):
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_9(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Cooperate in round 1.
+    - Defect in the final round.
+    - Otherwise cooperate only when recent opponent cooperation is consistently high
+      and non-decreasing, with short cooldowns after total defection.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.total_rounds = int(game_description.n_rounds)
+        self.defect_cooldown = 0
+        self.force_cooperate_mode = False
+        self.last_seen_round = -1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = int(history.round_number)
+        n_opps = self.n_opponents
+        if t == 0:
+            self.defect_cooldown = 0
+            self.force_cooperate_mode = False
+            self.last_seen_round = 0
+            return Action.C
+        if t >= self.total_rounds - 1:
+            self.defect_cooldown = 0
+            self.force_cooperate_mode = False
+            self.last_seen_round = t
+            return Action.D
+        opp = history.opponent_cooperators
+
+        def rate_at(idx: int) -> float:
+            if idx < 0 or idx >= len(opp) or n_opps <= 0:
+                return 0.0
+            return float(opp[idx]) / float(n_opps)
+        last = rate_at(t - 1)
+        start_recent = max(0, t - 3)
+        recent_slice = opp[start_recent:t]
+        recent = float(np.mean(recent_slice)) / float(n_opps) if len(recent_slice) > 0 and n_opps > 0 else 0.0
+        trend = 0.0
+        if t >= 5 and n_opps > 0:
+            recent_now_slice = opp[t - 3:t]
+            recent_prev_slice = opp[t - 4:t - 1]
+            if len(recent_now_slice) > 0 and len(recent_prev_slice) > 0:
+                recent_now = float(np.mean(recent_now_slice)) / float(n_opps)
+                recent_prev = float(np.mean(recent_prev_slice)) / float(n_opps)
+                trend = recent_now - recent_prev
+        if t >= 3 and n_opps > 0:
+            if int(opp[t - 1]) == n_opps and int(opp[t - 2]) == n_opps and (int(opp[t - 3]) == n_opps):
+                self.force_cooperate_mode = True
+        if int(opp[t - 1]) == 0:
+            self.defect_cooldown = 2
+        if self.defect_cooldown > 0:
+            if last >= 0.5:
+                self.defect_cooldown = 0
+            else:
+                self.defect_cooldown -= 1
+                self.last_seen_round = t
+                return Action.D
+        if self.force_cooperate_mode:
+            if last >= 0.5:
+                self.last_seen_round = t
+                return Action.C
+            self.force_cooperate_mode = False
+        if last >= 0.5 and recent >= 0.5 and (trend >= 0.0):
+            self.last_seen_round = t
+            return Action.C
+        self.last_seen_round = t
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_10(BaseStrategy):
+    """
+    Threshold-based cooperative strategy with a short punishment mode.
+
+    - Starts by cooperating.
+    - Defects on the final round.
+    - In open mode, cooperates only when recent opponent cooperation is
+      sufficiently high and stable.
+    - Enters punishment after weak cooperation and defects until recovery
+      conditions are met.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = max(2, int(game_description.n_players))
+        k = float(game_description.k)
+        self.H = math.ceil((n - 1) / k) if k != 0 else 0
+        self.L = max(0, self.H - 1)
+        self.mode = 'open'
+        self.punish_left = 0
+        self._processed_rounds = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = int(self.game_description.n_rounds)
+        current_round = int(history.round_number)
+        for idx in range(self._processed_rounds, current_round):
+            x = int(history.opponent_cooperators[idx])
+            if self.mode == 'punish':
+                if self.punish_left > 0:
+                    self.punish_left -= 1
+                if self.punish_left == 0 and idx >= 1:
+                    prev_x = int(history.opponent_cooperators[idx - 1])
+                    if prev_x >= self.H and x >= self.H:
+                        self.mode = 'open'
+            elif x <= self.L:
+                self.mode = 'punish'
+                self.punish_left = 2
+        self._processed_rounds = current_round
+        round_number_1_based = current_round + 1
+        if round_number_1_based >= n_rounds:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        if self.mode == 'punish':
+            return Action.D
+        x_prev = int(history.opponent_cooperators[-1])
+        if current_round >= 2:
+            x_prev2 = int(history.opponent_cooperators[-2])
+            x_avg = (x_prev + x_prev2) / 2.0
+        else:
+            x_avg = float(x_prev)
+        if x_prev >= self.H and x_avg >= self.H and (x_prev > self.L):
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_11(BaseStrategy):
+    """
+    Three-phase contingent strategy:
+    - Probe early with cooperation
+    - Mirror and reward sustained cooperation
+    - Defect in the endgame unless cooperation is already stable
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.half_threshold = math.ceil(self.n_opponents / 2) if self.n_opponents > 0 else 0
+        self.high_threshold = math.ceil(0.75 * self.n_opponents) if self.n_opponents > 0 else 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        upcoming_round = t + 1
+        if t == 0:
+            return Action.C
+        last_m = int(history.opponent_cooperators[-1]) if t > 0 else 0
+        past_m = history.opponent_cooperators
+        seen_rounds = len(past_m)
+        S_t = int(np.sum(past_m >= self.half_threshold)) if seen_rounds > 0 else 0
+        L_t = 0
+        for x in past_m[::-1]:
+            if int(x) == 0:
+                L_t += 1
+            else:
+                break
+        H_t = 0
+        for x in past_m[::-1]:
+            if int(x) == self.n_opponents:
+                H_t += 1
+            else:
+                break
+        if upcoming_round >= self.n_rounds - 1:
+            if last_m == self.n_opponents:
+                return Action.C
+            if self.n_opponents > 0 and last_m >= self.high_threshold:
+                if seen_rounds > 0 and 2 * S_t >= seen_rounds:
+                    return Action.C
+            return Action.D
+        if last_m == self.n_opponents:
+            return Action.C
+        if self.n_opponents > 0 and last_m >= self.high_threshold:
+            return Action.C
+        if self.n_opponents > 0 and last_m >= self.half_threshold:
+            return Action.C if random.random() < 0.5 else Action.D
+        if last_m >= 1:
+            return Action.D
+        if L_t >= 2:
+            return Action.D
+        return Action.C if upcoming_round % 3 == 2 else Action.D
+
+class Strategy_OPPORTUNISTIC_12(BaseStrategy):
+    """
+    Public-goods strategy:
+    - Start by cooperating.
+    - Track a smoothed cooperation signal from opponents' past cooperation counts.
+    - Cooperate when the signal reaches the break-even threshold.
+    - Defect when cooperation drops below threshold, with a small exploit/recapture rule.
+    - In the final round, defect unless the last two observed rounds were both strong.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = int(getattr(game_description, 'n_players', 2))
+        k = float(getattr(game_description, 'k', 1.0))
+        if k <= 0:
+            self.threshold = 0
+        else:
+            self.threshold = int(math.ceil(max(n - 1, 0) / k))
+        self.n_rounds = int(getattr(game_description, 'n_rounds', 1))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        my_actions = history.my_actions
+        s = 0.0
+        for t in range(round_number):
+            x_t = int(opp[t])
+            if t == 0:
+                s = float(x_t)
+            else:
+                s = 0.7 * s + 0.3 * float(x_t)
+        x_prev = int(opp[-1])
+        my_prev = bool(my_actions[-1])
+        threshold = self.threshold
+        if round_number == self.n_rounds - 1:
+            if round_number >= 2:
+                x_prev2 = int(opp[-2])
+                if x_prev >= threshold and x_prev2 >= threshold:
+                    return Action.C
+            return Action.D
+        if x_prev < threshold:
+            if x_prev == max(threshold - 1, 0) and s >= threshold:
+                return Action.C
+            return Action.D
+        if x_prev >= threshold and (not my_prev):
+            return Action.D
+        return Action.C if s >= threshold else Action.D
+
+class Strategy_OPPORTUNISTIC_13(BaseStrategy):
+    """
+    Probe-Harvest-Abandon strategy for the repeated N-player Public Goods Game.
+
+    - Round 1: cooperate to probe.
+    - Intermediate rounds: cooperate only when cooperation is stable near the threshold.
+    - If the group falls below threshold, defect immediately.
+    - If the group is stably above threshold by at least one extra cooperator, harvest by defecting.
+    - Last round: defect.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n_players = getattr(game_description, 'n_players', 0)
+        k = getattr(game_description, 'k', 0.0)
+        if k and k > 0:
+            self.threshold = int(math.ceil(max(n_players - 1, 0) / k))
+        else:
+            self.threshold = max(n_players - 1, 0)
+        self.last_round_index = max(getattr(game_description, 'n_rounds', 0) - 1, 0)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        if t >= self.last_round_index:
+            return Action.D
+        opp = history.opponent_cooperators
+        a = int(opp[-1]) if len(opp) > 0 else 0
+        b = a if t < 2 or len(opp) < 2 else int(opp[-2])
+        H = self.threshold
+        if a < H:
+            return Action.D
+        if a >= H + 1 and (t < 2 or b >= H):
+            return Action.D
+        if a >= H and b >= max(H - 1, 0):
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_14(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Start with cooperation to probe the environment.
+    - Continue cooperating only after repeated evidence of enough cooperating opponents.
+    - Defect when cooperation weakens.
+    - After a long defection run, probe cooperation again.
+    - Defect in the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = max(2, int(game_description.n_players))
+        k = float(game_description.k) if game_description.k is not None else 1.0
+        if k <= 0:
+            k = 1.0
+        self.T = math.ceil(n / k) if k > 0 else n
+        self.H = max(0, self.T - 1)
+        self.L = max(2, math.ceil(max(1, int(game_description.n_rounds)) / 4))
+        self.mode = 'PROBE'
+        self.streak = 0
+        self.d_run = 0
+        self.last_action = Action.C
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        rounds_played = history.round_number
+        total_rounds = max(1, int(self.game_description.n_rounds))
+        if rounds_played == 0:
+            self.mode = 'PROBE'
+            self.streak = 0
+            self.d_run = 0
+            self.last_action = Action.C
+            return Action.C
+        x = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        prev_action = Action.C if bool(history.my_actions[-1]) else Action.D
+        if x >= self.H:
+            self.streak += 1
+        else:
+            self.streak = 0
+        if self.streak >= 2:
+            self.mode = 'COOPERATE'
+        elif self.streak == 0:
+            self.mode = 'DEFECT'
+        if prev_action == Action.D:
+            self.d_run += 1
+        else:
+            self.d_run = 0
+        if rounds_played >= total_rounds - 1:
+            self.last_action = Action.D
+            return Action.D
+        if self.d_run >= self.L and x >= self.H:
+            self.mode = 'PROBE'
+            self.d_run = 0
+            self.last_action = Action.C
+            return Action.C
+        if self.mode in ('PROBE', 'COOPERATE'):
+            self.last_action = Action.C
+            self.d_run = 0
+            return Action.C
+        self.last_action = Action.D
+        self.d_run += 1
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_15(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Starts with cooperation.
+    - Rewards sustained high cooperation.
+    - Uses a one-round probe when opponents are highly cooperative but not perfect.
+    - Defects against persistent low cooperation.
+    - Tightens to defection near the end unless the previous round was fully cooperative.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.L = min(5, self.n_rounds)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        if self.n_opponents <= 0:
+            return Action.C
+        last_opp_count = int(history.opponent_cooperators[-1])
+        q = last_opp_count / self.n_opponents
+        next_round = round_number + 1
+        if next_round >= self.n_rounds - 1:
+            if last_opp_count == self.n_opponents:
+                return Action.C
+            return Action.D
+        if q == 1:
+            return Action.C
+        if q >= 2.0 / 3.0:
+            if bool(history.my_actions[-1]):
+                return Action.C
+            return Action.D
+        if q <= 1.0 / 3.0:
+            return Action.D
+        window_len = min(self.L, round_number)
+        if window_len <= 0:
+            return Action.D
+        recent_my_actions = history.my_actions[-window_len:]
+        recent_opp_counts = history.opponent_cooperators[-window_len:]
+        my_coop_count = int(np.sum(recent_my_actions))
+        opp_avg_rate = float(np.mean(recent_opp_counts)) / self.n_opponents
+        if my_coop_count >= window_len - 1 and opp_avg_rate >= 0.5:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_16(BaseStrategy):
+    """
+    Threshold-based reciprocity strategy for the repeated N-player Public Goods Game.
+
+    - Round 1: cooperate.
+    - Thereafter: classify the environment by observed opponent cooperation rate,
+      react to short-term cooperation/defection triggers, and defect in the endgame
+      unless the last two observed rounds were full-cooperation rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.m = max(0, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        opponent_counts = history.opponent_cooperators
+        completed_rounds = round_number
+        m = self.m
+        if round_number == self.n_rounds - 1:
+            if completed_rounds >= 2 and opponent_counts[-1] == m and (opponent_counts[-2] == m):
+                return Action.C
+            return Action.D
+        if completed_rounds >= 2:
+            if opponent_counts[-1] == 0 and opponent_counts[-2] == 0:
+                return Action.D
+        low_trigger = False
+        if m > 0:
+            low_threshold = math.floor(m / 4)
+            if opponent_counts[-1] <= low_threshold:
+                low_trigger = True
+        else:
+            low_trigger = True
+        if low_trigger:
+            return Action.D
+        if m > 0:
+            S = 0.0
+            for x in opponent_counts:
+                S += float(x) / float(m)
+            p = S / float(completed_rounds)
+        else:
+            p = 0.0
+        tau = 1.0 - 1.0 / self.k
+        upper = tau + 0.1
+        lower = tau - 0.1
+        if m == 1:
+            last_x = int(opponent_counts[-1])
+            if last_x == 1:
+                return Action.C
+            return Action.D
+        if p >= upper:
+            return Action.C
+        if p >= lower:
+            if int(opponent_counts[-1]) >= math.ceil(m / 2):
+                return Action.C
+            return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_17(BaseStrategy):
+    """
+    Adaptive threshold strategy with probe, harvest, and lock-in behavior.
+    Starts by cooperating, tracks exponentially weighted cooperation and recent trend,
+    defects on weak or declining cooperation, and cautiously exploits strong groups.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self._force_defect_until_round = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        opp_count = max(0, n - 1)
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        s = 0.0
+        if opp_count > 0:
+            for m in history.opponent_cooperators:
+                s = 0.7 * s + 0.3 * (float(m) / opp_count)
+        m_prev = int(history.opponent_cooperators[-1]) if current_round >= 1 else 0
+        m_prev_prev = int(history.opponent_cooperators[-2]) if current_round >= 2 else 0
+        if current_round >= 2 and opp_count > 0:
+            u = (m_prev - m_prev_prev) / opp_count
+        else:
+            u = 0.0
+        if current_round >= 2 and m_prev_prev - m_prev >= 2:
+            self._force_defect_until_round = max(self._force_defect_until_round, current_round + 2)
+        if current_round < self._force_defect_until_round:
+            return Action.D
+        if m_prev == 0:
+            return Action.D
+        if m_prev == opp_count:
+            return Action.C
+        strong_threshold = math.ceil(0.75 * opp_count) if opp_count > 0 else 0
+        majority_threshold = math.ceil(0.5 * opp_count) if opp_count > 0 else 0
+        late_round = current_round >= max(0, self.game_description.n_rounds - 3)
+        if late_round:
+            if m_prev == opp_count or m_prev >= strong_threshold:
+                return Action.C
+            return Action.D
+        if current_round == 1:
+            if s >= 0.55 and m_prev >= majority_threshold:
+                return Action.C
+            return Action.D
+        if s >= 0.55 and m_prev >= majority_threshold and (u >= 0):
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_18(BaseStrategy):
+    """
+    Threshold-based conditional cooperator with a single opportunistic defection
+    after two consecutive fully cooperative rounds, and defection in the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.m = max(0, self.n_players - 1)
+        self.tau = max(0.5, 1.0 - 1.0 / self.k) if self.k != 0 else 0.5
+        self.threshold = math.ceil(self.tau * self.m) if self.m > 0 else 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        if t >= self.n_rounds - 1:
+            return Action.D
+        last = int(history.opponent_cooperators[-1]) if t >= 1 else 0
+        prev = int(history.opponent_cooperators[-2]) if t >= 2 else None
+        if prev is not None and last == self.m and (prev == self.m):
+            return Action.D
+        if last >= self.threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_19(BaseStrategy):
+    """
+    Threshold-based public goods strategy with early cooperation, adaptive
+    response to opponent cooperation, reward/exploitation modes, and strict
+    endgame defection rules.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = max(2, int(game_description.n_players))
+        k = float(game_description.k) if game_description.k is not None else 1.0
+        self.threshold = math.ceil(n / k) - 1 if k > 0 else n
+        self.window = min(3, max(0, int(game_description.n_rounds) - 1))
+        self.mid_round = math.ceil(int(game_description.n_rounds) / 2)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        t = round_number + 1
+        r = int(self.game_description.n_rounds)
+        T = int(self.threshold)
+        opp = history.opponent_cooperators
+        m_last = int(opp[-1]) if round_number >= 1 else None
+
+        def avg_last_s(values, count):
+            if count <= 0:
+                return 0.0
+            start = max(0, len(values) - count)
+            segment = values[start:]
+            if len(segment) == 0:
+                return 0.0
+            return float(np.mean(segment))
+        if t == r:
+            if round_number >= 1 and int(opp[-1]) >= T + 1:
+                return Action.C
+            return Action.D
+        if t == r - 1:
+            if round_number >= 3:
+                if int(opp[-1]) >= T + 1 and int(opp[-2]) >= T + 1:
+                    return Action.C
+            return Action.D
+        if t == 1:
+            return Action.C
+        if t == 2:
+            return Action.C if int(opp[0]) >= T else Action.D
+        s = round_number
+        L = self.window
+        Lp = min(L, s)
+        A = float(np.mean(opp[:s])) if s > 0 else 0.0
+        B = avg_last_s(opp[:s], Lp)
+        if m_last is not None and m_last >= T + 1:
+            return Action.C
+        if m_last is not None and m_last <= T - 1:
+            return Action.D
+        strongly_cooperative = A >= T + 1 and B >= T + 1
+        mixed = A >= T and B >= T and (not strongly_cooperative)
+        weakly_cooperative = A >= T - 1 and B >= T - 1 and (not mixed) and (not strongly_cooperative)
+        if strongly_cooperative:
+            return Action.C
+        if mixed:
+            if m_last is not None and m_last >= T:
+                return Action.C
+            return Action.D
+        if weakly_cooperative:
+            if m_last is not None and m_last >= T + 1:
+                return Action.C
+            return Action.D
+        if A == T and B == T or (m_last == T if m_last is not None else False):
+            if t < self.mid_round:
+                return Action.C
+            return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_20(BaseStrategy):
+    """
+    Adaptive public goods strategy:
+    - Start with cooperation.
+    - Track opponent cooperation counts, smoothed cooperation, and trends.
+    - Cooperate when cooperation is widespread/rising, otherwise defect.
+    - Apply special safeguards for full defection, full cooperation, sharp drops,
+      and the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.n_rounds = int(game_description.n_rounds)
+        self.half_threshold = int(math.ceil(self.n_opponents / 2)) if self.n_opponents > 0 else 0
+        self.baseline = None
+        self.total_opponent_coop = 0
+        self.last_observed_coop = None
+        self.streak_up = 0
+        self.streak_down = 0
+        self.full_defect_streak = 0
+        self.force_defect_one_round = False
+        self.lock_defect_until_half = False
+        self.last_processed_round = 0
+
+    def _process_history(self, history: PlayerHistory) -> None:
+        start = self.last_processed_round
+        end = history.round_number
+        for t in range(start, end):
+            m_t = int(history.opponent_cooperators[t])
+            if self.baseline is None:
+                self.baseline = m_t
+            prev_m = self.last_observed_coop
+            if prev_m is not None:
+                if m_t > prev_m:
+                    self.streak_up += 1
+                    self.streak_down = 0
+                elif m_t < prev_m:
+                    self.streak_down += 1
+                    self.streak_up = 0
+                else:
+                    self.streak_up = 0
+                    self.streak_down = 0
+            else:
+                self.streak_up = 0
+                self.streak_down = 0
+            if m_t == 0:
+                self.full_defect_streak += 1
+            else:
+                self.full_defect_streak = 0
+            if self.full_defect_streak >= 2:
+                self.lock_defect_until_half = True
+            if self.lock_defect_until_half and m_t >= self.half_threshold and (self.half_threshold > 0):
+                self.lock_defect_until_half = False
+            if prev_m is not None:
+                if prev_m >= self.half_threshold and m_t < prev_m and (m_t < self.half_threshold):
+                    self.force_defect_one_round = True
+            if m_t == self.n_opponents and self.n_opponents > 0:
+                self.force_defect_one_round = False
+            self.total_opponent_coop += m_t
+            self.last_observed_coop = m_t
+        self.last_processed_round = end
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        self._process_history(history)
+        t = history.round_number
+        m_t = int(history.opponent_cooperators[-1]) if history.round_number > 0 else 0
+        L_t = self.last_observed_coop if self.last_observed_coop is not None else m_t
+        denom = t * self.n_opponents + 2
+        s_t = (self.total_opponent_coop + 1) / denom if denom > 0 else 0.5
+        if t == self.n_rounds - 1:
+            recent_nondecreasing = self.streak_up > 0 or m_t >= L_t
+            if m_t >= 1 and recent_nondecreasing:
+                return Action.C
+            return Action.D
+        if self.force_defect_one_round:
+            self.force_defect_one_round = False
+            return Action.D
+        if self.lock_defect_until_half:
+            return Action.D
+        cooperate = False
+        if self.n_opponents <= 0:
+            cooperate = True
+        elif m_t >= self.half_threshold:
+            cooperate = True
+        elif self.streak_up >= 2:
+            cooperate = True
+        elif s_t >= 0.5 and self.baseline is not None and (m_t >= self.baseline):
+            cooperate = True
+        elif t == self.n_rounds - 1 and m_t >= 1:
+            cooperate = True
+        if self.n_opponents > 0 and m_t == self.n_opponents:
+            cooperate = True
+        return Action.C if cooperate else Action.D
+
+class Strategy_OPPORTUNISTIC_21(BaseStrategy):
+    """
+    Defect by default, but join cooperation only after observing sustained high
+    opponent cooperation for consecutive rounds. Always defect in the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.n_opponents = max(0, self.n_players - 1)
+        if self.n_players == 2:
+            self.threshold_count = 1
+        else:
+            self.threshold_count = int(math.ceil(0.9 * self.n_opponents))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.D
+        if round_number >= self.n_rounds - 1:
+            return Action.D
+        last_h = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if round_number == 1:
+            return Action.C if last_h >= self.threshold_count else Action.D
+        prev_h = int(history.opponent_cooperators[-2]) if len(history.opponent_cooperators) >= 2 else 0
+        if self.n_players == 2:
+            strong_two_rounds = last_h >= 1 and prev_h >= 1
+        else:
+            strong_two_rounds = last_h >= self.threshold_count and prev_h >= self.threshold_count
+        return Action.C if strong_two_rounds else Action.D
+
+class Strategy_OPPORTUNISTIC_22(BaseStrategy):
+    """
+    Adaptive public-goods strategy with decreasing cooperation threshold,
+    short retaliation, and endgame caution.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.lambda_ = 0.35
+        self.retal_minor = 1
+        self.retal_sharp = 2
+        self.T = 0
+        self.L = 0
+        self.prev_m = None
+        self.last_action = None
+        self.last_seen_rounds = 0
+        self.thresh_streak = 0
+
+    def _theta(self, t_one_based: int) -> float:
+        r = max(1, int(self.game_description.n_rounds))
+        if r <= 1:
+            return 1.0
+        frac = (t_one_based - 1) / (r - 1)
+        return 1.0 - frac * self.lambda_
+
+    def _threshold(self, t_one_based: int) -> int:
+        n = int(self.game_description.n_players)
+        opps = max(0, n - 1)
+        theta = self._theta(t_one_based)
+        return int(math.ceil(opps * theta))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = int(self.game_description.n_players)
+        r = int(self.game_description.n_rounds)
+        k = float(self.game_description.k)
+        round_number = int(history.round_number)
+        current_t = round_number + 1
+        if round_number == 0 and self.last_seen_rounds != 0:
+            self.T = 0
+            self.L = 0
+            self.prev_m = None
+            self.last_action = None
+            self.thresh_streak = 0
+        if round_number > self.last_seen_rounds:
+            last_m = int(history.opponent_cooperators[-1])
+            prev_t = round_number
+            prev_threshold = self._threshold(prev_t)
+            if self.last_action is True and last_m >= prev_threshold:
+                self.L += 1
+                self.thresh_streak += 1
+            elif last_m < prev_threshold:
+                self.L = 0
+                self.thresh_streak = 0
+                if self.prev_m is not None:
+                    drop = int(self.prev_m) - int(last_m)
+                    if drop >= 2:
+                        self.T = max(self.T, self.retal_sharp)
+                    elif drop == 1:
+                        self.T = max(self.T, self.retal_minor)
+            else:
+                self.thresh_streak = 1 if last_m >= prev_threshold else 0
+            self.prev_m = last_m
+            self.last_seen_rounds = round_number
+        if current_t == 1:
+            self.last_action = True
+            return Action.C
+        prev_m = 0 if self.prev_m is None else int(self.prev_m)
+        threshold = self._threshold(current_t)
+        endgame_len = max(2, int(math.floor(r / 5))) if r > 0 else 2
+        is_endgame = current_t >= r - endgame_len + 1
+        if self.T > 0:
+            self.T -= 1
+            self.last_action = False
+            return Action.D
+        coop = False
+        return_ratio = k / n * prev_m if n > 0 else 0.0
+        if is_endgame:
+            if return_ratio >= 1.0 and prev_m >= int(math.ceil((n - 1) / 2)) and (prev_m >= threshold):
+                coop = True
+        elif prev_m >= threshold and return_ratio > 1.0:
+            coop = True
+        elif prev_m >= threshold and self.L >= 2:
+            coop = True
+        elif self.thresh_streak >= 2 and return_ratio >= 1.0 and (prev_m >= max(0, threshold - 1)):
+            coop = True
+        self.last_action = coop
+        return Action.C if coop else Action.D
+
+class Strategy_OPPORTUNISTIC_23(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Starts by defecting.
+    - Tracks smoothed opponent cooperation, recent cooperation rates, and collapse/stability signals.
+    - Cooperates in sustained high-cooperation regimes, defects in low/cooperation-collapse regimes,
+      with a conservative late-game policy.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.s = 0.0
+        self.low_streak = 0
+        self.stable_high_streak = 0
+        self.defect_lock = 0
+        self.last_action = Action.D
+        self.last_coop_rate = None
+        self.prev_coop_rate = None
+        self.last_m = None
+        self.prev_m = None
+        self.last_processed_round = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        start = self.last_processed_round
+        end = round_number
+        if end > start:
+            n_opponents = max(self.n - 1, 0)
+            for t in range(start, end):
+                m_t = int(history.opponent_cooperators[t]) if t < len(history.opponent_cooperators) else 0
+                coop_rate = m_t / n_opponents if n_opponents > 0 else 0.0
+                self.prev_coop_rate = self.last_coop_rate
+                self.last_coop_rate = coop_rate
+                self.prev_m = self.last_m
+                self.last_m = m_t
+                self.s = 0.7 * self.s + 0.3 * coop_rate
+                if coop_rate == 0.0:
+                    self.low_streak += 1
+                else:
+                    self.low_streak = 0
+                if coop_rate >= 0.8:
+                    self.stable_high_streak += 1
+                else:
+                    self.stable_high_streak = 0
+                if self.prev_coop_rate is not None:
+                    if coop_rate < 0.25 and self.prev_coop_rate >= 0.5:
+                        self.defect_lock = 2
+                if self.defect_lock > 0:
+                    self.defect_lock -= 1
+            self.last_processed_round = end
+        if round_number == 0:
+            self.last_action = Action.D
+            return Action.D
+        n_opponents = max(self.n - 1, 0)
+        current_m = int(history.opponent_cooperators[-1]) if round_number > 0 else 0
+        current_rate = current_m / n_opponents if n_opponents > 0 else 0.0
+        prev_rate = self.last_coop_rate if self.last_coop_rate is not None else 0.0
+        prev_m = self.prev_m if self.prev_m is not None else 0
+        if round_number >= max(self.r - 2, 0):
+            if current_rate >= 0.8 and prev_rate >= 0.8:
+                action = Action.C
+            else:
+                action = Action.D
+            self.last_action = action
+            return action
+        if self.defect_lock > 0:
+            self.last_action = Action.D
+            return Action.D
+        if self.low_streak >= 2:
+            self.last_action = Action.D
+            return Action.D
+        if self.stable_high_streak >= 3:
+            self.last_action = Action.C
+            return Action.C
+        if self.s >= 0.7:
+            if self.last_action == Action.C:
+                action = Action.C
+            elif current_rate >= 0.8:
+                action = Action.C
+            else:
+                action = Action.D
+            self.last_action = action
+            return action
+        if self.s >= 0.3:
+            recent_half_threshold = 0.5 * n_opponents
+            has_recent_quorum = False
+            if round_number >= 1:
+                m_prev = int(history.opponent_cooperators[-2]) if round_number >= 2 else None
+                if m_prev is not None and m_prev >= recent_half_threshold:
+                    has_recent_quorum = True
+            if current_rate >= 0.5 and (has_recent_quorum or current_m >= recent_half_threshold):
+                action = Action.C
+            else:
+                action = Action.D
+            self.last_action = action
+            return action
+        self.last_action = Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_24(BaseStrategy):
+    """
+    Strategy for the repeated N-player Public Goods Game.
+
+    - Defect initially and near the end.
+    - Require sustained high cooperation before joining.
+    - Exploit stable cooperation with an occasional cooperation pattern.
+    - Defect immediately when cooperation weakens or collapses.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = max(2, int(game_description.n_players))
+        self.high_threshold = math.ceil(0.6 * (n - 1))
+        self.low_threshold = math.floor(0.4 * (n - 1))
+        self.n_rounds = int(game_description.n_rounds)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0 or t >= max(0, self.n_rounds - 2):
+            return Action.D
+        opp = history.opponent_cooperators
+        l = 0
+        idx = t - 1
+        while idx >= 0 and opp[idx] <= self.low_threshold:
+            l += 1
+            idx -= 1
+        h = 0
+        idx = t - 1
+        while idx >= 0 and opp[idx] >= self.high_threshold:
+            h += 1
+            idx -= 1
+        if l >= 2:
+            return Action.D
+        m_prev = opp[t - 1]
+        if m_prev >= self.high_threshold and h >= 2:
+            position_in_block = h + 1
+            if position_in_block <= 2 or (position_in_block - 2) % 3 == 0:
+                return Action.C
+            return Action.D
+        if self.low_threshold < m_prev < self.high_threshold:
+            if t >= 2 and opp[t - 2] >= self.high_threshold and (bool(history.my_actions[-1]) is False):
+                return Action.C
+            return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_25(BaseStrategy):
+    """
+    Cautious threshold-based public goods strategy:
+    - Defect on the first and last rounds.
+    - Cooperate only after two sufficiently strong recent cooperation rounds,
+      or after one very strong recent cooperation round when history is short.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = int(getattr(game_description, 'n_players', 0) or 0)
+        opponents = max(0, n - 1)
+        self.coop_threshold = math.ceil(opponents / 2) if opponents > 0 else 0
+        self.high_trust_threshold = math.ceil(2 * opponents / 3) if opponents > 0 else 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(getattr(history, 'round_number', 0) or 0)
+        total_rounds = int(getattr(self.game_description, 'n_rounds', 0) or 0)
+        if round_number == 0 or (total_rounds > 0 and round_number >= total_rounds - 1):
+            return Action.D
+        opp = history.opponent_cooperators
+        if len(opp) == 0:
+            return Action.D
+        x_prev = int(opp[-1])
+        if round_number < 2 or len(opp) < 2:
+            return Action.C if x_prev >= self.high_trust_threshold else Action.D
+        x_prev2 = int(opp[-2])
+        if x_prev >= self.coop_threshold and (x_prev2 >= self.coop_threshold or x_prev >= self.high_trust_threshold):
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_26(BaseStrategy):
+    """
+    Probe once, then join only clearly cooperative phases, defect immediately
+    when cooperation weakens, and re-enter only after recovery.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        n = self.n_players
+        if round_number == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        last = int(opp[-1]) if round_number >= 1 else 0
+        strong_threshold = max(0, n - 2)
+        recent_mean_threshold = (n - 1) / 2.0
+        if round_number == self.n_rounds - 1:
+            return Action.C if last >= strong_threshold else Action.D
+        if round_number == self.n_rounds - 2:
+            prev = int(opp[-2]) if round_number >= 2 else 0
+            return Action.C if last >= strong_threshold and prev >= strong_threshold else Action.D
+        if last == 0:
+            return Action.D
+        if round_number >= 2 and last <= 1 and (int(opp[-2]) <= 1):
+            return Action.D
+        if round_number >= 2 and last >= strong_threshold and (int(opp[-2]) >= strong_threshold):
+            return Action.C
+        if round_number >= 4:
+            m = (int(opp[-1]) + int(opp[-2]) + int(opp[-3])) / 3.0
+            if m >= recent_mean_threshold:
+                return Action.C
+        if last >= strong_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_27(BaseStrategy):
+    """
+    Opportunistic threshold strategy for the N-player Public Goods Game.
+
+    - Cooperates initially.
+    - Tracks an exponentially weighted estimate of observed opponent cooperation.
+    - Defects quickly after low-cooperation signals.
+    - Cooperates only when cooperation is already strong and sustained.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(getattr(game_description, 'n_players', 0) or 0)
+        self.n_rounds = int(getattr(game_description, 'n_rounds', 0) or 0)
+        n_opponents = max(self.n_players - 1, 0)
+        self.n_opponents = n_opponents
+        self.high_threshold = math.ceil(0.6 * n_opponents)
+        self.low_threshold = math.floor(0.3 * n_opponents)
+        self.coop_threshold = math.ceil(0.55 * n_opponents)
+        self.initial_estimate = n_opponents / 2.0
+        self.last_estimate = self.initial_estimate
+        self.last_high_streak = 0
+        self.last_low_streak = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = int(history.round_number)
+        n = self.n_players
+        n_opponents = self.n_opponents
+        rounds_total = self.n_rounds
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        obs_rounds = len(opp)
+
+        def m_at(idx: int) -> int:
+            if idx < 0 or idx >= obs_rounds:
+                return 0
+            return int(opp[idx])
+        estimate = self.initial_estimate
+        high_streak = 0
+        low_streak = 0
+        for m in opp:
+            m_val = int(m)
+            estimate = 0.7 * estimate + 0.3 * m_val
+            if m_val >= self.high_threshold:
+                high_streak += 1
+                low_streak = 0
+            elif m_val <= self.low_threshold:
+                low_streak += 1
+                high_streak = 0
+            else:
+                high_streak = 0
+                low_streak = 0
+        self.last_estimate = estimate
+        self.last_high_streak = high_streak
+        self.last_low_streak = low_streak
+        remaining = max(rounds_total - t, 0)
+        if remaining <= 2:
+            m_prev1 = m_at(t - 1)
+            m_prev2 = m_at(t - 2)
+            if m_prev1 == n_opponents and m_prev2 >= max(n_opponents - 1, 0):
+                return Action.C
+            return Action.D
+        if t - 1 >= 0 and m_at(t - 1) == 0:
+            return Action.D
+        if t - 2 >= 0 and m_at(t - 2) == 0:
+            return Action.D
+        if t - 1 >= 0 and m_at(t - 1) == n_opponents:
+            return Action.C
+        if obs_rounds >= 3:
+            last3 = [m_at(obs_rounds - 3), m_at(obs_rounds - 2), m_at(obs_rounds - 1)]
+            low_count_last3 = sum((1 for x in last3 if x < self.high_threshold))
+            if low_count_last3 <= 1:
+                return Action.C
+            return Action.D
+        if estimate >= self.coop_threshold and low_streak == 0:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_28(BaseStrategy):
+    """
+    Defect by default, cooperate only after sustained broad cooperation by others.
+    Exploit very high cooperation immediately, and defect in the endgame unless
+    cooperation has been exceptionally strong.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.n_opponents = max(0, self.n - 1)
+        self.half_threshold = self.n / 2.0
+        self.low_threshold = self.n / 3.0
+        self.high_threshold = self.n - 1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = int(history.round_number)
+        if t == 0:
+            return Action.D
+        opp = history.opponent_cooperators
+        my_actions = history.my_actions
+        last_m = int(opp[-1]) if len(opp) > 0 else 0
+        if t > 1:
+            L = min(3, t - 1)
+            if L > 0:
+                recent = opp[max(0, t - 1 - L):t - 1]
+                avg_c = float(np.mean(recent)) if len(recent) > 0 else 0.0
+            else:
+                avg_c = 0.0
+        else:
+            avg_c = 0.0
+        last_two_high = False
+        if t >= 2:
+            m1 = int(opp[-1])
+            m2 = int(opp[-2])
+            last_two_high = m1 >= self.half_threshold and m2 >= self.half_threshold
+        if t >= self.r - 1:
+            if t == self.r - 1:
+                if t >= 2 and int(opp[-1]) >= self.high_threshold and (int(opp[-2]) >= self.high_threshold):
+                    return Action.C
+                return Action.D
+            return Action.D
+        if last_m >= self.high_threshold:
+            return Action.D
+        if last_m <= self.low_threshold:
+            return Action.D
+        if last_two_high:
+            return Action.C
+        if avg_c >= self.half_threshold:
+            return Action.C
+        if len(my_actions) > 0 and bool(my_actions[-1]):
+            if last_m >= self.half_threshold:
+                return Action.C
+            return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_29(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Cooperate initially.
+    - Track smoothed opponent cooperation.
+    - Cooperate when cooperation is stable/high.
+    - Defect quickly when cooperation weakens.
+    - Be more conservative in the late game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.opponent_count = max(0, self.n_players - 1)
+        self.low_threshold = math.floor(self.opponent_count / 3)
+        self.high_threshold = math.ceil(2 * self.opponent_count / 3)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        if self.opponent_count <= 0:
+            return Action.D
+        opp = history.opponent_cooperators
+
+        def q_at(idx: int) -> float:
+            if idx < 0 or idx >= len(opp):
+                return 0.0
+            return float(opp[idx]) / float(self.opponent_count)
+        last_m = int(opp[-1])
+        last_q = q_at(t - 1)
+        s = q_at(0)
+        for i in range(1, len(opp)):
+            s = 0.7 * s + 0.3 * q_at(i)
+        avg = s
+        prev_q = q_at(t - 2) if t >= 2 else last_q
+        if t == self.n_rounds - 1:
+            if last_m == self.opponent_count and len(history.my_actions) > 0:
+                return Action.C if bool(history.my_actions[-1]) else Action.D
+            return Action.D
+        if t >= self.n_rounds - 2:
+            if t >= 2 and int(opp[-1]) >= self.high_threshold and (int(opp[-2]) >= self.high_threshold):
+                return Action.C
+            return Action.D
+        if last_m == self.opponent_count:
+            return Action.C
+        if last_m <= self.low_threshold:
+            return Action.D
+        if t >= 2:
+            if last_q >= 0.5 and avg >= 0.45 and (last_q >= prev_q - 0.15):
+                return Action.C
+            return Action.D
+        else:
+            if last_q >= 0.5 and avg >= 0.45:
+                return Action.C
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_30(BaseStrategy):
+    """
+    Conditional cooperator for the repeated N-player Public Goods Game.
+
+    - Defects in the first and last rounds.
+    - Defects for a cooldown period after any low-cooperation round by opponents.
+    - Cooperates only after sustained recent high cooperation from opponents.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = max(2, int(game_description.n_players))
+        r = max(2, int(game_description.n_rounds))
+        k = float(game_description.k)
+        self.n_players = n
+        self.n_rounds = r
+        self.k = k
+        self.W = min(5, r - 1)
+        self.H = 0.8
+        self.L = 0.4
+        self.P = 2 if k <= (n + 1) / 2 else 1
+        self._opponent_count = max(1, n - 1)
+        self._recent_high_threshold = self.H - 1.0 / self._opponent_count
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.D
+        if t >= self.n_rounds - 1:
+            return Action.D
+        opp = history.opponent_cooperators
+        if len(opp) == 0:
+            return Action.D
+        rates = opp.astype(float) / self._opponent_count
+        recent_p = min(self.P, len(rates))
+        if recent_p > 0 and np.any(rates[-recent_p:] <= self.L):
+            return Action.D
+        if len(rates) >= 2 and rates[-1] >= self.H and (rates[-2] >= self.H):
+            return Action.C
+        w = min(self.W, len(rates))
+        if w > 0:
+            recent = rates[-w:]
+            weights = np.arange(1, w + 1, dtype=float)
+            weighted_avg = float(np.dot(recent, weights) / np.sum(weights))
+            if weighted_avg >= self.H and rates[-1] >= self._recent_high_threshold:
+                return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_31(BaseStrategy):
+    """
+    Public goods strategy:
+    - Start with cooperation.
+    - Require sustained opponent cooperation before cooperating again.
+    - Punish weak or zero cooperation immediately.
+    - Exploit highly cooperative fields opportunistically.
+    - Defect near the end unless cooperation has been stable.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self._opponent_count = max(0, self.n - 1)
+        self._high_threshold = math.ceil(self._opponent_count / 2) if self._opponent_count > 0 else 0
+        self._low_threshold = math.floor(self._opponent_count / 4) if self._opponent_count > 0 else 0
+        self._last_threshold = self._high_threshold
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        if len(opp) == 0:
+            return Action.D
+        last_m = int(opp[-1])
+        total_opp = int(np.sum(opp)) if len(opp) > 0 else 0
+        denom = self._opponent_count * t
+        q_t = total_opp / denom if denom > 0 else 0.0
+        high_streak = 0
+        low_streak = 0
+        for idx in range(len(opp) - 1, -1, -1):
+            m = int(opp[idx])
+            if m >= self._high_threshold:
+                high_streak += 1
+            else:
+                break
+        for idx in range(len(opp) - 1, -1, -1):
+            m = int(opp[idx])
+            if m <= self._low_threshold:
+                low_streak += 1
+            else:
+                break
+        if t >= self.r - 1:
+            if self.n == 2:
+                if q_t >= 1.0:
+                    return Action.C
+                if len(opp) >= 2 and int(opp[-1]) == 1 and (int(opp[-2]) == 1):
+                    return Action.C
+                return Action.D
+            if len(opp) >= 2 and int(opp[-1]) >= self._high_threshold and (int(opp[-2]) >= self._high_threshold):
+                return Action.C
+            return Action.D
+        if self.n == 2:
+            if q_t >= 1.0:
+                return Action.C
+            if len(opp) >= 2 and int(opp[-1]) == 1 and (int(opp[-2]) == 1):
+                return Action.C
+            return Action.D
+        if last_m == 0 or last_m <= self._low_threshold:
+            return Action.D
+        if last_m >= self._high_threshold and high_streak >= 2:
+            return Action.C
+        if q_t >= 0.5 and last_m >= self._high_threshold:
+            return Action.C
+        if q_t >= 2.0 / 3.0 and last_m >= max(0, self._high_threshold - 1):
+            return Action.D
+        if low_streak > 0 and high_streak < 2:
+            return Action.D
+        if last_m >= self._high_threshold:
+            if len(opp) >= 2:
+                prev_m = int(opp[-2])
+                if prev_m <= self._low_threshold:
+                    return Action.D
+            if low_streak >= 1 and high_streak < 2:
+                return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_32(BaseStrategy):
+    """
+    Cooperative-start public goods strategy with moving-average adaptation,
+    recovery probing, and final-round consolidation of durable cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.tau0 = 0.6
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        rounds_played = history.round_number
+        if rounds_played == 0:
+            return Action.C if self.game_description.k * self.tau0 >= 0.5 else Action.D
+        opp_counts = history.opponent_cooperators
+        last_opp = int(opp_counts[-1])
+        n_opponents = max(n - 1, 1)
+
+        def rho(count: int) -> float:
+            return count / n_opponents
+        recent = [rho(int(x)) for x in opp_counts[-3:]]
+        m_prev = sum(recent) / len(recent) if recent else 0.0
+        if rounds_played == self.game_description.n_rounds - 1:
+            if rounds_played >= 2:
+                if int(opp_counts[-1]) >= n - 2 and int(opp_counts[-2]) >= n - 2:
+                    return Action.C
+            return Action.D
+        if rounds_played >= 2:
+            a_prev = int(opp_counts[-1])
+            a_prev2 = int(opp_counts[-2])
+            if a_prev >= math.ceil((n - 1) * 2 / 3) and a_prev2 <= math.floor((n - 1) / 2):
+                return Action.C
+        declining = False
+        if rounds_played >= 3:
+            a1 = int(opp_counts[-3])
+            a2 = int(opp_counts[-2])
+            a3 = int(opp_counts[-1])
+            declining = a1 > a2 > a3
+        if m_prev < 0.5 or last_opp < (n - 1) / 2 or declining:
+            return Action.D
+        if m_prev > 0.5:
+            return Action.C
+        if last_opp >= n - 2:
+            return Action.C
+        if rounds_played >= 2 and bool(history.my_actions[-1]) is False and (last_opp >= n - 2):
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_5(BaseStrategy):
+    """
+    Repeated public-goods strategy:
+    - Start by defecting.
+    - Cooperate only after sustained opponent cooperation.
+    - Defect for two rounds after any opponent-collapse (zero cooperation).
+    - In the final round, cooperate only if the last two rounds were both highly cooperative.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_opponents = max(0, self.n_players - 1)
+        self.final_round_index = max(0, game_description.n_rounds - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.D
+        opp = history.opponent_cooperators
+        last_x = int(opp[-1])
+        prev_x = int(opp[-2]) if t >= 2 else None
+        if self.n_opponents <= 0:
+            last_high = False
+            prev_high = False
+            last_zero = False
+            prev_zero = False
+        elif self.n_players == 2:
+            last_high = last_x >= 1
+            prev_high = prev_x >= 1 if prev_x is not None else False
+            last_zero = last_x == 0
+            prev_zero = prev_x == 0 if prev_x is not None else False
+        else:
+            last_rho = last_x / self.n_opponents
+            prev_rho = prev_x / self.n_opponents if prev_x is not None else None
+            last_high = last_rho >= 2.0 / 3.0
+            prev_high = prev_rho >= 2.0 / 3.0 if prev_rho is not None else False
+            last_zero = last_x == 0
+            prev_zero = prev_x == 0 if prev_x is not None else False
+        if t == self.final_round_index:
+            return Action.C if t >= 2 and prev_high and last_high else Action.D
+        if t >= 2 and prev_high and last_high:
+            return Action.C
+        if last_zero or prev_zero:
+            return Action.D
+        if last_high:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_6(BaseStrategy):
+    """
+    Conservative public-goods strategy:
+    - Defect in the first and final rounds.
+    - Cooperate only when recent opponent cooperation is sufficiently high
+      and stable across two consecutive nonterminal rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = int(getattr(game_description, 'n_players', 0) or 0)
+        k = float(getattr(game_description, 'k', 0.0) or 0.0)
+        r = int(getattr(game_description, 'n_rounds', 0) or 0)
+        self.n_players = n
+        self.n_rounds = r
+        if n <= 0:
+            self.threshold = 1
+        elif n == 2:
+            self.threshold = 1
+        else:
+            raw_h = (n - 1) * (n - k) / n if n != 0 else 0.0
+            self.threshold = max(1, int(math.ceil(raw_h)))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(getattr(history, 'round_number', 0) or 0)
+        n_rounds = self.n_rounds
+        if round_number == 0:
+            return Action.D
+        if n_rounds > 0 and round_number >= n_rounds - 1:
+            return Action.D
+        opp = history.opponent_cooperators
+        threshold = self.threshold
+        if round_number == 1:
+            if len(opp) >= 1 and int(opp[-1]) >= threshold:
+                return Action.C
+            return Action.D
+        if round_number >= 2:
+            if len(opp) >= 2:
+                q_prev = int(opp[-1])
+                q_prev2 = int(opp[-2])
+                if q_prev >= threshold and q_prev2 >= threshold and (q_prev >= q_prev2):
+                    return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_7(BaseStrategy):
+    """
+    Conditional cooperator with smoothed population estimate, momentum tie-breaks,
+    sharp-drop avoidance, and conservative late-game defection.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = max(2, int(game_description.n_players))
+        self.r = max(1, int(game_description.n_rounds))
+        self.k = float(game_description.k)
+        self.n_opponents = max(1, self.n - 1)
+        self.q = 1.0 / self.k if self.k != 0 else float('inf')
+        self.threshold = self.q
+        self.band = 0.05
+        self.late_bonus = 0.1
+        self.probe_threshold = math.ceil((self.n - 1) / self.k) if self.k != 0 else self.n_opponents
+        self.recovery_threshold = min(self.n_opponents, self.probe_threshold + 1)
+        self.hat_p0 = 1.0 / self.n
+        self.default_action = Action.D
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.D
+        opp = history.opponent_cooperators
+        my_actions = history.my_actions
+        last_m = int(opp[-1]) if len(opp) > 0 else 0
+        prev_m = int(opp[-2]) if len(opp) > 1 else last_m
+        last_two_nondec = len(opp) < 2 or prev_m <= last_m
+        current_my_defect = bool(my_actions[-1]) is False if len(my_actions) > 0 else True
+        hat_p = self.hat_p0
+        for x in opp:
+            hat_p = 0.7 * hat_p + 0.3 * (int(x) / self.n_opponents)
+        recent_defects = 0
+        i = len(my_actions) - 1
+        while i >= 0 and (not bool(my_actions[i])):
+            recent_defects += 1
+            i -= 1
+        if len(opp) >= 2 and last_m <= prev_m - 2:
+            return Action.D
+        if recent_defects >= 2 and last_m >= self.recovery_threshold:
+            return Action.C
+        if len(opp) >= 3:
+            if opp[-1] < self.probe_threshold and opp[-2] < self.probe_threshold and (opp[-3] < self.probe_threshold):
+                return Action.D
+        if self.r >= 4 and t == 1:
+            return Action.C if last_m >= self.probe_threshold else Action.D
+        remaining = self.r - t
+        if remaining <= 3:
+            if t == self.r - 1:
+                if last_m >= self.probe_threshold and last_two_nondec and (hat_p >= self.threshold + self.late_bonus):
+                    return Action.C
+                return Action.D
+            return Action.C if hat_p >= self.threshold + self.late_bonus else Action.D
+        if hat_p >= self.threshold + self.band:
+            return Action.C
+        if hat_p <= self.threshold - self.band:
+            return Action.D
+        if last_m >= prev_m:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_8(BaseStrategy):
+    """
+    Always defect in every round, regardless of history.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_9(BaseStrategy):
+    """
+    Defect initially, build cooperation only after two consecutive rounds of
+    near-universal cooperation by opponents, and punish any cooperation drop
+    with a two-round forced-defect cooldown.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.coop_streak = 0
+        self.discipline = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        last_round_index = t - 1
+        if t == 0:
+            self.coop_streak = 0
+            self.discipline = 0
+            return Action.D
+        x = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        my_last_action = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else False
+        if my_last_action and x <= self.n_players - 3:
+            self.coop_streak = 0
+            self.discipline = 2
+        if t == self.n_rounds - 1:
+            return Action.D
+        if self.discipline > 0:
+            self.discipline -= 1
+            return Action.D
+        if x >= self.n_players - 2:
+            self.coop_streak += 1
+        else:
+            self.coop_streak = 0
+        if self.coop_streak >= 2:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_10(BaseStrategy):
+    """
+    Opportunistic threshold strategy with endgame defection and recovery.
+
+    - Cooperate initially only if k >= n - 1.
+    - Always defect in the final round.
+    - In intermediate rounds, cooperate only if recent opponent cooperation
+      is sufficiently high and has not collapsed relative to a tightening
+      threshold.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.delta = 1.0 / (2.0 * self.n_opponents) if self.n_opponents > 0 else 0.0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number + 1
+        if t >= self.n_rounds:
+            return Action.D
+        if t == 1:
+            return Action.C if self.k >= self.n_players - 1 else Action.D
+        if self.n_opponents <= 0:
+            return Action.D
+        prev_idx = history.round_number - 1
+        if prev_idx < 0 or prev_idx >= len(history.opponent_cooperators):
+            return Action.D
+        q_prev = float(history.opponent_cooperators[prev_idx]) / float(self.n_opponents)
+        if prev_idx >= 0:
+            observed = history.opponent_cooperators[:history.round_number]
+            if len(observed) > 0:
+                T_t = float(np.mean(observed)) / float(self.n_opponents)
+            else:
+                T_t = 0.0
+        else:
+            T_t = 0.0
+        if self.k > 0.0:
+            base_threshold = max(0.0, 1.0 - 1.0 / self.k)
+        else:
+            base_threshold = 1.0
+        if self.n_rounds > 1:
+            tau_t = base_threshold + 0.25 * (1.0 - (t - 1) / (self.n_rounds - 1))
+        else:
+            tau_t = base_threshold
+        if q_prev >= tau_t and T_t >= tau_t - self.delta:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_11(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Defects in round 1.
+    - Tracks short-run opponent cooperation and a 2-round recovery state.
+    - Uses immediate-response, rolling-threshold, recovery, and late-game rules.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.n_opponents = max(0, self.n_players - 1)
+        self.recovery_rounds_left = 0
+        self._last_round_seen = -1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            self.recovery_rounds_left = 0
+            self._last_round_seen = 0
+            return Action.D
+        opp_hist = history.opponent_cooperators
+        a_prev = int(opp_hist[-1]) if len(opp_hist) > 0 else 0
+        m_prev = a_prev / self.n_opponents if self.n_opponents > 0 else 0.0
+        recovery_exit_threshold = math.ceil(self.n_opponents / 2) if self.n_opponents > 0 else 0
+        if a_prev >= recovery_exit_threshold:
+            self.recovery_rounds_left = 0
+        if self.recovery_rounds_left > 0:
+            self.recovery_rounds_left -= 1
+            self._last_round_seen = round_number
+            return Action.D
+        if round_number >= self.n_rounds - 2:
+            self._last_round_seen = round_number
+            return Action.C if a_prev == self.n_opponents else Action.D
+        if a_prev == self.n_opponents:
+            self._last_round_seen = round_number
+            return Action.C
+        if a_prev == 0:
+            self.recovery_rounds_left = 2
+            self._last_round_seen = round_number
+            return Action.D
+        recent = opp_hist[-3:] if len(opp_hist) >= 3 else opp_hist
+        if self.n_opponents > 0 and len(recent) > 0:
+            recent_rates = [float(x) / self.n_opponents for x in recent]
+            s_t = float(np.mean(recent_rates))
+        else:
+            s_t = 0.0
+        if s_t > 0.7:
+            self._last_round_seen = round_number
+            return Action.C
+        if s_t < 0.4:
+            self._last_round_seen = round_number
+            return Action.D
+        if m_prev > 0.5:
+            self._last_round_seen = round_number
+            return Action.C
+        self._last_round_seen = round_number
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_12(BaseStrategy):
+    """
+    Conditional threshold strategy with probe, reciprocity, and exploitation logic.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.half_threshold = math.ceil(self.n_opponents / 2) if self.n_opponents > 0 else 0
+        self.high_threshold = math.ceil(2 * self.n_opponents / 3) if self.n_opponents > 0 else 0
+        self.low_threshold = math.floor(self.n_opponents / 3) if self.n_opponents > 0 else 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        if self.n_opponents == 0:
+            return Action.D if t >= self.n_rounds - 1 else Action.C
+        opp = history.opponent_cooperators
+        played = history.my_actions
+        if t >= self.n_rounds - 1:
+            return Action.D
+        if t >= self.n_rounds - 2:
+            if len(opp) >= 2 and opp[-1] >= self.high_threshold and (opp[-2] >= self.high_threshold):
+                return Action.C
+            return Action.D
+        total_coop = int(np.sum(opp)) if len(opp) else 0
+        p_t = total_coop / (self.n_opponents * t) if self.n_opponents > 0 and t > 0 else 0.0
+        recent_len = min(3, len(opp))
+        recent_avg = float(np.mean(opp[-recent_len:])) / self.n_opponents if recent_len > 0 else 0.0
+        prev_recent_avg = 0.0
+        if len(opp) > recent_len:
+            prev_len = min(3, len(opp) - recent_len)
+            if prev_len > 0:
+                prev_recent_avg = float(np.mean(opp[-recent_len - prev_len:-recent_len])) / self.n_opponents
+        trend_t = recent_avg - prev_recent_avg
+        m_t = int(opp[-1])
+        last_two_low_coop = len(opp) >= 2 and opp[-1] < self.half_threshold and (opp[-2] < self.half_threshold)
+        last_three_high_coop = len(opp) >= 3 and opp[-1] >= self.high_threshold and (opp[-2] >= self.high_threshold) and (opp[-3] >= self.high_threshold)
+        mostly_defecting_two = len(opp) >= 2 and opp[-1] <= self.low_threshold and (opp[-2] <= self.low_threshold)
+        if len(played) >= 1 and (not bool(played[-1])) and (len(opp) >= 2):
+            if opp[-1] - opp[-2] >= 2 and m_t >= self.half_threshold:
+                return Action.C
+        if last_two_low_coop:
+            return Action.D
+        if last_three_high_coop:
+            return Action.C
+        if mostly_defecting_two:
+            return Action.D
+        if t <= 4:
+            return Action.C if m_t >= self.half_threshold else Action.D
+        if p_t >= 0.5 and trend_t >= -0.1 and (m_t >= self.half_threshold):
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_13(BaseStrategy):
+    """
+    Self-interested threshold strategy with a short exploration phase.
+
+    - Cooperate initially.
+    - Then condition cooperation only on the most recent observed opponent cooperation rate.
+    - Use a stricter safeguard in the final round to avoid unrewarded cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.exploration_length = max(1, math.ceil(self.n_rounds / 5)) if self.n_rounds > 0 else 1
+
+    def _cooperation_rate(self, opponents_cooperated: int) -> float:
+        if self.n_opponents <= 0:
+            return 0.0
+        return float(opponents_cooperated) / float(self.n_opponents)
+
+    def _recent_all_at_least_half(self, history: PlayerHistory, count: int) -> bool:
+        if count <= 0:
+            return False
+        if history.round_number < count:
+            return False
+        start = history.round_number - count
+        for idx in range(start, history.round_number):
+            if self._cooperation_rate(int(history.opponent_cooperators[idx])) < 0.5:
+                return False
+        return True
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = int(history.round_number)
+        if current_round == 0:
+            return Action.C
+        last_opponents = int(history.opponent_cooperators[-1])
+        last_rate = self._cooperation_rate(last_opponents)
+        if current_round == self.n_rounds - 1:
+            enough_last_round = last_opponents >= math.ceil(self.n_opponents / 2) if self.n_opponents > 0 else False
+            last_three_good = self._recent_all_at_least_half(history, 3)
+            if enough_last_round and last_three_good:
+                return Action.C
+            if last_rate == 1.0 and self._recent_all_at_least_half(history, 2):
+                return Action.C
+            return Action.D
+        if current_round < self.exploration_length:
+            return Action.C if last_rate >= 0.5 else Action.D
+        return Action.C if last_rate >= 0.5 else Action.D
+
+class Strategy_INDIVIDUALISTIC_14(BaseStrategy):
+    """
+    Defensive probe strategy for the repeated public goods game.
+
+    - Starts with defection.
+    - Tracks a smoothed opponent cooperation signal.
+    - Cooperates only when cooperation is stable, strong, and not collapsing.
+    - Temporarily defects after being exploited.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.opponent_count = max(0, self.n - 1)
+        self.tau = 1.0 - self.k / self.n if self.n > 0 else 1.0
+        self.margin = 1.0 / (2.0 * self.n) if self.n > 0 else 0.0
+        self.s = 0.0
+        self.mode = 'probe'
+        self.defect_lock = 0
+        self.high_coop_streak = 0
+        self.last_processed_round = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        while self.last_processed_round < current_round:
+            idx = self.last_processed_round
+            if self.opponent_count > 0:
+                x = int(history.opponent_cooperators[idx])
+                q = x / self.opponent_count
+            else:
+                q = 0.0
+            prev_s = self.s
+            self.s = 0.6 * self.s + 0.4 * q
+            my_action = bool(history.my_actions[idx])
+            if my_action and q < self.tau:
+                self.mode = 'defect'
+                self.defect_lock = 2
+                self.high_coop_streak = 0
+            if not my_action and q >= self.tau + self.margin:
+                self.high_coop_streak += 1
+                if self.high_coop_streak >= 2:
+                    self.mode = 'probe'
+                    self.defect_lock = 0
+            elif not my_action:
+                self.high_coop_streak = 0
+            else:
+                self.high_coop_streak = 0
+            self.last_processed_round += 1
+        if current_round == 0 or current_round >= self.r - 1:
+            return Action.D
+        if self.defect_lock > 0:
+            self.defect_lock -= 1
+            return Action.D
+        if self.mode != 'probe':
+            return Action.D
+        if current_round - 1 >= 0 and self.opponent_count > 0:
+            q = int(history.opponent_cooperators[-1]) / self.opponent_count
+        else:
+            q = 0.0
+        if self.s >= self.tau + self.margin and q >= self.tau and (q >= 0.5 * self.s):
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_15(BaseStrategy):
+    """
+    Cautious probe-based strategy for the repeated public goods game.
+
+    - Defects initially and near the end.
+    - Uses recent opponent cooperation trends to decide whether to probe.
+    - Treats any cooperation as a one-shot probe, never a commitment.
+    - Permanently defects if cooperation appears unstable or too low.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.n_opponents = max(0, self.n - 1)
+        self.permanent_defect = False
+        self.last_probe_round = None
+        self.last_probe_baseline = None
+        self.last_probe_checked = None
+        self.probe_count = 0
+        self.successful_probe = False
+
+    def _coop_rate(self, x: int) -> float:
+        if self.n_opponents <= 0:
+            return 0.0
+        return float(x) / float(self.n_opponents)
+
+    def _recent_rates(self, history: PlayerHistory, window: int=3):
+        rates = []
+        total_rounds = history.round_number
+        start = max(0, total_rounds - window)
+        for idx in range(start, total_rounds):
+            rates.append(self._coop_rate(int(history.opponent_cooperators[idx])))
+        return rates
+
+    def _has_low_window(self, history: PlayerHistory) -> bool:
+        if history.round_number < 3:
+            return False
+        vals = history.opponent_cooperators
+        for end in range(3, history.round_number + 1):
+            window = vals[end - 3:end]
+            if len(window) == 3:
+                if np.mean(window) / float(self.n_opponents if self.n_opponents > 0 else 1) < 0.6:
+                    return True
+        return False
+
+    def _all_last_three_full(self, history: PlayerHistory) -> bool:
+        if history.round_number < 3 or self.n_opponents <= 0:
+            return False
+        last3 = history.opponent_cooperators[-3:]
+        return bool(np.all(last3 == self.n_opponents))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if self._has_low_window(history):
+            self.permanent_defect = True
+        if self.last_probe_round is not None and self.last_probe_checked is None:
+            if t > self.last_probe_round:
+                current_x = int(history.opponent_cooperators[-1]) if history.round_number > 0 else 0
+                baseline = int(self.last_probe_baseline) if self.last_probe_baseline is not None else 0
+                if current_x < baseline + 1:
+                    self.permanent_defect = True
+                else:
+                    self.successful_probe = True
+                self.last_probe_checked = t - 1
+        next_round = t + 1
+        if next_round == 1 or next_round >= max(1, self.r - 1):
+            return Action.D
+        if self.permanent_defect:
+            return Action.D
+        if history.round_number < 1:
+            return Action.D
+        x_prev = int(history.opponent_cooperators[-1])
+        recent_rates = self._recent_rates(history, 3)
+        avg_rate = float(np.mean(recent_rates)) if recent_rates else 0.0
+        trend_ok = True
+        if history.round_number >= 2:
+            if int(history.opponent_cooperators[-1]) < int(history.opponent_cooperators[-2]):
+                trend_ok = False
+        if history.round_number >= 3:
+            if int(history.opponent_cooperators[-2]) < int(history.opponent_cooperators[-3]):
+                trend_ok = False
+        full_coop_mode = self._all_last_three_full(history)
+        if self.last_probe_round is not None:
+            rounds_since_probe = t - self.last_probe_round
+        else:
+            rounds_since_probe = 10 ** 9
+        enough_defect_cooldown = rounds_since_probe >= 3
+        can_probe_again = self.probe_count == 0 or (self.successful_probe and self.probe_count < 2)
+        if not can_probe_again:
+            return Action.D
+        should_probe = avg_rate >= 0.8 and trend_ok and enough_defect_cooldown
+        if full_coop_mode and enough_defect_cooldown:
+            if self.last_probe_round is None or t - self.last_probe_round >= 3:
+                should_probe = True
+        if should_probe:
+            self.last_probe_round = t
+            self.last_probe_baseline = x_prev
+            self.last_probe_checked = None
+            self.probe_count += 1
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_16(BaseStrategy):
+    """
+    Public-goods strategy with adaptive thresholding, endgame defection,
+    and short-term shock response.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.m_opponents = max(0, self.n_players - 1)
+        self._eps = 1e-12
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.D
+        opp = history.opponent_cooperators
+        x_prev = int(opp[-1]) if len(opp) > 0 else 0
+        x_prev2 = int(opp[-2]) if len(opp) > 1 else None
+        E = 0.0
+        if self.m_opponents > 0:
+            for x in opp:
+                p = float(x) / float(self.m_opponents)
+                E = 0.6 * E + 0.4 * p
+        recent_drop_by_half = False
+        if len(opp) >= 2:
+            last_drop = float(opp[-1]) <= 0.5 * float(opp[-2])
+            prev_drop = False
+            if len(opp) >= 3:
+                prev_drop = float(opp[-2]) <= 0.5 * float(opp[-3])
+            recent_drop_by_half = last_drop or prev_drop
+        if t >= self.n_rounds - 2:
+            if not (E >= 1.0 - self._eps and x_prev == self.m_opponents):
+                return Action.D
+        if recent_drop_by_half:
+            return Action.D
+        if x_prev == 0:
+            return Action.D
+        if x_prev == self.m_opponents:
+            return Action.C
+        if self.k <= 1.2:
+            if x_prev == self.m_opponents and x_prev2 == self.m_opponents:
+                return Action.C
+            return Action.D
+        if self.k >= self.m_opponents and x_prev > 0:
+            return Action.C
+        threshold = 1.0 / self.k if self.k > 0 else float('inf')
+        if len(opp) >= 3 and self.m_opponents > 0:
+            recent_rates = [float(opp[-1]) / self.m_opponents, float(opp[-2]) / self.m_opponents, float(opp[-3]) / self.m_opponents]
+            if all((rate >= threshold for rate in recent_rates)):
+                return Action.C
+        if E >= threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_17(BaseStrategy):
+    """
+    Defect by default, cooperate only after two consecutive high-cooperation
+    rounds, and immediately retreat after a failed cooperative attempt.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = getattr(game_description, 'n_players', 0)
+        k = getattr(game_description, 'k', 0.0)
+        if n is None or n < 2:
+            n = 2
+        if k is None or k <= 1.0:
+            k = 1.0
+        self.threshold = int(math.ceil((n - 1) * (1.0 - 1.0 / k)))
+        if self.threshold < 0:
+            self.threshold = 0
+        if self.threshold > max(0, n - 1):
+            self.threshold = max(0, n - 1)
+        self.streak = 0
+        self.cooldown = 0
+        self.last_processed_round = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = getattr(self.game_description, 'n_rounds', 0)
+        current_round = history.round_number + 1
+        for idx in range(self.last_processed_round, history.round_number):
+            round_no = idx + 1
+            if round_no == 1:
+                played_c = False
+            elif round_no >= max(1, n_rounds - 1):
+                played_c = False
+            elif self.cooldown > 0:
+                played_c = False
+                self.cooldown -= 1
+            elif self.streak >= 2:
+                played_c = True
+            else:
+                played_c = False
+            opp = int(history.opponent_cooperators[idx]) if idx < len(history.opponent_cooperators) else 0
+            if opp >= self.threshold:
+                self.streak += 1
+            else:
+                self.streak = 0
+                if played_c:
+                    self.cooldown = 2
+        self.last_processed_round = history.round_number
+        if current_round == 1:
+            return Action.D
+        if current_round >= max(1, n_rounds - 1):
+            return Action.D
+        if self.cooldown > 0:
+            self.cooldown -= 1
+            return Action.D
+        if self.streak >= 2:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_18(BaseStrategy):
+    """
+    Defect-oriented threshold strategy for the repeated N-player Public Goods Game.
+
+    - Defect initially.
+    - Cooperate only after two consecutive rounds with sufficiently high opponent cooperation.
+    - Defect immediately after sufficiently low cooperation.
+    - Stay cautious near the threshold by repeating the previous action.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = max(2, int(game_description.n_players))
+        k = float(game_description.k)
+        if k > 1.0:
+            threshold = (n - 1) * (1.0 - 1.0 / k)
+        else:
+            threshold = float('inf')
+        self.threshold = int(math.ceil(threshold)) if math.isfinite(threshold) else n
+        self.threshold = max(0, min(n - 1, self.threshold))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        r = self.game_description.n_rounds
+        tau = self.threshold
+        if t == 0 or r <= 2:
+            return Action.D
+        if t >= r - 2:
+            return Action.D
+        opp = history.opponent_cooperators
+        last_g = int(opp[-1]) if len(opp) >= 1 else 0
+        prev_g = int(opp[-2]) if len(opp) >= 2 else None
+        if prev_g is not None and prev_g >= tau and (last_g >= tau):
+            return Action.C
+        if last_g <= tau - 2:
+            return Action.D
+        if len(history.my_actions) >= 1:
+            return Action.C if bool(history.my_actions[-1]) else Action.D
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_19(BaseStrategy):
+    """
+    Short-memory, trust-based public goods strategy:
+    - Cooperate in round 1 only when the public good multiplier is attractive.
+    - Build trust only after sustained, recent cooperation by others.
+    - Punish sharp betrayals with a two-round defection lockout.
+    - Defect in the final round unless cooperation has become fully reliable.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.q = 0.0
+        self.m = 0.0
+        self.punishment_timer = 0
+        self.last_rho = 0.0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.n_players
+        r = self.n_rounds
+        current_round = history.round_number + 1
+        q = 0.0
+        m = 0.0
+        punishment_timer = 0
+        last_rho = 0.0
+        opp_counts = history.opponent_cooperators
+        observed_rounds = history.round_number
+        denom = max(1, n - 1)
+        for idx in range(observed_rounds):
+            x_t = int(opp_counts[idx])
+            rho_t = x_t / denom
+            last_rho = rho_t
+            if idx == 0:
+                m = rho_t
+            else:
+                m = 0.7 * m + 0.3 * rho_t
+            if rho_t >= 2.0 / 3.0:
+                q = min(1.0, q + 0.2)
+                punishment_timer = 0
+            elif rho_t <= 1.0 / 3.0:
+                q = max(0.0, q - 0.3)
+                punishment_timer = 2
+            else:
+                punishment_timer = max(0, punishment_timer - 1)
+        self.q = q
+        self.m = m
+        self.punishment_timer = punishment_timer
+        self.last_rho = last_rho
+        if current_round == 1:
+            return Action.C if self.k > n / 2.0 else Action.D
+        if self.punishment_timer > 0:
+            return Action.D
+        if current_round == r:
+            if self.q >= 1.0 - 1e-12 and self.m >= 2.0 / 3.0 and (self.last_rho >= 2.0 / 3.0):
+                return Action.C
+            return Action.D
+        if self.q >= 0.6 and self.m >= 0.5 and (self.last_rho >= 0.5) and (self.last_rho > 1.0 / 3.0):
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_20(BaseStrategy):
+    """
+    Selective conditional cooperator:
+    - Defects initially and in the final round.
+    - Uses a short memory of opponent cooperation to probe for reciprocity.
+    - Enters a temporary punishment mode after cooperation drops.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.mode = 'test'
+        self.baseline = 0
+        self.streak = 0
+        self.punish_remaining = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.n_players
+        k = self.k
+        t = history.round_number
+        if t == 0:
+            self.mode = 'test'
+            self.baseline = 0
+            self.streak = 0
+            self.punish_remaining = 0
+            return Action.D
+        if t >= self.n_rounds - 1:
+            return Action.D
+        opp = history.opponent_cooperators
+        last_x = int(opp[-1]) if len(opp) > 0 else 0
+        prev_x = int(opp[-2]) if len(opp) >= 2 else None
+        prev2_x = int(opp[-3]) if len(opp) >= 3 else None
+        recent = opp[-3:] if len(opp) >= 3 else opp
+        recent_max = int(np.max(recent)) if len(recent) > 0 else 0
+        self.baseline = recent_max
+        self.streak = 0
+        for val in opp[::-1]:
+            if int(val) == self.baseline:
+                self.streak += 1
+            else:
+                break
+        if len(opp) >= 2:
+            prev_recent = opp[-4:-1] if len(opp) >= 4 else opp[:-1]
+            prev_baseline = int(np.max(prev_recent)) if len(prev_recent) > 0 else last_x
+            if last_x < max(prev_baseline - 1, 0):
+                self.punish_remaining = 2
+        threshold = math.ceil((n - 1) / k) if k > 0 else n
+        can_profitably_cooperate = k * last_x >= n - 1
+        if self.punish_remaining > 0:
+            self.punish_remaining -= 1
+            self.mode = 'punish'
+            return Action.D
+        if len(opp) >= 1 and last_x == n - 1:
+            if len(opp) < 2 or int(opp[-2]) != n - 1:
+                self.mode = 'exploit'
+                return Action.C
+            self.mode = 'exploit'
+            return Action.D
+        if can_profitably_cooperate and last_x >= threshold:
+            if len(opp) >= 2:
+                if prev_x is not None and prev2_x is not None and (prev_x >= prev2_x):
+                    self.mode = 'test'
+                    return Action.C
+                self.mode = 'exploit'
+                return Action.D
+            self.mode = 'test'
+            return Action.C
+        self.mode = 'test' if self.streak >= 3 else 'exploit'
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_21(BaseStrategy):
+    """
+    Start by defecting, then cooperate only in non-final rounds after
+    sustained majority cooperation from opponents.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n_players = int(getattr(game_description, 'n_players', 0))
+        self._majority_threshold = math.ceil(max(0, n_players - 1) / 2)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = int(getattr(self.game_description, 'n_rounds', 0))
+        round_number = int(getattr(history, 'round_number', 0))
+        if round_number == 0:
+            return Action.D
+        current_round_index = round_number
+        if current_round_index >= n_rounds - 1:
+            return Action.D
+        opp = history.opponent_cooperators
+        threshold = self._majority_threshold
+        if len(opp) < 1 or opp[-1] < threshold:
+            return Action.D
+        if round_number >= 2:
+            if len(opp) < 2:
+                return Action.D
+            if opp[-1] < opp[-2]:
+                return Action.D
+            if opp[-2] < threshold:
+                return Action.D
+        if bool(history.my_actions[-1]):
+            if opp[-1] < threshold:
+                return Action.D
+        return Action.C
+
+class Strategy_INDIVIDUALISTIC_22(BaseStrategy):
+    """
+    Thresholded conditional public-goods strategy with:
+    - optimistic first-round probing when immediately profitable,
+    - adaptive threshold updates from recent opponent cooperation,
+    - a mild forgiveness rule after sustained cooperation,
+    - terminal defection in the final two rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        if self.k > 0:
+            q1 = math.ceil((self.n - self.k) / self.k) + 1
+        else:
+            q1 = self.n
+        self.q1 = max(0, min(self.n - 1 if self.n > 0 else 0, int(q1)))
+        self.initial_probe_cooperate = self.k * max(self.n - 1, 0) > self.n
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t0 = history.round_number
+        if t0 >= max(self.r - 2, 0):
+            return Action.D
+        if t0 == 0:
+            return Action.C if self.initial_probe_cooperate else Action.D
+        opp = history.opponent_cooperators
+        if len(opp) == 0:
+            return Action.D
+        q_t = self.q1
+        past_rounds = min(t0, len(opp))
+        for past_idx in range(past_rounds):
+            recent_count = min(3, past_idx + 1)
+            start = past_idx - recent_count + 1
+            if start < 0:
+                start = 0
+            recent_slice = opp[start:past_idx + 1]
+            if len(recent_slice) == 0:
+                m_t = 0.0
+            else:
+                m_t = float(np.mean(recent_slice))
+            if m_t < q_t - 1:
+                q_t = min(self.n - 1, q_t + 1)
+            elif m_t > q_t + 1:
+                q_t = max(0, q_t - 1)
+        last_s = int(opp[-1])
+        sustained_cooperation = False
+        if len(opp) >= 2:
+            prev_s = int(opp[-2])
+            prev_q = q_t
+            prior_idx = t0 - 1
+            q_prev = self.q1
+            for past_idx in range(min(prior_idx, len(opp) - 1)):
+                recent_count = min(3, past_idx + 1)
+                start = past_idx - recent_count + 1
+                if start < 0:
+                    start = 0
+                recent_slice = opp[start:past_idx + 1]
+                if len(recent_slice) == 0:
+                    m_prev = 0.0
+                else:
+                    m_prev = float(np.mean(recent_slice))
+                if m_prev < q_prev - 1:
+                    q_prev = min(self.n - 1, q_prev + 1)
+                elif m_prev > q_prev + 1:
+                    q_prev = max(0, q_prev - 1)
+            sustained_cooperation = prev_s >= q_prev and last_s >= q_t
+        low_now = last_s < q_t - 1
+        low_prev = False
+        if len(opp) >= 2:
+            prev_round_idx = t0 - 1
+            q_prev = self.q1
+            for past_idx in range(min(prev_round_idx, len(opp) - 1)):
+                recent_count = min(3, past_idx + 1)
+                start = past_idx - recent_count + 1
+                if start < 0:
+                    start = 0
+                recent_slice = opp[start:past_idx + 1]
+                if len(recent_slice) == 0:
+                    m_prev = 0.0
+                else:
+                    m_prev = float(np.mean(recent_slice))
+                if m_prev < q_prev - 1:
+                    q_prev = min(self.n - 1, q_prev + 1)
+                elif m_prev > q_prev + 1:
+                    q_prev = max(0, q_prev - 1)
+            low_prev = int(opp[-2]) < q_prev - 1
+        if low_now and low_prev:
+            return Action.D
+        if sustained_cooperation:
+            return Action.C
+        if last_s >= q_t:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_23(BaseStrategy):
+    """
+    Conditional cooperator with a short-memory threshold and trend filter.
+    Defects in the first and last rounds, and reverts to defection whenever
+    recent opponent cooperation falls below the threshold.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = int(game_description.n_players)
+        r = int(game_description.n_rounds)
+        k = float(game_description.k)
+        self.n_players = n
+        self.n_rounds = r
+        self.k = k
+        if n > 1 and k != 0:
+            theta = 1.0 - 1.0 / k + 1.0 / (n - 1)
+        else:
+            theta = 1.0
+        self.theta = max(0.0, min(1.0, theta))
+        self.window = min(3, max(0, r - 1))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        n = self.n_players
+        r = self.n_rounds
+        if round_number == 0 or round_number >= r - 1:
+            return Action.D
+        if round_number < 1:
+            return Action.D
+        opp = history.opponent_cooperators
+        denom = n - 1
+        if n == 2:
+            if round_number >= 1 and int(opp[-1]) == 1 and (round_number < r - 1):
+                return Action.C
+            return Action.D
+        q_vals = []
+        for x in opp:
+            if denom > 0:
+                q_vals.append(float(x) / float(denom))
+            else:
+                q_vals.append(0.0)
+        q_prev = q_vals[-1] if len(q_vals) >= 1 else 0.0
+        if round_number >= 3 and len(q_vals) >= 2:
+            delta = q_vals[-1] - q_vals[-2]
+        else:
+            delta = 0.0
+        w = self.window
+        if w <= 0 or len(q_vals) == 0:
+            q_bar = 0.0
+        else:
+            start = max(0, len(q_vals) - w)
+            recent = q_vals[start:]
+            q_bar = float(sum(recent)) / float(len(recent)) if recent else 0.0
+        theta = self.theta
+        eps = 1e-12
+        cooperates = q_bar > theta + eps and q_prev > theta + eps and (delta >= 0.0)
+        return Action.C if cooperates else Action.D
+
+class Strategy_INDIVIDUALISTIC_24(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Starts with cooperation.
+    - Uses recent opponent cooperation, an EWMA, and a short streak filter.
+    - Defects in the endgame reserve window.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.alpha = 0.4
+        self.theta_up = 0.55
+        self.theta_down = 0.35
+        self.endgame_reserve = max(2, math.ceil(self.n_rounds / 5))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        if history.opponent_cooperators is None or len(history.opponent_cooperators) == 0:
+            return Action.D
+        n_opponents = max(0, self.n_players - 1)
+        if n_opponents <= 0:
+            return Action.D
+        m_bar = 1.0
+        streak = 0
+        m_prev = 1.0
+        available_rounds = min(t, len(history.opponent_cooperators))
+        for idx in range(available_rounds):
+            q = int(history.opponent_cooperators[idx])
+            if n_opponents == 1:
+                m = 1.0 if q >= 1 else 0.0
+            else:
+                m = q / n_opponents
+            m_bar = self.alpha * m + (1.0 - self.alpha) * m_bar
+            if m >= self.theta_up:
+                streak += 1
+            else:
+                streak = 0
+            m_prev = m
+        if available_rounds < t:
+            return Action.D
+        if t > self.n_rounds - self.endgame_reserve:
+            return Action.D
+        if m_prev >= self.theta_up or m_bar >= 0.5:
+            return Action.C
+        elif m_prev <= self.theta_down:
+            return Action.D
+        elif streak >= 2:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_25(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Start by defecting.
+    - Cooperate only when opponent cooperation is strong and/or rising.
+    - Be stricter in the last two rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.m_prev = 0
+        self.streak_up = 0
+        self.streak_down = 0
+        self.last_move = Action.D
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            self.m_prev = 0
+            self.streak_up = 0
+            self.streak_down = 0
+            self.last_move = Action.D
+            return Action.D
+        opp = history.opponent_cooperators
+        m = int(opp[-1])
+        prev_m = int(opp[-2]) if round_number >= 2 else 0
+        streak_up = 0
+        streak_down = 0
+        if round_number >= 2:
+            idx = round_number - 1
+            while idx > 0:
+                cur = int(opp[idx])
+                prev = int(opp[idx - 1])
+                if cur > prev:
+                    if streak_down == 0:
+                        streak_up += 1
+                    else:
+                        break
+                elif cur < prev:
+                    if streak_up == 0:
+                        streak_down += 1
+                    else:
+                        break
+                else:
+                    break
+                idx -= 1
+        n_opponents = self.n_players - 1
+        q = m / n_opponents if n_opponents > 0 else 0.0
+        last_move = Action.C if bool(history.my_actions[-1]) else Action.D
+        if round_number >= self.n_rounds - 2:
+            action = Action.C if m == n_opponents or q >= 0.8 else Action.D
+        elif m == 0:
+            action = Action.D
+        elif m == n_opponents:
+            action = Action.C
+        elif q >= 0.75:
+            action = Action.C
+        elif m >= prev_m + 2:
+            action = Action.C
+        elif q >= 0.5 and streak_up >= 2:
+            action = Action.C
+        elif last_move == Action.C and prev_m - m >= 2:
+            action = Action.D
+        elif last_move == Action.D and m - prev_m >= 2:
+            action = Action.C if q >= 0.5 else Action.D
+        else:
+            action = Action.D
+        if m > prev_m:
+            self.streak_up = streak_up + 1
+            self.streak_down = 0
+        elif m < prev_m:
+            self.streak_down = streak_down + 1
+            self.streak_up = 0
+        else:
+            self.streak_up = 0
+            self.streak_down = 0
+        self.m_prev = m
+        self.last_move = action
+        return action
+
+class Strategy_INDIVIDUALISTIC_26(BaseStrategy):
+    """
+    Conditional cooperation with a strong default to defection.
+    Cooperate only after a sustained, stable cooperative pattern,
+    never on the last round, and immediately revert to defection
+    when observed cooperation weakens.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.window = max(1, min(3, self.r - 1))
+        self.mode = Action.D
+        self.coop_streak = 0
+        self.avg_coop = 0.0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        rounds_played = history.round_number
+        if rounds_played == 0:
+            self.mode = Action.D
+            self.coop_streak = 0
+            self.avg_coop = 0.0
+            return Action.D
+        if self.r <= 2:
+            self.mode = Action.D
+            return Action.D
+        opp_counts = history.opponent_cooperators
+        n_opponents = max(0, self.n - 1)
+        rho_values = []
+        for x in opp_counts:
+            if self.n > 2 and n_opponents > 0:
+                rho = float(x) / float(n_opponents)
+            else:
+                rho = float(x)
+            rho_values.append(rho)
+        last_rho = rho_values[-1]
+        if last_rho >= 0.75:
+            self.coop_streak += 1
+        else:
+            self.coop_streak = 0
+        start = max(0, rounds_played - self.window)
+        recent = rho_values[start:rounds_played]
+        self.avg_coop = float(np.mean(recent)) if recent else 0.0
+        if rounds_played >= self.r - 1:
+            self.mode = Action.D
+            return Action.D
+        if last_rho < 0.5:
+            self.mode = Action.D
+            self.coop_streak = 0
+            return Action.D
+        if self.coop_streak >= 2 and self.avg_coop >= 0.7:
+            self.mode = Action.C
+            return Action.C
+        if self.avg_coop >= 0.9 and last_rho >= 0.9:
+            self.mode = Action.C
+            return Action.C
+        self.mode = Action.D
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_27(BaseStrategy):
+    """
+    Defect by default, cooperate only after two consecutive rounds of near-unanimous
+    opponent cooperation, and never cooperate in the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.h = 0
+        self.last_high = False
+        self._last_seen_round = -1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        threshold = max(0, n - 2)
+        t = history.round_number + 1
+        if history.round_number == 0:
+            self._last_seen_round = 0
+            self.h = 0
+            self.last_high = False
+            return Action.D
+        if t == r:
+            self._last_seen_round = history.round_number
+            return Action.D
+        x = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        y = int(history.opponent_cooperators[-2]) if len(history.opponent_cooperators) > 1 else 0
+        if x >= threshold:
+            self.h += 1
+            self.last_high = True
+        else:
+            self.h = 0
+            self.last_high = False
+        if t >= 3 and x >= threshold and (y >= threshold) and (self.h == 2):
+            self._last_seen_round = history.round_number
+            return Action.C
+        self._last_seen_round = history.round_number
+        return Action.D

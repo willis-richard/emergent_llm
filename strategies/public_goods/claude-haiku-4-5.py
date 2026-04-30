@@ -1062,3 +1062,117 @@ class Strategy_INDIVIDUALISTIC_4(BaseStrategy):
 
     def __call__(self, history: PlayerHistory) -> Action:
         return Action.D
+
+class Strategy_COLLECTIVE_5(BaseStrategy):
+    """
+    Conditional Cooperation with Mutual Benefit Threshold strategy for N-Player Public Goods Game.
+    
+    Cooperates unconditionally in round 1, then cooperates in subsequent rounds
+    only if the observed number of cooperating opponents meets or exceeds the
+    threshold ⌈n / k⌉, where this threshold represents the minimum number of
+    cooperators needed for cooperation to be individually profitable.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil(game_description.n_players / game_description.k)
+        self.threshold = min(self.threshold, game_description.n_players)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        observed_cooperators_last_round = history.opponent_cooperators[-1]
+        if observed_cooperators_last_round >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_6(BaseStrategy):
+    """
+    Reciprocal Threshold Cooperation Strategy with 50% threshold.
+    
+    Cooperates in round 1, defects in final round, and in intermediate rounds
+    cooperates if observed cooperation rate among opponents >= 50%.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = 0.5
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        cooperators_in_previous_round = history.opponent_cooperators[-1]
+        n_opponents = self.game_description.n_players - 1
+        if n_opponents <= 0:
+            cooperation_rate = 0.0
+        else:
+            cooperation_rate = cooperators_in_previous_round / n_opponents
+        if cooperation_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_7(BaseStrategy):
+    """
+    Adaptive Threshold Cooperation Strategy for N-Player Public Goods Game.
+    
+    Sustains cooperation when others demonstrate sufficient willingness to cooperate,
+    defects when cooperation falls below a calibrated threshold or in the final round.
+    The threshold θ = k/n represents the critical point where collective benefit
+    outweighs private incentives.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = game_description.k / game_description.n_players
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            return Action.D
+        prev_opponent_cooperators = history.opponent_cooperators[-1]
+        prev_my_action = history.my_actions[-1]
+        total_cooperators = prev_opponent_cooperators + (1 if prev_my_action else 0)
+        cooperation_rate = total_cooperators / n
+        if cooperation_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_8(BaseStrategy):
+    """
+    Threshold-based conditional cooperation with commitment.
+    
+    Cooperates unconditionally in round 1 to signal openness.
+    In rounds 2 through r-1, cooperates if the previous round had
+    at least ceil(k) total cooperators, otherwise defects.
+    In the final round, commits to cooperation to maintain equilibrium.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.recovery_counter = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        threshold = math.ceil(self.game_description.k)
+        prev_round_idx = history.round_number - 1
+        cooperating_opponents = history.opponent_cooperators[prev_round_idx]
+        my_prev_action = history.my_actions[prev_round_idx]
+        total_cooperators = cooperating_opponents + (1 if my_prev_action else 0)
+        if total_cooperators >= threshold:
+            self.recovery_counter = 0
+            return Action.C
+        else:
+            self.recovery_counter += 1
+            if history.round_number == self.game_description.n_rounds - 1:
+                return Action.C
+            return Action.D
