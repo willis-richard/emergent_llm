@@ -23,7 +23,7 @@ class CollectiveRiskDescription(GameDescription):
         if not (1 < self.m <= self.n_players):
             raise ValueError(
                 f"m must be between 1 and {self.n_players}, got {self.m}")
-        if self.k >= 1:
+        if self.k < 1:
             raise ValueError(f"k must be geq 1, got {self.k}")
 
     @classmethod
