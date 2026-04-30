@@ -51,7 +51,9 @@ GAME_MAPPING = {
 
 MODELS_MAPPING = {
     "gpt-5-mini": "GPT 5 Mini",
+    "gpt-5.4-mini": "GPT 5.4 Mini",
     "gemini-2.5-flash": "Gemini 2.5 Flash",
+    "gemini-3.1-flash-lite-preview": "Gemini 3.1 Flash Lite",
     "claude-haiku-4-5": "Claude Haiku 4.5",
     "llama3.1-70b": "Llama 3.1 70b",
     "mistral-7b": "Mistral 7b",

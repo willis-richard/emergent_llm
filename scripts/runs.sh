@@ -15,86 +15,84 @@ done
 
 GAMES=("public_goods" "collective_risk" "common_pool")
 PROVIDER_MODELS=(
-    "openai gpt-5-mini"
-    "google gemini-2.5-flash"
+    "openai gpt-5.4-mini"
+    "google gemini-3.1-flash-lite-preview"
     "anthropic claude-haiku-4-5"
-    "ollama llama3.1-70b"
-    "ollama mistral:7b"
-    "openrouter deepseek-r1-distill-llama-70b"
 )
 EVOLUTION_PLAYERS=(4 64)
 
-# for game in "${GAMES[@]}"; do
-#     for pm in "${PROVIDER_MODELS[@]}"; do
-#         read provider model <<< "$pm"
-#         (
-#             python src/emergent_llm/generation/create_strategies.py \
-#                    --llm_provider "$provider" \
-#                    --model_name "$model" \
-#                    --game "$game" \
-#                    --strategies_dir "$STRATEGIES_DIR" \
-#                    descriptions \
-#                    --n 512
-
-#             python src/emergent_llm/generation/create_strategies.py \
-#                    --llm_provider "$provider" \
-#                    --model_name "$model" \
-#                    --game "$game" \
-#                    --strategies_dir "$STRATEGIES_DIR" \
-#                    implementations \
-#                    --max_retries 5
-#         ) &
-#     done
-#     wait
-# done
-
-python scripts/diversity.py \
-        --strategies_dir "$STRATEGIES_DIR" \
-        --n_rounds 5 \
-        --n_games 50 \
-        --n_processes $N_PROCESSES \
-        --results_dir "$RESULTS_DIR"
-
-for pm in "${PROVIDER_MODELS[@]}"; do
-    read provider model <<< "$pm"
-
-    for game in "${GAMES[@]}"; do
-        # Gemini uses Enum which sometimes gives pickle errors, so it needs single processing
-        # gpt-mini and llama are the slow model
-        if [[ "$model" == *"llama"* || "$model" == *"gpt"* ]]; then
-            n_proc=$(((N_PROCESSES - 12) / 6))
-        else
-            n_proc=1
-        fi
-
-        python scripts/run_tournament.py \
-                --strategies "$STRATEGIES_DIR/$game/${model}.py" \
-                --game "$game" \
-                --matches 200 \
-                --group-sizes 4 16 64 256 \
-                --n_processes $n_proc \
-                --results_dir "$RESULTS_DIR" \
-                --output_style summary \
-                --verbose &
-    done
-done
-wait
-
 for game in "${GAMES[@]}"; do
-    for n_players in "${EVOLUTION_PLAYERS[@]}"; do
-        python scripts/run_cultural_evolution.py \
-               --game ${game} \
-               --n_players $n_players \
-               --n_rounds 20 \
-               --population_size 512 \
-               --top_k 64 \
-               --mutation_rate 0.1 \
-               --threshold_pct 0.75 \
-               --max_generations 200 \
-               --repetitions 10 \
-               --n_runs 100 \
-               --n_processes $N_PROCESSES \
-               --results_dir "$RESULTS_DIR" \
-               --output_style summary
+    for pm in "${PROVIDER_MODELS[@]}"; do
+        read provider model <<< "$pm"
+        (
+            python src/emergent_llm/generation/create_strategies.py \
+                   --llm_provider "$provider" \
+                   --model_name "$model" \
+                   --game "$game" \
+                   --strategies_dir "$STRATEGIES_DIR" \
+                   --full_attitudes \
+                   descriptions \
+                   --n 32
+
+            python src/emergent_llm/generation/create_strategies.py \
+                   --llm_provider "$provider" \
+                   --model_name "$model" \
+                   --game "$game" \
+                   --strategies_dir "$STRATEGIES_DIR" \
+                   implementations \
+                   --max_retries 5
+        ) &
     done
+    wait
 done
+
+# python scripts/diversity.py \
+#         --strategies_dir "$STRATEGIES_DIR" \
+#         --n_rounds 5 \
+#         --n_games 50 \
+#         --n_processes $N_PROCESSES \
+#         --results_dir "$RESULTS_DIR"
+#
+# for pm in "${PROVIDER_MODELS[@]}"; do
+#     read provider model <<< "$pm"
+#
+#     for game in "${GAMES[@]}"; do
+#         # Gemini uses Enum which sometimes gives pickle errors, so it needs single processing
+#         # gpt-mini and llama are the slow model
+#         if [[ "$model" == *"llama"* || "$model" == *"gpt"* ]]; then
+#             n_proc=$(((N_PROCESSES - 12) / 6))
+#         else
+#             n_proc=1
+#         fi
+#
+#         python scripts/run_tournament.py \
+#                 --strategies "$STRATEGIES_DIR/$game/${model}.py" \
+#                 --game "$game" \
+#                 --matches 200 \
+#                 --group-sizes 4 16 64 256 \
+#                 --n_processes $n_proc \
+#                 --results_dir "$RESULTS_DIR" \
+#                 --output_style summary \
+#                 --verbose &
+#     done
+# done
+# wait
+#
+# for game in "${GAMES[@]}"; do
+#     for n_players in "${EVOLUTION_PLAYERS[@]}"; do
+#         python scripts/run_cultural_evolution.py \
+#                --game ${game} \
+#                --n_players $n_players \
+#                --n_rounds 20 \
+#                --population_size 512 \
+#                --top_k 64 \
+#                --mutation_rate 0.1 \
+#                --threshold_pct 0.75 \
+#                --max_generations 200 \
+#                --repetitions 10 \
+#                --n_runs 100 \
+#                --n_processes $N_PROCESSES \
+#                --results_dir "$RESULTS_DIR" \
+#                --output_style summary
+#     done
+# done
