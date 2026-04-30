@@ -61,6 +61,7 @@ def setup_logging(log_file: Path) -> logging.Logger:
 class LLMConfig:
     client: openai.OpenAI | anthropic.Anthropic | ollama.Client | genai.Client
     model_name: str
+    reasoning_effort: str = "low"
     max_retries: int = 3
 
 
@@ -194,7 +195,7 @@ def generate_strategy_description(config: LLMConfig,
                                   game_name: str,
                                   logger: logging.Logger = None) -> str:
     """Generate natural language strategy description."""
-    system_prompt = """You are an AI assistant with expertise in strategic thinking."
+    system_prompt = """You are an AI assistant with expertise in strategic thinking.
 
 Output only the strategy description itself — no preamble, no meta-commentary, no conclusion.
 
@@ -463,13 +464,12 @@ def get_llm_response(config: LLMConfig, system_prompt: str,
             try:
                 response = config.client.chat.completions.create(
                     model=config.model_name,
-                    messages=[{
-                        "role": "system",
-                        "content": system_prompt
-                    }, {
-                        "role": "user",
-                        "content": user_prompt
-                    }],
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    reasoning_effort=config.reasoning_effort,
+                    max_completion_tokens=8192,
                 )
                 return response.choices[0].message.content
             except (openai.InternalServerError, openai.RateLimitError,
@@ -479,26 +479,25 @@ def get_llm_response(config: LLMConfig, system_prompt: str,
                 continue
 
         elif isinstance(config.client, anthropic.Anthropic):
+            # Map effort to budget_tokens; Anthropic's minimum is 1024.
+            budget_map = {"minimal": 1024, "low": 1024, "medium": 4096, "high": 12000}
+            budget_tokens = budget_map[config.reasoning_effort]
             try:
                 response = config.client.messages.create(
                     model=config.model_name,
                     system=system_prompt,
-                    max_tokens=4096,
-                    messages=[{
-                        "role": "user",
-                        "content": user_prompt
-                    }])
-                if hasattr(
-                        response,
-                        'stop_reason') and response.stop_reason == "max_tokens":
-                    logging.warning(
-                        f"Response was truncated due to max_tokens limit. "
-                        f"Consider increasing max_tokens. Stop reason: {response.stop_reason}"
-                    )
-                return response.content[0].text
+                    max_tokens=budget_tokens + 8192,
+                    temperature=1.0,
+                    thinking={"type": "enabled", "budget_tokens": budget_tokens},
+                    messages=[{"role": "user", "content": user_prompt}],
+                )
+                if response.stop_reason == "max_tokens":
+                    raise RuntimeError("Anthropic response truncated; raise max_tokens")
+                # Skip thinking blocks — they're separate content blocks.
+                text_parts = [b.text for b in response.content if b.type == "text"]
+                return "".join(text_parts)
             except (anthropic.InternalServerError, anthropic.RateLimitError,
-                    anthropic.APITimeoutError,
-                    anthropic.APIConnectionError) as e:
+                    anthropic.APITimeoutError, anthropic.APIConnectionError) as e:
                 if not handle_retry(attempt, config.max_retries, e):
                     raise
                 continue
@@ -527,6 +526,12 @@ def get_llm_response(config: LLMConfig, system_prompt: str,
                 response = config.client.models.generate_content(
                     model=config.model_name,
                     contents=full_prompt,
+                    config=genai.types.GenerateContentConfig(
+                        thinking_config=genai.types.ThinkingConfig(
+                            thinking_level=genai.types.ThinkingLevel(config.reasoning_effort),
+                        ),
+                        # Don't set temperature — Google recommends default for Gemini 3.
+                    ),
                 )
                 return response.text
             except genai_errors.APIError as e:
@@ -742,6 +747,9 @@ def parse_arguments() -> argparse.Namespace:
                         choices=["openai", "anthropic", "ollama", "google", "openrouter"],
                         required=True)
     parser.add_argument("--model_name", type=str, required=True)
+    parser.add_argument("--reasoning_effort",
+                        choices=["minimal", "low", "medium", "high"],
+                        default="low")
     parser.add_argument(
         "--game_name",
         choices=["public_goods", "public_goods_prompt", "collective_risk", "common_pool"],
