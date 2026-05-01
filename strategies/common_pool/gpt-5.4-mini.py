@@ -1718,3 +1718,12065 @@ class Strategy_INDIVIDUALISTIC_4(BaseStrategy):
             return Action.C
         self.last_stock = float(current_stock)
         return Action.D
+
+class Strategy_COLLECTIVE_5(BaseStrategy):
+    """
+    Supportive-defensive common pool strategy:
+    - Cooperate in round 1.
+    - Cooperate whenever the stock is low (<= capacity/3).
+    - Otherwise cooperate if a majority of opponents cooperated last round.
+    - Otherwise defect.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        n_players = int(getattr(game_description, 'n_players', 0))
+        capacity = float(getattr(game_description, 'capacity', 0.0))
+        self.n_players = n_players
+        self.capacity = capacity
+        self.majority = int(math.ceil((n_players - 1) / 2.0)) if n_players >= 1 else 0
+        self.low_stock = capacity / 3.0 if capacity > 0 else 0.0
+        self.mode = 'supportive'
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(getattr(history, 'round_number', 0))
+        if round_number == 0:
+            self.mode = 'supportive'
+            return Action.C
+        if current_stock <= self.low_stock or current_stock <= 0.0:
+            self.mode = 'supportive'
+            return Action.C
+        last_opponent_cooperators = 0
+        if len(history.opponent_cooperators) > 0:
+            last_opponent_cooperators = int(history.opponent_cooperators[-1])
+        if last_opponent_cooperators >= self.majority:
+            self.mode = 'supportive'
+        else:
+            self.mode = 'defensive'
+        if last_opponent_cooperators >= self.majority:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_6(BaseStrategy):
+    """
+    State-based quota strategy for the Common Pool Resource Game.
+
+    - Cooperates initially.
+    - Follows a cooperative quota when the observed cooperation level supports
+      stock recovery.
+    - Switches to defensive behavior after persistent under-cooperation.
+    - Includes special handling for the two-player case.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.c_star = math.ceil(self.n / 2)
+        self.m = max(0, self.c_star - 1)
+        self.defensive_mode = False
+        self._last_seen_round = -1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if current_stock <= 0:
+            return Action.D
+        if round_number == 0:
+            self.defensive_mode = False
+            self._last_seen_round = 0
+            return Action.C
+        k_prev = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        stock = float(current_stock)
+        half_capacity = self.capacity / 2.0 if self.capacity > 0 else 0.0
+        tau = max(0.0, 1.0 - stock / self.capacity) if self.capacity > 0 else 1.0
+        if len(history.opponent_cooperators) >= 2:
+            last_two = history.opponent_cooperators[-2:]
+            avg_c = float(np.mean(last_two))
+            if avg_c < self.m and int(last_two[-1]) < self.m:
+                self.defensive_mode = True
+            elif avg_c >= self.m or (k_prev >= self.m and stock >= half_capacity):
+                self.defensive_mode = False
+        elif k_prev < self.m and stock < half_capacity:
+            self.defensive_mode = True
+        if self.n == 2:
+            if stock <= 0:
+                return Action.D
+            if k_prev >= 1 and stock >= half_capacity:
+                return Action.C
+            return Action.D
+        if stock <= 0:
+            return Action.D
+        if stock >= self.capacity and k_prev >= self.m:
+            self.defensive_mode = False
+            return Action.C
+        if round_number == self.rounds - 1:
+            if k_prev >= self.m and stock >= half_capacity:
+                return Action.C
+            return Action.D
+        if self.defensive_mode:
+            if k_prev >= self.m and stock >= half_capacity:
+                self.defensive_mode = False
+                return Action.C
+            return Action.D
+        if k_prev >= self.m and stock >= half_capacity and (tau <= 0.25):
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_7(BaseStrategy):
+    """
+    Baseline-cooperative common-pool strategy with short corrective defections
+    when prior-round cooperation falls below a majority and stock remains ample.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.capacity = float(game_description.capacity)
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        n = max(2, self.n_players)
+        capacity = self.capacity
+        stock = float(current_stock)
+        last_my_action = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else True
+        observed_opponent_coop = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        total_coop_prev = observed_opponent_coop + (1 if last_my_action else 0)
+        coop_rate = total_coop_prev / n
+        rounds_played = history.round_number
+        rounds_remaining_after_this = self.n_rounds - rounds_played - 1
+        if rounds_remaining_after_this <= 0:
+            return Action.C
+        if rounds_remaining_after_this == 1:
+            if coop_rate < 0.5 and stock > 0.4 * capacity:
+                return Action.D
+            return Action.C
+        if stock <= 0.4 * capacity:
+            return Action.C
+        if coop_rate >= 0.5:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_8(BaseStrategy):
+    """
+    Cooperative default strategy with state-based defensive defections.
+    Cooperate when the group is sufficiently cooperative and the stock is safe;
+    defect briefly as a warning or when stock is critically low, then re-enter
+    cooperation once conditions recover.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        n = int(getattr(game_description, 'n_players', 0) or 0)
+        capacity = float(getattr(game_description, 'capacity', 0.0) or 0.0)
+        n_opponents = max(0, n - 1)
+        self.n_players = n
+        self.n_opponents = n_opponents
+        self.capacity = capacity
+        self.q_high = math.ceil(3 * n_opponents / 4) if n_opponents > 0 else 0
+        self.q_min = math.ceil(n_opponents / 2) if n_opponents > 0 else 0
+        self.s_safe = 0.75 * capacity
+        self.s_low = 0.4 * capacity
+        self.s_mid = 0.6 * capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(getattr(history, 'round_number', 0) or 0)
+        S = float(current_stock)
+        if round_number == 0:
+            return Action.C
+        if self.game_description and round_number >= max(0, int(self.game_description.n_rounds) - 1):
+            return Action.C if S >= self.s_low else Action.D
+        opp_coops = history.opponent_cooperators
+        c_prev = int(opp_coops[-1]) if len(opp_coops) > 0 else 0
+        my_actions = history.my_actions
+        prev_my_action = bool(my_actions[-1]) if len(my_actions) > 0 else True
+        if S < self.s_low:
+            return Action.D
+        if not prev_my_action:
+            if c_prev >= self.q_high and S >= self.s_safe:
+                return Action.C
+            return Action.D
+        if c_prev >= self.q_high:
+            if S >= self.s_safe:
+                return Action.C
+            return Action.D
+        if self.q_min <= c_prev < self.q_high:
+            if S >= self.s_mid:
+                return Action.C
+            return Action.D
+        return Action.D
+
+class Strategy_COLLECTIVE_9(BaseStrategy):
+    """
+    State-contingent collective quota rule for the common pool resource game.
+    Defaults to cooperation, defects after broad defection, and becomes stricter
+    when the pool is low.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(1, self.n_players - 1)
+        self.base_threshold = 0.5
+        self.recovery_threshold = 2.0 / 3.0
+        self.permanent_defection = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        stock = float(current_stock)
+        if t == 0:
+            return Action.C
+        if t == self.n_rounds - 1:
+            return Action.C if stock > 0 else Action.D
+        if stock <= 0:
+            self.permanent_defection = True
+            return Action.D
+        last_opponents = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        q = last_opponents / self.n_opponents if self.n_opponents > 0 else 0.0
+        if q < self.base_threshold:
+            self.permanent_defection = True
+        elif self.permanent_defection and q >= self.recovery_threshold:
+            self.permanent_defection = False
+        if self.permanent_defection:
+            return Action.D
+        if t == self.n_rounds - 2:
+            if stock < self.capacity / 3.0:
+                return Action.C if q >= self.recovery_threshold else Action.D
+        if stock < self.capacity / 4.0:
+            return Action.C if q >= self.recovery_threshold else Action.D
+        if stock >= self.capacity / 2.0 and q >= self.base_threshold:
+            return Action.C
+        return Action.C if q >= self.base_threshold else Action.D
+
+class Strategy_COLLECTIVE_10(BaseStrategy):
+    """
+    Conservative common-pool strategy:
+    - Cooperates on the first round.
+    - Tracks persistent low opponent cooperation as a pressure signal.
+    - Defects only in the very late game, when stock is low and pressure has persisted.
+    - Returns to cooperation immediately when the warning disappears.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        if self.n_players <= 3:
+            self.pressure_coop_threshold = 0
+        else:
+            self.pressure_coop_threshold = max(0, self.n_players - 3)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        cap = self.capacity
+        stock = float(current_stock)
+        if not math.isfinite(stock):
+            stock = cap
+        half_cap = cap / 2.0 if cap != 0 else 0.0
+        third_cap = cap / 3.0 if cap != 0 else 0.0
+        quarter_cap = cap / 4.0 if cap != 0 else 0.0
+        pressure = 0
+        opp_coops = history.opponent_cooperators
+        for idx in range(len(opp_coops) - 1, -1, -1):
+            k = int(opp_coops[idx])
+            if k <= self.pressure_coop_threshold:
+                pressure += 1
+            else:
+                break
+        t = round_number + 1
+        r = self.n_rounds
+        if stock >= half_cap:
+            return Action.C
+        if t == r:
+            if stock < quarter_cap and pressure >= 2:
+                return Action.D
+            return Action.C
+        if stock > third_cap:
+            return Action.C
+        if stock <= third_cap:
+            if pressure < 2:
+                return Action.C
+            if t >= r - 1:
+                return Action.D
+            return Action.C
+        return Action.C
+
+class Strategy_COLLECTIVE_11(BaseStrategy):
+    """
+    Stock-sensitive conditional cooperation with quorum thresholds.
+    Cooperates initially, then cooperates only when the previous round's
+    opponent cooperation count meets a stock-dependent quorum.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self._epsilon = 1e-12
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = max(2, int(self.n_players))
+        capacity = self.capacity if self.capacity > 0 else 1.0
+        if history.round_number == 0:
+            return Action.C
+        s = float(current_stock) / capacity
+        x = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if n == 2:
+            q = 2
+        elif current_stock <= 0.2 * capacity + self._epsilon:
+            q = math.ceil(0.95 * n)
+        elif s >= 0.7 - self._epsilon:
+            q = math.ceil(0.75 * n)
+        elif s >= 0.4 - self._epsilon:
+            q = math.ceil(0.85 * n)
+        else:
+            q = math.ceil(0.9 * n)
+        if x >= q - 1:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_12(BaseStrategy):
+    """
+    Conservative common-pool strategy:
+    - Start with cooperation.
+    - Cooperate whenever the group shows adequate cooperation or the stock is depleted.
+    - Defect for one round after weak cooperation, and keep defecting only while weakness persists.
+    - Near the end of the game, prioritize cooperation unless the last observed cooperation was weak.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.H = int(math.ceil(2 * self.n / 3))
+        self.L = int(math.ceil(self.n / 2))
+        self.half_capacity = self.capacity / 2.0
+        self.third_capacity = self.capacity / 3.0
+        self.eps = 1e-12
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        rounds_left = self.r - t
+        if rounds_left <= 1:
+            last_q = int(history.opponent_cooperators[-1]) + (1 if bool(history.my_actions[-1]) else 0)
+            return Action.C if last_q >= self.L else Action.D
+        if rounds_left == 2:
+            if current_stock < self.half_capacity:
+                return Action.C
+        if current_stock <= self.third_capacity + self.eps:
+            if current_stock <= self.half_capacity + self.eps:
+                return Action.C
+            return Action.C
+        last_my = bool(history.my_actions[-1])
+        last_opp = int(history.opponent_cooperators[-1])
+        last_q = last_opp + (1 if last_my else 0)
+        prev_q = None
+        if t >= 2:
+            prev_my = bool(history.my_actions[-2])
+            prev_opp = int(history.opponent_cooperators[-2])
+            prev_q = prev_opp + (1 if prev_my else 0)
+        if prev_q is not None and prev_q < self.L and (last_q < self.L):
+            return Action.D
+        if last_q >= self.H:
+            return Action.C
+        if self.L <= last_q < self.H:
+            return Action.C
+        if last_q < self.L:
+            return Action.D
+        return Action.C
+
+class Strategy_COLLECTIVE_13(BaseStrategy):
+    """
+    Cooperative-by-default threshold strategy with recovery and stock-aware adjustment.
+    Defect only after sustained low cooperation, and return to cooperation immediately
+    when cooperation recovers or when low stock does not coincide with prolonged zero cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.T = math.ceil((self.n_players - 1) / 2) if self.n_players > 1 else 0
+        self.H = 2
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        n_rounds = self.n_rounds
+        T = self.T
+        x_prev = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) >= 1 else 0
+        x_prev2 = int(history.opponent_cooperators[-2]) if len(history.opponent_cooperators) >= 2 else 0
+        prev_action = Action.C if bool(history.my_actions[-1]) else Action.D
+        if t == n_rounds - 1:
+            action = Action.C if x_prev >= T else Action.D
+            if prev_action == Action.D and x_prev >= T:
+                action = Action.C
+            return action
+        low_stock = current_stock <= self.capacity / 4.0
+        high_stock = current_stock >= 3.0 * self.capacity / 4.0
+        if low_stock:
+            action = Action.D if x_prev == 0 and x_prev2 == 0 else Action.C
+        elif x_prev >= T or (x_prev >= max(T - 1, 0) and x_prev2 >= T):
+            action = Action.C
+        else:
+            action = Action.D
+        if prev_action == Action.D and x_prev >= T:
+            action = Action.C
+        return action
+
+class Strategy_COLLECTIVE_14(BaseStrategy):
+    """
+    Stock-sensitive cooperative strategy for the Common Pool Resource Game.
+
+    - Cooperates in the first round.
+    - Uses opponent cooperation rate relative to a stock-dependent threshold.
+    - Defects when stock is low, after sharp declines, or on the final round unless cooperation is sufficiently high.
+    - Tracks sustained cooperation streaks to re-enter cooperation quickly.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.k = max(self.n - 1, 1)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        is_last_round = round_number == self.r - 1
+        prev_opp_coop = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        q = prev_opp_coop / self.k if self.k > 0 else 0.0
+        m = 0
+        stock = self.capacity
+        n_float = float(self.n)
+        for t in range(round_number):
+            if t < len(history.opponent_cooperators):
+                c_prev_t = int(history.opponent_cooperators[t])
+            else:
+                c_prev_t = 0
+            q_t = c_prev_t / self.k if self.k > 0 else 0.0
+            T_t = 0.75 + 0.25 * (stock / self.capacity) if self.capacity > 0 else 1.0
+            if q_t >= T_t:
+                m += 1
+            else:
+                m = 0
+            if t < len(history.my_actions):
+                my_coop = bool(history.my_actions[t])
+                my_consumption = stock / (2.0 * n_float) if my_coop else stock / n_float
+                opp_cooperators = c_prev_t
+                opp_defectors = self.k - opp_cooperators
+                opp_consumption = opp_cooperators * (stock / (2.0 * n_float)) + opp_defectors * (stock / n_float)
+                total_consumption = my_consumption + opp_consumption
+                remaining = stock - total_consumption
+                growth = 2.0 * remaining * (1.0 - remaining / self.capacity) if self.capacity > 0 else 0.0
+                stock = min(remaining + growth, self.capacity)
+        if current_stock <= self.capacity / 4.0:
+            return Action.D
+        if is_last_round:
+            if q >= 0.5 and current_stock > 0.0:
+                return Action.C
+            return Action.D
+        prev_stock_start = None
+        if round_number - 1 < len(history.my_actions):
+            prev_round_my_coop = bool(history.my_actions[-1])
+            prev_round_my_payoff = float(history.my_payoffs[-1]) if len(history.my_payoffs) > 0 else 0.0
+            if prev_round_my_coop:
+                prev_stock_start = prev_round_my_payoff * (2.0 * n_float)
+            else:
+                prev_stock_start = prev_round_my_payoff * n_float
+        stock_increased = False
+        sharp_drop = False
+        if prev_stock_start is not None:
+            stock_increased = current_stock > prev_stock_start
+            sharp_drop = prev_stock_start - current_stock > self.capacity / 8.0
+        T = 0.75 + 0.25 * (current_stock / self.capacity) if self.capacity > 0 else 1.0
+        if sharp_drop and q < 1.0:
+            return Action.D
+        if stock_increased and q >= 0.5:
+            return Action.C
+        if current_stock >= 3.0 * self.capacity / 4.0 and q >= 0.5:
+            return Action.C
+        if q >= T:
+            return Action.C
+        if m >= 2 and q >= 0.5 and (current_stock >= self.capacity / 2.0):
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_15(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Cooperate by default when the pool looks healthy.
+    - Defect defensively under pressure, low stock, or near the end if cooperation is not clear.
+    - Track trust and pressure from observed opponent behavior.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.trust = 1
+        self.pressure = 0
+        self._last_processed_round = -1
+
+    def _update_state_from_last_round(self, history: PlayerHistory) -> None:
+        current_round = int(history.round_number)
+        if current_round <= 0:
+            return
+        if self._last_processed_round == current_round:
+            return
+        k = int(history.opponent_cooperators[-1])
+        if k >= self.n - 1:
+            self.trust = max(self.trust + 1, 0)
+            self.pressure = max(self.pressure - 1, 0)
+        elif k <= self.n - 2:
+            self.trust -= 1
+            self.pressure += 1
+            if k == 0:
+                self.pressure += 1
+        self._last_processed_round = current_round
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = int(history.round_number) + 1
+        L = self.r - t + 1
+        self._update_state_from_last_round(history)
+        S = float(current_stock)
+        if not math.isfinite(S):
+            S = 0.0
+        if S < 0.0:
+            S = 0.0
+        if history.round_number == 0:
+            return Action.C if S > 0 else Action.D
+        if t == self.r:
+            last_k = int(history.opponent_cooperators[-1]) if history.round_number > 0 else 0
+            if self.pressure == 0 and last_k >= self.n - 1 and (S > 0):
+                return Action.C
+            return Action.D
+        if self.pressure >= 2:
+            return Action.D
+        if S <= 2 * self.n and L > 1:
+            return Action.D
+        if t == self.r and self.trust < 0:
+            return Action.D
+        baseline = S / (2 * self.n) if self.n > 0 else 0.0
+        threshold = S / self.n if self.n > 0 else 0.0
+        _ = baseline
+        _ = threshold
+        if self.pressure == 0 and self.trust >= 0 and (S > 0):
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_16(BaseStrategy):
+    """
+    Cooperative default strategy with trust-based recovery and endgame caution
+    for the Common Pool Resource Game.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.mode = 'cooperative'
+        self.trust = 1.0
+        self.last_cooperators = max(self.n_players - 1, 0)
+        self.warning_streak = 0
+
+    def _observed_rate(self, k: int) -> float:
+        n = self.n_players
+        n_opponents = max(n - 1, 0)
+        if n <= 2:
+            return 1.0 if k > 0 else 0.0
+        if n_opponents <= 0:
+            return 0.0
+        return max(0.0, min(1.0, k / n_opponents))
+
+    def _compute_trust(self, history: PlayerHistory) -> float:
+        trust = 1.0
+        n = self.n_players
+        if history.round_number == 0:
+            return trust
+        for k in history.opponent_cooperators.tolist():
+            observed = self._observed_rate(int(k))
+            trust = 0.7 * trust + 0.3 * observed
+        return max(0.0, min(1.0, trust))
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.n_players
+        rounds_played = history.round_number
+        remaining_rounds = self.n_rounds - rounds_played
+        if rounds_played == 0:
+            self.trust = 1.0
+            self.last_cooperators = max(n - 1, 0)
+            self.mode = 'cooperative'
+            self.warning_streak = 0
+            return Action.C
+        k = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else max(n - 1, 0)
+        self.last_cooperators = k
+        self.trust = self._compute_trust(history)
+        x = 0.0 if self.capacity <= 0 else float(current_stock) / self.capacity
+        x = max(0.0, x)
+        majority_threshold = math.ceil((n - 1) / 2) if n > 1 else 0
+        previous_action = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else True
+        previous_played_defect = not previous_action
+        if current_stock <= 0:
+            self.mode = 'defensive'
+            self.warning_streak += 1
+            return Action.D
+        if remaining_rounds <= 2:
+            if k > 0:
+                self.mode = 'cooperative'
+                self.warning_streak = 0
+                return Action.C
+            self.mode = 'defensive'
+            self.warning_streak += 1
+            return Action.D
+        if previous_played_defect:
+            if k >= majority_threshold:
+                self.mode = 'cooperative'
+                self.warning_streak = 0
+                return Action.C
+            if x >= 0.5 and self.trust >= 0.6:
+                self.mode = 'cooperative'
+                self.warning_streak = 0
+                return Action.C
+            self.mode = 'defensive'
+            self.warning_streak += 1
+            return Action.D
+        if x >= 0.25 and self.trust >= 0.5 and (k >= majority_threshold):
+            self.mode = 'cooperative'
+            self.warning_streak = 0
+            return Action.C
+        if n == 2 and k <= 0:
+            self.mode = 'defensive'
+            self.warning_streak += 1
+            return Action.D
+        if current_stock >= self.capacity and k > 0 and (self.trust >= 0.45):
+            self.mode = 'cooperative'
+            self.warning_streak = 0
+            return Action.C
+        self.mode = 'defensive'
+        self.warning_streak += 1
+        return Action.D
+
+class Strategy_COLLECTIVE_17(BaseStrategy):
+    """
+    Cooperative common-pool strategy with depletion protection and a one-round
+    repair mode after low observed opponent cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_opponents = max(self.n_players - 1, 1)
+        self.capacity = float(game_description.capacity)
+        self.repair_mode = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            self.repair_mode = False
+            return Action.C
+        last_opponent_cooperators = int(history.opponent_cooperators[-1])
+        if self.n_opponents > 0:
+            q = last_opponent_cooperators / self.n_opponents
+        else:
+            q = 0.0
+        if self.capacity > 0:
+            s = float(current_stock) / self.capacity
+        else:
+            s = 0.0
+        self.repair_mode = q < 2.0 / 3.0
+        all_opponents_cooperated = last_opponent_cooperators >= self.n_opponents
+        if s <= 0.25:
+            return Action.C if all_opponents_cooperated else Action.D
+        if q >= 2.0 / 3.0 and s >= 1.0 / 3.0:
+            return Action.C
+        if q >= 2.0 / 3.0 and s >= 0.25:
+            return Action.C
+        if self.repair_mode:
+            return Action.D
+        return Action.D
+
+class Strategy_COLLECTIVE_18(BaseStrategy):
+    """
+    Cooperative default strategy for the Common Pool Resource Game.
+
+    - Cooperate in the first and last rounds.
+    - Otherwise, cooperate when the group's observed cooperation is at least moderate.
+    - Defect only when cooperation has clearly broken down and the stock is already low.
+    - Prefer cooperation when the stock is healthy.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 0)
+        self.last_observed_cooperators = None
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        if round_number >= self.n_rounds - 1:
+            return Action.C
+        k_t = None
+        if hasattr(history, 'opponent_cooperators') and len(history.opponent_cooperators) > 0:
+            k_t = int(history.opponent_cooperators[-1])
+            self.last_observed_cooperators = k_t
+        elif self.last_observed_cooperators is not None:
+            k_t = int(self.last_observed_cooperators)
+        if k_t is None or self.n_opponents <= 0:
+            return Action.C
+        q_t = k_t / self.n_opponents
+        if current_stock >= 0.75 * self.capacity:
+            return Action.C
+        if q_t >= 0.5:
+            return Action.C
+        if current_stock <= 0.25 * self.capacity and q_t <= 1.0 / 3.0:
+            return Action.D
+        if q_t < 0.5 and current_stock <= 0.5 * self.capacity and (q_t <= 1.0 / 3.0):
+            return Action.D
+        return Action.C
+
+class Strategy_COLLECTIVE_19(BaseStrategy):
+    """
+    Stock-preserving threshold strategy with calibration, stock-protection,
+    and exhaustion-guard behavior based on anonymous opponent cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 0)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.n_players
+        m = self.n_opponents
+        t = int(history.round_number) + 1
+        if t == 1:
+            return Action.C
+        if history.opponent_cooperators.size > 0 and m > 0:
+            last_k = int(history.opponent_cooperators[-1])
+            x_last = last_k / m
+        else:
+            last_k = 0
+            x_last = 0.0
+        coop_streak = 0
+        defect_streak = 0
+        decline_streak = 0
+        if history.opponent_cooperators.size > 0 and m > 0:
+            for k in history.opponent_cooperators[::-1]:
+                x = int(k) / m
+                if x >= 2.0 / 3.0:
+                    coop_streak += 1
+                else:
+                    break
+            for k in history.opponent_cooperators[::-1]:
+                x = int(k) / m
+                if x < 1.0 / 3.0:
+                    defect_streak += 1
+                else:
+                    break
+        if history.my_payoffs.size > 0:
+            prev_stock_est = None
+            for idx in range(history.my_payoffs.size - 1, -1, -1):
+                my_action = bool(history.my_actions[idx])
+                p = float(history.my_payoffs[idx])
+                if my_action:
+                    s_est = 2.0 * n * p
+                else:
+                    s_est = n * p
+                if prev_stock_est is not None:
+                    if s_est < prev_stock_est - 1e-12:
+                        decline_streak += 1 if decline_streak == history.my_payoffs.size - 1 - idx else 0
+                    else:
+                        break
+                prev_stock_est = s_est
+        cap = self.capacity
+        s = float(current_stock)
+        if s <= 0.35 * cap:
+            return Action.C
+        if s <= 0.6 * cap:
+            return Action.C
+        if decline_streak >= 3:
+            if defect_streak >= 2 and s <= 0.5 * cap:
+                return Action.D
+            return Action.C
+        if decline_streak >= 2:
+            return Action.C
+        if t == self.n_rounds:
+            if x_last >= 0.5 or s > 0.5 * cap:
+                return Action.C
+            return Action.D
+        if t == self.n_rounds - 1:
+            if x_last < 1.0 / 3.0 and s < 0.5 * cap:
+                return Action.D
+            return Action.C
+        if t in (2, 3):
+            return Action.C if x_last >= 2.0 / 3.0 else Action.D
+        if n <= 0 or m <= 0:
+            return Action.C
+        coop_payoff = s / (2.0 * n)
+        defect_payoff = s / n
+        expected_opponent_consumption = m * (x_last * coop_payoff + (1.0 - x_last) * defect_payoff)
+        total_consumption_C = coop_payoff + expected_opponent_consumption
+        total_consumption_D = defect_payoff + expected_opponent_consumption
+        remaining_C = max(s - total_consumption_C, 0.0)
+        remaining_D = max(s - total_consumption_D, 0.0)
+        growth_C = 2.0 * remaining_C * (1.0 - remaining_C / cap) if cap > 0 else 0.0
+        growth_D = 2.0 * remaining_D * (1.0 - remaining_D / cap) if cap > 0 else 0.0
+        s_prime_C = min(remaining_C + growth_C, cap)
+        s_prime_D = min(remaining_D + growth_D, cap)
+        if s_prime_C >= 0.9 * cap:
+            return Action.C
+        if x_last >= 2.0 / 3.0:
+            return Action.C
+        if x_last < 1.0 / 3.0 and s > 0.7 * cap and (s_prime_D > s_prime_C + 1e-12):
+            return Action.D
+        if 0.5 <= x_last < 2.0 / 3.0:
+            return Action.C
+        if x_last < 0.5 and s_prime_D > s_prime_C + 1e-12 and (s > 0.7 * cap):
+            return Action.D
+        return Action.C
+
+class Strategy_COLLECTIVE_20(BaseStrategy):
+    """
+    State-triggered contingent cooperation strategy for the Common Pool Resource Game.
+    It cooperates initially, rewards strong cooperation when stock is healthy,
+    retaliates quickly after low cooperation, and uses a short recovery test
+    after regime breakdowns.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 1)
+        self.q_threshold = 0.5 * self.n_opponents
+        self.high_threshold = int(math.ceil(2 * self.n_opponents / 3))
+        self.low_threshold = int(math.floor(self.n_opponents / 3))
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        last_m = int(opp[-1]) if len(opp) >= 1 else 0
+        prev_m = int(opp[-2]) if len(opp) >= 2 else None
+        if round_number >= self.n_rounds - 1:
+            if current_stock > self.n_players:
+                return Action.C if last_m >= self.q_threshold else Action.D
+            return Action.C if last_m == self.n_opponents and prev_m == self.n_opponents else Action.D
+        if current_stock <= self.n_players:
+            return Action.C if last_m == self.n_opponents and prev_m == self.n_opponents else Action.D
+        if current_stock <= 2 * self.n_players:
+            if last_m == self.n_opponents or last_m >= self.high_threshold:
+                return Action.C
+            return Action.D
+        if prev_m is not None and prev_m <= self.low_threshold and (last_m < self.q_threshold):
+            return Action.D
+        if last_m >= self.high_threshold:
+            return Action.C
+        if last_m <= self.low_threshold:
+            return Action.C if current_stock > self.n_players else Action.D
+        return Action.C if last_m >= self.q_threshold else Action.D
+
+class Strategy_COLLECTIVE_21(BaseStrategy):
+    """
+    Stock-preserving threshold strategy with punishment and recovery modes.
+    Cooperates by default when the group is sufficiently restrained, defects
+    after overuse, and uses a short recovery phase to test renewed discipline.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.critical_stock = float(2 * self.n)
+        self.safe_stock = float(max(2 * self.n, self.capacity / 2.0))
+        self.mode = 'normal'
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        S = float(current_stock)
+        if t == 0:
+            self.mode = 'normal'
+            return Action.C
+        n_opponents = max(self.n - 1, 1)
+        last_opp_coop = int(history.opponent_cooperators[-1])
+        coop_rate = last_opp_coop / n_opponents
+        if t >= self.r - 2:
+            if S > self.safe_stock and coop_rate >= 0.75:
+                return Action.C
+            return Action.D
+        if S <= 0:
+            return Action.C
+        if S <= self.critical_stock:
+            if coop_rate >= 1.0:
+                return Action.D
+            return Action.C
+        if coop_rate < 0.4 or S < self.critical_stock:
+            self.mode = 'punishment'
+        if self.mode == 'punishment':
+            if coop_rate >= 0.75 and S >= self.safe_stock:
+                self.mode = 'recovery'
+                return Action.C
+            return Action.D
+        if self.mode == 'recovery':
+            if coop_rate < 0.75:
+                self.mode = 'punishment'
+            else:
+                self.mode = 'normal'
+            return Action.C
+        if coop_rate >= 0.75:
+            return Action.C
+        if coop_rate >= 0.4 and S >= self.safe_stock:
+            return Action.C
+        self.mode = 'punishment'
+        return Action.D
+
+class Strategy_COLLECTIVE_22(BaseStrategy):
+    """
+    Threshold-based cooperative strategy for the Common Pool Resource Game.
+
+    - Round 1: cooperate.
+    - Later rounds: cooperate when the pool is sufficiently healthy and recent
+      opponent cooperation is at or above the majority threshold.
+    - Emergency mode: defect when the pool is badly depleted.
+    - Final round: requires a slightly higher stock ratio to cooperate.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.majority_threshold = math.ceil((self.n - 1) / 2) if self.n > 1 else 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        capacity = self.capacity if self.capacity > 0 else 1.0
+        s = float(current_stock) / capacity
+        m_prev = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) >= 1 else 0
+        m_curr = int(history.opponent_cooperators[-2]) if len(history.opponent_cooperators) >= 2 else m_prev
+        if s <= 0.25:
+            return Action.D
+        is_final_round = round_number == self.r - 1
+        stock_threshold = 0.6 if is_final_round else 0.5
+        if s < stock_threshold:
+            return Action.D
+        if m_prev < self.majority_threshold:
+            return Action.D
+        if round_number <= 1:
+            return Action.C
+        if m_prev >= m_curr:
+            return Action.C
+        if m_prev >= self.majority_threshold + 1:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_23(BaseStrategy):
+    """
+    Threshold-based contingent cooperation with cooperative/defensive modes.
+    Starts by cooperating, supports strong cooperation, and switches to
+    defensive play after breakdowns until cooperation recovers.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.repair_threshold = math.ceil((self.n - 1) / 2)
+        self.strong_threshold = math.ceil(2 * (self.n - 1) / 3)
+        self.mode = 'cooperative'
+        self.strong_streak = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            self.mode = 'cooperative'
+            self.strong_streak = 0
+            return Action.C
+        prev_k = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if prev_k >= self.strong_threshold:
+            self.strong_streak += 1
+        else:
+            self.strong_streak = 0
+        if prev_k < self.repair_threshold:
+            self.mode = 'defensive'
+        elif prev_k >= self.strong_threshold:
+            self.mode = 'cooperative'
+        if round_number >= self.r - 1:
+            return Action.C if prev_k >= self.repair_threshold else Action.D
+        stock = float(current_stock)
+        cap = self.capacity
+        if stock < 0.2 * cap and prev_k != self.n - 1:
+            if prev_k < self.repair_threshold:
+                self.mode = 'defensive'
+            return Action.D
+        if self.mode == 'defensive':
+            if prev_k >= self.strong_threshold:
+                self.mode = 'cooperative'
+                if stock >= 0.6 * cap:
+                    return Action.C
+                return Action.D
+            return Action.D
+        if prev_k >= self.strong_threshold and stock >= 0.6 * cap:
+            return Action.C
+        if prev_k == self.n - 1 and stock >= 0.4 * cap:
+            return Action.C
+        if self.strong_streak >= 2 and stock >= 0.6 * cap:
+            return Action.C
+        if prev_k < self.repair_threshold:
+            self.mode = 'defensive'
+        return Action.D
+
+class Strategy_COLLECTIVE_24(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - starts with cooperation
+    - favors cooperation when others cooperate and stock is healthy
+    - shifts to punishment under partial defection or fragile stock
+    - uses a recovery mode after sustained restraint
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.mode = 'normal'
+        self.low_trust_streak = 0
+        self.zero_low_trust_streak = 0
+        self.consecutive_full_coop = 0
+        self.consecutive_half_coop = 0
+        self.last_seen_stock = self.capacity
+        self.last_seen_round = 0
+        self.pending_punishment_rounds = 0
+        self.seen_q_ge_half_after_punishment = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        cap = self.capacity
+        n = self.n
+        m = max(n - 1, 1)
+        is_final_round = round_number >= self.r - 1
+        if round_number == 0:
+            self.mode = 'normal'
+            self.last_seen_stock = float(current_stock)
+            self.last_seen_round = 0
+            return Action.C
+        last_k = int(history.opponent_cooperators[-1]) if round_number > 0 else 0
+        q = last_k / m
+        stock_now = float(current_stock)
+        stock_drop = max(0.0, self.last_seen_stock - stock_now)
+        sharp_drop = stock_drop > cap / 10.0
+        if q >= 0.5:
+            if sharp_drop:
+                self.low_trust_streak += 1
+            else:
+                self.low_trust_streak = 0
+        else:
+            self.low_trust_streak += 1
+        if self.low_trust_streak >= 2:
+            self.mode = 'punishment'
+        if self.low_trust_streak == 0:
+            self.zero_low_trust_streak += 1
+        else:
+            self.zero_low_trust_streak = 0
+        if q == 1.0:
+            self.consecutive_full_coop += 1
+        else:
+            self.consecutive_full_coop = 0
+        if q >= 0.5:
+            self.consecutive_half_coop += 1
+        else:
+            self.consecutive_half_coop = 0
+        if self.mode == 'punishment':
+            if q >= 0.5:
+                self.seen_q_ge_half_after_punishment = True
+            if self.seen_q_ge_half_after_punishment and stock_now > cap / 2.0:
+                self.mode = 'recovery'
+                self.pending_punishment_rounds = 0
+                self.seen_q_ge_half_after_punishment = False
+        if self.mode == 'recovery' and self.consecutive_half_coop >= 2 and (stock_now > cap / 3.0):
+            self.mode = 'normal'
+        if stock_now <= 2.0 * n:
+            self.last_seen_stock = stock_now
+            self.last_seen_round = round_number
+            return Action.D
+        if stock_now <= cap / 5.0:
+            self.last_seen_stock = stock_now
+            self.last_seen_round = round_number
+            return Action.D
+        if is_final_round:
+            self.last_seen_stock = stock_now
+            self.last_seen_round = round_number
+            return Action.C if q == 1.0 and stock_now >= cap / 2.0 else Action.D
+        if self.consecutive_full_coop >= 2 and stock_now > cap / 6.0:
+            self.last_seen_stock = stock_now
+            self.last_seen_round = round_number
+            return Action.C
+        if self.mode == 'punishment':
+            self.pending_punishment_rounds += 1
+            self.last_seen_stock = stock_now
+            self.last_seen_round = round_number
+            return Action.D
+        if self.mode == 'recovery':
+            self.last_seen_stock = stock_now
+            self.last_seen_round = round_number
+            if q >= 0.5 and stock_now > cap / 4.0:
+                return Action.C
+            return Action.D
+        if q >= 0.5 and stock_now > cap / 3.0:
+            self.last_seen_stock = stock_now
+            self.last_seen_round = round_number
+            return Action.C
+        self.last_seen_stock = stock_now
+        self.last_seen_round = round_number
+        return Action.D
+
+class Strategy_COLLECTIVE_25(BaseStrategy):
+    """
+    Stock-preserving threshold policy with recovery mode, low-stock protection,
+    late-game safeguards, and collapse escalation handling.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity) if game_description.capacity else 0.0
+        self.majority_threshold = int(math.ceil((self.n - 1) / 2))
+        self.recovery_threshold = max(0, self.n - 2)
+        self.final_threshold = max(0, self.n - 1)
+        self.low_stock_threshold = 0.2
+        self.very_low_stock_threshold = 0.05
+        self.recovery_stock_threshold = 0.5
+        self.late_game_stock_threshold = 0.4
+        self.collapse_threshold = 0.1
+        self.collapse_cooldown = 0
+        self.unanimous_streak = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number + 1
+        n_opponents = max(0, self.n - 1)
+        if self.capacity > 0.0:
+            x_t = max(0.0, current_stock) / self.capacity
+        else:
+            x_t = 0.0
+        if x_t < self.collapse_threshold:
+            self.collapse_cooldown = 2
+        if history.round_number > 0:
+            c_prev = int(history.opponent_cooperators[-1])
+            last_move_coop = bool(history.my_actions[-1])
+        else:
+            c_prev = 0
+            last_move_coop = False
+        if history.round_number > 0 and c_prev == n_opponents and last_move_coop:
+            self.unanimous_streak += 1
+        elif history.round_number > 0:
+            self.unanimous_streak = 0
+        if t == 1:
+            return Action.C
+        if self.collapse_cooldown > 0:
+            self.collapse_cooldown -= 1
+            if self.unanimous_streak >= 2 and x_t >= self.collapse_threshold:
+                pass
+            else:
+                return Action.D
+        if t == self.r:
+            if c_prev >= self.final_threshold and x_t >= 0.5:
+                return Action.C
+            return Action.D
+        if t == self.r - 1:
+            prev2_ok = True
+            if history.round_number >= 2:
+                prev2_ok = int(history.opponent_cooperators[-2]) >= self.recovery_threshold
+            if prev2_ok and x_t >= self.late_game_stock_threshold:
+                return Action.C
+            return Action.D
+        if x_t <= self.very_low_stock_threshold:
+            return Action.D
+        if x_t < self.low_stock_threshold:
+            if c_prev == n_opponents and x_t >= 0.3:
+                return Action.C
+            return Action.D
+        if not last_move_coop:
+            if c_prev >= self.recovery_threshold and x_t >= self.recovery_stock_threshold:
+                return Action.C
+            return Action.D
+        if c_prev >= self.majority_threshold and x_t >= 0.25:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_26(BaseStrategy):
+    """
+    Cooperative-first common pool strategy with delayed defensiveness:
+    - Start by cooperating.
+    - Defect only after repeated low cooperation or dangerously low stock.
+    - Immediately return to cooperation when the most recent observed opponent cooperation
+      reaches the majority threshold.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(getattr(game_description, 'n_players', 0) or 0)
+        self.capacity = float(getattr(game_description, 'capacity', 0) or 0.0)
+        self.majority_threshold = int(math.ceil((self.n_players - 1) / 2)) if self.n_players > 0 else 0
+        self.mode = 'cooperative'
+        self.last_round_seen = -1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            self.mode = 'cooperative'
+            self.last_round_seen = 0
+            return Action.C
+        opponents = history.opponent_cooperators
+        prev_count = int(opponents[-1]) if len(opponents) >= 1 else self.n_players - 1
+        prev_prev_count = self.majority_threshold
+        if len(opponents) >= 2:
+            prev_prev_count = int(opponents[-2])
+        low_stock = False
+        if self.capacity > 0:
+            low_stock = float(current_stock) < self.capacity / 3.0
+        else:
+            low_stock = float(current_stock) <= 0.0
+        two_consecutive_low = prev_count < self.majority_threshold and prev_prev_count < self.majority_threshold
+        if prev_count >= self.majority_threshold:
+            self.mode = 'cooperative'
+        elif low_stock or two_consecutive_low:
+            self.mode = 'defensive'
+        self.last_round_seen = round_number
+        return Action.C if self.mode == 'cooperative' else Action.D
+
+class Strategy_COLLECTIVE_27(BaseStrategy):
+    """
+    Cooperative threshold strategy with a short retaliation window.
+
+    - Round 1: cooperate.
+    - Early/mid game: cooperate when stock is low or the group is sustaining
+      itself (at least a simple majority cooperated last round).
+    - Defect only after two consecutive under-cooperative rounds.
+    - Final round: cooperate if the previous round was sufficiently cooperative;
+      otherwise defect only when stock is above half capacity.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.majority_threshold = math.ceil((self.n_players - 1) / 2)
+        self.last_opponent_counts = []
+        self.defect_state = False
+
+    def _sync_memory(self, history: PlayerHistory) -> None:
+        """Synchronize lightweight memory with the provided history."""
+        counts = [int(x) for x in history.opponent_cooperators.tolist()]
+        if len(counts) >= 2:
+            self.last_opponent_counts = counts[-2:]
+        else:
+            self.last_opponent_counts = counts[-2:]
+        if self.last_opponent_counts and self.last_opponent_counts[-1] >= self.majority_threshold:
+            self.defect_state = False
+        elif len(self.last_opponent_counts) >= 2:
+            if self.last_opponent_counts[-1] < self.majority_threshold and self.last_opponent_counts[-2] < self.majority_threshold:
+                self.defect_state = True
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        self._sync_memory(history)
+        round_number = int(history.round_number)
+        cap = self.capacity
+        b = self.majority_threshold
+        if round_number == 0:
+            self.defect_state = False
+            return Action.C
+        if cap <= 0.0:
+            return Action.C
+        prev_k = int(history.opponent_cooperators[-1]) if round_number >= 1 else 0
+        if round_number == self.n_rounds - 1:
+            if prev_k >= b:
+                self.defect_state = False
+                return Action.C
+            if current_stock > cap / 2.0:
+                self.defect_state = True
+                return Action.D
+            self.defect_state = False
+            return Action.C
+        if current_stock <= cap / 3.0:
+            self.defect_state = False
+            return Action.C
+        if prev_k >= b:
+            self.defect_state = False
+            return Action.C
+        if len(self.last_opponent_counts) >= 2:
+            if self.last_opponent_counts[-1] < b and self.last_opponent_counts[-2] < b:
+                self.defect_state = True
+                return Action.D
+        self.defect_state = False
+        return Action.C
+
+class Strategy_COLLECTIVE_28(BaseStrategy):
+    """
+    Stock-preserving threshold strategy with conditional reciprocity,
+    recovery behavior, escalation against persistent defection, and endgame alignment.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.prev_stock = None
+        self.trend = 'stable'
+        self.recovery_mode = False
+        self.defect_lock = False
+        self.last_seen_round = -1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = max(int(self.game_description.n_players), 2)
+        r = max(int(self.game_description.n_rounds), 1)
+        capacity = float(self.game_description.capacity)
+        round_number = int(history.round_number)
+        n_opponents = max(n - 1, 1)
+        if self.prev_stock is not None:
+            if current_stock > self.prev_stock:
+                self.trend = 'rising'
+            elif current_stock < self.prev_stock:
+                self.trend = 'falling'
+            else:
+                self.trend = 'stable'
+        self.prev_stock = float(current_stock)
+        last_coop_count = int(history.opponent_cooperators[-1]) if round_number > 0 else 0
+        last_coop_ratio = last_coop_count / n_opponents if n_opponents > 0 else 0.0
+        prev_last_coop_count = int(history.opponent_cooperators[-2]) if round_number > 1 else None
+        two_rounds_zero_coop = round_number > 1 and prev_last_coop_count == 0 and (last_coop_count == 0)
+        endgame_start = (2 * r + 2) // 3
+        in_endgame = round_number >= endgame_start
+        near_collapse_stock = current_stock <= 2.0 * n or current_stock <= 0.25 * capacity
+        low_stock_recovery_trigger = current_stock < 0.25 * capacity
+        recovery_exit_ok = last_coop_ratio >= 0.75 and current_stock >= 0.5 * capacity
+        if low_stock_recovery_trigger:
+            self.recovery_mode = True
+        elif self.recovery_mode and recovery_exit_ok:
+            self.recovery_mode = False
+        if self.defect_lock:
+            if last_coop_ratio >= 0.5 or (current_stock >= 0.6 * capacity and last_coop_ratio > 0.0):
+                self.defect_lock = False
+        if round_number == 0:
+            return Action.C
+        if self.recovery_mode:
+            return Action.C
+        if two_rounds_zero_coop:
+            self.defect_lock = True
+        if self.defect_lock:
+            return Action.D
+        if round_number >= max(r - 2, 0):
+            if near_collapse_stock:
+                return Action.D
+            return Action.C
+        if last_coop_ratio >= 0.5:
+            if not near_collapse_stock and (not in_endgame):
+                return Action.C
+        if in_endgame:
+            if current_stock >= 0.3 * capacity and last_coop_ratio >= 0.4:
+                return Action.C
+            if last_coop_ratio < 0.4 or current_stock < 0.3 * capacity:
+                return Action.D
+            return Action.C
+        if last_coop_ratio >= 0.5 and current_stock >= 0.4 * capacity:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_29(BaseStrategy):
+    """
+    Cooperative default strategy with bounded defection under sustained breakdown.
+    Cooperate initially, stay cooperative while opposition cooperation remains
+    reasonably high, and use defection only as a short recovery/escalation response.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 1)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        if self.capacity > 0:
+            stock_ratio = max(0.0, min(float(current_stock) / self.capacity, 1.0))
+        else:
+            stock_ratio = 0.0
+        last_opponents = int(history.opponent_cooperators[-1])
+        if self.n_opponents > 0:
+            q = max(0.0, min(last_opponents / self.n_opponents, 1.0))
+        else:
+            q = 0.0
+        low = 0
+        for idx in range(round_number - 1, -1, -1):
+            opp_c = int(history.opponent_cooperators[idx])
+            if self.n_opponents > 0:
+                q_idx = max(0.0, min(opp_c / self.n_opponents, 1.0))
+            else:
+                q_idx = 0.0
+            if q_idx < 0.5:
+                low += 1
+            else:
+                break
+        if round_number >= 2:
+            prev_opp_c = int(history.opponent_cooperators[-2])
+            if self.n_opponents > 0:
+                prev_q = max(0.0, min(prev_opp_c / self.n_opponents, 1.0))
+            else:
+                prev_q = 0.0
+            if q < 1.0 / 3.0 and prev_q < 1.0 / 3.0:
+                return Action.C if q >= 0.5 else Action.D
+        if q >= 0.5:
+            return Action.C
+        elif stock_ratio < 0.5 and q >= 1.0 / 3.0:
+            return Action.C
+        elif low == 1 and q >= 1.0 / 3.0:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_30(BaseStrategy):
+    """
+    Aggregate-state common pool strategy:
+    - Starts with cooperation.
+    - Cooperates under stock pressure or when recent aggregate cooperation is healthy.
+    - Defects only in late-game low-cooperation situations, and only while the
+      recent two-round support remains weak and the stock is high.
+    - Never retaliates against identities; uses only aggregate cooperation rates.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n_players = int(self.game_description.n_players)
+        n_rounds = int(self.game_description.n_rounds)
+        capacity = float(self.game_description.capacity)
+        round_number = int(history.round_number)
+        remaining_rounds = n_rounds - round_number - 1
+        n_opponents = max(n_players - 1, 1)
+        if round_number == 0:
+            return Action.C
+        last_count = int(history.opponent_cooperators[-1])
+        p = last_count / n_opponents
+        if round_number >= 2:
+            prev_count = int(history.opponent_cooperators[-2])
+            p_prev = prev_count / n_opponents
+            h = (2.0 * p + p_prev) / 3.0
+        else:
+            p_prev = p
+            h = p
+        if current_stock <= capacity / 2.0:
+            return Action.C
+        if h >= 0.5:
+            return Action.C
+        if round_number < 2:
+            return Action.C
+        if remaining_rounds <= 0:
+            if p < 0.5 and current_stock > capacity / 2.0:
+                return Action.D
+            return Action.C
+        prev_my_action = bool(history.my_actions[-1])
+        if not prev_my_action:
+            if h < 0.4 and current_stock > 3.0 * capacity / 4.0:
+                return Action.D
+            return Action.C
+        if remaining_rounds <= 2 and p >= 0.5:
+            return Action.C
+        if p >= 0.5 and p_prev >= 0.5:
+            return Action.C
+        if h < 0.4 and current_stock > 3.0 * capacity / 4.0:
+            return Action.D
+        return Action.C
+
+class Strategy_COLLECTIVE_31(BaseStrategy):
+    """
+    Stock-preserving threshold strategy with adaptive memory of opponent cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.eps = 1e-09
+        self.n_opponents = max(0, self.n - 1)
+        self.half_opponents = self.n_opponents / 2.0 if self.n_opponents > 0 else 0.0
+        self.threshold = 0.5
+        self.last_seen_round = -1
+        self.last_seen_stock = self.capacity
+
+    def _tau(self, stock: float) -> float:
+        if stock <= self.eps:
+            return 1.0
+        if stock <= 0:
+            return 1.0
+        val = 2.0 - 2.0 * self.n / stock
+        return max(0.0, min(1.0, val))
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = int(history.round_number)
+        S = float(current_stock)
+        if t == 0:
+            self.last_seen_round = 0
+            self.last_seen_stock = S
+            self.threshold = 0.5
+            return Action.C
+        last_coop = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        rho = last_coop / self.n_opponents if self.n_opponents > 0 else 1.0
+        prev_stock = self.last_seen_stock if self.last_seen_round == t - 1 else S
+        if prev_stock >= self.capacity - self.eps or S >= self.capacity - self.eps:
+            self.threshold = max(0.5, self.threshold - 1.0 / (2.0 * max(1, self.r)))
+        elif S < prev_stock - self.eps:
+            self.threshold = min(1.0, self.threshold + 1.0 / max(1, self.n_opponents if self.n_opponents > 0 else 1))
+        tau_s = self._tau(S)
+        a_t = max(tau_s, 0.5)
+        if t >= 2 * self.r // 3:
+            if S > self.capacity / 2.0:
+                a_t = tau_s
+            else:
+                a_t = 0.5
+        a_t = max(0.0, min(1.0, max(a_t, self.threshold)))
+        if S >= self.capacity - self.eps:
+            action = Action.C if rho >= 0.25 else Action.D
+        elif S <= self.eps:
+            action = Action.C if rho >= 0.9 else Action.D
+        else:
+            action = Action.C if rho >= a_t else Action.D
+        if self.n == 2:
+            if t == self.r:
+                action = Action.C if last_coop >= 1 and S >= self.capacity / 4.0 else Action.D
+            elif t == self.r - 1:
+                action = Action.C if rho >= 0.5 and S >= self.capacity / 3.0 else Action.D
+            else:
+                action = Action.C if last_coop >= 1 and S > self.eps else Action.D
+        else:
+            if last_coop >= self.n - 2 and S >= self.n:
+                action = Action.C
+            elif last_coop < self.half_opponents:
+                if not (S > self.capacity / 2.0 and t < max(1, self.r // 3)):
+                    action = Action.D
+            if t == self.r - 1:
+                action = Action.C if rho >= 0.5 and S >= self.capacity / 3.0 else Action.D
+            elif t == self.r:
+                action = Action.C if rho >= 0.5 and S > self.eps else Action.D
+        self.last_seen_round = t
+        self.last_seen_stock = S
+        return action
+
+class Strategy_COLLECTIVE_32(BaseStrategy):
+    """
+    Cooperative-by-default common-pool strategy with retaliation for substantial
+    defection, scarcity-based punishment, and a recovery mechanism after the
+    pool and the group demonstrate sustainability again.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(1, self.n_players - 1)
+        self.last_action = None
+        self.last_defect_stock = None
+        self.last_seen_stock = None
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        current_stock = float(current_stock)
+        self.last_seen_stock = current_stock
+        if round_number == 0:
+            chosen = Action.C
+            self.last_action = chosen
+            return chosen
+        last_opponent_cooperators = int(history.opponent_cooperators[-1])
+        m = self.n_opponents
+        c = last_opponent_cooperators / m if m > 0 else 1.0
+        remaining_after_this = self.n_rounds - round_number
+        final_two_rounds = remaining_after_this <= 2
+        if self.last_action == Action.D:
+            if c < 1.0 and current_stock <= self.capacity / 2.0:
+                chosen = Action.D
+                self.last_action = chosen
+                return chosen
+        if c == 1.0:
+            if self.last_defect_stock is None or current_stock > self.last_defect_stock:
+                chosen = Action.C
+                self.last_action = chosen
+                return chosen
+        if final_two_rounds and c < 1.0:
+            chosen = Action.D
+            self.last_action = chosen
+            self.last_defect_stock = current_stock
+            return chosen
+        if c < 0.5:
+            chosen = Action.D
+            self.last_action = chosen
+            self.last_defect_stock = current_stock
+            return chosen
+        if current_stock <= self.capacity / 4.0:
+            chosen = Action.D
+            self.last_action = chosen
+            self.last_defect_stock = current_stock
+            return chosen
+        chosen = Action.C
+        self.last_action = chosen
+        return chosen
+
+class Strategy_PROSOCIAL_5(BaseStrategy):
+    """
+    Cautious conditional cooperator with short retaliation, stock-aware restraint,
+    and recovery boosts after full cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.trust = max(0.0, float(self.n - 1))
+        self.probe = 0
+        self._processed_rounds = 0
+        self._last_k = None
+        self._low_streak = 0
+        self._boost_rounds = 0
+        self._safe = int(math.ceil((self.n - 2) / 2)) if self.n >= 2 else 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        while self._processed_rounds < round_number:
+            idx = self._processed_rounds
+            k = int(history.opponent_cooperators[idx]) if idx < len(history.opponent_cooperators) else 0
+            self.trust = 0.7 * self.trust + 0.3 * k
+            self._last_k = k
+            if k < self._safe:
+                self._low_streak += 1
+            else:
+                self._low_streak = 0
+            if k == max(0, self.n - 1):
+                self.probe = 0
+                self._boost_rounds = 2
+            elif self._boost_rounds > 0:
+                self._boost_rounds -= 1
+            if idx < self.r - 1:
+                if k < self._safe:
+                    self.probe = 1
+                else:
+                    self.probe = 0
+            self._processed_rounds += 1
+        if round_number == 0:
+            return Action.C
+        if current_stock <= self.capacity / 4.0:
+            return Action.C
+        if current_stock >= 3.0 * self.capacity / 4.0:
+            return Action.C
+        if self._boost_rounds > 0:
+            return Action.C
+        if round_number == self.r - 1:
+            if self._last_k is not None and self._last_k < self._safe and (current_stock <= self.capacity / 2.0):
+                return Action.D
+            return Action.C
+        if self.probe > 0:
+            self.probe -= 1
+            return Action.C
+        if self._last_k is None:
+            return Action.C
+        if self._last_k >= self._safe:
+            return Action.C
+        if current_stock <= self.capacity / 2.0:
+            return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_6(BaseStrategy):
+    """
+    Cooperation-first resource-preservation strategy.
+
+    - Starts with cooperation.
+    - Cooperates unless opponents show persistent heavy defection while the pool is
+      already in a low-stock decline.
+    - Uses internal memory for the last observed cooperation rate and stock levels.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.q_prev = None
+        self.prev_stock = None
+        self.prev_prev_stock = None
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n_players = getattr(self.game_description, 'n_players', 0)
+        capacity = float(getattr(self.game_description, 'capacity', 0.0))
+        if n_players < 2 or capacity <= 0:
+            return Action.C
+        if history.round_number == 0:
+            self.prev_prev_stock = None
+            self.prev_stock = current_stock
+            self.q_prev = None
+            return Action.C
+        n_opponents = n_players - 1
+        if n_opponents <= 0:
+            return Action.C
+        try:
+            last_opp_coop = int(history.opponent_cooperators[-1])
+            q = last_opp_coop / n_opponents
+        except Exception:
+            q = 1.0
+        q_prev = self.q_prev
+        trend = 0.0 if q_prev is None else q - q_prev
+        low_stock = current_stock < capacity / 3.0
+        stock_fell_last_round = self.prev_stock is not None and current_stock < self.prev_stock
+        stock_fell_two_rounds = self.prev_prev_stock is not None and self.prev_stock is not None and (self.prev_prev_stock > self.prev_stock > current_stock)
+        very_high_stock = current_stock >= 0.9 * capacity
+        action = Action.C
+        if very_high_stock:
+            action = Action.C
+        elif q >= 0.5:
+            action = Action.C
+        elif not low_stock:
+            action = Action.C
+        elif trend >= 0:
+            action = Action.C
+        elif q < 1.0 / 3.0 and low_stock and (q_prev is not None) and (q_prev < 1.0 / 3.0) and stock_fell_last_round and stock_fell_two_rounds:
+            action = Action.D
+        else:
+            action = Action.C
+        self.q_prev = q
+        self.prev_prev_stock = self.prev_stock
+        self.prev_stock = current_stock
+        return action
+
+class Strategy_PROSOCIAL_7(BaseStrategy):
+    """
+    Cautious common-pool strategy:
+    - Starts by cooperating.
+    - Tracks weak cooperation among opponents.
+    - Defects only after two consecutive low-support rounds and low stock,
+      then enforces a short repair period.
+    - Returns to cooperation quickly, with an early exit from repair mode
+      when support and stock recover sufficiently.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.low_support_streak = 0
+        self.repair_mode = 0
+        self.last_round_triggered_defection = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = int(self.game_description.n_players)
+        capacity = float(self.game_description.capacity)
+        round_number = int(history.round_number)
+        if round_number == 0:
+            self.low_support_streak = 0
+            self.repair_mode = 0
+            self.last_round_triggered_defection = False
+            return Action.C
+        stock_ratio = current_stock / capacity if capacity > 0 else 0.0
+        if round_number >= int(self.game_description.n_rounds) - 1:
+            if current_stock <= 0:
+                return Action.C
+            if self.last_round_triggered_defection and stock_ratio < 0.5:
+                self.last_round_triggered_defection = False
+                self.low_support_streak = 0
+                self.repair_mode = 0
+                return Action.D
+            return Action.C
+        prev_opp_coop = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        denom = max(1, n - 1)
+        f = prev_opp_coop / denom
+        if current_stock <= 0:
+            self.low_support_streak = 0
+            self.repair_mode = 0
+            self.last_round_triggered_defection = False
+            return Action.C
+        if self.repair_mode > 0:
+            if f >= 2.0 / 3.0 and stock_ratio >= 0.5:
+                self.repair_mode = 0
+            else:
+                self.repair_mode -= 1
+                self.last_round_triggered_defection = False
+                return Action.C
+        if f < 0.5:
+            self.low_support_streak += 1
+        else:
+            self.low_support_streak = 0
+        if self.low_support_streak >= 2 and stock_ratio < 0.5:
+            self.low_support_streak = 0
+            self.repair_mode = 2
+            self.last_round_triggered_defection = True
+            return Action.D
+        self.last_round_triggered_defection = False
+        return Action.C
+
+class Strategy_PROSOCIAL_8(BaseStrategy):
+    """
+    Cooperative default strategy with brief, state-aware defections after
+    clear overuse of the common pool.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 1)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0 or round_number >= self.n_rounds - 1:
+            return Action.C
+        if self.capacity > 0:
+            s = current_stock / self.capacity
+        else:
+            s = 0.0
+        if s < 0.0:
+            s = 0.0
+        elif s > 1.0:
+            s = 1.0
+        last_count = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        q = last_count / self.n_opponents if self.n_opponents > 0 else 0.0
+        if round_number > 1 and len(history.opponent_cooperators) > 1:
+            prev_count = int(history.opponent_cooperators[-2])
+            q_prev = prev_count / self.n_opponents if self.n_opponents > 0 else 0.0
+        else:
+            q_prev = None
+        if q >= 0.5:
+            return Action.C
+        if q >= 1.0 / 3.0 and s >= 0.5:
+            return Action.C
+        if s >= 0.75 and q > 0.0:
+            return Action.C
+        if s <= 0.25:
+            if q < 1.0 / 3.0:
+                return Action.D
+            return Action.C
+        if q < 1.0 / 3.0:
+            if s < 0.5:
+                if q_prev is None or q_prev < 0.25:
+                    return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_9(BaseStrategy):
+    """
+    Threshold-based common-pool strategy:
+    start with cooperation, cooperate when the pool is sufficiently healthy and
+    opponents cooperated enough last round, otherwise defect defensively.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self._half_capacity = self.capacity / 2.0
+        self._quarter_capacity = self.capacity / 4.0
+        self._n_opponents = max(self.n_players - 1, 0)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        if round_number >= self.n_rounds - 1:
+            return Action.C if current_stock >= self._half_capacity else Action.D
+        if len(history.opponent_cooperators) == 0 or self._n_opponents <= 0:
+            rho = 0.0
+        else:
+            last_opp_coop = float(history.opponent_cooperators[-1])
+            rho = last_opp_coop / float(self._n_opponents)
+        pressure = 1.0 - float(current_stock) / self.capacity if self.capacity > 0 else 1.0
+        if current_stock < self._quarter_capacity:
+            return Action.D
+        if rho >= 0.5 and current_stock >= self._half_capacity and (pressure <= 0.5):
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_10(BaseStrategy):
+    """
+    Unconditional cooperator for the common pool resource game.
+
+    Always plays C in every round, regardless of history, opponent behavior,
+    or current stock level. Tracks simple cooperation statistics as context only.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.total_observed_rounds = 0
+        self.total_opponent_cooperations = 0
+        self.last_observed_stock = None
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        self.total_observed_rounds = history.round_number
+        if history.round_number > 0 and len(history.opponent_cooperators) > 0:
+            self.total_opponent_cooperations = int(np.sum(history.opponent_cooperators))
+        else:
+            self.total_opponent_cooperations = 0
+        self.last_observed_stock = float(current_stock)
+        return Action.C
+
+class Strategy_PROSOCIAL_11(BaseStrategy):
+    """
+    Forgiving common-pool strategy:
+    - Cooperate on the first round and the last round.
+    - Cooperate when stock is low or when cooperation has recently recovered.
+    - After two consecutive rounds of insufficient cooperation, defect once as a corrective signal,
+      then immediately return to cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.m = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = max(2, int(self.game_description.n_players))
+        rounds_total = max(1, int(self.game_description.n_rounds))
+        round_number = int(history.round_number)
+        coop_threshold = min(n - 1, math.ceil(n / 2))
+        if round_number == 0:
+            self.m = 0
+            return Action.C
+        if round_number >= rounds_total - 1:
+            self.m = 0
+            return Action.C
+        if current_stock <= n / 2:
+            return Action.C
+        prev_cooperators = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if prev_cooperators >= max(0, n - 1):
+            self.m = 0
+            return Action.C
+        if prev_cooperators >= coop_threshold:
+            self.m = 0
+            return Action.C
+        self.m += 1
+        if self.m == 1:
+            return Action.C
+        self.m = 0
+        return Action.D
+
+class Strategy_PROSOCIAL_12(BaseStrategy):
+    """
+    Cooperative-by-default common-pool strategy with adaptive thresholding.
+
+    - Starts with cooperation.
+    - Tracks opponent cooperation from the previous round.
+    - Becomes temporarily defensive after broad defection or low stock.
+    - Reverts toward cooperation as soon as the pool and opponents recover.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.tau = 1.0
+        self._last_processed_round = 0
+
+    def _clamp(self, x: float, lo: float, hi: float) -> float:
+        return max(lo, min(hi, x))
+
+    def _infer_q(self, history: PlayerHistory) -> float:
+        if history.round_number == 0:
+            return 1.0
+        try:
+            k = float(history.opponent_cooperators[-1])
+        except Exception:
+            return 1.0
+        if self.n_opponents <= 0:
+            return 1.0
+        if k < 0:
+            k = 0.0
+        if k > self.n_opponents:
+            k = float(self.n_opponents)
+        return k / float(self.n_opponents)
+
+    def _update_threshold(self, q: float, stock: float) -> None:
+        if self.n_rounds <= 1:
+            return
+        if q >= 1.0:
+            self.tau = 1.0
+            return
+        if q <= 0.0:
+            self.tau = max(0.5, self.tau - 0.15)
+            return
+        penalty = 0.15 if stock < 0.5 * self.capacity else 0.0
+        self.tau = self._clamp(self.tau + 0.1 * (1.0 - q) - penalty, 0.5, 1.0)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            self.tau = 1.0
+            self._last_processed_round = 0
+            return Action.C
+        if current_stock <= 0.0:
+            return Action.C
+        if current_stock >= self.capacity:
+            return Action.C
+        q = self._infer_q(history)
+        if round_number > self._last_processed_round:
+            self._update_threshold(q, float(current_stock))
+            self._last_processed_round = round_number
+        if round_number >= self.n_rounds - 2:
+            if current_stock <= self.capacity / 8.0:
+                return Action.D
+            return Action.C
+        if q <= 0.0:
+            if current_stock > self.capacity / 2.0:
+                return Action.C
+            return Action.D
+        if current_stock > self.capacity / 4.0 and q >= self.tau:
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_13(BaseStrategy):
+    """
+    Generous threshold strategy for the Common Pool Resource Game.
+    Cooperates by default, tolerates moderate defections, and only retaliates
+    under widespread defection or critically low stock.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        n_opponents = max(self.n_players - 1, 1)
+        last_k = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        coop_rate = last_k / n_opponents
+        last_stock = float(current_stock)
+        low_stock = last_stock <= self.capacity / 2.0
+        critical_stock = last_stock <= self.capacity / 4.0
+        full_coop_count = 0
+        if len(history.opponent_cooperators) > 0:
+            for idx in range(len(history.opponent_cooperators) - 1, -1, -1):
+                if int(history.opponent_cooperators[idx]) == n_opponents:
+                    full_coop_count += 1
+                else:
+                    break
+        if t == self.n_rounds:
+            if last_k == 0 and critical_stock:
+                return Action.D
+            return Action.C
+        if last_k == n_opponents:
+            return Action.C
+        if last_k == 0:
+            return Action.D if critical_stock else Action.C
+        if coop_rate >= 0.8:
+            return Action.D if critical_stock else Action.C
+        if coop_rate >= 0.5:
+            return Action.C
+        if coop_rate >= 1.0 / 3.0 and full_coop_count > 0:
+            return Action.C
+        if not low_stock:
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_14(BaseStrategy):
+    """
+    Cooperative-by-default common-pool strategy with adaptive thresholding,
+    stock protection, recovery after low cooperation, and endgame tightening.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(getattr(game_description, 'n_players', 2))
+        self.r = int(getattr(game_description, 'n_rounds', 2))
+        self.capacity = float(getattr(game_description, 'capacity', 1.0))
+        self._last_valid_stock = self.capacity
+        self._last_valid_q = 1.0
+        self._last_valid_round = -1
+        self._low_coop_streak = 0
+        self._high_coop_streak = 0
+        self._sustained_coop_mode = False
+        self._fallback_used = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.n if self.n >= 2 else 2
+        capacity = self.capacity if self.capacity > 0 else 1.0
+        stock_ok = isinstance(current_stock, (int, float)) and math.isfinite(current_stock)
+        S_t = float(current_stock) if stock_ok else self._last_valid_stock
+        if not math.isfinite(S_t):
+            S_t = self._last_valid_stock
+            stock_ok = False
+        S_t = min(max(S_t, 0.0), capacity)
+        t = int(getattr(history, 'round_number', 0))
+        if t < 0:
+            t = 0
+        m = self.r - t + 1
+        q_t = 1.0
+        obs_ok = False
+        opp_count = n - 1
+        k_t = None
+        try:
+            opp_arr = history.opponent_cooperators
+            if t > 0 and opp_arr is not None and (len(opp_arr) >= 1):
+                k_t = int(opp_arr[-1])
+                if opp_count > 0:
+                    q_t = k_t / opp_count
+                else:
+                    q_t = 1.0
+                obs_ok = True
+        except Exception:
+            obs_ok = False
+            q_t = self._last_valid_q
+        if not math.isfinite(q_t):
+            q_t = self._last_valid_q
+            obs_ok = False
+        q_t = min(max(float(q_t), 0.0), 1.0)
+        if not stock_ok or not obs_ok:
+            if not self._fallback_used:
+                self._fallback_used = True
+                self._last_valid_stock = S_t
+                self._last_valid_q = q_t
+                self._last_valid_round = t
+                return Action.C
+        if t == 0:
+            self._last_valid_stock = S_t
+            self._last_valid_q = 1.0
+            self._last_valid_round = t
+            self._low_coop_streak = 0
+            self._high_coop_streak = 1
+            self._sustained_coop_mode = False
+            return Action.C
+        if q_t < 0.5:
+            self._low_coop_streak += 1
+            self._high_coop_streak = 0
+            self._sustained_coop_mode = False
+        else:
+            self._high_coop_streak += 1
+            self._low_coop_streak = 0
+        if q_t >= 1.0 and self._high_coop_streak >= 2 and (S_t >= capacity / 2.0):
+            self._sustained_coop_mode = True
+        if self._sustained_coop_mode:
+            if q_t < 1.0 or S_t < capacity / 2.0:
+                self._sustained_coop_mode = False
+            else:
+                self._last_valid_stock = S_t
+                self._last_valid_q = q_t
+                self._last_valid_round = t
+                return Action.C
+        recovery_pending = self._low_coop_streak > 0 and self._high_coop_streak < 2
+        theta_t = 0.5 + 0.25 * (1.0 - S_t / capacity) + 0.25 * (1.0 - q_t)
+        theta_t = min(max(theta_t, 0.35), 0.9)
+        action = Action.C if q_t >= theta_t and S_t > 0.0 else Action.D
+        if S_t <= capacity / (8.0 * n):
+            action = Action.D
+        elif S_t <= capacity / (4.0 * n):
+            action = Action.C if q_t >= 1.0 else Action.D
+        if m == 1:
+            action = Action.C if q_t >= 0.5 else Action.D
+        elif m == 2:
+            action = Action.C if q_t >= 1.0 and S_t >= capacity / 3.0 else Action.D
+        if recovery_pending:
+            action = Action.C if q_t >= theta_t and S_t > 0.0 else Action.D
+        self._last_valid_stock = S_t
+        self._last_valid_q = q_t
+        self._last_valid_round = t
+        return action
+
+class Strategy_PROSOCIAL_15(BaseStrategy):
+    """
+    Cooperation-first strategy with smoothed opponent cooperation tracking,
+    a limited defection trigger under sustained low cooperation and depleted stock,
+    and a forgiving return to cooperation once conditions improve.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.low_threshold = 2.0 / 3.0
+        self.stock_high_threshold = 0.75 * float(game_description.capacity)
+        self.stock_low_threshold = 0.4 * float(game_description.capacity)
+        self.weights = (0.5, 0.3, 0.2)
+        self.last_action = Action.C
+        self.low_streak = 0
+        self.recovery_streak = 0
+        self.last_avg3 = 1.0
+
+    def _weighted_avg3(self, history: PlayerHistory) -> float:
+        n = history.round_number
+        if n <= 0:
+            return 1.0
+        vals = []
+        for idx in range(n - 1, max(-1, n - 4), -1):
+            opps = int(history.opponent_cooperators[idx])
+            denom = self.game_description.n_players - 1
+            if denom <= 0:
+                p = 1.0
+            else:
+                p = opps / denom
+            vals.append(p)
+        weights = self.weights[:len(vals)]
+        if not vals:
+            return 1.0
+        weighted_sum = 0.0
+        weight_total = 0.0
+        for w, v in zip(weights, vals):
+            weighted_sum += w * v
+            weight_total += w
+        if weight_total <= 0:
+            return 1.0
+        return weighted_sum / weight_total
+
+    def _compute_streaks(self, history: PlayerHistory) -> tuple[int, int]:
+        low_streak = 0
+        recovery_streak = 0
+        n = history.round_number
+        for t in range(n):
+            vals = []
+            for idx in range(t, max(-1, t - 3), -1):
+                opps = int(history.opponent_cooperators[idx])
+                denom = self.game_description.n_players - 1
+                if denom <= 0:
+                    p = 1.0
+                else:
+                    p = opps / denom
+                vals.append(p)
+            weights = self.weights[:len(vals)]
+            if not vals:
+                avg3 = 1.0
+            else:
+                weighted_sum = 0.0
+                weight_total = 0.0
+                for w, v in zip(weights, vals):
+                    weighted_sum += w * v
+                    weight_total += w
+                avg3 = weighted_sum / weight_total if weight_total > 0 else 1.0
+            if avg3 < self.low_threshold:
+                low_streak += 1
+                recovery_streak = 0
+            else:
+                recovery_streak += 1
+                low_streak = 0
+        return (low_streak, recovery_streak)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        n_rounds = self.game_description.n_rounds
+        capacity = float(self.game_description.capacity)
+        if round_number == 0:
+            self.last_action = Action.C
+            self.low_streak = 0
+            self.recovery_streak = 1
+            self.last_avg3 = 1.0
+            return Action.C
+        avg3 = self._weighted_avg3(history)
+        low_streak, recovery_streak = self._compute_streaks(history)
+        self.last_avg3 = avg3
+        self.low_streak = low_streak
+        self.recovery_streak = recovery_streak
+        stock_high = current_stock >= self.stock_high_threshold
+        stock_low = current_stock < self.stock_low_threshold
+        final_round = round_number == n_rounds - 1
+        prev_defected = bool(history.my_actions[-1] == 0)
+        if prev_defected and (avg3 >= self.low_threshold or current_stock >= self.stock_low_threshold):
+            self.last_action = Action.C
+            return Action.C
+        if final_round:
+            if stock_low and low_streak >= 2 and (avg3 < self.low_threshold):
+                self.last_action = Action.D
+                return Action.D
+            self.last_action = Action.C
+            return Action.C
+        if stock_high:
+            self.last_action = Action.C
+            return Action.C
+        if avg3 >= self.low_threshold:
+            self.last_action = Action.C
+            return Action.C
+        if low_streak == 1:
+            self.last_action = Action.C
+            return Action.C
+        if stock_low and avg3 < self.low_threshold and (low_streak >= 2):
+            self.last_action = Action.D
+            return Action.D
+        self.last_action = Action.C
+        return Action.C
+
+class Strategy_PROSOCIAL_16(BaseStrategy):
+    """
+    Common pool strategy:
+    - Cooperate in the first round.
+    - Prefer cooperation when the stock is healthy.
+    - Use temporary defection only under low stock and low observed opponent cooperation.
+    - Always cooperate in the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 1)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        if round_number >= self.n_rounds - 1:
+            return Action.C
+        last_x = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else self.n_opponents
+        q = last_x / self.n_opponents if self.n_opponents > 0 else 1.0
+        s = float(current_stock)
+        cap = self.capacity
+        if s >= cap / 3.0:
+            return Action.C
+        if s < cap / 6.0 and q <= 1.0 / 3.0:
+            return Action.D
+        if s < cap / 3.0 and q < 2.0 / 3.0:
+            return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_17(BaseStrategy):
+    """
+    Cooperative default with a short protective defection only after repeated
+    low support and low remaining stock.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.mode = 'open'
+        self.bad_streak = 0
+        self.last_seen_round = -1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = int(self.game_description.n_players)
+        r = int(self.game_description.n_rounds)
+        capacity = float(self.game_description.capacity)
+        if history.round_number == 0:
+            self.mode = 'open'
+            self.bad_streak = 0
+            self.last_seen_round = 0
+            return Action.C
+        if current_stock <= 0.0:
+            self.mode = 'open'
+            self.last_seen_round = history.round_number
+            return Action.C
+        if history.round_number >= r:
+            self.mode = 'open'
+            self.last_seen_round = history.round_number
+            return Action.C
+        opp_count = max(n - 1, 0)
+        last_support = int(history.opponent_cooperators[-1]) if history.opponent_cooperators.size > 0 else opp_count
+        good_threshold = math.ceil(opp_count / 2)
+        consecutive_bad = 0
+        if history.opponent_cooperators.size > 0:
+            for val in reversed(history.opponent_cooperators):
+                if int(val) < good_threshold:
+                    consecutive_bad += 1
+                else:
+                    break
+        self.bad_streak = consecutive_bad
+        if last_support >= good_threshold:
+            self.mode = 'open'
+        elif self.bad_streak >= 2 and current_stock < capacity / 3.0:
+            self.mode = 'guarded'
+        else:
+            self.mode = 'open'
+        if self.mode == 'guarded':
+            action = Action.D
+            self.mode = 'open'
+        else:
+            action = Action.C
+        self.last_seen_round = history.round_number
+        return action
+
+class Strategy_PROSOCIAL_18(BaseStrategy):
+    """
+    Default-to-cooperation strategy with short corrective defection after clear
+    under-cooperation, and immediate return to cooperation once restraint recovers.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.m = max(self.n - 1, 1)
+        self.high_trust = 1.0 - 2.0 / self.n if self.n > 0 else 0.0
+        self.low_trust = 0.5
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        S = float(current_stock)
+        if t >= self.r - 1:
+            return Action.C if S > 0 else Action.D
+        if t == 0:
+            return Action.C
+        if S <= 2.0 * self.n:
+            return Action.C
+        last_opponents_coop = int(history.opponent_cooperators[-1]) if t > 0 else 0
+        rho = last_opponents_coop / self.m if self.m > 0 else 1.0
+        if rho >= self.high_trust:
+            return Action.C
+        if rho <= self.low_trust:
+            return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_19(BaseStrategy):
+    """
+    Start cooperative and then use a simple restore-and-protect rule:
+    cooperate by default, defect for one round after a clear cooperation shortfall,
+    and return to cooperation immediately once near-universal cooperation resumes.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(getattr(game_description, 'n_players', 0) or 0)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.n_rounds = int(getattr(game_description, 'n_rounds', 0) or 0)
+        self.capacity = float(getattr(game_description, 'capacity', 0) or 0.0)
+        self.last_seen_round = -1
+        self.last_seen_opponent_cooperators = None
+        self.shortfall_streak = 0
+        self.recovery_streak = 0
+        self.last_action = Action.C
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(getattr(history, 'round_number', 0) or 0)
+        if round_number == 0:
+            self.last_seen_round = 0
+            self.last_seen_opponent_cooperators = None
+            self.shortfall_streak = 0
+            self.recovery_streak = 0
+            self.last_action = Action.C
+            return Action.C
+        opp_coop = None
+        try:
+            if len(history.opponent_cooperators) >= round_number:
+                opp_coop = int(history.opponent_cooperators[-1])
+        except Exception:
+            opp_coop = None
+        history_ok = opp_coop is not None and self.n_opponents >= 0
+        if history_ok:
+            if opp_coop >= self.n_opponents:
+                self.recovery_streak += 1
+                self.shortfall_streak = 0
+            elif opp_coop >= max(0, self.n_opponents - 1):
+                self.recovery_streak += 1
+                self.shortfall_streak = 0
+            else:
+                self.shortfall_streak += 1
+                self.recovery_streak = 0
+        if round_number >= max(0, self.n_rounds - 1):
+            if history_ok:
+                if opp_coop >= max(0, self.n_opponents - 1):
+                    self.last_action = Action.C
+                else:
+                    self.last_action = Action.D
+            else:
+                threshold = 0.15 * self.capacity if self.capacity > 0 else 0.0
+                self.last_action = Action.D if current_stock <= threshold else Action.C
+            return self.last_action
+        if history_ok and opp_coop >= max(0, self.n_opponents - 1):
+            self.last_action = Action.C
+            return Action.C
+        if history_ok and opp_coop < max(0, self.n_opponents - 1):
+            low_stock_threshold = 0.2 * self.capacity if self.capacity > 0 else 0.0
+            if current_stock <= low_stock_threshold and self.shortfall_streak >= 1:
+                self.last_action = Action.D
+                return Action.D
+            self.last_action = Action.D
+            return Action.D
+        low_stock_threshold = 0.1 * self.capacity if self.capacity > 0 else 0.0
+        if current_stock <= low_stock_threshold:
+            self.last_action = Action.D
+            return Action.D
+        self.last_action = Action.C
+        return Action.C
+
+class Strategy_PROSOCIAL_20(BaseStrategy):
+    """
+    Always cooperate in every round, including degenerate cases such as zero stock.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        return Action.C
+
+class Strategy_PROSOCIAL_21(BaseStrategy):
+    """
+    Always cooperates in every round, regardless of history or stock.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        return Action.C
+
+class Strategy_PROSOCIAL_22(BaseStrategy):
+    """
+    Cooperative default with a short memory-based defense trigger.
+
+    Rules:
+    - Cooperate on the first round.
+    - Never defect when stock is at or below half capacity.
+    - Cooperate if the previous round had majority cooperation among opponents.
+    - After one weak round, cooperate again if the stock is still high.
+    - After two consecutive weak rounds and sufficiently high stock, defect defensively.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        n = max(2, int(game_description.n_players))
+        capacity = float(game_description.capacity)
+        self.majority_threshold = math.ceil((n - 1) / 2)
+        self.high_stock_threshold = 3.0 * capacity / 4.0
+        self.low_stock_threshold = capacity / 2.0
+        self.last_q_t = None
+        self.prev_q_t = None
+        self.prev_mode = None
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        if t == 0:
+            self.prev_mode = 'C'
+            self.last_q_t = None
+            self.prev_q_t = None
+            return Action.C
+        if current_stock <= self.low_stock_threshold:
+            self.prev_mode = 'C'
+            if t >= 1:
+                self.prev_q_t = self.last_q_t
+                self.last_q_t = int(history.opponent_cooperators[-1])
+            return Action.C
+        q_prev = int(history.opponent_cooperators[-1]) if t >= 1 else 0
+        if t > 1 and q_prev >= self.majority_threshold:
+            self.prev_mode = 'C'
+            if t >= 2:
+                self.prev_q_t = self.last_q_t
+                self.last_q_t = q_prev
+            return Action.C
+        if t > 2:
+            q_prevprev = int(history.opponent_cooperators[-2])
+            if q_prev < self.majority_threshold and q_prevprev >= self.majority_threshold:
+                if current_stock >= self.high_stock_threshold:
+                    self.prev_mode = 'C'
+                    self.prev_q_t = self.last_q_t
+                    self.last_q_t = q_prev
+                    return Action.C
+            if q_prev < self.majority_threshold and q_prevprev < self.majority_threshold:
+                if current_stock > self.low_stock_threshold:
+                    self.prev_mode = 'D'
+                    self.prev_q_t = self.last_q_t
+                    self.last_q_t = q_prev
+                    return Action.D
+        self.prev_mode = 'C'
+        self.prev_q_t = self.last_q_t
+        self.last_q_t = q_prev
+        return Action.C
+
+class Strategy_PROSOCIAL_23(BaseStrategy):
+    """
+    Start cooperative, remain cooperative under majority cooperation or low stock,
+    and use only a brief defensive defection when cooperation is persistently low
+    and the pool is still healthy.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.prev_stock = None
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n_players = max(2, int(self.game_description.n_players))
+        n_opponents = max(1, n_players - 1)
+        capacity = float(self.game_description.capacity)
+        rounds_total = int(self.game_description.n_rounds)
+        round_number = int(history.round_number)
+        if round_number == 0:
+            self.prev_stock = float(current_stock)
+            return Action.C
+        opp = history.opponent_cooperators
+        recent_len = min(3, len(opp))
+        h1 = float(opp[-1]) if len(opp) > 0 else 0.0
+        p1 = h1 / n_opponents if n_opponents > 0 else 0.0
+        if recent_len > 0:
+            h3 = float(np.mean(opp[-recent_len:]))
+        else:
+            h3 = 0.0
+        p3 = h3 / n_opponents if n_opponents > 0 else 0.0
+        s = float(current_stock) / capacity if capacity > 0 else 0.0
+        stock_non_decreasing = False
+        if self.prev_stock is not None:
+            stock_non_decreasing = float(current_stock) >= float(self.prev_stock)
+        if round_number >= rounds_total - 1:
+            self.prev_stock = float(current_stock)
+            return Action.C
+        if s <= 0.25:
+            self.prev_stock = float(current_stock)
+            return Action.C
+        if p1 >= 0.5:
+            self.prev_stock = float(current_stock)
+            return Action.C
+        if p3 >= 0.5:
+            self.prev_stock = float(current_stock)
+            return Action.C
+        if stock_non_decreasing:
+            self.prev_stock = float(current_stock)
+            return Action.C
+        if s > 0.25 and p1 < 0.5 and (p3 < 0.5):
+            self.prev_stock = float(current_stock)
+            return Action.D
+        self.prev_stock = float(current_stock)
+        return Action.C
+
+class Strategy_PROSOCIAL_24(BaseStrategy):
+    """
+    State-dependent cooperative threshold strategy for the Common Pool Resource Game.
+    It starts cooperatively when the resource base is sufficiently high, adapts to
+    observed opponent cooperation via an exponentially weighted average, and defects
+    under persistent defection or severe stock depletion.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.last_round_number = -1
+        self.last_m = 0.0
+        self.last_ewma_m = 0.5
+        self.low_m_streak = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = int(history.round_number)
+        cap = self.capacity
+        n = self.n_players
+        n_opp = self.n_opponents
+        s = float(current_stock)
+        if s <= 0.0:
+            return Action.D
+        if s >= cap:
+            return Action.C
+        is_final_round = t == self.n_rounds - 1
+        if is_final_round:
+            if t == 0:
+                return Action.C if cap >= 4.0 * n else Action.D
+            prev_rate = 0.0
+            if n_opp > 0 and len(history.opponent_cooperators) > 0:
+                prev_rate = float(history.opponent_cooperators[-1]) / float(n_opp)
+            return Action.C if prev_rate >= 0.5 or s >= cap / 2.0 else Action.D
+        if t == 0:
+            return Action.C if cap >= 4.0 * n else Action.D
+        opp_counts = history.opponent_cooperators
+        m_values = []
+        if n_opp > 0:
+            for c in opp_counts:
+                m_values.append(float(c) / float(n_opp))
+        else:
+            m_values = [0.0 for _ in range(len(opp_counts))]
+        prev_rate = m_values[-1] if len(m_values) > 0 else 0.0
+        if len(m_values) == 0:
+            ewma_m = 0.5
+        else:
+            ewma_m = m_values[0]
+            for mv in m_values[1:]:
+                ewma_m = 0.7 * ewma_m + 0.3 * mv
+        low_m_streak = 0
+        for mv in reversed(m_values):
+            if mv < 0.2:
+                low_m_streak += 1
+            else:
+                break
+        stock_ratio = s / cap if cap > 0.0 else 0.0
+        T_t = 0.5 + 0.35 * (stock_ratio - 0.5) + 0.25 * (ewma_m - 0.5)
+        forced_cooperate = s >= cap / 4.0 and ewma_m >= 0.4
+        forced_defect = s < cap / 8.0 or (low_m_streak >= 2 and ewma_m < 0.2)
+        if len(m_values) > 0:
+            if prev_rate >= 1.0:
+                return Action.C
+            if prev_rate <= 0.0:
+                return Action.D
+        if forced_cooperate:
+            action = Action.C
+        elif forced_defect:
+            action = Action.D
+        else:
+            action = Action.C if prev_rate >= T_t else Action.D
+        self.last_round_number = t
+        self.last_m = prev_rate
+        self.last_ewma_m = ewma_m
+        self.low_m_streak = low_m_streak
+        return action
+
+class Strategy_PROSOCIAL_25(BaseStrategy):
+    """
+    Conditional conservation with rolling cooperation assessment,
+    a restoration threshold, and endgame protection.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.k = max(1, min(5, self.r - 1))
+        self.m = 1.0
+        self.t = 0
+        self.S = self.capacity
+        self.c_prev = self.n - 1 if self.n > 1 else 0
+        self.p_prev = 1.0
+        self.last_history_len = 0
+
+    def _update_internal_state(self, history: PlayerHistory, current_stock: float) -> None:
+        self.t = history.round_number
+        self.S = float(current_stock)
+        opp_counts = history.opponent_cooperators
+        if len(opp_counts) > 0:
+            self.c_prev = int(opp_counts[-1])
+            n_opponents = max(1, self.n - 1)
+            self.p_prev = max(0.0, min(1.0, self.c_prev / n_opponents))
+        else:
+            self.c_prev = self.n - 1 if self.n > 1 else 0
+            self.p_prev = 1.0
+        window = min(self.k, len(opp_counts))
+        if window <= 0:
+            self.m = 1.0
+        else:
+            recent = []
+            n_opponents = max(1, self.n - 1)
+            start = len(opp_counts) - window
+            for idx in range(start, len(opp_counts)):
+                recent.append(max(0.0, min(1.0, float(opp_counts[idx]) / n_opponents)))
+            self.m = float(np.mean(np.array(recent, dtype=float))) if recent else 1.0
+        self.last_history_len = len(history.my_actions)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        self._update_internal_state(history, current_stock)
+        S = max(0.0, float(current_stock))
+        n_rounds = self.r
+        round_idx = history.round_number
+        T = self.capacity / 2.0
+        q = max(0.0, 2.0 * self.m - 1.0)
+        if round_idx == 0:
+            return Action.C
+        if S <= 0.0:
+            return Action.D
+        remaining = n_rounds - round_idx
+        if remaining == 2:
+            if S >= T and self.p_prev >= 1.0:
+                return Action.C
+            return Action.D
+        if remaining == 1:
+            return Action.C if S >= T else Action.D
+        if S >= T and self.p_prev >= q:
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_26(BaseStrategy):
+    """
+    Always cooperate, regardless of history or current stock.
+    Tracks opponent cooperation counts for internal bookkeeping only.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.observed_opponent_cooperators = []
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number > 0:
+            try:
+                self.observed_opponent_cooperators.append(int(history.opponent_cooperators[-1]))
+            except Exception:
+                pass
+        return Action.C
+
+class Strategy_PROSOCIAL_27(BaseStrategy):
+    """
+    Always cooperate, regardless of history, stock, or remaining rounds.
+    Tracks simple observational statistics without affecting play.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.total_rounds_seen = 0
+        self.total_opponent_cooperators_seen = 0
+        self.observed_cooperation_rate = 0.0
+        self.last_observed_stock = None
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        self.last_observed_stock = float(current_stock)
+        round_number = getattr(history, 'round_number', 0)
+        if round_number > 0:
+            opp = history.opponent_cooperators
+            if len(opp) > 0:
+                latest = int(opp[-1])
+                self.total_opponent_cooperators_seen += latest
+                self.total_rounds_seen += 1
+                n_players = int(getattr(self.game_description, 'n_players', 0))
+                n_opponents = max(n_players - 1, 1)
+                self.observed_cooperation_rate = self.total_opponent_cooperators_seen / (self.total_rounds_seen * n_opponents)
+        return Action.C
+
+class Strategy_PROSOCIAL_28(BaseStrategy):
+    """
+    Always cooperate strategy for the Common Pool Resource Game.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = getattr(game_description, 'n_players', None)
+        self.n_rounds = getattr(game_description, 'n_rounds', None)
+        self.capacity = getattr(game_description, 'capacity', None)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        return Action.C
+
+class Strategy_PROSOCIAL_29(BaseStrategy):
+    """
+    Common-pool strategy:
+    - Default to cooperation.
+    - Cooperate in early rounds, at high stock, and when opponents show stability.
+    - Use only isolated defensive defections under severe depletion plus repeated
+      opponent noncooperation.
+    - Return to cooperation immediately once conditions improve.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.support = math.ceil(self.n_opponents / 2) if self.n_opponents > 0 else 0
+        self.high_stock = 0.6 * self.capacity
+        self.low_stock = 0.35 * self.capacity
+        self.critical_stock = 0.15 * self.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        if t >= self.n_rounds - 1:
+            return Action.C
+        stock = float(current_stock)
+        if stock >= self.high_stock:
+            return Action.C
+        if stock >= self.low_stock:
+            if len(history.opponent_cooperators) > 0:
+                last_opp_coop = int(history.opponent_cooperators[-1])
+                if last_opp_coop >= self.support:
+                    return Action.C
+            return Action.C
+        if stock < self.low_stock:
+            emergency = False
+            if stock <= self.critical_stock and len(history.opponent_cooperators) >= 2:
+                last_two = history.opponent_cooperators[-2:]
+                if int(last_two[0]) < self.support and int(last_two[1]) < self.support:
+                    emergency = True
+            if emergency:
+                return Action.D
+            return Action.C
+        return Action.C
+
+class Strategy_PROSOCIAL_30(BaseStrategy):
+    """
+    Trust-based common pool strategy:
+    - Start with cooperation.
+    - Maintain a smoothed trust score from opponents' past cooperation.
+    - Defect only when stock is not low, trust is low, and the last two rounds
+      both showed low opponent cooperation.
+    - Otherwise cooperate, with a built-in endgame and recovery-to-cooperate rule.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.trust = 1.0
+        self._last_processed_round = -1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n_players = getattr(self.game_description, 'n_players', 2)
+        n_rounds = getattr(self.game_description, 'n_rounds', 2)
+        capacity = float(getattr(self.game_description, 'capacity', 0.0))
+        if history is None or current_stock is None:
+            return Action.C
+        round_number = int(getattr(history, 'round_number', 0))
+        if round_number == 0:
+            self.trust = 1.0
+            self._last_processed_round = 0
+            return Action.C
+        if round_number != self._last_processed_round:
+            opp_count = max(0, n_players - 1)
+            if opp_count > 0 and len(history.opponent_cooperators) > 0:
+                last_opp_coops = float(history.opponent_cooperators[-1])
+                coop_rate = last_opp_coops / float(opp_count)
+            else:
+                coop_rate = 0.0
+            self.trust = 0.7 * self.trust + 0.3 * coop_rate
+            self._last_processed_round = round_number
+        opp_count = max(0, n_players - 1)
+        half_opp = opp_count / 2.0
+
+        def coop_count_at(idx: int):
+            if idx < 0 or idx >= len(history.opponent_cooperators):
+                return None
+            return float(history.opponent_cooperators[idx])
+        last_coop = coop_count_at(-1)
+        prev_coop = coop_count_at(-2)
+        last_rate = None if last_coop is None or opp_count == 0 else last_coop / float(opp_count)
+        prev_rate = None if prev_coop is None or opp_count == 0 else prev_coop / float(opp_count)
+        low_two_rounds = last_coop is not None and prev_coop is not None and (last_coop < half_opp) and (prev_coop < half_opp)
+        last_round_high = last_coop is not None and last_coop >= half_opp
+        if round_number >= n_rounds - 2:
+            return Action.C
+        if capacity > 0.0 and current_stock <= capacity / 3.0:
+            return Action.C
+        if capacity > 0.0 and current_stock >= capacity:
+            if low_two_rounds:
+                return Action.D
+            return Action.C
+        if last_round_high:
+            return Action.C
+        if self.trust >= 0.5:
+            return Action.C
+        if current_stock > (capacity / 3.0 if capacity > 0.0 else 0.0) and self.trust < 0.5 and low_two_rounds:
+            return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_31(BaseStrategy):
+    """
+    Cooperative-by-default strategy with threshold-based response to opponents'
+    recent cooperation, temporary retaliation after weak cooperation, and
+    state-sensitive protection of the common pool.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.m = max(0, self.n_players - 1)
+        self.tau = int(math.ceil(0.75 * self.m)) if self.m > 0 else 0
+        self.half_floor = int(math.floor(self.m / 2)) if self.m > 0 else 0
+        self.strong_coop = max(0, self.m - 1)
+        self.high_coop = int(math.ceil(2 * self.m / 3)) if self.m > 0 else 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        prev_k = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        L = min(3, t)
+        if L > 0 and len(history.opponent_cooperators) > 0:
+            recent = history.opponent_cooperators[-L:]
+            avg = float(np.mean(recent)) if len(recent) > 0 else 0.0
+        else:
+            avg = 0.0
+        if t == self.n_rounds - 1:
+            return Action.D if prev_k <= self.half_floor else Action.C
+        if current_stock <= self.capacity / 8.0:
+            return Action.C if prev_k == self.m else Action.D
+        if prev_k >= self.strong_coop:
+            return Action.D if current_stock <= 0.0 else Action.C
+        if prev_k <= self.half_floor:
+            return Action.D
+        if current_stock >= self.capacity / 2.0 and prev_k >= self.high_coop:
+            return Action.C
+        if prev_k >= self.tau and current_stock >= self.capacity / 4.0:
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_32(BaseStrategy):
+    """
+    Starts with cooperation, then adapts to the previous round's cooperation rate
+    and the current stock level. It cooperates with broadly cooperative groups,
+    escalates to defection after clear exploitation, and attempts recovery once
+    cooperation resumes.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 0)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        stock = float(current_stock)
+        last_opponents_coop = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if self.n_opponents <= 0:
+            coop_rate = 1.0
+        else:
+            coop_rate = last_opponents_coop / self.n_opponents
+        if round_number == self.n_rounds - 1:
+            return Action.C if coop_rate >= 0.5 else Action.D
+        if stock <= 0.0:
+            return Action.D
+        low_stock_threshold = 0.1 * self.capacity
+        high_stock_threshold = 0.9 * self.capacity
+        moderate_stock_threshold = 0.6 * self.capacity
+        if coop_rate >= 1.0 or stock >= high_stock_threshold:
+            return Action.C
+        if coop_rate >= 0.5:
+            return Action.C
+        if coop_rate >= 0.25:
+            return Action.C if stock >= moderate_stock_threshold else Action.D
+        if stock < low_stock_threshold and coop_rate < 0.5:
+            return Action.D
+        return Action.D
+
+class Strategy_ALTRUISTIC_5(BaseStrategy):
+    """
+    Cooperative-by-default common-pool strategy with stock protection,
+    repair mode after collapse, and endgame cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.c_target = 0.75
+        self.S_safe = self.capacity / 2.0
+        self.S_crit = self.capacity / 4.0
+        self._last_seen_round = 0
+        self._repair_remaining = 0
+        self._prev_stock = None
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.n
+        r = self.r
+        S = float(current_stock)
+        round_number = int(history.round_number)
+        if round_number > self._last_seen_round:
+            try:
+                start = max(0, self._last_seen_round)
+                end = round_number
+                for t in range(start, end):
+                    if t < len(history.my_actions) and t < len(history.opponent_cooperators):
+                        my_coop = bool(history.my_actions[t])
+                        opp_coop = int(history.opponent_cooperators[t])
+                        k_prev = opp_coop + (1 if my_coop else 0)
+                        c_prev = k_prev / n if n > 0 else 1.0
+                        if c_prev < 0.5:
+                            self._repair_remaining = 2
+                self._last_seen_round = round_number
+            except Exception:
+                self._last_seen_round = round_number
+                return Action.C
+        if round_number == 0:
+            self._prev_stock = S
+            return Action.C
+        if round_number >= r - 1:
+            self._prev_stock = S
+            return Action.C if S > 0 else Action.C
+        try:
+            last_my_action = bool(history.my_actions[-1])
+            m_prev = int(history.opponent_cooperators[-1])
+        except Exception:
+            self._prev_stock = S
+            return Action.C
+        k_prev = m_prev + (1 if last_my_action else 0)
+        if n > 0:
+            c_prev = k_prev / n
+        else:
+            c_prev = 1.0
+        stock_rising = True
+        if self._prev_stock is not None:
+            stock_rising = S > self._prev_stock
+        in_repair_mode = self._repair_remaining > 0
+        if S <= 2.0 * n:
+            action = Action.C if c_prev >= 1.0 else Action.D
+        elif S < self.S_crit:
+            if c_prev >= 1.0 and stock_rising:
+                action = Action.C
+            else:
+                action = Action.D
+        elif in_repair_mode:
+            action = Action.C if S >= self.S_crit else Action.D
+        else:
+            action = Action.C if S >= self.S_crit and c_prev >= self.c_target else Action.D
+        if c_prev < 0.5:
+            self._repair_remaining = 2
+        elif self._repair_remaining > 0:
+            self._repair_remaining -= 1
+        self._prev_stock = S
+        return action
+
+class Strategy_ALTRUISTIC_6(BaseStrategy):
+    """
+    Stock-Guardian Reciprocity:
+    - Start with cooperation.
+    - Track estimated opponent cooperation and trust.
+    - Cooperate when the pool is healthy and cooperation is sustained.
+    - Defect under collapse risk or severe defection.
+    - End cooperatively unless the pool is already near collapse.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.trust = 1.0
+        self.coop_rate = 1.0
+        self.collapse_mode = False
+        self.forgiveness_used = False
+        self.last_observed_round = -1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        rounds = self.game_description.n_rounds
+        capacity = float(self.game_description.capacity) if self.game_description.capacity > 0 else 1.0
+        t = history.round_number
+        safe_stock = current_stock / capacity if capacity > 0 else 0.0
+        if t == 0:
+            self.trust = 1.0
+            self.coop_rate = 1.0
+            self.collapse_mode = False
+            self.forgiveness_used = False
+            self.last_observed_round = 0
+            return Action.C
+        if self.last_observed_round != t:
+            k = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+            n_opponents = max(n - 1, 1)
+            if n > 2:
+                self.coop_rate = k / n_opponents
+            else:
+                self.coop_rate = 1.0 if k >= 1 else 0.0
+            self.trust = 0.7 * self.trust + 0.3 * self.coop_rate
+            self.last_observed_round = t
+        near_universal_defection = self.coop_rate <= 0.25 if n > 3 else self.coop_rate == 0.0
+        if self.collapse_mode:
+            if self.coop_rate >= 0.5 and safe_stock >= 0.25:
+                self.collapse_mode = False
+            else:
+                return Action.D
+        if safe_stock < 0.15 or self.coop_rate == 0.0:
+            self.collapse_mode = True
+            self.forgiveness_used = False
+            return Action.D
+        if t == rounds - 1:
+            return Action.C if safe_stock >= 0.15 else Action.D
+        if self.trust >= 0.5 and safe_stock >= 0.25 and (not near_universal_defection):
+            self.forgiveness_used = False
+            return Action.C
+        if 0.25 <= self.coop_rate < 0.5 and safe_stock >= 0.4 and (not self.forgiveness_used):
+            self.forgiveness_used = True
+            return Action.C
+        if self.coop_rate >= 0.5:
+            self.forgiveness_used = False
+        return Action.D
+
+class Strategy_ALTRUISTIC_7(BaseStrategy):
+    """
+    Cooperative default strategy with cautious defensive defection
+    when the resource stock is depleted or exploitation is detected.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(0, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = int(history.round_number)
+        S = float(current_stock)
+        cap = self.capacity
+        if t == 0:
+            return Action.C
+        if len(history.opponent_cooperators) > 0 and self.n_opponents > 0:
+            cooperators_last_round = float(history.opponent_cooperators[-1])
+            c_prev = cooperators_last_round / self.n_opponents
+        else:
+            c_prev = 1.0
+        if t >= max(0, self.n_rounds - 2):
+            if S < cap / 6.0 and c_prev < 1.0 / 3.0:
+                return Action.D
+            return Action.C
+        if S <= cap / 8.0:
+            if c_prev >= 1.0:
+                return Action.C
+            return Action.D
+        if c_prev == 0.0 and S < cap / 2.0:
+            return Action.D
+        threshold = 0.5 + 0.5 * min(1.0, S / cap if cap > 0.0 else 0.0)
+        if S >= cap / 4.0 and c_prev >= threshold - 0.1:
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_8(BaseStrategy):
+    """
+    Adaptive common-pool resource strategy:
+    - Start with cooperation.
+    - Track smoothed opponent cooperation via h.
+    - Cooperate when the group is cooperative and the stock is healthy.
+    - Defect when stock is depleted, cooperation is low, or repeated decline is observed.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.h = 1.0
+        self.last_stock = None
+        self.last_round_number = 0
+        self.last_two_stock_fell = False
+        self.last_round_stock_fell = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = int(self.game_description.n_players)
+        r = int(self.game_description.n_rounds)
+        capacity = float(self.game_description.capacity)
+        round_number = int(history.round_number)
+        if round_number == 0:
+            self.h = 1.0
+            self.last_stock = float(current_stock)
+            self.last_round_number = 0
+            self.last_two_stock_fell = False
+            self.last_round_stock_fell = False
+            return Action.C
+        if self.last_stock is None or self.last_round_number != round_number - 1:
+            self.last_stock = float(current_stock)
+        prev_stock = float(self.last_stock)
+        stock_rise = current_stock > prev_stock + 1e-12
+        stock_fell = current_stock < prev_stock - 1e-12
+        self.last_two_stock_fell = bool(self.last_round_stock_fell and stock_fell)
+        self.last_round_stock_fell = bool(stock_fell)
+        opponents = max(n - 1, 1)
+        k = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        x = k / opponents
+        self.h = 0.7 * self.h + 0.3 * x
+        h = self.h
+        low_stock_threshold = 2.0 * n
+        s = current_stock / capacity if capacity > 0 else 0.0
+        all_opponents_cooperated = k >= opponents
+        no_opponent_cooperated = k <= 0
+        majority_cooperation_recent = x >= 0.5
+        if current_stock <= low_stock_threshold:
+            action = Action.D
+        elif round_number >= r - 2 and current_stock > low_stock_threshold:
+            action = Action.C if h >= 0.5 else Action.D
+        elif self.last_two_stock_fell:
+            action = Action.D
+        elif stock_rise and current_stock > low_stock_threshold:
+            action = Action.C
+        elif all_opponents_cooperated and current_stock > low_stock_threshold:
+            action = Action.C
+        elif no_opponent_cooperated:
+            if len(history.opponent_cooperators) >= 2:
+                prev_k = int(history.opponent_cooperators[-2])
+                prev_x = prev_k / opponents
+                if prev_x >= 0.5 or x >= 0.5:
+                    action = Action.C if current_stock > low_stock_threshold else Action.D
+                else:
+                    action = Action.D
+            else:
+                action = Action.D
+        elif h >= 2.0 / 3.0:
+            action = Action.C
+        elif h >= 1.0 / 3.0 and current_stock >= capacity / 2.0:
+            action = Action.C
+        else:
+            action = Action.D
+        if round_number == r - 1 and current_stock > low_stock_threshold:
+            action = Action.C if h >= 0.5 else Action.D
+        self.last_stock = float(current_stock)
+        self.last_round_number = round_number
+        return action
+
+class Strategy_ALTRUISTIC_9(BaseStrategy):
+    """
+    Default cooperates, but defects temporarily when the pool is being overused.
+    It quickly forgives and returns to cooperation as soon as conditions improve.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.low = self.capacity / 2.0
+        self.critical = self.capacity / 4.0
+        self.recover = 3.0 * self.capacity / 5.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = int(history.round_number) + 1
+        if history.round_number == 0:
+            return Action.C
+        if t >= self.n_rounds and current_stock > 0:
+            return Action.C
+        coop_counts = history.opponent_cooperators
+        if coop_counts is None or len(coop_counts) == 0:
+            return Action.C if current_stock > self.critical else Action.D
+        last_coop_count = int(coop_counts[-1])
+        n_opponents = max(self.n_players - 1, 1)
+        cbar = last_coop_count / n_opponents
+        prev_my_action = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else True
+        prev_defected = not prev_my_action
+        if current_stock <= self.critical:
+            return Action.C
+        if prev_defected and (current_stock > self.low or cbar >= 0.5):
+            return Action.C
+        if prev_defected:
+            if current_stock < self.low and cbar < 1.0 / 3.0:
+                return Action.D
+            return Action.C
+        if current_stock < self.low and cbar < 0.5:
+            return Action.D
+        if current_stock < self.recover and cbar < 1.0 / 3.0:
+            return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_10(BaseStrategy):
+    """
+    Always cooperates in every round, regardless of history or current stock.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        return Action.C
+
+class Strategy_ALTRUISTIC_11(BaseStrategy):
+    """
+    Generous, forgiving common-pool strategy:
+    - Cooperates by default
+    - Defects only under low stock plus sustained/critical cooperation collapse
+    - Returns to cooperation immediately when cooperation recovers
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.s_star = self.capacity / 2.0
+        self.buffer = self.capacity / 10.0
+        self.low = self.capacity / 4.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        opp_count = max(self.n_players - 1, 1)
+
+        def coop_rate(idx: int) -> float:
+            if idx < 0 or idx >= len(history.opponent_cooperators):
+                return 0.0
+            return float(history.opponent_cooperators[idx]) / float(opp_count)
+        last_p = coop_rate(round_number - 1)
+        prev_p = coop_rate(round_number - 2)
+        zero_streak = 0
+        half_streak = 0
+        improving_after_low = False
+        for i in range(round_number - 1, -1, -1):
+            p = coop_rate(i)
+            if p == 0.0:
+                zero_streak += 1
+            else:
+                break
+        for i in range(round_number - 1, -1, -1):
+            p = coop_rate(i)
+            if p >= 0.5:
+                half_streak += 1
+            else:
+                break
+        if round_number >= 2:
+            if prev_p < 1.0 / 3.0 and last_p >= prev_p and (last_p > 0.0):
+                improving_after_low = True
+        if round_number == self.n_rounds - 1:
+            if current_stock < self.buffer and last_p == 0.0:
+                return Action.D
+            return Action.C
+        if last_p >= 0.5:
+            return Action.C
+        if improving_after_low:
+            return Action.C
+        if half_streak >= 2:
+            return Action.C
+        if current_stock >= self.s_star:
+            return Action.C
+        if self.low <= current_stock < self.s_star:
+            if round_number > 0 and last_p < 1.0 / 3.0:
+                return Action.D
+            return Action.C
+        if current_stock < self.low:
+            if round_number > 0 and zero_streak >= 2:
+                return Action.D
+            return Action.C
+        return Action.C
+
+class Strategy_ALTRUISTIC_12(BaseStrategy):
+    """
+    Cooperative common-pool strategy with trust-based escalation and recovery.
+
+    Behaviour:
+    - Cooperate initially.
+    - Prefer cooperation while the pool is healthy and opponents are not defecting too much.
+    - Increase a trust score when opponents are uncooperative, decrease it when they cooperate.
+    - Defect under sustained pressure, but return to cooperation once the group improves.
+    - Be more cautious when the stock is low, and cooperate on the final round when the
+      pool still has value and opponents have not deteriorated sharply.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.trust_score = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = int(self.game_description.n_players)
+        r = int(self.game_description.n_rounds)
+        round_number = int(history.round_number)
+        n_opponents = max(n - 1, 0)
+        last_k = int(history.opponent_cooperators[-1]) if round_number > 0 else n_opponents
+        if round_number > 0:
+            if n_opponents <= 0:
+                self.trust_score = max(self.trust_score - 1, 0)
+            elif last_k >= n_opponents / 2:
+                self.trust_score = max(self.trust_score - 1, 0)
+            else:
+                self.trust_score += 1
+        if round_number == 0:
+            return Action.C
+        if n_opponents > 0 and last_k == n_opponents:
+            self.trust_score = 0
+        if n_opponents > 0:
+            f = (n_opponents - last_k) / n_opponents
+        else:
+            f = 0.0
+        capacity = float(self.game_description.capacity)
+        if current_stock < capacity / 4.0:
+            if n_opponents > 0:
+                threshold_two_thirds = math.ceil(2.0 * n_opponents / 3.0)
+                if last_k >= threshold_two_thirds:
+                    return Action.C
+            return Action.D
+        if round_number == r - 1:
+            threshold_half = math.ceil(n_opponents / 2.0) if n_opponents > 0 else 0
+            if current_stock > 0 and last_k >= threshold_half:
+                return Action.C
+            return Action.D
+        if current_stock >= capacity / 3.0 and f <= 1.0 / 3.0:
+            if self.trust_score <= 1:
+                return Action.C
+            return Action.D
+        if self.trust_score >= 2:
+            if n_opponents > 0:
+                threshold_two_thirds = math.ceil(2.0 * n_opponents / 3.0)
+                if last_k >= threshold_two_thirds:
+                    self.trust_score = 0
+                    return Action.C
+            return Action.D
+        return Action.C if self.trust_score <= 1 else Action.D
+
+class Strategy_ALTRUISTIC_13(BaseStrategy):
+    """
+    Stock-preserving common-pool strategy with emergency restraint.
+
+    - Cooperate on the first round.
+    - Cooperate whenever stock is low.
+    - On the final round, cooperate only if prior opponent cooperation was at least half.
+    - Otherwise, use a stock-dependent cooperation threshold.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(0, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        t = round_number + 1
+        if round_number == 0:
+            return Action.C
+        if current_stock <= self.n_players:
+            return Action.C
+        if round_number > 0 and len(history.opponent_cooperators) > 0:
+            k = int(history.opponent_cooperators[-1])
+            if self.n_opponents > 0:
+                q = k / self.n_opponents
+            else:
+                q = 1.0
+        else:
+            q = 1.0
+        if t >= self.n_rounds:
+            return Action.C if q >= 0.5 else Action.D
+        if self.capacity > 0:
+            tau = 1.0 - float(current_stock) / (2.0 * self.capacity)
+        else:
+            tau = 1.0
+        tau = min(1.0, max(0.5, tau))
+        return Action.C if q >= tau else Action.D
+
+class Strategy_ALTRUISTIC_14(BaseStrategy):
+    """
+    Cooperative default strategy for the Common Pool Resource Game.
+
+    The strategy stays at C unless stock is deteriorating and the group shows
+    sustained widespread defection without partial reciprocity, in which case it
+    uses at most brief corrective defections before returning to cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = max(int(self.game_description.n_players), 2)
+        r = max(int(self.game_description.n_rounds), 1)
+        capacity = float(self.game_description.capacity)
+        if history.round_number == 0:
+            return Action.C
+        if capacity <= 0:
+            return Action.C
+        s = current_stock / capacity
+        rounds_left = r - history.round_number
+        if rounds_left <= 2:
+            if current_stock <= 0:
+                return Action.C
+            opp_count = n - 1
+            partial_thresh = math.ceil(opp_count / 2) if opp_count > 0 else 0
+            clear_def_thresh = math.floor(opp_count / 2) if opp_count > 0 else 0
+            last_k = int(history.opponent_cooperators[-1])
+            prev_k = int(history.opponent_cooperators[-2]) if history.round_number >= 2 else last_k
+            last_two_clear_defection = history.round_number >= 2 and prev_k <= clear_def_thresh and (last_k <= clear_def_thresh)
+            if s < 0.25 and last_two_clear_defection and (last_k < partial_thresh):
+                if history.my_actions[-1]:
+                    return Action.D
+            return Action.C
+        if current_stock >= capacity or s <= 0:
+            return Action.C
+        opp_count = n - 1
+        partial_thresh = math.ceil(opp_count / 2) if opp_count > 0 else 0
+        clear_def_thresh = math.floor(opp_count / 2) if opp_count > 0 else 0
+        last_k = int(history.opponent_cooperators[-1])
+        prev_k = int(history.opponent_cooperators[-2]) if history.round_number >= 2 else last_k
+        last_partial = last_k >= partial_thresh
+        prev_partial = prev_k >= partial_thresh
+        last_clear_defection = last_k <= clear_def_thresh
+        prev_clear_defection = prev_k <= clear_def_thresh
+        two_round_clear_defection = history.round_number >= 2 and last_clear_defection and prev_clear_defection
+        my_last_action = bool(history.my_actions[-1])
+        my_prev_action = bool(history.my_actions[-2]) if history.round_number >= 2 else True
+        forgiveness = 2
+        idx = history.round_number - 1
+        while idx >= 0 and forgiveness > 0:
+            k = int(history.opponent_cooperators[idx])
+            if k >= partial_thresh:
+                forgiveness = 2
+                break
+            forgiveness -= 1
+            idx -= 1
+        if last_partial:
+            return Action.C
+        if s >= 0.75:
+            return Action.C
+        if 0.5 <= s < 0.75:
+            if two_round_clear_defection and forgiveness <= 0:
+                return Action.D
+            return Action.C
+        if 0.25 <= s < 0.5:
+            if prev_partial:
+                return Action.C
+            if two_round_clear_defection and forgiveness <= 0:
+                return Action.D
+            return Action.C
+        if s < 0.25:
+            if last_k >= partial_thresh or prev_partial:
+                return Action.C
+            if not my_last_action:
+                return Action.C
+            if last_clear_defection and (not prev_partial) and (forgiveness <= 0):
+                return Action.D
+            return Action.C
+        return Action.C
+
+class Strategy_ALTRUISTIC_15(BaseStrategy):
+    """
+    Unconditional cooperator for the common pool resource game.
+    Always plays C, regardless of history or current stock.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = getattr(game_description, 'n_players', 0)
+        self.n_rounds = getattr(game_description, 'n_rounds', 0)
+        self.capacity = getattr(game_description, 'capacity', 0)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        return Action.C
+
+class Strategy_ALTRUISTIC_16(BaseStrategy):
+    """
+    Conservation-oriented strategy for the Common Pool Resource Game.
+
+    This strategy always cooperates (Action.C) in every round, while internally
+    tracking stock levels, opponent cooperation, and stock trends for assessment
+    only.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.mode = 'steady_cooperation'
+        self.last_observed_stock = None
+        self.stock_trend = 0.0
+        self.last_opponent_cooperators = None
+        self.observed_rounds = 0
+        self.low_stock_threshold = 0.1 * float(game_description.capacity) if game_description.capacity is not None else 0.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_stock = float(current_stock) if current_stock is not None else 0.0
+        if self.last_observed_stock is not None:
+            self.stock_trend = current_stock - self.last_observed_stock
+        else:
+            self.stock_trend = 0.0
+        self.last_observed_stock = current_stock
+        self.observed_rounds += 1
+        if history.round_number > 0 and len(history.opponent_cooperators) > 0:
+            self.last_opponent_cooperators = int(history.opponent_cooperators[-1])
+        if current_stock <= 0.0:
+            self.mode = 'collapsed'
+        elif current_stock <= self.low_stock_threshold:
+            self.mode = 'critical'
+        elif self.stock_trend < 0:
+            self.mode = 'declining'
+        else:
+            self.mode = 'steady_cooperation'
+        return Action.C
+
+class Strategy_ALTRUISTIC_17(BaseStrategy):
+    """
+    Always cooperates in every round, regardless of stock, history, or remaining rounds.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        return Action.C
+
+class Strategy_ALTRUISTIC_18(BaseStrategy):
+    """
+    Always cooperate strategy for the common pool resource game.
+
+    This strategy never defects: it chooses C in every round, including when
+    stock is depleted, opponents defect, or the resource appears unsustainable.
+    It keeps simple internal monitoring of observed stock and opponent
+    cooperation counts, but these observations do not affect the action.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.observed_stocks = []
+        self.observed_opponent_cooperators = []
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n_rounds = getattr(self.game_description, 'n_rounds', 0)
+        _ = n_rounds
+        self.observed_stocks.append(float(current_stock))
+        if history.round_number > 0 and len(history.opponent_cooperators) > 0:
+            self.observed_opponent_cooperators.append(int(history.opponent_cooperators[-1]))
+        else:
+            self.observed_opponent_cooperators.append(0)
+        return Action.C
+
+class Strategy_ALTRUISTIC_19(BaseStrategy):
+    """
+    Cooperative-by-default common-pool strategy with defensive, temporary defection
+    under sustained overuse or near-collapse, and quick forgiveness when the group
+    returns to sustainable behavior.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.trust = 1
+        self.strain = 0
+        self._last_processed_round = 0
+        self._last_defected_round = -1
+        self._full_coop_streak = 0
+
+    def _floor(self) -> float:
+        return max(2 * self.game_description.n_players, 0.4 * self.game_description.capacity)
+
+    def _warning(self) -> float:
+        return max(2 * self.game_description.n_players, 0.55 * self.game_description.capacity)
+
+    def _opponent_count(self) -> int:
+        return max(self.game_description.n_players - 1, 0)
+
+    def _estimated_start_stock(self, my_action: bool, my_payoff: float) -> float:
+        n = self.game_description.n_players
+        if my_action:
+            return float(my_payoff) * (2.0 * n)
+        return float(my_payoff) * float(n)
+
+    def _update_state_from_round(self, history: PlayerHistory, idx: int) -> None:
+        n_opponents = self._opponent_count()
+        opp_coop = int(history.opponent_cooperators[idx])
+        if n_opponents > 0:
+            p = opp_coop / n_opponents
+        else:
+            p = 1.0
+        my_action = bool(history.my_actions[idx])
+        my_payoff = float(history.my_payoffs[idx])
+        s_t = self._estimated_start_stock(my_action, my_payoff)
+        if p == 1.0:
+            self._full_coop_streak += 1
+        else:
+            self._full_coop_streak = 0
+        if p >= 2.0 / 3.0 and s_t >= self._warning():
+            self.trust += 1
+            self.strain = max(self.strain - 1, 0)
+        if p < 2.0 / 3.0:
+            self.strain += 1
+            self.trust = 0
+        if p == 1.0:
+            self.trust += 2
+            self.strain = max(self.strain - 1, 0)
+        self._last_processed_round = idx + 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n_rounds = self.game_description.n_rounds
+        round_number = history.round_number
+        floor_t = self._floor()
+        warning_t = self._warning()
+        while self._last_processed_round < round_number:
+            self._update_state_from_round(history, self._last_processed_round)
+        if round_number == 0:
+            return Action.C
+        last_idx = round_number - 1
+        opp_count = self._opponent_count()
+        opp_coop = int(history.opponent_cooperators[last_idx])
+        p_t = 1.0 if opp_count == 0 else opp_coop / opp_count
+        prev_my_action = bool(history.my_actions[last_idx])
+        prev_payoff = float(history.my_payoffs[last_idx])
+        s_prev = self._estimated_start_stock(prev_my_action, prev_payoff)
+        if round_number >= 2:
+            prev_opp = int(history.opponent_cooperators[last_idx - 1])
+            prev2_full = opp_count == 0 or prev_opp == opp_count
+        else:
+            prev2_full = False
+        if round_number == n_rounds - 1:
+            if current_stock > floor_t:
+                return Action.C
+            return Action.D
+        if round_number == 1:
+            if current_stock <= floor_t or p_t < 0.5:
+                self._last_defected_round = round_number
+                return Action.D
+            return Action.C
+        if self._last_defected_round == round_number - 1:
+            if current_stock > warning_t and p_t >= 2.0 / 3.0:
+                return Action.C
+            if current_stock > warning_t and current_stock > floor_t:
+                return Action.C
+        if self._full_coop_streak >= 2 and current_stock > floor_t:
+            return Action.C
+        low_stock = current_stock <= floor_t
+        repeated_low_coop = self.strain >= 2 or (p_t < 0.5 and self.strain >= 1)
+        large_drop_weak_coop = s_prev - current_stock >= 0.25 * s_prev and p_t <= 2.0 / 3.0 if s_prev > 0 else False
+        if low_stock or repeated_low_coop or large_drop_weak_coop:
+            self._last_defected_round = round_number
+            return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_20(BaseStrategy):
+    """
+    Cooperative default strategy with short, conditional punishment:
+    - Start with cooperation.
+    - Cooperate when opponents are broadly cooperative or the resource is healthy.
+    - Defect for at most one round in response to widespread defection or severe depletion.
+    - Return to cooperation quickly when cooperation or stock recovery appears.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(0, self.n - 1)
+        self.capacity_half = self.capacity / 2.0
+        self.capacity_quarter = self.capacity / 4.0
+        self.capacity_critical = self.capacity / max(1.0, 2.0 * self.n)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        opp_last = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        p_last = opp_last / self.n_opponents if self.n_opponents > 0 else 1.0
+        is_final_round = round_number >= self.r - 1
+        if current_stock <= self.capacity_critical:
+            return Action.C if opp_last >= self.n_opponents else Action.D
+        if current_stock < self.capacity_quarter:
+            return Action.C if p_last >= 1.0 else Action.D
+        if current_stock >= self.capacity_half:
+            if p_last >= 1.0 / 3.0:
+                return Action.C
+        if is_final_round:
+            if current_stock > self.capacity_quarter:
+                return Action.C
+            return Action.C if current_stock > self.capacity_critical and opp_last > 1 else Action.D
+        prev_p = None
+        if round_number >= 2 and len(history.opponent_cooperators) >= 2:
+            opp_prev = int(history.opponent_cooperators[-2])
+            prev_p = opp_prev / self.n_opponents if self.n_opponents > 0 else 1.0
+        improved_two_rounds = prev_p is not None and prev_p >= 1.0 / 2.0 and (p_last >= 2.0 / 3.0)
+        if improved_two_rounds:
+            return Action.C
+        if p_last >= 2.0 / 3.0:
+            return Action.C
+        if p_last >= 1.0 / 3.0:
+            stock_fell_sharply = False
+            if len(history.my_payoffs) > 0:
+                stock_fell_sharply = current_stock < self.capacity_half and p_last < 0.5
+            if stock_fell_sharply and current_stock < self.capacity_half:
+                return Action.D
+            return Action.C
+        if p_last < 1.0 / 3.0:
+            if len(history.my_actions) > 0 and (not bool(history.my_actions[-1])):
+                if current_stock <= self.capacity_critical:
+                    return Action.D
+                return Action.C
+            return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_21(BaseStrategy):
+    """
+    Cooperative-first strategy for the common pool resource game.
+
+    - Cooperate in round 1.
+    - Cooperate by default when stock is healthy or cooperation is broadly sustained.
+    - Defect only under low stock and persistently low cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.threshold = self.capacity / 2.0
+        self.extremely_low_threshold = self.capacity / 4.0
+        self.extremely_high_threshold = 3.0 * self.capacity / 4.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        m = max(self.n_players - 1, 1)
+        last_count = int(history.opponent_cooperators[-1])
+        q = last_count / m
+        if t >= 2:
+            prev_count = int(history.opponent_cooperators[-2])
+            q_prev = prev_count / m
+        else:
+            q_prev = 1.0
+        S = float(current_stock)
+        if t == self.n_rounds - 1:
+            if S < self.threshold and q < 0.5:
+                return Action.D
+            return Action.C
+        if S >= self.extremely_high_threshold:
+            return Action.C
+        if S <= self.extremely_low_threshold:
+            return Action.C if q >= 2.0 / 3.0 else Action.D
+        if S >= self.threshold:
+            if q < 0.5 and q_prev < 0.5:
+                return Action.D
+            return Action.C
+        if q >= 0.5:
+            return Action.C
+        if q_prev >= 2.0 / 3.0:
+            return Action.C
+        if q_prev < 0.5:
+            return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_22(BaseStrategy):
+    """
+    Always cooperate in every round, while maintaining lightweight internal
+    monitoring of observed cooperation and stock trend. Defection is never chosen.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.observed_cooperation_history = []
+        self.observed_cooperation_rates = []
+        self.stock_history = []
+        self.stock_trend_history = []
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n_players = int(getattr(self.game_description, 'n_players', 2))
+        n_opponents = max(n_players - 1, 0)
+        try:
+            stock_value = float(current_stock)
+        except Exception:
+            stock_value = 0.0
+        self.stock_history.append(stock_value)
+        if history.round_number > 0 and len(history.opponent_cooperators) > 0:
+            observed = int(history.opponent_cooperators[-1])
+        else:
+            observed = 0
+        self.observed_cooperation_history.append(observed)
+        if n_opponents > 0:
+            cooperation_rate = observed / n_opponents
+        else:
+            cooperation_rate = 0.0
+        self.observed_cooperation_rates.append(cooperation_rate)
+        if len(self.stock_history) >= 2:
+            prev_stock = self.stock_history[-2]
+            if stock_value > prev_stock:
+                self.stock_trend_history.append('recovering')
+            elif stock_value < prev_stock:
+                self.stock_trend_history.append('shrinking')
+            else:
+                self.stock_trend_history.append('stable')
+        else:
+            self.stock_trend_history.append('stable')
+        return Action.C
+
+class Strategy_ALTRUISTIC_23(BaseStrategy):
+    """
+    Conservative common-pool strategy:
+    - Cooperate by default
+    - Defect only as a short-lived response to clear overuse and stock decline
+    - Always cooperate in the endgame
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(getattr(game_description, 'n_players', 2))
+        self.n_rounds = int(getattr(game_description, 'n_rounds', 2))
+        self.capacity = float(getattr(game_description, 'capacity', 0.0))
+        self.n_opponents = max(0, self.n_players - 1)
+        self.coop_threshold = int(math.ceil(self.n_opponents / 2)) if self.n_opponents > 0 else 0
+        self.defect_threshold = int(math.floor(self.n_opponents / 3)) if self.n_opponents > 0 else 0
+        self.low_threshold = self.capacity / 4.0
+        self.mid_threshold = self.capacity / 2.0
+        self.recovery_threshold = 0.95 * self.capacity
+        self.drop_threshold = 0.15 * self.capacity
+        self.low_stock_endgame_threshold = self.capacity / 3.0
+        self.last_stock = None
+        self.force_cooperate_next = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(getattr(history, 'round_number', 0))
+        remaining_rounds = self.n_rounds - round_number
+        if round_number == 0:
+            self.last_stock = float(current_stock)
+            self.force_cooperate_next = False
+            return Action.C
+        if remaining_rounds <= 2:
+            self.last_stock = float(current_stock)
+            self.force_cooperate_next = False
+            return Action.C
+        k = 0
+        if hasattr(history, 'opponent_cooperators') and len(history.opponent_cooperators) > 0:
+            try:
+                k = int(history.opponent_cooperators[-1])
+            except Exception:
+                k = 0
+        prev_stock = self.last_stock
+        stock_increased = False
+        stock_raised_to_near_capacity = False
+        stock_dropped_severely = False
+        if prev_stock is not None:
+            try:
+                stock_increased = float(current_stock) >= float(prev_stock)
+                stock_raised_to_near_capacity = float(current_stock) >= self.recovery_threshold
+                stock_dropped_severely = float(prev_stock) - float(current_stock) > self.drop_threshold
+            except Exception:
+                stock_increased = False
+                stock_raised_to_near_capacity = False
+                stock_dropped_severely = False
+        if self.force_cooperate_next:
+            self.force_cooperate_next = False
+            self.last_stock = float(current_stock)
+            return Action.C
+        if stock_increased or stock_raised_to_near_capacity:
+            self.last_stock = float(current_stock)
+            return Action.C
+        action = Action.C
+        coop_majority = k >= self.coop_threshold
+        severe_overuse = k <= self.defect_threshold
+        if current_stock <= self.low_threshold:
+            action = Action.C if coop_majority else Action.D
+        elif current_stock <= self.mid_threshold:
+            if coop_majority:
+                action = Action.C
+            else:
+                action = Action.D
+        elif severe_overuse and stock_dropped_severely:
+            action = Action.D
+        else:
+            action = Action.C
+        if remaining_rounds <= 5:
+            if current_stock <= self.low_stock_endgame_threshold:
+                if k < self.coop_threshold:
+                    action = Action.D
+                else:
+                    action = Action.C
+            else:
+                action = Action.C
+        if stock_dropped_severely and k < self.n_opponents / 2.0:
+            action = Action.D
+        elif stock_increased or stock_raised_to_near_capacity:
+            action = Action.C
+        if action == Action.D:
+            self.force_cooperate_next = True
+        else:
+            self.force_cooperate_next = False
+        self.last_stock = float(current_stock)
+        return action
+
+class Strategy_ALTRUISTIC_24(BaseStrategy):
+    """
+    Unconditional cooperation strategy for the common pool resource game.
+    Always plays C, regardless of history or current stock.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        return Action.C
+
+class Strategy_ALTRUISTIC_25(BaseStrategy):
+    """
+    Always cooperate in every round, regardless of history or current stock.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        return Action.C
+
+class Strategy_ALTRUISTIC_26(BaseStrategy):
+    """
+    Conservation-first strategy with forgiveness and escalation.
+    Cooperates by default, defends the pool when stock is strained or
+    opponent cooperation stays persistently low, and returns to cooperation
+    once conditions recover.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+
+    def _reconstruct_stocks(self, history: PlayerHistory) -> list[float]:
+        """
+        Reconstruct stock at the start of each played round, assuming the
+        initial stock equals capacity.
+        Returns a list stocks[t] = stock before round t.
+        """
+        n = max(self.n, 2)
+        stocks = [float(self.capacity)]
+        current = float(self.capacity)
+        rounds_played = history.round_number
+        for t in range(rounds_played):
+            coop_others = int(history.opponent_cooperators[t])
+            my_coop = bool(history.my_actions[t])
+            total_cooperators = coop_others + (1 if my_coop else 0)
+            total_defectors = n - total_cooperators
+            consumption = current * (total_cooperators / (2.0 * n) + total_defectors / float(n))
+            remaining = current - consumption
+            if remaining < 0.0:
+                remaining = 0.0
+            growth = 2.0 * remaining * (1.0 - remaining / self.capacity) if self.capacity > 0 else 0.0
+            next_stock = remaining + growth
+            if next_stock > self.capacity:
+                next_stock = float(self.capacity)
+            if next_stock < 0.0:
+                next_stock = 0.0
+            current = next_stock
+            stocks.append(current)
+        return stocks
+
+    def _q(self, coop_count: int) -> float:
+        denom = max(self.n - 1, 1)
+        return float(coop_count) / float(denom)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        stocks = self._reconstruct_stocks(history)
+        prev_stock = stocks[-2] if len(stocks) >= 2 else float(self.capacity)
+        curr_stock_from_history = stocks[-1] if len(stocks) >= 1 else float(self.capacity)
+        S = float(current_stock)
+        if S < 0.0:
+            S = 0.0
+        last_coop_count = int(history.opponent_cooperators[-1])
+        q_prev = self._q(last_coop_count)
+        if history.round_number >= 2:
+            q_prev_prev = self._q(int(history.opponent_cooperators[-2]))
+        else:
+            q_prev_prev = 1.0
+        m = 0
+        if len(stocks) >= 2:
+            for i in range(1, len(stocks)):
+                if stocks[i] <= 0.75 * stocks[i - 1]:
+                    m += 1
+                else:
+                    m = 0
+        L = 0
+        for coop_count in history.opponent_cooperators:
+            if self._q(int(coop_count)) < 0.5:
+                L += 1
+            else:
+                L = 0
+        if t == self.r - 1:
+            return Action.C if S >= self.capacity / 2.0 else Action.D
+        S_safe = self.capacity / 2.0
+        S_warning = self.capacity / 3.0
+        if S <= 0.0:
+            return Action.C if q_prev >= 1.0 else Action.D
+        if S >= self.capacity and t >= 2:
+            if q_prev >= 0.5 and q_prev_prev >= 0.5:
+                return Action.C
+        if self.n == 2:
+            if S < S_warning or m >= 2 or L >= 2:
+                return Action.D
+            if S >= S_safe:
+                return Action.C if q_prev >= 1.0 else Action.D
+            return Action.C if q_prev >= 0.5 else Action.D
+        if S < S_warning:
+            return Action.D
+        if m >= 2:
+            return Action.D
+        if L >= 2:
+            return Action.D
+        if S < S_safe:
+            return Action.C if q_prev >= 2.0 / 3.0 else Action.D
+        if S >= S_warning and q_prev >= 0.5 and (m < 2):
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_27(BaseStrategy):
+    """
+    Always cooperate to preserve the common pool resource.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        return Action.C
+
+class Strategy_ALTRUISTIC_28(BaseStrategy):
+    """
+    Always cooperate in every round, regardless of history or current stock.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = getattr(game_description, 'n_players', None)
+        self.n_rounds = getattr(game_description, 'n_rounds', None)
+        self.capacity = getattr(game_description, 'capacity', None)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        return Action.C
+
+class Strategy_ALTRUISTIC_29(BaseStrategy):
+    """
+    Always cooperate to preserve the common pool.
+    Tracks opponent cooperation counts for monitoring only, but never changes behavior.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.observed_opponent_cooperators = []
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number > 0:
+            last_count = int(history.opponent_cooperators[-1])
+            self.observed_opponent_cooperators.append(last_count)
+        return Action.C
+
+class Strategy_ALTRUISTIC_30(BaseStrategy):
+    """
+    Cooperative default strategy with restraint-based defection:
+    - Start with cooperation.
+    - Defect only when stock is stressed or opponents have been too uncooperative.
+    - Revert to cooperation as soon as conditions improve.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.q_good = 1.0 - 1.0 / self.n if self.n > 0 else 1.0
+        self.q_bad = 0.5
+        self.half_capacity = self.capacity / 2.0
+        self.quarter_capacity = self.capacity / 4.0
+        self.prev_stock = None
+        self.last_action = None
+        self.bad_q_streak = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        if t == 0:
+            self.prev_stock = float(current_stock)
+            self.last_action = Action.C
+            self.bad_q_streak = 0
+            return Action.C
+        n_opponents = max(self.n - 1, 1)
+        k_prev = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        q = k_prev / n_opponents
+        if q <= self.q_bad:
+            self.bad_q_streak += 1
+        elif q >= self.q_good:
+            self.bad_q_streak = 0
+        stock = float(current_stock)
+        prev_stock = self.prev_stock if self.prev_stock is not None else stock
+        if t == self.r - 1:
+            action = Action.C if stock >= self.quarter_capacity else Action.D
+        elif k_prev == self.n - 1:
+            action = Action.C
+        elif self.bad_q_streak >= 2 and q < self.q_good:
+            action = Action.D
+        elif self.last_action == Action.D and stock >= self.half_capacity and (q > self.q_bad):
+            action = Action.C
+        elif stock < self.quarter_capacity:
+            action = Action.D
+        elif stock >= self.half_capacity and q >= self.q_good:
+            action = Action.C
+        elif q <= self.q_bad:
+            action = Action.D
+        elif stock >= prev_stock:
+            action = Action.C
+        else:
+            action = Action.D
+        self.prev_stock = stock
+        self.last_action = action
+        return action
+
+class Strategy_ALTRUISTIC_31(BaseStrategy):
+    """
+    Always cooperates in every round, regardless of history or stock level.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        return Action.C
+
+class Strategy_ALTRUISTIC_32(BaseStrategy):
+    """
+    Always cooperate strategy for the Common Pool Resource Game.
+    Chooses C in every round, independent of history, stock, or opponent behavior.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(getattr(game_description, 'n_players', 0) or 0)
+        self.n_rounds = int(getattr(game_description, 'n_rounds', 0) or 0)
+        self.capacity = float(getattr(game_description, 'capacity', 0.0) or 0.0)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        _ = history.round_number
+        _ = current_stock
+        return Action.C
+
+class Strategy_BENEVOLENT_5(BaseStrategy):
+    """
+    Cooperative-first common-pool strategy with rare defensive defection under
+    sustained broad defection and stressed stock.
+
+    Memory used:
+    - current stock via current_stock argument
+    - opponent cooperation counts from the last two rounds via history
+    - whether the player defected in the previous round via history.my_actions[-1]
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.low_stock = self.capacity / 3.0
+        self.critical_stock = self.capacity / 5.0
+        self.sustained_defection_threshold = math.floor((self.n - 1) / 2)
+        self.broad_coop_threshold = self.n - 2
+        self.very_low_coop_threshold = math.floor((self.n - 1) / 3)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        if round_number >= self.r - 1:
+            return Action.C
+        if current_stock <= self.critical_stock:
+            return Action.C
+        if len(history.opponent_cooperators) >= 1:
+            if history.opponent_cooperators[-1] >= self.broad_coop_threshold:
+                return Action.C
+        if current_stock <= self.low_stock and len(history.opponent_cooperators) >= 2:
+            last_two = history.opponent_cooperators[-2:]
+            sustained_defection = last_two[-1] <= self.sustained_defection_threshold and last_two[-2] <= self.sustained_defection_threshold
+            very_low_coop_in_last_two = any((coop <= self.very_low_coop_threshold for coop in last_two))
+            if sustained_defection and very_low_coop_in_last_two:
+                if len(history.my_actions) >= 1 and (not bool(history.my_actions[-1])):
+                    return Action.D
+                return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_6(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Opens cooperatively
+    - Tracks exponentially weighted opponent cooperation (qbar)
+    - Uses a strike system to punish repeated low cooperation
+    - Defects more in the final third unless cooperation and stock remain healthy
+    - Always cooperates in the first and last rounds
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.qbar = 1.0
+        self.strike = 0
+        self.forced_defect_next = False
+        self.last_seen_rounds = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        current_round = round_number + 1
+        last_round = current_round >= self.n_rounds
+        if round_number > self.last_seen_rounds:
+            self.last_seen_rounds = round_number
+        if round_number >= 1:
+            k_prev = int(history.opponent_cooperators[-1])
+            denom = self.n_opponents if self.n_opponents > 0 else 1
+            q_prev = k_prev / denom
+            q_prev = min(1.0, max(0.0, q_prev))
+            if q_prev >= 0.5:
+                self.strike = 0
+            elif q_prev < 0.25:
+                self.strike += 1
+            else:
+                self.strike = max(0, self.strike - 1)
+            qbar_new = 0.7 * self.qbar + 0.3 * q_prev
+            if self.n_opponents > 0:
+                high_threshold = math.ceil(0.6 * self.n_opponents)
+                low_threshold = math.floor(0.2 * self.n_opponents)
+                if k_prev >= high_threshold:
+                    qbar_new = min(1.0, qbar_new + 0.1)
+                elif k_prev <= low_threshold:
+                    qbar_new = max(0.0, qbar_new - 0.2)
+            self.qbar = min(1.0, max(0.0, qbar_new))
+            self.forced_defect_next = self.strike >= 2 and current_round < self.n_rounds - 1 and (current_stock >= 0.25 * self.capacity)
+        else:
+            self.qbar = min(1.0, max(0.0, self.qbar))
+        if current_round == 1 or last_round:
+            return Action.C
+        if self.forced_defect_next:
+            return Action.D
+        if current_stock < 0.25 * self.capacity:
+            return Action.C
+        if current_stock >= 0.75 * self.capacity:
+            return Action.C
+        if current_round > 2 * self.n_rounds / 3:
+            if self.qbar >= 0.5 and current_stock >= 0.3 * self.capacity:
+                return Action.C
+            return Action.D
+        if self.qbar >= 0.45 and current_stock >= self.capacity * (0.35 + 0.3 * self.qbar):
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_7(BaseStrategy):
+    """
+    Cooperative default strategy with short, cautious corrective defections
+    when recent cooperation is persistently low and the stock remains healthy.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.upper_bound = 0.9 * self.capacity
+        self.lower_bound = 0.6 * self.capacity
+        self._coop_rate_memory = []
+        self._last_action = Action.C
+        self._last_defection_round = -10 ** 9
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        S = float(current_stock)
+        if round_number >= self.r - 1:
+            self._last_action = Action.C
+            return Action.C
+        if round_number == 0:
+            self._last_action = Action.C
+            return Action.C
+        n_opponents = max(self.n - 1, 1)
+        if len(history.opponent_cooperators) > 0:
+            c = int(history.opponent_cooperators[-1])
+            coop_rate = max(0.0, min(1.0, c / n_opponents))
+        else:
+            coop_rate = 1.0
+        self._coop_rate_memory.append(coop_rate)
+        if len(self._coop_rate_memory) > 3:
+            self._coop_rate_memory = self._coop_rate_memory[-3:]
+        avg_coop = float(np.mean(self._coop_rate_memory)) if self._coop_rate_memory else 1.0
+        if S <= 0 or S <= self.lower_bound / 2:
+            self._last_action = Action.C
+            return Action.C
+        if avg_coop >= 0.5:
+            self._last_action = Action.C
+            return Action.C
+        prev_action = Action.C
+        if len(history.my_actions) > 0:
+            prev_action = Action.C if bool(history.my_actions[-1]) else Action.D
+        if prev_action == Action.D:
+            if not (coop_rate == 0.0 and S > self.lower_bound / 2):
+                self._last_action = Action.C
+                return Action.C
+        if prev_action == Action.D and coop_rate >= 0.2:
+            self._last_action = Action.C
+            return Action.C
+        action = Action.C
+        if S >= self.upper_bound:
+            if coop_rate < 0.25 and S > self.lower_bound:
+                action = Action.D
+        elif S > self.lower_bound:
+            low_two_rounds = False
+            if len(self._coop_rate_memory) >= 2:
+                low_two_rounds = self._coop_rate_memory[-1] < 0.2 and self._coop_rate_memory[-2] < 0.2
+            if low_two_rounds:
+                action = Action.D
+        elif coop_rate == 0.0 and S > self.lower_bound / 3.0:
+            action = Action.D
+        if prev_action == Action.D and action == Action.D:
+            if not (coop_rate == 0.0 and S > self.lower_bound / 2):
+                action = Action.C
+        self._last_action = action
+        if action == Action.D:
+            self._last_defection_round = round_number
+        return action
+
+class Strategy_BENEVOLENT_8(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Cooperate in round 1.
+    - In later rounds, cooperate when resource stock is healthy and recent cooperation is sufficiently high.
+    - Defect when stock is depleted, or after a severe low-cooperation shock, but only for one round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self._last_start_stock = None
+        self._last_k = None
+        self._last_round_number = None
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        capacity = float(self.game_description.capacity)
+        round_number = history.round_number
+        if round_number == self.game_description.n_rounds - 1:
+            self._last_start_stock = float(current_stock)
+            self._last_k = int(history.opponent_cooperators[-1]) if round_number > 0 else None
+            self._last_round_number = round_number
+            return Action.C if current_stock > 0 else Action.D
+        if round_number == 0:
+            self._last_start_stock = float(current_stock)
+            self._last_k = None
+            self._last_round_number = round_number
+            return Action.C
+        k = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        prev_k = self._last_k
+        prev_start_stock = self._last_start_stock
+        low_stock_threshold = capacity / 8.0
+        mid_stock_threshold = capacity / 4.0
+        high_stock_threshold = 3.0 * capacity / 4.0
+        recovery_threshold = capacity / 3.0
+        majority_threshold = math.ceil((n - 1) / 2)
+        action = Action.D
+        if current_stock <= low_stock_threshold:
+            action = Action.D
+        elif current_stock >= high_stock_threshold:
+            fell_last_round = False
+            if prev_start_stock is not None:
+                fell_last_round = current_stock < prev_start_stock
+            if prev_k == 0 and fell_last_round:
+                action = Action.D
+            else:
+                action = Action.C
+        elif current_stock >= mid_stock_threshold and k >= majority_threshold and (current_stock >= recovery_threshold or k == n - 1):
+            action = Action.C
+        else:
+            action = Action.D
+        self._last_start_stock = float(current_stock)
+        self._last_k = k
+        self._last_round_number = round_number
+        return action
+
+class Strategy_BENEVOLENT_9(BaseStrategy):
+    """
+    Adaptive common-pool strategy with a cooperation target updated from
+    observed opponent cooperation rates and modified by stock-based overrides.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(getattr(game_description, 'n_players', 0) or 0)
+        self.n_rounds = int(getattr(game_description, 'n_rounds', 0) or 0)
+        self.capacity = float(getattr(game_description, 'capacity', 0.0) or 0.0)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.p_target = 1.0
+        self.last_round_number = -1
+
+    def _coop_rate(self, opponent_count: int) -> float:
+        if self.n_opponents <= 0:
+            return 0.0
+        return float(opponent_count) / float(self.n_opponents)
+
+    def _updated_target_from_history(self, history: PlayerHistory) -> float:
+        p = 1.0
+        try:
+            rounds_done = int(history.round_number)
+            if rounds_done <= 0:
+                return 1.0
+            opp_counts = history.opponent_cooperators
+            limit = min(rounds_done, len(opp_counts))
+            for r in range(limit):
+                x = self._coop_rate(int(opp_counts[r]))
+                if x >= 0.75:
+                    p = min(1.0, p + 0.1)
+                elif x >= 0.4:
+                    p = p
+                elif x >= 0.2:
+                    p = max(0.5, p - 0.15)
+                else:
+                    p = max(0.2, p - 0.25)
+            return float(p)
+        except Exception:
+            return 1.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        try:
+            if history is None:
+                self.p_target = 1.0
+                return Action.C
+            round_number = int(getattr(history, 'round_number', 0) or 0)
+            S_t = float(current_stock)
+            if round_number <= 0:
+                self.p_target = 1.0
+                self.last_round_number = round_number
+                return Action.C
+            p_t = self._updated_target_from_history(history)
+            self.p_target = p_t
+            self.last_round_number = round_number
+            t = round_number + 1
+            r = max(1, self.n_rounds)
+            cap = self.capacity
+            x_prev = None
+            x_prev2 = None
+            try:
+                if len(history.opponent_cooperators) >= 1:
+                    x_prev = self._coop_rate(int(history.opponent_cooperators[-1]))
+                if len(history.opponent_cooperators) >= 2:
+                    x_prev2 = self._coop_rate(int(history.opponent_cooperators[-2]))
+            except Exception:
+                x_prev = None
+                x_prev2 = None
+            action = Action.C if p_t >= 0.5 and S_t > 0.0 else Action.D
+            if S_t <= 0.0:
+                return Action.C
+            if t == r:
+                return Action.C
+            if t == r - 1 and S_t > cap / 4.0:
+                return Action.C
+            if S_t < cap / 8.0:
+                if x_prev is not None and x_prev < 0.2:
+                    return Action.D
+                return Action.C
+            if S_t >= cap / 2.0:
+                return Action.C
+            if x_prev2 is not None and x_prev is not None and (x_prev2 >= 0.75) and (x_prev >= 0.75):
+                return Action.C
+            if x_prev2 is not None and x_prev is not None and (x_prev2 < 0.2) and (x_prev < 0.2):
+                self.p_target = 0.2
+                return Action.D
+            return action
+        except Exception:
+            self.p_target = 1.0
+            return Action.C
+
+class Strategy_BENEVOLENT_10(BaseStrategy):
+    """
+    Near-full replenishment strategy for the common pool resource game.
+
+    - Cooperates in the first round.
+    - Defects when stock is severely depleted.
+    - Cooperates in healthy/moderate stock regimes only if recent opponent
+      cooperation is sufficiently high.
+    - Plays conservatively in the final round based on current stock.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(0, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        if current_stock <= 0.0:
+            return Action.D
+        if round_number == self.n_rounds - 1:
+            return Action.C if current_stock >= self.capacity / 2.0 else Action.D
+        if self.n_opponents > 0:
+            prev_opponent_cooperators = int(history.opponent_cooperators[-1])
+            q_prev = prev_opponent_cooperators / float(self.n_opponents)
+        else:
+            q_prev = 0.0
+        low_threshold = self.capacity / 4.0
+        healthy_threshold = self.capacity / 2.0
+        if current_stock <= low_threshold:
+            return Action.D
+        if current_stock >= healthy_threshold:
+            return Action.C if q_prev >= 0.5 else Action.D
+        return Action.C if q_prev >= 0.75 else Action.D
+
+class Strategy_BENEVOLENT_11(BaseStrategy):
+    """
+    Trust-based common pool strategy:
+    - Cooperate in the first and last rounds.
+    - In intermediate rounds, cooperate if the stock is low, the last-round cooperation
+      rate is at least 1/2, or accumulated trust is at least 1/2.
+    - Trust is updated from the full history using exponential smoothing, with an
+      immediate floor of 3/4 after any fully cooperative opponent round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.trust = 1.0
+
+    def _opponent_fraction(self, k: int) -> float:
+        n_players = int(self.game_description.n_players)
+        n_opponents = max(n_players - 1, 1)
+        if n_players == 2:
+            return 1.0 if k > 0 else 0.0
+        return float(k) / float(n_opponents)
+
+    def _recompute_trust_from_history(self, history: PlayerHistory) -> float:
+        trust = 1.0
+        n_rounds_seen = history.round_number
+        for t in range(n_rounds_seen):
+            k = int(history.opponent_cooperators[t]) if t < len(history.opponent_cooperators) else 0
+            q = self._opponent_fraction(k)
+            trust = 0.6 * trust + 0.4 * q
+            if q >= 1.0:
+                trust = max(trust, 0.75)
+        return trust
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n_players = int(self.game_description.n_players)
+        total_rounds = int(self.game_description.n_rounds)
+        round_number = int(history.round_number)
+        if round_number <= 0:
+            self.trust = 1.0
+            return Action.C
+        self.trust = self._recompute_trust_from_history(history)
+        if round_number >= total_rounds - 1:
+            return Action.C
+        if len(history.opponent_cooperators) > 0:
+            last_k = int(history.opponent_cooperators[-1])
+        else:
+            last_k = 0
+        q = self._opponent_fraction(last_k)
+        capacity = float(self.game_description.capacity)
+        stock = float(current_stock)
+        if stock <= capacity / 2.0:
+            return Action.C
+        if q >= 0.5:
+            return Action.C
+        if self.trust >= 0.5:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_12(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Start cooperatively.
+    - Track the opponent cooperation rate across the history.
+    - Cooperate when the pool is healthy and the group is broadly cooperative.
+    - Defect to protect the pool after clear overuse, or under severe stock stress.
+    - Use a final-round safeguard that avoids leaving exploitation unanswered.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.m_opponents = max(0, self.n_players - 1)
+        self.theta = math.ceil(self.m_opponents / 2) if self.m_opponents > 0 else 0
+        self.quarter_capacity = self.capacity / 4.0
+        self.half_capacity = self.capacity / 2.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        m = self.m_opponents
+        k = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        prev_total_coop = int(np.sum(history.opponent_cooperators[:-1])) if t > 1 else 0
+        denom = (t - 1) * m
+        coop_rate = prev_total_coop / denom if denom > 0 else 1.0
+        action = Action.C
+        low_stock = float(current_stock) < self.quarter_capacity
+        high_stock = float(current_stock) >= self.half_capacity
+        if low_stock and k != m:
+            action = Action.D
+        elif coop_rate < 0.5:
+            action = Action.C if k == m else Action.D
+        elif float(current_stock) <= float(self.n_players):
+            action = Action.D if k < self.theta else Action.C
+        else:
+            action = Action.D if k == 0 else Action.C
+        if high_stock and (not low_stock):
+            if coop_rate < 0.5:
+                action = Action.C if k == m else Action.D
+            else:
+                action = Action.D if k == 0 else Action.C
+        if t == self.n_rounds - 1:
+            action = Action.D if k == 0 else Action.C
+        return action
+
+class Strategy_BENEVOLENT_13(BaseStrategy):
+    """
+    Default-cooperate strategy with a temporary restraint mode under
+    persistently low opponent cooperation and depleted stock.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self._prev_seen_stock = None
+        self._low_coop_streak = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        last_round_index = self.n_rounds - 1
+        if round_number == 0:
+            self._prev_seen_stock = float(current_stock)
+            self._low_coop_streak = 0
+            return Action.C
+        if round_number >= last_round_index:
+            self._prev_seen_stock = float(current_stock)
+            self._low_coop_streak = 0
+            return Action.C
+        n_opponents = self.n_players - 1
+        if n_opponents <= 0:
+            q = 1.0
+        else:
+            q = float(history.opponent_cooperators[-1]) / float(n_opponents)
+        if q < 1.0 / 3.0:
+            self._low_coop_streak += 1
+        else:
+            self._low_coop_streak = 0
+        prev_stock = self._prev_seen_stock
+        stock_increased_or_same = False
+        if prev_stock is not None:
+            stock_increased_or_same = float(current_stock) >= float(prev_stock)
+        self._prev_seen_stock = float(current_stock)
+        if current_stock <= 0.0:
+            self._low_coop_streak = 0
+            return Action.C
+        if n_opponents > 0 and history.opponent_cooperators[-1] >= n_opponents:
+            self._low_coop_streak = 0
+            return Action.C
+        if current_stock >= self.capacity / 2.0:
+            self._low_coop_streak = 0
+            return Action.C
+        if q >= 0.5:
+            self._low_coop_streak = 0
+            return Action.C
+        if stock_increased_or_same:
+            self._low_coop_streak = 0
+            return Action.C
+        if self._low_coop_streak >= 2 and current_stock < self.capacity / 2.0 and (q < 0.5):
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_14(BaseStrategy):
+    """
+    Starts cooperatively and only defects after two consecutive rounds of
+    sustained opponent non-cooperation, provided the stock is sufficiently low.
+    Cooperation is immediately restored once cooperation recovers, on the final
+    round, or when stock is effectively depleted.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.eps = 1e-12
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n_players = int(self.game_description.n_players)
+        n_rounds = int(self.game_description.n_rounds)
+        n_opponents = max(n_players - 1, 0)
+        round_number = int(history.round_number)
+        last_round_index = n_rounds - 1
+        if round_number == 0:
+            return Action.C
+        if round_number >= last_round_index:
+            return Action.C
+        if current_stock <= self.eps:
+            return Action.C
+        bad_streak = 0
+        if n_opponents > 0:
+            for opp_coops in reversed(history.opponent_cooperators):
+                if int(opp_coops) * 2 >= n_opponents:
+                    break
+                bad_streak += 1
+        if bad_streak >= 2 and current_stock < float(self.game_description.capacity) / 3.0:
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_15(BaseStrategy):
+    """
+    Benevolent common-pool strategy:
+    - Cooperate by default.
+    - Defect only when opponent cooperation is consistently low and the stock is degraded.
+    - Fall back to cooperation in edge cases and when sustainability is plausible.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 1)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.n_players
+        capacity = self.capacity
+        round_number = int(history.round_number)
+        if current_stock <= 0.0 or current_stock >= capacity:
+            return Action.C
+        if round_number == 0:
+            return Action.C
+        if len(history.opponent_cooperators) == 0:
+            p_hat = 1.0
+        else:
+            observed = np.asarray(history.opponent_cooperators, dtype=float)
+            denom = float(max(round_number * self.n_opponents, 1))
+            p_hat = float(np.sum(observed) / denom)
+        if round_number >= self.n_rounds - 1:
+            return Action.C if p_hat >= 0.5 else Action.D
+        if p_hat >= 0.5:
+            return Action.C
+        cooperative_consumption = current_stock / (2.0 * n) * ((n - 1) * p_hat + 1.0)
+        r_c = current_stock - cooperative_consumption
+        defect_consumption = current_stock / n + current_stock / (2.0 * n) * ((n - 1) * p_hat)
+        r_d = current_stock - defect_consumption
+        half_capacity = 0.5 * capacity
+        quarter_capacity = 0.25 * capacity
+        if r_c >= half_capacity:
+            return Action.C
+        if r_d >= half_capacity:
+            return Action.D
+        if current_stock >= quarter_capacity:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_16(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Cooperates initially and on the last round.
+    - Tracks a smoothed trust signal from observed opponent cooperation.
+    - Cooperates under high stock, broad cooperation, sufficient trust, or a cooperation streak.
+    - Defects only under sustained low stock / low cooperation / low trust conditions.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.trust = 1.0
+        self.cooperation_streak = 0
+        self.last_processed_round = 0
+        self.defection_condition_streak = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = int(self.game_description.n_players)
+        r = int(self.game_description.n_rounds)
+        capacity = float(self.game_description.capacity)
+        round_number = int(history.round_number)
+        if round_number > self.last_processed_round and round_number > 0:
+            try:
+                c_t = int(history.opponent_cooperators[-1])
+            except Exception:
+                c_t = 0
+            n_opponents = max(n - 1, 1)
+            obs_rate = c_t / n_opponents
+            self.trust = 0.7 * self.trust + 0.3 * obs_rate
+            if obs_rate >= 0.5:
+                self.cooperation_streak += 1
+            else:
+                self.cooperation_streak = 0
+            majority_threshold = 1 if n == 2 else math.ceil((n - 1) / 2)
+            if current_stock < 0.35 * capacity and c_t < majority_threshold and (self.trust < 0.4):
+                self.defection_condition_streak += 1
+            else:
+                self.defection_condition_streak = 0
+            self.last_processed_round = round_number
+        if round_number == 0:
+            return Action.C
+        if round_number >= r - 1:
+            return Action.C
+        if current_stock <= capacity / (4 * max(n, 1)):
+            if self.defection_condition_streak < 2:
+                return Action.C
+        high_stock = current_stock >= 0.6 * capacity
+        broad_cooperation_threshold = math.ceil(0.6 * max(n - 1, 0))
+        broad_cooperation = False
+        if round_number > 0 and len(history.opponent_cooperators) > 0:
+            broad_cooperation = int(history.opponent_cooperators[-1]) >= broad_cooperation_threshold
+        if high_stock:
+            return Action.C
+        if broad_cooperation:
+            return Action.C
+        if self.trust >= 0.55:
+            return Action.C
+        if self.cooperation_streak >= 2:
+            return Action.C
+        majority_threshold = 1 if n == 2 else math.ceil((n - 1) / 2)
+        c_t = 0
+        if round_number > 0 and len(history.opponent_cooperators) > 0:
+            c_t = int(history.opponent_cooperators[-1])
+        if current_stock < 0.35 * capacity and c_t < majority_threshold and (self.trust < 0.4):
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_17(BaseStrategy):
+    """
+    Always cooperate. Records observed opponent cooperation counts, but never
+    conditions the action on history or stock.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.observed_opponent_cooperators = []
+        self.last_observed_stock = None
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        self.last_observed_stock = current_stock
+        try:
+            if history is not None and hasattr(history, 'opponent_cooperators'):
+                if len(history.opponent_cooperators) > 0:
+                    self.observed_opponent_cooperators.append(int(history.opponent_cooperators[-1]))
+                else:
+                    self.observed_opponent_cooperators.append(0)
+            else:
+                self.observed_opponent_cooperators.append(0)
+        except Exception:
+            self.observed_opponent_cooperators.append(0)
+        return Action.C
+
+class Strategy_BENEVOLENT_18(BaseStrategy):
+    """
+    Always cooperate in every round, regardless of history, stock, or opponent behavior.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        return Action.C
+
+class Strategy_BENEVOLENT_19(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Cooperate by default
+    - Protect the pool when stock is fragile
+    - Use recent opponent cooperation to forecast whether defection is worthwhile
+    - Temporarily force cooperation after short defection-heavy stretches
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 0)
+        self.recovery_lock_remaining = 0
+        self._last_seen_round = -1
+
+    def _expected_next_stock(self, current_stock: float, avg_cooperators: float, action: Action) -> float:
+        n = self.n_players
+        cap = self.capacity
+        if n <= 0:
+            return current_stock
+        own_consumption = current_stock / (2.0 * n) if action == Action.C else current_stock / n
+        coop_cons = current_stock / (2.0 * n)
+        defect_cons = current_stock / n
+        expected_opponent_consumption = avg_cooperators * coop_cons + (self.n_opponents - avg_cooperators) * defect_cons
+        total_consumption = own_consumption + expected_opponent_consumption
+        remaining = current_stock - total_consumption
+        if remaining < 0.0:
+            remaining = 0.0
+        growth = 2.0 * remaining * (1.0 - remaining / cap) if cap > 0.0 else 0.0
+        next_stock = remaining + growth
+        if next_stock > cap:
+            next_stock = cap
+        if next_stock < 0.0:
+            next_stock = 0.0
+        return next_stock
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        n = self.n_players
+        n_opponents = self.n_opponents
+        if round_number != self._last_seen_round:
+            if self.recovery_lock_remaining > 0:
+                self.recovery_lock_remaining -= 1
+            self._last_seen_round = round_number
+        if round_number == 0:
+            return Action.C
+        if round_number == self.n_rounds - 1:
+            return Action.D if current_stock <= n / 2.0 else Action.C
+        recent = history.opponent_cooperators
+        if len(recent) == 0:
+            avg_c = 0.0
+        else:
+            m = min(3, round_number)
+            window = recent[-m:] if m > 0 else recent[-0:]
+            avg_c = float(np.mean(window)) if len(window) > 0 else 0.0
+        half_opponents = n_opponents / 2.0
+        if len(recent) >= 3:
+            last_three = recent[-3:]
+            defection_heavy_count = int(np.sum(last_three < half_opponents))
+            if defection_heavy_count >= 2:
+                self.recovery_lock_remaining = 2
+        if len(recent) > 0 and recent[-1] >= half_opponents:
+            self.recovery_lock_remaining = 0
+        if self.recovery_lock_remaining > 0:
+            return Action.C
+        if current_stock <= n:
+            return Action.C
+        if round_number == 1 and len(recent) >= 1 and (recent[-1] == 0):
+            return Action.C
+        if current_stock > n:
+            c_next = self._expected_next_stock(current_stock, avg_c, Action.C)
+            d_next = self._expected_next_stock(current_stock, avg_c, Action.D)
+            if d_next < current_stock / 2.0 and c_next >= current_stock / 2.0:
+                return Action.C
+            if c_next > d_next:
+                return Action.C
+            if d_next > c_next:
+                if avg_c == 0.0:
+                    return Action.D
+                return Action.C
+            return Action.C
+        return Action.C
+
+class Strategy_BENEVOLENT_20(BaseStrategy):
+    """
+    Cooperation-first strategy for the Common Pool Resource Game.
+
+    Core behavior:
+    - Cooperate initially and whenever the pool is healthy and others are broadly cooperative.
+    - Defect only under persistent low cooperation or severe depletion.
+    - Return to cooperation quickly once the pool or cooperation rate recovers.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.threshold_base = 1.0 - 1.0 / math.sqrt(2.0)
+
+    def _threshold(self, stock: float) -> float:
+        return self.threshold_base
+
+    def _margin(self, stock: float) -> float:
+        if self.capacity <= 0:
+            return 0.1
+        stock_ratio = stock / self.capacity
+        return 0.1 + 0.2 * max(0.0, 1.0 - stock_ratio)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        cap = self.capacity
+        stock = float(current_stock)
+        prev_opp_count = int(history.opponent_cooperators[-1])
+        m = self.n_opponents if self.n_opponents > 0 else 1
+        q = prev_opp_count / m
+        threshold = self._threshold(stock)
+        margin = self._margin(stock)
+        low_cutoff = threshold - margin
+        high_cutoff = threshold + margin
+        last_round_index = self.n_rounds - 1
+        is_last_round = round_number >= last_round_index
+        prev_action_defected = not bool(history.my_actions[-1])
+        low_count_recent = False
+        if round_number >= 2:
+            prev_q = int(history.opponent_cooperators[-2]) / m
+            low_count_recent = prev_q < low_cutoff and q < low_cutoff
+        else:
+            low_count_recent = False
+        all_others_cooperated = prev_opp_count >= m
+        severe_depletion = stock <= cap / 8.0 if cap > 0 else False
+        healthy_stock = stock >= cap / 4.0 if cap > 0 else True
+        if is_last_round:
+            return Action.D if severe_depletion else Action.C
+        if severe_depletion:
+            if q >= threshold or stock > cap / 8.0:
+                return Action.C
+            return Action.D
+        if low_count_recent:
+            if q >= low_cutoff or healthy_stock:
+                return Action.C
+            return Action.D
+        if all_others_cooperated:
+            return Action.C
+        if prev_action_defected:
+            if q >= high_cutoff or healthy_stock:
+                return Action.C
+            return Action.D
+        if q >= low_cutoff and healthy_stock:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_21(BaseStrategy):
+    """
+    State-contingent conservation policy for the Common Pool Resource Game.
+
+    - Cooperate by default.
+    - Defect only in the final round or in very high-stock states after
+      repeated low cooperation by opponents.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 1)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = int(history.round_number) + 1
+        if t == 1:
+            return Action.C
+        if len(history.opponent_cooperators) == 0:
+            x = 1.0
+        else:
+            last_coop = history.opponent_cooperators[-1]
+            x = float(last_coop) / float(self.n_opponents)
+        if current_stock <= 0.0:
+            return Action.C
+        if t >= self.n_rounds:
+            if current_stock > self.capacity / 2.0 and x < 0.25:
+                return Action.D
+            return Action.C
+        if current_stock <= self.capacity / 2.0:
+            return Action.C
+        if x >= 0.5:
+            return Action.C
+        if x < 0.25 and current_stock >= 1.5 * self.capacity:
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_22(BaseStrategy):
+    """
+    Cooperate by default, but defect briefly after repeated recent low cooperation
+    by opponents when the pool is depleted and it is not the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 0)
+        self.low_threshold = math.ceil(self.n_opponents / 2) if self.n_opponents > 0 else 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        if round_number >= self.n_rounds - 1:
+            return Action.C
+        if current_stock >= self.capacity / 3:
+            return Action.C
+        low_streak = 0
+        for k in history.opponent_cooperators[::-1]:
+            low = 1 if int(k) < self.low_threshold else 0
+            if low == 1:
+                low_streak += 1
+            else:
+                break
+        if low_streak >= 2:
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_23(BaseStrategy):
+    """
+    Cooperative default strategy with one-round forgiveness after mild
+    low-cooperation signals, and defection only under repeated strain.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.forgiveness_used = False
+        self._last_round_seen = -1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n_players = getattr(self.game_description, 'n_players', 0)
+        n_rounds = getattr(self.game_description, 'n_rounds', 0)
+        capacity = float(getattr(self.game_description, 'capacity', 0.0))
+        round_number = history.round_number
+        current_round = round_number + 1
+        if round_number == 0:
+            self.forgiveness_used = False
+            self._last_round_seen = round_number
+            return Action.C
+        if self._last_round_seen != round_number - 1:
+            self._last_round_seen = round_number
+            return Action.C
+        if len(history.opponent_cooperators) == 0:
+            self._last_round_seen = round_number
+            return Action.C
+        last_cooperators = int(history.opponent_cooperators[-1])
+        n_opponents = max(n_players - 1, 0)
+        if n_opponents <= 0:
+            q = 1.0
+        else:
+            q = last_cooperators / n_opponents
+            if q < 0.0:
+                q = 0.0
+            elif q > 1.0:
+                q = 1.0
+        if current_round >= n_rounds:
+            action = Action.C
+        elif current_stock >= capacity / 4.0:
+            action = Action.C
+            self.forgiveness_used = False
+        elif q >= 0.5:
+            action = Action.C
+            self.forgiveness_used = False
+        elif q >= 1.0 / 3.0 and (not self.forgiveness_used):
+            action = Action.C
+            self.forgiveness_used = True
+        else:
+            action = Action.D
+            self.forgiveness_used = True
+        self._last_round_seen = round_number
+        return action
+
+class Strategy_BENEVOLENT_24(BaseStrategy):
+    """
+    Conservation-oriented threshold strategy with conditional generosity.
+
+    - Starts with cooperation.
+    - Uses recent opponent cooperation averages over 3 and 2 rounds.
+    - Becomes stricter after repeated low cooperation or severe stock depletion.
+    - Rewards sustained cooperation and high stock levels with generosity.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(0, self.n_players - 1)
+
+    def _opponent_rate(self, opponent_cooperators: int) -> float:
+        if self.n_opponents <= 0:
+            return 1.0
+        return float(opponent_cooperators) / float(self.n_opponents)
+
+    def _recent_mean(self, history: PlayerHistory, window: int) -> float:
+        rounds_played = history.round_number
+        if rounds_played <= 0:
+            return 1.0
+        start = max(0, rounds_played - window)
+        rates = [self._opponent_rate(int(c)) for c in history.opponent_cooperators[start:rounds_played]]
+        if not rates:
+            return 1.0
+        return float(np.mean(rates))
+
+    def _last_k_all_at_least(self, history: PlayerHistory, k: int, threshold: float) -> bool:
+        rounds_played = history.round_number
+        if rounds_played < k:
+            return False
+        start = rounds_played - k
+        for c in history.opponent_cooperators[start:rounds_played]:
+            if self._opponent_rate(int(c)) < threshold:
+                return False
+        return True
+
+    def _last_k_all_below(self, history: PlayerHistory, k: int, threshold: float) -> bool:
+        rounds_played = history.round_number
+        if rounds_played < k:
+            return False
+        start = rounds_played - k
+        for c in history.opponent_cooperators[start:rounds_played]:
+            if self._opponent_rate(int(c)) >= threshold:
+                return False
+        return True
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        cap = self.capacity
+        stock = float(current_stock)
+        A_t = self._recent_mean(history, 3)
+        B_t = self._recent_mean(history, 2)
+        prev_rate = self._opponent_rate(int(history.opponent_cooperators[-1]))
+        prev_unanimous = prev_rate >= 1.0
+        prev_weak = prev_rate < 0.5
+        last_two_low = self._last_k_all_below(history, 2, 0.5)
+        last_two_good = self._last_k_all_at_least(history, 2, 0.5)
+        if stock <= cap / 8.0:
+            return Action.D
+        if last_two_low and (not last_two_good):
+            return Action.D
+        if prev_unanimous and stock >= cap / 10.0:
+            return Action.C
+        if stock >= 0.8 * cap:
+            return Action.C
+        if history.round_number >= self.n_rounds - 1:
+            if B_t < 0.5 and stock < cap / 6.0:
+                return Action.D
+            return Action.C
+        if A_t >= 0.5 and stock >= cap / 4.0:
+            return Action.C
+        if prev_weak and stock >= cap / 4.0:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_25(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Cooperate initially.
+    - Prefer cooperation when stock is healthy or opponents showed recent cooperation.
+    - Switch to defense under low stock and repeated majority defection.
+    - Endgame favors cooperation unless conditions are clearly hostile.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = max(2, int(game_description.n_players))
+        self.r = max(1, int(game_description.n_rounds))
+        self.capacity = float(game_description.capacity)
+        self.majority_threshold = math.ceil((self.n - 1) / 2)
+        self.third_threshold = math.ceil((self.n - 1) / 3)
+        self.low_stock_threshold = self.capacity / self.n if self.n > 0 else 0.0
+        self.coop_stock_threshold = self.capacity / 2.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        S = float(current_stock) if current_stock is not None else 0.0
+        S = max(0.0, S)
+        if t == 0:
+            return Action.C
+        last_opp_coop = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        prev_action_is_coop = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else True
+        if t >= self.r - 1:
+            return Action.C if S > 0 else Action.C
+        majority_coop = last_opp_coop >= self.majority_threshold
+        at_least_one_third_coop = last_opp_coop >= self.third_threshold
+        low_stock = S <= self.low_stock_threshold
+        healthy_stock = S >= self.coop_stock_threshold
+        if t >= self.r - 2:
+            if prev_action_is_coop and at_least_one_third_coop:
+                return Action.C
+            if healthy_stock:
+                return Action.C
+            if low_stock and (not majority_coop):
+                return Action.D
+            return Action.C if majority_coop else Action.D
+        if majority_coop:
+            return Action.C
+        if healthy_stock:
+            return Action.C
+        if low_stock and (not majority_coop):
+            return Action.D
+        if S < self.coop_stock_threshold:
+            if at_least_one_third_coop and prev_action_is_coop:
+                return Action.C
+            if last_opp_coop < self.majority_threshold:
+                return Action.D
+            return Action.C
+        if prev_action_is_coop and at_least_one_third_coop:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_26(BaseStrategy):
+    """
+    Conservative common-pool strategy:
+    - starts with cooperation,
+    - cooperates whenever the resource is healthy or the group is mostly cooperative,
+    - defects only as a short defensive response to severe overuse,
+    - returns to cooperation quickly once conditions improve.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = max(2, int(game_description.n_players))
+        self.n_rounds = max(1, int(game_description.n_rounds))
+        self.capacity = float(game_description.capacity)
+        self.target_stock = self.capacity / 2.0
+        self.critical_stock = self.capacity / 4.0
+        self.last_round_defection = False
+        self.trust = 1.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = int(history.round_number) + 1
+        n = self.n_players
+        r = self.n_rounds
+        S = float(current_stock) if current_stock is not None else 0.0
+        if not math.isfinite(S):
+            S = 0.0
+        k = 0
+        if history.opponent_cooperators is not None and len(history.opponent_cooperators) > 0:
+            k = int(history.opponent_cooperators[-1])
+        k = max(0, min(k, n - 1))
+        if t == 1:
+            self.last_round_defection = False
+            self.trust = min(1.0, self.trust + 0.05)
+            return Action.C
+        severe_shortage = S <= self.critical_stock
+        healthy_stock = S >= self.target_stock
+        last_was_defection = bool(len(history.my_actions) > 0 and (not bool(history.my_actions[-1])))
+        if last_was_defection:
+            if healthy_stock:
+                self.last_round_defection = False
+                self.trust = min(1.0, self.trust + 0.1)
+                return Action.C
+            if severe_shortage and k <= 1:
+                self.last_round_defection = True
+                self.trust = max(0.0, self.trust - 0.1)
+                return Action.D
+            self.last_round_defection = False
+            self.trust = min(1.0, self.trust + 0.05)
+            return Action.C
+        if severe_shortage:
+            action = Action.C if k > 0 else Action.D
+        elif t == r:
+            action = Action.C if k > 0 and S >= self.target_stock / 2.0 else Action.D
+        elif k >= n - 2:
+            action = Action.C
+        elif k == n - 3:
+            action = Action.C if S >= self.target_stock / 3.0 else Action.D
+        elif k <= n - 4:
+            action = Action.D
+        else:
+            action = Action.C
+        if action == Action.D:
+            if self.last_round_defection and (not (severe_shortage and k <= 1)):
+                action = Action.C
+        if healthy_stock:
+            action = Action.C
+        self.last_round_defection = action == Action.D
+        if action == Action.C:
+            self.trust = min(1.0, self.trust + 0.05)
+        else:
+            self.trust = max(0.0, self.trust - 0.05)
+        return action
+
+class Strategy_BENEVOLENT_27(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Cooperate initially.
+    - Stay cooperative when at least half of opponents cooperated last round.
+    - Defect after repeated low cooperation, or when the stock is critically low
+      and cooperation was poor.
+    - Forgive immediately when cooperation recovers.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.bad_streak = 0
+        self.last_action = Action.C
+        self.last_seen_round = -1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n_players = self.game_description.n_players
+        capacity = float(self.game_description.capacity)
+        round_number = history.round_number
+        if round_number == 0:
+            self.bad_streak = 0
+            self.last_action = Action.C
+            self.last_seen_round = 0
+            return Action.C
+        last_opponent_cooperators = int(history.opponent_cooperators[-1])
+        n_opponents = max(0, n_players - 1)
+        if n_opponents <= 0:
+            p = 1.0
+        elif n_players == 2:
+            p = 1.0 if last_opponent_cooperators >= 1 else 0.0
+        else:
+            p = last_opponent_cooperators / n_opponents
+        low_stock = current_stock < capacity / 4.0
+        action = Action.C
+        if current_stock <= 0.0 and p < 0.5:
+            action = Action.D
+            self.bad_streak += 1
+        elif p >= 0.5:
+            action = Action.C
+            self.bad_streak = 0
+        else:
+            self.bad_streak += 1
+            if round_number == 1:
+                action = Action.D if low_stock else Action.C
+            elif round_number == n_players * 0 + (self.game_description.n_rounds - 1):
+                action = Action.D if low_stock else Action.C
+            elif low_stock and p < 2.0 / 3.0:
+                action = Action.D
+            elif self.bad_streak >= 2:
+                action = Action.D
+            else:
+                action = Action.C
+        if current_stock >= capacity:
+            action = Action.C
+        self.last_action = action
+        self.last_seen_round = round_number
+        return action
+
+class Strategy_BENEVOLENT_28(BaseStrategy):
+    """
+    Always cooperate in every round, regardless of stock, history, or opponent behavior.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        return Action.C
+
+class Strategy_BENEVOLENT_29(BaseStrategy):
+    """
+    Unconditional cooperation strategy for the Common Pool Resource Game.
+    Always plays C in every round, regardless of history or current stock.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = getattr(game_description, 'n_players', None)
+        self.n_rounds = getattr(game_description, 'n_rounds', None)
+        self.capacity = getattr(game_description, 'capacity', None)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history is None:
+            return Action.C
+        if getattr(history, 'round_number', 0) == 0:
+            return Action.C
+        return Action.C
+
+class Strategy_BENEVOLENT_30(BaseStrategy):
+    """
+    Always cooperate in every round, regardless of history, stock, or opponents' actions.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        return Action.C
+
+class Strategy_BENEVOLENT_31(BaseStrategy):
+    """
+    Default-cooperation strategy for the Common Pool Resource Game.
+
+    - Round 1: cooperate.
+    - Later rounds: compare the implied next stock after choosing C vs D
+      given the observed current stock and previous opponent cooperation count.
+    - Cooperate unless defecting strictly yields a better next stock.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.capacity = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if current_stock <= 0:
+            return Action.C
+        try:
+            m = int(history.opponent_cooperators[-1])
+        except Exception:
+            return Action.C
+        if m < 0 or m > max(0, self.n - 1):
+            return Action.C
+        n = self.n
+        cap = self.capacity
+        S = float(current_stock)
+        if cap <= 0 or n <= 0:
+            return Action.C
+        x_c = S * (m + 1) / (2.0 * n)
+        x_d = S * m / (2.0 * n)
+        f_c = min(x_c + 2.0 * x_c * (1.0 - x_c / cap), cap)
+        f_d = min(x_d + 2.0 * x_d * (1.0 - x_d / cap), cap)
+        if f_d > f_c:
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_32(BaseStrategy):
+    """
+    Cooperation-first common-pool strategy that preserves stock when prior
+    rounds show overuse, while preferring cooperation under uncertainty.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.ceil_half_n = math.ceil(self.n / 2)
+        self.n_opponents = max(self.n - 1, 0)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        t = round_number + 1
+        if round_number == 0:
+            return Action.C
+        try:
+            last_opp_coop = int(history.opponent_cooperators[-1])
+            last_my_action = bool(history.my_actions[-1])
+        except Exception:
+            return Action.C
+        prev_x = last_opp_coop + (1 if last_my_action else 0)
+        prev_k = last_opp_coop
+        prev_healthy = prev_x >= self.ceil_half_n
+        if t >= self.r:
+            if prev_healthy:
+                return Action.C
+            if prev_k >= self.n_opponents / 2.0:
+                return Action.C
+            return Action.D
+        if current_stock <= 2 * self.n:
+            if prev_k == 0 and t >= self.r:
+                return Action.D
+            return Action.C
+        if prev_healthy:
+            return Action.C
+        if current_stock <= self.capacity / 4.0 or t >= self.r - 1:
+            return Action.D
+        return Action.C
+
+class Strategy_SELFISH_5(BaseStrategy):
+    """
+    Conditional cooperators with a low-stock persistence lock:
+    - Defect in the first round and the final round.
+    - In intermediate rounds, cooperate only when recent opponent cooperation is high
+      and the stock is sufficiently healthy.
+    - If stock ever falls below one quarter of capacity, keep defecting until stock
+      recovers to at least half capacity and recent cooperation is strong.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n - 1, 0)
+        self.low_stock_lock = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        if round_number >= self.r - 1:
+            return Action.D
+        last_q = 0.0
+        if round_number > 0 and self.n_opponents > 0:
+            last_q = float(history.opponent_cooperators[-1]) / float(self.n_opponents)
+        if current_stock < self.capacity / 4.0:
+            self.low_stock_lock = True
+        if self.low_stock_lock:
+            if current_stock >= self.capacity / 2.0 and last_q >= 2.0 / 3.0:
+                self.low_stock_lock = False
+            else:
+                return Action.D
+        if round_number == 0:
+            return Action.D
+        s = current_stock / self.capacity if self.capacity > 0 else 0.0
+        q = last_q
+        if q >= 0.5 and s >= 0.25 and (q >= 2.0 / 3.0 or s >= 0.5):
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_6(BaseStrategy):
+    """
+    Resource-preserving strategy for the Common Pool Resource Game.
+
+    - Tracks an exponentially weighted average of opponent cooperation (cbar)
+    - Uses a short defensive punishment mode after low cooperation
+    - Cooperates only when the stock is high and opponents have been reliably cooperative
+    - Never cooperates in the final round
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.cbar = 1.0
+        self.punish = 0
+        self.last_seen_round = 0
+        self.full_coop_streak = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        capacity = float(self.game_description.capacity)
+        round_number = history.round_number
+        rounds_remaining = r - round_number
+        if round_number > self.last_seen_round:
+            start_idx = self.last_seen_round
+            end_idx = round_number
+            for idx in range(start_idx, end_idx):
+                if idx == 0:
+                    q = 1.0
+                else:
+                    opp_count = int(history.opponent_cooperators[idx - 1])
+                    denom = max(1, n - 1)
+                    q = opp_count / denom
+                self.cbar = 0.75 * self.cbar + 0.25 * q
+                if q <= 0.5:
+                    self.punish = 2
+                elif self.punish > 0:
+                    self.punish -= 1
+                if idx > 0 and int(history.opponent_cooperators[idx - 1]) >= max(0, n - 1):
+                    self.full_coop_streak += 1
+                else:
+                    self.full_coop_streak = 0
+            self.last_seen_round = round_number
+        if rounds_remaining <= 1:
+            return Action.D
+        if self.punish > 0:
+            return Action.D
+        if current_stock < 0.6 * capacity:
+            return Action.D
+        if round_number == 0:
+            if n == 2 and current_stock >= capacity:
+                return Action.C
+            return Action.D
+        last_opp_coop = int(history.opponent_cooperators[-1]) if round_number > 0 else n - 1
+        q_last = last_opp_coop / max(1, n - 1)
+        if self.full_coop_streak >= 2 and current_stock >= 0.9 * capacity:
+            return Action.C
+        if current_stock >= 0.8 * capacity and self.cbar >= 0.8 and (last_opp_coop >= max(0, n - 2)):
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_7(BaseStrategy):
+    """
+    Selfish adaptive strategy for the Common Pool Resource Game.
+
+    Maintains an exponentially smoothed estimate of opponent cooperation rate q,
+    tracks public stock, and defects when stock is high and the estimated
+    cooperation level suggests the pool can sustain it.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.q = 0.5
+
+    def _expected_next_stock(self, stock: float, my_action: Action, q: float) -> float:
+        n = max(2, self.n)
+        opps = max(0, n - 1)
+        if stock <= 0:
+            return 0.0
+        coop_cons = stock / (2.0 * n)
+        defect_cons = stock / n
+        expected_opp_cons = q * coop_cons + (1.0 - q) * defect_cons
+        if my_action == Action.C:
+            total_consumption = coop_cons + opps * expected_opp_cons
+        else:
+            total_consumption = defect_cons + opps * expected_opp_cons
+        remaining = stock - total_consumption
+        if remaining < 0.0:
+            remaining = 0.0
+        growth = 2.0 * remaining * (1.0 - remaining / self.capacity) if self.capacity > 0 else 0.0
+        next_stock = remaining + growth
+        if next_stock > self.capacity:
+            next_stock = self.capacity
+        if next_stock < 0.0:
+            next_stock = 0.0
+        return next_stock
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = max(2, self.n)
+        opps = max(0, n - 1)
+        if history.round_number > 0 and opps > 0:
+            k = float(history.opponent_cooperators[-1])
+            observed_rate = k / opps
+            self.q = 0.7 * self.q + 0.3 * observed_rate
+        if self.q < 0.0:
+            self.q = 0.0
+        elif self.q > 1.0:
+            self.q = 1.0
+        S = float(current_stock)
+        if history.round_number == 0:
+            return Action.D
+        if S <= 0.0:
+            return Action.C
+        if history.round_number == self.r - 1:
+            return Action.D if S > 0.0 else Action.C
+        if S <= self.capacity / 2.0:
+            return Action.C
+        S_D = self._expected_next_stock(S, Action.D, self.q)
+        if S > 0.6 * self.capacity and self.q >= 0.4 and (S_D >= 0.5 * self.capacity):
+            return Action.D
+        return Action.C
+
+class Strategy_SELFISH_8(BaseStrategy):
+    """
+    Resource-conserving strategy for the Common Pool Resource Game.
+
+    - Defaults to defection.
+    - Cooperates only when stock is low and recent opponent cooperation is high.
+    - Becomes more cautious permanently after two consecutive stock declines.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_players = int(game_description.n_players)
+        self.n_opponents = max(self.n_players - 1, 1)
+        self._prev_stocks = []
+        self._tightened = False
+
+    def _recent_q(self, history: PlayerHistory) -> float:
+        """Average fraction of opponents cooperating over the last up to 3 rounds."""
+        rounds_seen = history.round_number
+        if rounds_seen <= 0:
+            return 0.0
+        k = min(3, rounds_seen)
+        recent = history.opponent_cooperators[-k:]
+        if self.n_opponents <= 0:
+            return 0.0
+        fractions = [float(x) / float(self.n_opponents) for x in recent]
+        return float(np.mean(fractions)) if fractions else 0.0
+
+    def _update_stock_memory(self, current_stock: float) -> None:
+        """Store stock observations and update tightened mode if two consecutive declines occur."""
+        self._prev_stocks.append(float(current_stock))
+        if len(self._prev_stocks) > 3:
+            self._prev_stocks = self._prev_stocks[-3:]
+        if not self._tightened and len(self._prev_stocks) >= 3:
+            s0, s1, s2 = (self._prev_stocks[-3], self._prev_stocks[-2], self._prev_stocks[-1])
+            if s2 < s1 and s1 < s0:
+                self._tightened = True
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        self._update_stock_memory(current_stock)
+        round_number = history.round_number
+        last_round_index = self.n_rounds - 1
+        if round_number == 0 or round_number == last_round_index:
+            return Action.D
+        q = self._recent_q(history)
+        stock = float(current_stock)
+        cap = self.capacity
+        if self._tightened:
+            low_t = 0.9
+            mid_t = 0.7
+            lower_mid_t = 0.3
+            upper_mid_t = 0.55
+            high_band_t = 0.8
+        else:
+            low_t = 0.8
+            mid_t = 0.6
+            lower_mid_t = 0.2
+            upper_mid_t = 0.45
+            high_band_t = 0.7
+        if stock <= lower_mid_t * cap:
+            return Action.C if q >= low_t else Action.D
+        if stock <= upper_mid_t * cap:
+            return Action.C if q >= mid_t else Action.D
+        if stock <= high_band_t * cap:
+            if len(self._prev_stocks) >= 3:
+                s0, s1, s2 = (self._prev_stocks[-3], self._prev_stocks[-2], self._prev_stocks[-1])
+                rising_in_last_two = s2 > s1 and s1 > s0
+            else:
+                rising_in_last_two = False
+            if q >= low_t and rising_in_last_two:
+                return Action.C
+            return Action.D
+        return Action.D
+
+class Strategy_SELFISH_9(BaseStrategy):
+    """
+    Defect initially, then cooperate only when smoothed opponent cooperation is
+    at least half and the projected stock stays near the preferred regeneration zone.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 1)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        rounds_left = max(self.n_rounds - round_number, 0)
+        if round_number == 0:
+            return Action.D
+        if rounds_left == 1:
+            return Action.D
+        opp_counts = history.opponent_cooperators
+        if len(opp_counts) == 0:
+            q = 0.0
+        else:
+            total_weight = 0.0
+            weighted_sum = 0.0
+            m = len(opp_counts)
+            for idx in range(m):
+                w = float(idx + 1)
+                frac = float(opp_counts[idx]) / float(self.n_opponents)
+                weighted_sum += w * frac
+                total_weight += w
+            q = weighted_sum / total_weight if total_weight > 0.0 else 0.0
+        k = float(self.n_players - 1) * q
+        s = float(current_stock)
+        x_d = s * k / (2.0 * float(self.n_players))
+        x_c = s * (k + 1.0) / (2.0 * float(self.n_players))
+        target = 0.75 * self.capacity
+        if q >= 0.5 and x_d < target and (abs(x_c - target) < abs(x_d - target)):
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_10(BaseStrategy):
+    """
+    Backward-looking selfish strategy for the Common Pool Resource Game.
+
+    - Round 1: defect.
+    - Later rounds: compare immediate gain plus a simple continuation value
+      under cooperate vs defect, using the previous round's opponent cooperation
+      count as the local predictor of others' behavior.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(getattr(game_description, 'n_players', 0) or 0)
+        self.r = int(getattr(game_description, 'n_rounds', 0) or 0)
+        self.capacity = float(getattr(game_description, 'capacity', 0) or 0.0)
+        self.eps = 1e-12
+
+    def _next_stock(self, stock: float, m: int) -> float:
+        n = max(self.n, 2)
+        cap = max(self.capacity, self.eps)
+        m = max(0, min(int(m), n))
+        r = stock * m / (2.0 * n)
+        remaining = stock - r
+        if remaining < 0.0:
+            remaining = 0.0
+        growth = 2.0 * remaining * (1.0 - remaining / cap)
+        new_stock = remaining + growth
+        if new_stock > cap:
+            return cap
+        if new_stock < 0.0:
+            return 0.0
+        return new_stock
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = max(self.n, 2)
+        r = max(self.r, 1)
+        if history.round_number == 0:
+            return Action.D
+        t = history.round_number + 1
+        if t >= r:
+            return Action.D
+        k = 0
+        if len(history.opponent_cooperators) > 0:
+            k = int(history.opponent_cooperators[-1])
+        k = max(0, min(k, n - 1))
+        L = r - t
+        stock = float(current_stock)
+        if stock < 0.0:
+            stock = 0.0
+        cap = max(self.capacity, self.eps)
+        m_c = k + 1
+        m_d = k
+        s_c = self._next_stock(stock, m_c)
+        s_d = self._next_stock(stock, m_d)
+        score_c = stock / (2.0 * n) + L * s_c / (2.0 * n)
+        score_d = stock / n + L * s_d / (2.0 * n)
+        if score_c > score_d + self.eps:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_11(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Cooperate first to probe the environment.
+    - Update an estimate of opponent cooperation via exponential smoothing.
+    - Cooperate only when the predicted continuation value of restraint exceeds defecting.
+    - Defect in the final round, when stock is depleted, or when cooperation collapses.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.q = 0.5
+        self.last_k = max(self.n - 1, 0)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.n
+        r = self.r
+        cap = self.capacity
+        t = history.round_number
+        if current_stock <= 0:
+            return Action.D
+        if t == 0:
+            return Action.C
+        if t >= r - 1:
+            return Action.D
+        opp_count = max(n - 1, 1)
+        k_prev = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else self.last_k
+        k_prev = max(0, min(k_prev, n - 1))
+        self.last_k = k_prev
+        if k_prev == 0:
+            return Action.D
+        self.q = 0.7 * self.q + 0.3 * (k_prev / opp_count)
+        k_hat = int(round(self.q * opp_count))
+        k_hat = max(0, min(k_hat, n - 1))
+        S = float(current_stock)
+
+        def next_stock_for_total_cooperators(m: int) -> float:
+            m = max(0, min(m, n))
+            remaining_after_consumption = S * m / (2.0 * n) if n > 0 else 0.0
+            if cap <= 0:
+                return 0.0
+            nxt = 3.0 * remaining_after_consumption - 2.0 * remaining_after_consumption ** 2 / cap
+            return min(nxt, cap)
+        m_c = k_hat + 1
+        m_d = k_hat
+        n_c = next_stock_for_total_cooperators(m_c)
+        n_d = next_stock_for_total_cooperators(m_d)
+        remaining_rounds_after_now = max(r - t - 1, 0)
+        gain_c = S / (2.0 * n) + remaining_rounds_after_now * (n_c / (2.0 * n)) if n > 0 else 0.0
+        gain_d = S / n + remaining_rounds_after_now * (n_d / (2.0 * n)) if n > 0 else 0.0
+        if gain_c >= gain_d:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_12(BaseStrategy):
+    """
+    Common pool strategy that cooperates early, defects on the last round,
+    and otherwise adapts to current stock, recent opponent cooperation,
+    and a declining conservation threshold.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self._eps = 1e-12
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        if round_number >= self.r - 1:
+            return Action.D
+        n_opponents = max(self.n - 1, 1)
+        last_opponents = int(history.opponent_cooperators[-1]) if round_number > 0 else 0
+        p = last_opponents / n_opponents
+        h = self.r - round_number
+        denom = max(self.r - 1, 1)
+        T = self.capacity * (0.25 + 0.25 * (h - 1) / denom)
+        if current_stock <= self._eps:
+            return Action.C
+        p_last = p
+        p_prev = None
+        if round_number >= 2:
+            prev_opponents = int(history.opponent_cooperators[-2])
+            p_prev = prev_opponents / n_opponents
+        last_two_both_low = False
+        last_two_both_high = False
+        if p_prev is not None:
+            last_two_both_low = p_prev < 0.4 and p_last < 0.4
+            last_two_both_high = p_prev >= 0.67 and p_last >= 0.67
+        if current_stock <= T:
+            return Action.C
+        if last_two_both_low:
+            return Action.C if current_stock < 0.9 * self.capacity else Action.D
+        if last_two_both_high:
+            return Action.D if current_stock > T else Action.C
+        if p < 0.5:
+            return Action.C if current_stock < 0.85 * self.capacity else Action.D
+        return Action.D if current_stock > T else Action.C
+
+class Strategy_SELFISH_13(BaseStrategy):
+    """
+    Common-pool strategy:
+    - Defect on the first round.
+    - In later rounds, estimate whether cooperation or defection preserves enough stock
+      for future extraction, using the last observed cooperation count among opponents.
+    - Always defect in the final round or when stock is depleted.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.D
+        if current_stock <= 0.0:
+            return Action.D
+        rounds_left_including_current = self.n_rounds - round_number
+        if rounds_left_including_current <= 1:
+            return Action.D
+        if len(history.opponent_cooperators) == 0:
+            return Action.D
+        k = int(history.opponent_cooperators[-1])
+        if rounds_left_including_current >= 3:
+            tau = self.capacity / 2.0
+        elif rounds_left_including_current == 2:
+            tau = self.capacity / 3.0
+        else:
+            tau = 0.0
+        n = self.n_players
+        x_d = current_stock * k / (2.0 * n)
+        x_c = current_stock * (k + 1.0) / (2.0 * n)
+        if x_d >= tau:
+            return Action.D
+        if x_c >= tau:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_14(BaseStrategy):
+    """
+    Start by cooperating, then cooperate only when the pool is healthy and
+    opponent cooperation is near-universal; otherwise defect. Always defect in
+    the last two rounds.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.prev_m = 0
+        self.prev_S = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n_rounds = int(self.game_description.n_rounds)
+        capacity = float(self.game_description.capacity)
+        n_players = int(self.game_description.n_players)
+        round_number = int(history.round_number)
+        if round_number > 0 and len(history.opponent_cooperators) > 0:
+            self.prev_m = int(history.opponent_cooperators[-1])
+        else:
+            self.prev_m = 0
+        self.prev_S = float(current_stock)
+        if round_number == 0:
+            return Action.C
+        if round_number >= max(0, n_rounds - 2):
+            return Action.D
+        if current_stock <= capacity / 2.0:
+            return Action.D
+        m = self.prev_m
+        if m >= n_players - 1:
+            return Action.C
+        if m == n_players - 2 and current_stock >= 0.75 * capacity:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_15(BaseStrategy):
+    """
+    Cooperative-start, stock-sensitive strategy that defects in the final two rounds
+    and otherwise conditions on recent opponent cooperation and current stock.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 0)
+        self.half_opponent_threshold = math.ceil(self.n_opponents / 2) if self.n_opponents > 0 else 0
+        self.stock_third = self.capacity / 3.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        if round_number >= self.n_rounds - 2:
+            return Action.D
+        if current_stock <= self.stock_third:
+            return Action.C
+        if round_number > 0 and len(history.opponent_cooperators) > 0:
+            last_opponent_cooperators = int(history.opponent_cooperators[-1])
+            if last_opponent_cooperators >= self.half_opponent_threshold:
+                return Action.C
+        return Action.D
+
+class Strategy_SELFISH_16(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Starts by defecting.
+    - Tracks an exponentially smoothed estimate of opponent cooperation (q).
+    - Reconstructs stock from history each turn.
+    - Defects when stock is high and cooperation is strong, cooperates when stock is low
+      or when recent behavior signals collapse and recovery is needed.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.q = 1.0
+        self.mode = 'exploit'
+        self.reconstructed_stock = float(game_description.capacity)
+
+    def _reconstruct_stock(self, history: PlayerHistory) -> float:
+        n = max(int(self.game_description.n_players), 2)
+        cap = float(self.game_description.capacity)
+        stock = cap
+        rounds = history.round_number
+        for t in range(rounds):
+            my_coop = 1 if bool(history.my_actions[t]) else 0
+            opp_coop = int(history.opponent_cooperators[t]) if t < len(history.opponent_cooperators) else 0
+            total_coop = my_coop + opp_coop
+            remaining_after_consumption = stock * (total_coop / (2.0 * n))
+            growth = 2.0 * remaining_after_consumption * (1.0 - remaining_after_consumption / cap)
+            stock = min(remaining_after_consumption + growth, cap)
+            if stock < 0.0:
+                stock = 0.0
+        return stock
+
+    def _expected_next_stock(self, current_stock: float, expected_coop_total: float) -> float:
+        n = max(int(self.game_description.n_players), 2)
+        cap = float(self.game_description.capacity)
+        expected_coop_total = max(0.0, min(float(n), float(expected_coop_total)))
+        remaining_after_consumption = current_stock * (expected_coop_total / (2.0 * n))
+        growth = 2.0 * remaining_after_consumption * (1.0 - remaining_after_consumption / cap)
+        next_stock = min(remaining_after_consumption + growth, cap)
+        if next_stock < 0.0:
+            next_stock = 0.0
+        return next_stock
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = int(self.game_description.n_players)
+        r = int(self.game_description.n_rounds)
+        cap = float(self.game_description.capacity)
+        if history.round_number <= 0:
+            self.reconstructed_stock = cap
+        else:
+            self.reconstructed_stock = self._reconstruct_stock(history)
+        if history.round_number == 0:
+            self.q = 1.0
+            self.mode = 'exploit'
+            return Action.D
+        last_opp = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        denom = max(n - 1, 1)
+        observed_rate = last_opp / denom
+        self.q = 0.7 * self.q + 0.3 * observed_rate
+        remaining = r - history.round_number
+        recent_low = False
+        recent_high = False
+        if len(history.opponent_cooperators) >= 2:
+            c1 = history.opponent_cooperators[-1] / denom
+            c2 = history.opponent_cooperators[-2] / denom
+            recent_low = c1 < 0.7 and c2 < 0.7
+            recent_high = c1 > 0.9 and c2 > 0.9
+        if recent_low:
+            self.mode = 'recover'
+            return Action.C
+        if recent_high:
+            self.mode = 'exploit'
+            return Action.D
+        S = float(self.reconstructed_stock)
+        if remaining <= 1:
+            self.mode = 'exploit'
+            return Action.D
+        if remaining == 2:
+            expected_others_coop = (n - 1) * self.q
+            current_payoff_c = S / (2.0 * n)
+            next_stock_c = self._expected_next_stock(S, expected_others_coop + 1.0)
+            future_payoff_c = next_stock_c / n
+            total_c = current_payoff_c + future_payoff_c
+            current_payoff_d = S / n
+            next_stock_d = self._expected_next_stock(S, expected_others_coop)
+            future_payoff_d = next_stock_d / n
+            total_d = current_payoff_d + future_payoff_d
+            if total_c > total_d:
+                self.mode = 'recover' if S < 0.5 * cap else self.mode
+                return Action.C
+            return Action.D
+        cooperation_level = observed_rate
+        if S >= 0.6 * cap and cooperation_level >= max(0.0, 1.0 - 2.0 / max(n - 1, 1)):
+            self.mode = 'exploit'
+            return Action.D
+        if S >= 0.35 * cap:
+            if self.q >= 0.9:
+                self.mode = 'exploit'
+                return Action.D
+            self.mode = 'recover' if S < 0.5 * cap else 'exploit'
+            return Action.C
+        self.mode = 'recover'
+        if S < 0.5 * cap:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_17(BaseStrategy):
+    """
+    Defect by default; cooperate only when your action is pivotal for keeping
+    the resource at the preservation threshold, and never in the first or last round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(getattr(game_description, 'n_players', 0))
+        self.n_rounds = int(getattr(game_description, 'n_rounds', 0))
+        self.capacity = float(getattr(game_description, 'capacity', 0.0))
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(getattr(history, 'round_number', 0))
+        if round_number == 0 or round_number >= self.n_rounds - 1:
+            return Action.D
+        if current_stock is None or current_stock <= 0:
+            return Action.D
+        if self.n_players <= 0 or self.capacity <= 0:
+            return Action.D
+        opp_counts = getattr(history, 'opponent_cooperators', None)
+        if opp_counts is None or len(opp_counts) == 0:
+            return Action.D
+        k = int(opp_counts[-1])
+        n_opponents = self.n_players - 1
+        if k < 0 or k > n_opponents:
+            return Action.D
+        try:
+            m_star = math.ceil(self.n_players * self.capacity / float(current_stock))
+        except Exception:
+            return Action.D
+        if m_star < 0:
+            m_star = 0
+        elif m_star > self.n_players:
+            m_star = self.n_players
+        if k < m_star and k + 1 >= m_star:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_18(BaseStrategy):
+    """
+    Common-pool strategy:
+    - Cooperate in round 1.
+    - Later: cooperate when the stock is low, defect near the end, and defect
+      after strong prior cooperation if the stock remains high.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 0)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        rounds_left = self.n_rounds - history.round_number
+        if current_stock <= self.capacity / 2:
+            return Action.C
+        if rounds_left <= 2:
+            return Action.D
+        prev_coop = 0
+        if len(history.opponent_cooperators) > 0:
+            prev_coop = int(history.opponent_cooperators[-1])
+        high_coop_signal = False
+        if self.n_players == 2:
+            high_coop_signal = prev_coop == 1
+        else:
+            q = prev_coop / self.n_opponents if self.n_opponents > 0 else 0.0
+            high_coop_signal = q >= 2.0 / 3.0
+        if high_coop_signal and current_stock >= 3.0 * self.capacity / 4.0:
+            return Action.D
+        return Action.C
+
+class Strategy_SELFISH_19(BaseStrategy):
+    """
+    Selfish common-pool strategy:
+    - Defect by default.
+    - Cooperate only after sustained opponent restraint, in the productive middle stock band,
+      and never on the final round.
+    - If stock is critically low, cooperate only under full restraint from the previous round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.capacity = float(game_description.capacity)
+        self.good_streak = 0
+
+    def _q_from_opponents(self, opponent_count: int) -> float:
+        n = self.n_players
+        if n <= 2:
+            return 1.0 if opponent_count >= 1 else 0.0
+        return opponent_count / float(n - 1)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        if round_number >= self.n_rounds - 1:
+            return Action.D
+        if round_number == 0:
+            return Action.D
+        prev_opponents = int(history.opponent_cooperators[-1])
+        prev_q = self._q_from_opponents(prev_opponents)
+        streak = 0
+        for idx in range(round_number - 1, -1, -1):
+            opp_c = int(history.opponent_cooperators[idx])
+            q = self._q_from_opponents(opp_c)
+            if q >= 0.8:
+                streak += 1
+            else:
+                break
+        self.good_streak = streak
+        if current_stock <= self.capacity / 4.0:
+            return Action.C if prev_q >= 1.0 else Action.D
+        middle_band = self.capacity / 3.0 <= current_stock <= 2.0 * self.capacity / 3.0
+        if middle_band and prev_q >= 0.8 and (self.good_streak >= 2):
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_20(BaseStrategy):
+    """
+    Selfish threshold strategy for the Common Pool Resource Game.
+
+    - Cooperates in round 1.
+    - In intermediate rounds, cooperates only if the pool is healthy and the
+      previous round had sufficiently many cooperating opponents.
+    - Defects in the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.mode = 'coop'
+        self.last_k = None
+        n = int(getattr(game_description, 'n_players', 0) or 0)
+        self._coop_threshold = math.ceil(3 * (n - 1) / 4) if n >= 2 else 0
+        self._capacity_third = float(getattr(game_description, 'capacity', 0)) / 3.0
+        self._n_rounds = int(getattr(game_description, 'n_rounds', 0) or 0)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n_rounds = self._n_rounds
+        round_number = int(getattr(history, 'round_number', 0) or 0)
+        if history.opponent_cooperators is not None and len(history.opponent_cooperators) > 0:
+            self.last_k = int(history.opponent_cooperators[-1])
+        if current_stock <= 0:
+            self.mode = 'defect'
+            return Action.D
+        if round_number == 0:
+            self.mode = 'coop'
+            return Action.C
+        if n_rounds > 0 and round_number >= n_rounds - 1:
+            self.mode = 'defect'
+            return Action.D
+        if current_stock <= self._capacity_third:
+            self.mode = 'defect'
+            return Action.D
+        if self.last_k is not None and self.last_k >= self._coop_threshold:
+            self.mode = 'coop'
+            return Action.C
+        self.mode = 'defect'
+        return Action.D
+
+class Strategy_SELFISH_21(BaseStrategy):
+    """
+    Opportunistic cooperative strategy:
+    - Start by cooperating in longer games, defecting immediately in 2-round games.
+    - In intermediate rounds, cooperate only when the stock is low enough and
+      the opponents showed at least half cooperation in the previous round.
+    - Defect in the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = int(history.round_number)
+        if t == 0:
+            return Action.D if self.n_rounds == 2 else Action.C
+        if t >= self.n_rounds - 1:
+            return Action.D
+        n_opponents = max(self.n_players - 1, 0)
+        if n_opponents <= 0:
+            rho = 0.0
+        else:
+            last_opponent_cooperators = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+            rho = last_opponent_cooperators / n_opponents
+        stock_threshold = self.capacity / 2.0
+        if current_stock <= stock_threshold and rho >= 0.5:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_22(BaseStrategy):
+    """
+    Conservative exploit-and-preserve strategy for the Common Pool Resource Game.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.n_players
+        r = self.n_rounds
+        t = history.round_number + 1
+        m = r - t + 1
+        stock = float(current_stock)
+        capacity = self.capacity if self.capacity > 0 else 1.0
+        x = stock / capacity
+        opp_count = 0
+        if history.round_number > 0 and len(history.opponent_cooperators) > 0:
+            opp_count = int(history.opponent_cooperators[-1])
+        n_opponents = max(n - 1, 1)
+        q = opp_count / n_opponents
+        if m <= 2:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C if r >= 6 else Action.D
+        if x < 0.4 or q < 0.5:
+            return Action.D
+        if q >= 0.75 and x >= 0.6:
+            return Action.C
+        if q >= 0.5 and x >= 0.8 and (m >= 4):
+            return Action.C
+        if q >= 0.8 and x >= 0.7 and (m > 2):
+            return Action.C
+        if q < 0.5:
+            return Action.D
+        return Action.D
+
+class Strategy_SELFISH_23(BaseStrategy):
+    """
+    Common-pool strategy that estimates opponent cooperation with exponential
+    smoothing and cooperates only when needed to keep the predicted next stock
+    above a declining reserve threshold.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.q_hat = 0.5
+        self.t = 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = int(self.game_description.n_players)
+        r = int(self.game_description.n_rounds)
+        capacity = float(self.game_description.capacity)
+        if history.round_number >= r - 1:
+            self.t = history.round_number + 1
+            return Action.D
+        n_opponents = max(n - 1, 0)
+        if history.round_number == 0 or n_opponents == 0:
+            q_obs = 0.5
+        else:
+            last_coop = float(history.opponent_cooperators[-1])
+            q_obs = last_coop / n_opponents if n_opponents > 0 else 0.5
+            if q_obs < 0.0:
+                q_obs = 0.0
+            elif q_obs > 1.0:
+                q_obs = 1.0
+        self.q_hat = 0.7 * q_obs + 0.3 * self.q_hat
+        if self.q_hat < 0.0:
+            self.q_hat = 0.0
+        elif self.q_hat > 1.0:
+            self.q_hat = 1.0
+        y = int(round(n_opponents * self.q_hat))
+        if y < 0:
+            y = 0
+        elif y > n_opponents:
+            y = n_opponents
+
+        def next_stock(x: float) -> float:
+            x = max(0.0, min(float(x), capacity))
+            growth = 2.0 * x * (1.0 - x / capacity) if capacity > 0 else 0.0
+            return min(x + growth, capacity)
+        remaining_if_C = float(current_stock) * (y + 1) / (2.0 * n) if n > 0 else float(current_stock)
+        remaining_if_D = float(current_stock) * y / (2.0 * n) if n > 0 else float(current_stock)
+        R_C = next_stock(remaining_if_C)
+        R_D = next_stock(remaining_if_D)
+        if r <= 1:
+            reserve = 0.0
+        else:
+            reserve = capacity * (r - history.round_number - 1) / (2.0 * (r - 1))
+            reserve = max(0.0, min(reserve, capacity / 2.0))
+        if R_D < reserve and R_C >= reserve:
+            action = Action.C
+        else:
+            action = Action.D
+        self.t = history.round_number + 1
+        return action
+
+class Strategy_SELFISH_24(BaseStrategy):
+    """
+    Aggressive common-pool strategy:
+    - Cooperate in round 1
+    - In later rounds, defect in the final round, or when opponents recently cooperated heavily
+    - Otherwise cooperate only when the stock is at or below half capacity
+    - Once the stock reaches zero, defect thereafter
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        if current_stock is not None and current_stock <= 0.0:
+            return Action.D
+        if round_number >= self.n_rounds - 1:
+            return Action.D
+        c = None
+        if hasattr(history, 'opponent_cooperators') and len(history.opponent_cooperators) > 0:
+            c = int(history.opponent_cooperators[-1])
+        if c is None:
+            return Action.C
+        if c >= self.n_players - 2:
+            return Action.D
+        half_capacity = self.capacity / 2.0
+        if current_stock is not None and current_stock <= half_capacity:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_25(BaseStrategy):
+    """
+    Trust-based common-pool strategy:
+    - Starts by defecting.
+    - Builds trust from the observed cooperation rate of opponents.
+    - Defects in the last round, under low stock, or after signs of betrayal.
+    - Enters a persistent fallback mode after low-cooperation rounds and only
+      returns to cooperation after two consecutive high-cooperation observations.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.trust = 0.0
+        self.fallback_active = False
+        self.recovery_streak = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.n
+        cap = self.capacity
+        round_number = history.round_number
+        if round_number == 0:
+            self.trust = 0.0
+            self.fallback_active = False
+            self.recovery_streak = 0
+            return Action.D
+        if round_number >= self.r - 1:
+            if history.opponent_cooperators.size > 0:
+                c_last = int(history.opponent_cooperators[-1])
+                if n > 1:
+                    self.trust = 0.7 * self.trust + 0.3 * (c_last / (n - 1))
+            return Action.D
+        c_last = int(history.opponent_cooperators[-1]) if history.opponent_cooperators.size > 0 else 0
+        if n > 1:
+            self.trust = 0.7 * self.trust + 0.3 * (c_last / (n - 1))
+        else:
+            self.trust = 0.0
+        high_coop_threshold = max(0, n - 2)
+        if c_last < high_coop_threshold:
+            self.fallback_active = True
+            self.recovery_streak = 0
+            self.trust = 0.0
+        if self.fallback_active:
+            if round_number >= 2 and int(history.opponent_cooperators[-1]) >= high_coop_threshold and (int(history.opponent_cooperators[-2]) >= high_coop_threshold) and (current_stock >= cap / 2.0):
+                self.recovery_streak += 1
+            else:
+                self.recovery_streak = 0
+            if self.recovery_streak >= 2:
+                self.fallback_active = False
+                self.recovery_streak = 0
+            else:
+                return Action.D
+        if current_stock <= cap / 2.0:
+            return Action.D
+        if n > 1 and self.trust < 1.0 - 1.0 / n:
+            return Action.D
+        if c_last <= n - 3:
+            return Action.D
+        if current_stock >= 0.9 * cap and self.trust == 1.0:
+            return Action.C
+        if self.trust >= 1.0 - 1.0 / n:
+            if current_stock >= cap / 2.0:
+                return Action.C
+        return Action.D
+
+class Strategy_SELFISH_26(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Defect in round 1 and on the final round.
+    - Otherwise, use the previous round's opponent cooperation and the current
+      stock to estimate whether cooperating preserves enough future value to
+      outweigh the immediate loss.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.opponents = max(0, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.n_players
+        cap = self.capacity
+        opps = self.opponents
+        round_number = int(history.round_number)
+        m = self.n_rounds - round_number
+        if round_number == 0:
+            return Action.D
+        if m <= 1:
+            return Action.D
+        if current_stock <= 0.0:
+            return Action.D
+        if len(history.opponent_cooperators) == 0:
+            return Action.D
+        k = int(history.opponent_cooperators[-1])
+        if k <= 0:
+            return Action.D
+        if k > opps:
+            k = opps
+        denom = 2.0 * n if n > 0 else 1.0
+        r_c = current_stock * (k + 1) / denom
+        r_d = current_stock * k / denom
+        if cap <= 0.0:
+            n_c = 0.0
+            n_d = 0.0
+        else:
+            n_c = min(3.0 * r_c - 2.0 * (r_c * r_c) / cap, cap)
+            n_d = min(3.0 * r_d - 2.0 * (r_d * r_d) / cap, cap)
+        immediate_loss = current_stock / denom
+        future_gain = (m - 1) * (n_c - n_d)
+        if future_gain > immediate_loss:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_27(BaseStrategy):
+    """
+    Conditional cooperation strategy for the common pool resource game.
+
+    - Round 1: defect.
+    - Strong cooperation is only sustained after unanimous cooperation by opponents,
+      or when the stock is high and the observed majority is cooperative.
+    - Defaults to defection in mixed, depleted, or uncertain states.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(0, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.D
+        last_opponents = int(history.opponent_cooperators[-1])
+        last_my_action = bool(history.my_actions[-1])
+        if current_stock is None or not isinstance(current_stock, (int, float)) or (not math.isfinite(float(current_stock))):
+            return Action.C if last_opponents == self.n_opponents else Action.D
+        stock = float(current_stock)
+        cap = self.capacity if self.capacity > 0 else 1.0
+        x = stock / cap
+        if round_number >= self.n_rounds - 1:
+            return Action.C if last_opponents == self.n_opponents and x >= 2.0 / 3.0 else Action.D
+        c = last_opponents
+        d = self.n_opponents - c
+        if c <= self.n_opponents / 2.0:
+            if c == self.n_opponents:
+                return Action.C
+            if x >= 2.0 / 3.0 and c > d:
+                return Action.C
+            return Action.D
+        if last_my_action:
+            if c < self.n_opponents:
+                return Action.D
+            return Action.C if x >= 2.0 / 3.0 else Action.D
+        if c == self.n_opponents:
+            return Action.C
+        if c == 0:
+            return Action.D
+        if x >= 2.0 / 3.0 and c >= d:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_28(BaseStrategy):
+    """
+    Stock-preserving threshold strategy with conditional defection.
+
+    - Cooperate early only when the stock is healthy.
+    - Continue cooperating only if the previous round showed sufficiently high
+      opponent cooperation and cooperation appears at least as stock-preserving
+      as defection.
+    - Defect in the final round and whenever the stock is low or opponent
+      cooperation deteriorates.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.m = max(0, self.n - 1)
+        self.coop_threshold = (self.n - 2) / self.m if self.m > 0 else 1.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number + 1
+        S = float(current_stock)
+        if t >= self.r:
+            return Action.D
+        if S <= 0.0 or S <= 2.0 * self.n:
+            return Action.D
+        if t == 1:
+            return Action.C if self.capacity > 2.0 * self.n else Action.D
+        if len(history.opponent_cooperators) == 0 or self.m <= 0:
+            return Action.C if S > 2.0 * self.n and self.capacity > 2.0 * self.n else Action.D
+        last_k = int(history.opponent_cooperators[-1])
+        c = last_k / self.m if self.m > 0 else 0.0
+        S_after_C = S - S / (2.0 * self.n)
+        S_next_C = S_after_C + 2.0 * S_after_C * (1.0 - S_after_C / self.capacity)
+        S_next_C = min(S_next_C, self.capacity)
+        S_after_D = S - S / self.n
+        S_next_D = S_after_D + 2.0 * S_after_D * (1.0 - S_after_D / self.capacity)
+        S_next_D = min(S_next_D, self.capacity)
+        if c >= self.coop_threshold and S_next_C >= S_next_D:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_29(BaseStrategy):
+    """
+    Defect initially, then cooperate only after sufficiently broad prior cooperation
+    and only when the current stock is not too high. Always defect in the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self._cooperation_threshold = math.ceil((self.n_players - 1) / 2)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number + 1
+        if history.round_number == 0:
+            return Action.D
+        if current_round >= self.n_rounds:
+            return Action.D
+        if len(history.opponent_cooperators) == 0:
+            return Action.D
+        previous_opponent_cooperators = int(history.opponent_cooperators[-1])
+        stock_ok = float(current_stock) <= 2.0 * self.capacity / 3.0
+        if previous_opponent_cooperators >= self._cooperation_threshold and stock_ok:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_30(BaseStrategy):
+    """
+    Selfish common-pool strategy:
+    - Tracks opponent cooperation with an exponential moving average.
+    - Defaults to defection, cooperating only when projected future value is clearly higher.
+    - Always defects on the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.p = 1.0
+        self._last_opponent_cooperators = None
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = int(self.game_description.n_players)
+        r = int(self.game_description.n_rounds)
+        capacity = float(self.game_description.capacity)
+        round_number = int(history.round_number)
+        if round_number >= r - 1:
+            return Action.D
+        if round_number == 0:
+            self.p = 1.0
+        else:
+            last_opp = int(history.opponent_cooperators[-1])
+            n_opponents = max(n - 1, 1)
+            if last_opp <= 0:
+                self.p = 0.0
+                self._last_opponent_cooperators = 0
+                return Action.D
+            q = last_opp / n_opponents
+            self.p = 0.7 * self.p + 0.3 * q
+            self._last_opponent_cooperators = last_opp
+        o = (n - 1) * self.p
+
+        def projected_score(play_c: bool) -> tuple[float, float]:
+            self_consumption = current_stock / (2 * n) if play_c else current_stock / n
+            total_cooperators = o + 1.0 if play_c else o
+            remaining_after_consumption = current_stock * total_cooperators / (2 * n)
+            next_stock = remaining_after_consumption + 2.0 * remaining_after_consumption * (1.0 - remaining_after_consumption / capacity)
+            next_stock = min(next_stock, capacity)
+            score = self_consumption + (r - round_number - 1) / (2 * n) * next_stock
+            return (score, next_stock)
+        score_c, next_c = projected_score(True)
+        score_d, next_d = projected_score(False)
+        if abs(next_c - next_d) <= 1e-12:
+            return Action.D
+        if abs(score_c - score_d) <= 1e-12:
+            return Action.D
+        return Action.C if score_c > score_d else Action.D
+
+class Strategy_SELFISH_31(BaseStrategy):
+    """
+    Greedy state-based strategy with retaliation and recovery:
+    - First round: cooperate only in the 2-player game, otherwise defect.
+    - Middle rounds: cooperate only when stock is high and opponents were highly cooperative.
+    - Last round: defect.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.opponents = max(self.n_players - 1, 0)
+        self.half_capacity = self.capacity / 2.0
+        self.coop_threshold = 1.0 - 1.0 / self.n_players if self.n_players > 0 else 1.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = int(history.round_number)
+        if t >= self.n_rounds - 1:
+            return Action.D
+        if t == 0:
+            return Action.C if self.n_players == 2 else Action.D
+        if len(history.opponent_cooperators) == 0:
+            return Action.D
+        k = int(history.opponent_cooperators[-1])
+        m = self.opponents
+        if m <= 0:
+            return Action.D
+        c_prev = k / m
+        if float(current_stock) > self.half_capacity and c_prev > self.coop_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_32(BaseStrategy):
+    """
+    Adaptive common-pool strategy that estimates opponent cooperation with
+    exponential smoothing, evaluates a one-step lookahead score, and defects
+    in the final round and when preservation is not worthwhile.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self._eps = 1e-09
+
+    def _next_stock(self, remaining_stock: float) -> float:
+        cap = self.capacity
+        if cap <= 0:
+            return 0.0
+        nxt = 3.0 * remaining_stock - 2.0 * remaining_stock * remaining_stock / cap
+        if nxt > cap:
+            return cap
+        if nxt < 0.0:
+            return 0.0
+        return nxt
+
+    def _estimate_q(self, history: PlayerHistory) -> float:
+        n_opponents = max(self.n - 1, 1)
+        q = 0.5
+        if history.round_number <= 0:
+            return q
+        coop_counts = history.opponent_cooperators
+        rounds_seen = min(history.round_number, len(coop_counts))
+        for t in range(rounds_seen):
+            observed = float(coop_counts[t]) / float(n_opponents)
+            if observed < 0.0:
+                observed = 0.0
+            elif observed > 1.0:
+                observed = 1.0
+            q = 0.5 * (q + observed)
+            if q < 0.0:
+                q = 0.0
+            elif q > 1.0:
+                q = 1.0
+        return q
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        S = float(current_stock)
+        if t == 0:
+            return Action.C
+        if t >= self.r - 1:
+            return Action.D
+        q = self._estimate_q(history)
+        n = max(self.n, 2)
+        m = max(self.r - t, 0)
+        beta = float(m) / float(m + 1) if m >= 0 else 0.0
+        x = float(max(n - 1, 0)) * q
+        R_C = S * (1.0 + x) / (2.0 * n)
+        R_D = S * x / (2.0 * n)
+        S_C_next = self._next_stock(R_C)
+        S_D_next = self._next_stock(R_D)
+        score_C = S / (2.0 * n) + beta * S_C_next / (2.0 * n)
+        score_D = S / n + beta * S_D_next / (2.0 * n)
+        if q >= 0.5 and S >= self.capacity / 2.0:
+            if score_C > score_D + self._eps:
+                return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_5(BaseStrategy):
+    """
+    Conservative threshold-based strategy for the Common Pool Resource Game.
+
+    - Defects in round 1 and the last round.
+    - Cooperates only when stock is high, recent cooperation is sufficiently high,
+      and stock has not dropped sharply relative to the previous round.
+    - Uses an internal memory of the previous round's stock and own action to
+      support stabilization behavior.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self._prev_stock: float | None = None
+        self._prev_action: Action = Action.D
+        self._forced_defect: bool = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n_players = int(self.game_description.n_players)
+        n_rounds = int(self.game_description.n_rounds)
+        capacity = float(self.game_description.capacity)
+        round_number = int(history.round_number)
+        if round_number == 0 or round_number >= n_rounds - 1:
+            self._prev_stock = float(current_stock)
+            self._prev_action = Action.D
+            self._forced_defect = True if round_number != 0 else False
+            return Action.D
+        k_last = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        prev_stock = self._prev_stock if self._prev_stock is not None else float(current_stock)
+        k_req = math.ceil((n_players - 1) / 2)
+        stock_high = float(current_stock) > 0.75 * capacity
+        cooperation_high = k_last > k_req
+        stock_drop_small = prev_stock - float(current_stock) < 0.25 * capacity
+        can_cooperate = stock_high and cooperation_high and stock_drop_small
+        if self._forced_defect:
+            action = Action.C if can_cooperate else Action.D
+        else:
+            action = Action.C if can_cooperate else Action.D
+        self._forced_defect = action == Action.D and (not can_cooperate)
+        self._prev_stock = float(current_stock)
+        self._prev_action = action
+        return action
+
+class Strategy_SELFINTERESTED_6(BaseStrategy):
+    """
+    Conservative common-pool strategy:
+    - Start by cooperating.
+    - Defect in the last two rounds.
+    - Defect when stock is low or cooperation among opponents drops below the near-universal threshold.
+    - Cooperate only when cooperation has remained very high and the stock stays healthy.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.t = 0
+        self.S = self.capacity
+        self.k = 0
+        self.k_prev = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        self.t = history.round_number + 1
+        self.S = float(current_stock)
+        n_opponents = max(self.n - 1, 0)
+        if history.round_number > 0 and len(history.opponent_cooperators) > 0:
+            self.k = int(history.opponent_cooperators[-1])
+        else:
+            self.k = 0
+        if history.round_number > 1 and len(history.opponent_cooperators) > 1:
+            self.k_prev = int(history.opponent_cooperators[-2])
+        else:
+            self.k_prev = 0
+        if self.t == self.r or self.t == self.r - 1:
+            return Action.D
+        if self.t == 1:
+            return Action.C
+        if self.capacity > 0 and self.S <= self.capacity / 4.0:
+            return Action.D
+        if self.k <= self.n - 3:
+            return Action.D
+        if self.k == self.n - 2:
+            if self.k_prev >= self.n - 2 and self.capacity > 0 and (self.S >= self.capacity / 2.0):
+                return Action.C
+            return Action.D
+        if self.k == self.n - 1:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_7(BaseStrategy):
+    """
+    Preserves the pool early, cooperates only under recent trust and healthy stock,
+    and defects in the final round or when the pool/history become unreliable.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 0)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        if round_number >= self.n_rounds - 1:
+            return Action.D
+        stock = float(current_stock)
+        cap = self.capacity
+        if stock < cap / 3.0:
+            return Action.D
+        last_k = int(history.opponent_cooperators[-1]) if round_number >= 1 else 0
+        prev_k = int(history.opponent_cooperators[-2]) if round_number >= 2 else None
+        if last_k <= 0:
+            return Action.D
+        if round_number >= 2 and prev_k is not None:
+            if last_k >= self.n_opponents and prev_k >= self.n_opponents and (stock >= cap / 2.0):
+                return Action.C
+        t = round_number + 1
+        if t == self.n_rounds - 1:
+            if last_k >= self.n_opponents and stock >= 3.0 * cap / 4.0:
+                return Action.C
+            return Action.D
+        if 2 <= t <= self.n_rounds - 2:
+            if self.n_opponents <= 0:
+                return Action.D
+            rho_last = last_k / self.n_opponents
+            if round_number == 1:
+                rho = rho_last
+            else:
+                rho_prev = prev_k / self.n_opponents if prev_k is not None else rho_last
+                rho = (rho_last + rho_prev) / 2.0
+            if rho >= 0.5 and stock >= cap / 2.0:
+                return Action.C
+            return Action.D
+        return Action.D
+
+class Strategy_SELFINTERESTED_8(BaseStrategy):
+    """
+    Common-pool strategy:
+    - Start with cooperation.
+    - Cooperate when the stock is fragile or when opponents were highly cooperative.
+    - Defect when opponents extracted heavily and the stock is comfortably above the midpoint.
+    - On the last round, defect only if the stock is clearly abundant.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self._half_capacity = self.capacity / 2.0
+        self._low_stock_threshold = 2.0 * self.n
+        self._opponent_count = max(0, self.n - 1)
+
+    def _update_stock(self, stock: float, k: int, my_action: Action) -> float:
+        n = self.n
+        cap = self.capacity
+        if n <= 0 or cap <= 0:
+            return max(0.0, min(float(stock), cap))
+        stock = float(stock)
+        k = int(max(0, min(k, self._opponent_count)))
+        coop_cons = stock / (2.0 * n)
+        defect_cons = stock / n
+        total_cons = k * coop_cons + max(0, self._opponent_count - k) * defect_cons + (coop_cons if my_action == Action.C else defect_cons)
+        remaining = max(0.0, stock - total_cons)
+        growth = 2.0 * remaining * (1.0 - remaining / cap) if cap > 0 else 0.0
+        nxt = min(remaining + growth, cap)
+        return max(0.0, nxt)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        stock = float(current_stock)
+        if round_number == 0:
+            return Action.C
+        if round_number >= self.r - 1:
+            return Action.D if stock > self._low_stock_threshold else Action.C
+        k = 0
+        if len(history.opponent_cooperators) > 0:
+            k = int(history.opponent_cooperators[-1])
+        if stock <= self._low_stock_threshold:
+            return Action.C
+        if k >= self._opponent_count:
+            return Action.C
+        if k <= self._opponent_count / 2.0:
+            return Action.D if stock >= self._half_capacity else Action.C
+        if stock < self._half_capacity:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_9(BaseStrategy):
+    """
+    Adaptive build/harvest strategy for the Common Pool Resource Game.
+
+    Core behavior:
+    - Start in build mode and cooperate.
+    - Defect in harvest mode or when cooperation appears unstable.
+    - Force cooperation at stock exhaustion until the pool becomes positive.
+    - Respond to collapse by defecting for two rounds.
+    - Tighten behavior in the final two rounds.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.mode = 'build'
+        self.last_seen_stock = None
+        self.collapse_lock_remaining = 0
+        self.prev_q = None
+        self.prev_prev_q = None
+        self.prev_stock_increase = True
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        capacity = float(self.game_description.capacity)
+        round_number = history.round_number
+        last_round = r - 1
+        penultimate_round = r - 2
+        n_opponents = max(1, n - 1)
+
+        def coop_ratio_from_round(idx: int) -> float:
+            if idx < 0 or idx >= len(history.opponent_cooperators):
+                return 1.0
+            return float(history.opponent_cooperators[idx]) / float(n_opponents)
+        q_prev = coop_ratio_from_round(round_number - 1)
+        q_prev2 = coop_ratio_from_round(round_number - 2)
+        if self.last_seen_stock is None:
+            stock_increased_prev_transition = True
+        else:
+            stock_increased_prev_transition = float(current_stock) > float(self.last_seen_stock)
+        did_not_increase_prev_transition = not stock_increased_prev_transition
+        if round_number >= last_round:
+            self._update_memory_after_decision(current_stock, q_prev, did_not_increase_prev_transition)
+            return Action.D
+        if round_number == penultimate_round:
+            if float(current_stock) > 0.75 * capacity and q_prev >= 1.0 and (q_prev2 >= 1.0):
+                self._update_memory_after_decision(current_stock, q_prev, did_not_increase_prev_transition)
+                return Action.C
+            self._update_memory_after_decision(current_stock, q_prev, did_not_increase_prev_transition)
+            return Action.D
+        if float(current_stock) <= 0.0:
+            self._update_memory_after_decision(current_stock, q_prev, did_not_increase_prev_transition)
+            return Action.C
+        if round_number > 0 and q_prev <= 0.0 and (self.collapse_lock_remaining <= 0):
+            self.collapse_lock_remaining = 2
+        if self.collapse_lock_remaining > 0:
+            action = Action.D
+            self.collapse_lock_remaining -= 1
+            self._update_memory_after_decision(current_stock, q_prev, did_not_increase_prev_transition)
+            return action
+        next_mode = self.mode
+        if self.mode == 'build':
+            action = Action.C
+            if float(current_stock) <= 0.5 * capacity or q_prev < 0.5 or did_not_increase_prev_transition:
+                next_mode = 'harvest'
+        else:
+            action = Action.D
+            if float(current_stock) >= 0.75 * capacity and q_prev >= 0.75 and (q_prev2 >= 0.75):
+                next_mode = 'build'
+        self.mode = next_mode
+        self._update_memory_after_decision(current_stock, q_prev, did_not_increase_prev_transition)
+        return action
+
+    def _update_memory_after_decision(self, current_stock: float, q_prev: float, did_not_increase_prev_transition: bool) -> None:
+        self.last_seen_stock = float(current_stock)
+        self.prev_prev_q = self.prev_q
+        self.prev_q = float(q_prev)
+        self.prev_stock_increase = not did_not_increase_prev_transition
+
+class Strategy_SELFINTERESTED_10(BaseStrategy):
+    """
+    Memory-light common pool strategy:
+    - Defect in the first and last rounds.
+    - Otherwise cooperate only when recent opponent cooperation is sufficiently high
+      and the stock is in a prudent range.
+    - Bias toward defection under high stock or weak recent cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.q = math.ceil((self.n_players - 1) / 2)
+        self.half_capacity = self.capacity / 2.0
+        self.quarter_capacity = self.capacity / 4.0
+        self.three_quarter_capacity = 3.0 * self.capacity / 4.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        if round_number == 0 or round_number >= self.n_rounds - 1:
+            return Action.D
+        if current_stock > self.three_quarter_capacity:
+            return Action.D
+        last_c = int(history.opponent_cooperators[-1]) if round_number >= 1 else 0
+        prev_c = int(history.opponent_cooperators[-2]) if round_number >= 2 else None
+        if current_stock < self.quarter_capacity:
+            if last_c >= 1:
+                return Action.C
+            return Action.D
+        if round_number >= 2:
+            if prev_c is not None and last_c >= self.q and (prev_c >= self.q) and (current_stock <= self.half_capacity):
+                return Action.C
+            return Action.D
+        if last_c >= self.q and current_stock <= self.half_capacity:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_11(BaseStrategy):
+    """
+    Strategy for the Common Pool Resource game:
+    - Cooperate on the first round
+    - Defect on the last round or when the stock is exhausted
+    - Otherwise, estimate opponent cooperation from the previous round and
+      choose the action with the higher long-run score, breaking ties toward D
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.n
+        r = self.r
+        cap = self.capacity
+        s = float(current_stock)
+        if history.round_number == 0:
+            return Action.C
+        if s <= 0.0:
+            return Action.D
+        if history.round_number >= r - 1:
+            return Action.D
+        remaining_rounds = r - history.round_number
+        prev_k = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if n <= 1:
+            q = 0.0
+        else:
+            q = prev_k / float(n - 1)
+        m_c = 1.0 + q * (n - 1)
+        m_d = q * (n - 1)
+
+        def next_stock(hyp_m: float) -> float:
+            denom = 2.0 * n
+            remaining = s * hyp_m / denom
+            growth = 2.0 * remaining * (1.0 - remaining / cap) if cap > 0.0 else 0.0
+            nxt = remaining + growth
+            return min(nxt, cap)
+        score_c = s / (2.0 * n) + (remaining_rounds - 1) * next_stock(m_c) / cap
+        score_d = s / float(n) + (remaining_rounds - 1) * next_stock(m_d) / cap
+        eps = 1e-12
+        if score_c > score_d + eps:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_12(BaseStrategy):
+    """
+    Trust- and stock-sensitive common pool strategy:
+    - Cooperate in round 1
+    - Defect in the final round
+    - Update a running trust score h from observed opponent cooperation
+    - Rebuild the pool when stock is low
+    - Exploit consistently high trust / high cooperation when appropriate
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 0)
+        self.h = 1.0
+        self._prev_stock = None
+        self._low_stock_streak = 0
+        self._high_stock_streak = 0
+        self._force_cooperate = False
+        self._force_defect = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            self.h = 1.0
+            self._prev_stock = float(current_stock)
+            self._low_stock_streak = 1 if current_stock <= self.capacity / 5 else 0
+            self._high_stock_streak = 1 if current_stock >= 3 * self.capacity / 4 else 0
+            self._force_cooperate = False
+            self._force_defect = False
+            return Action.C
+        last_opponent_cooperators = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if self.n_opponents > 0:
+            q = last_opponent_cooperators / self.n_opponents
+        else:
+            q = 0.0
+        if q <= 0.0:
+            self.h = 0.0
+        elif q >= 1.0:
+            self.h = 1.0
+        else:
+            self.h = 0.7 * self.h + 0.3 * q
+        if current_stock <= self.capacity / 5:
+            self._low_stock_streak += 1
+        else:
+            self._low_stock_streak = 0
+        if current_stock >= 3 * self.capacity / 4:
+            self._high_stock_streak += 1
+        else:
+            self._high_stock_streak = 0
+        if self._low_stock_streak >= 2:
+            self._force_cooperate = True
+        if current_stock > self.capacity / 3:
+            self._force_cooperate = False
+        if self._high_stock_streak >= 2 and self.h < 0.5:
+            self._force_defect = True
+        if self.h >= 0.5:
+            self._force_defect = False
+        if round_number == self.n_rounds - 1:
+            self._prev_stock = float(current_stock)
+            return Action.D
+        if self._force_cooperate:
+            self._prev_stock = float(current_stock)
+            return Action.C
+        if self._force_defect:
+            self._prev_stock = float(current_stock)
+            return Action.D
+        if current_stock <= self.capacity / 4:
+            action = Action.C
+        elif self.h >= 0.6:
+            action = Action.C
+        elif self.h <= 0.4:
+            action = Action.D
+        else:
+            action = Action.C if q >= 0.5 else Action.D
+        self._prev_stock = float(current_stock)
+        return action
+
+class Strategy_SELFINTERESTED_13(BaseStrategy):
+    """
+    Stock-preservation strategy with a rolling cooperation estimate and
+    conservative defection on the final round or under weak cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.low_stock_mode = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = max(2, self.n)
+        r = max(1, self.r)
+        cap = max(1e-12, self.capacity)
+        t = int(history.round_number) + 1
+        last_round = t >= r
+        if t == 1:
+            return Action.C
+        if last_round:
+            return Action.D
+        if current_stock < 0.4 * cap:
+            self.low_stock_mode = True
+        prev_k = 0
+        if history.opponent_cooperators.size > 0:
+            prev_k = int(history.opponent_cooperators[-1])
+        denom = max(1, n - 1)
+        q_last = prev_k / denom
+        window_len = min(3, history.opponent_cooperators.size)
+        if window_len > 0:
+            recent_q = [int(x) / denom for x in history.opponent_cooperators[-window_len:]]
+            q_bar = float(np.mean(recent_q))
+            if recent_q[-1] < 0.5:
+                q_bar = recent_q[-1]
+        else:
+            q_bar = 1.0
+        if self.low_stock_mode:
+            if not (q_bar >= 0.85 and current_stock >= 0.7 * cap):
+                return Action.D
+        if current_stock <= 0.0:
+            return Action.D
+
+        def forecast_next_stock(c: int) -> float:
+            r_val = current_stock * c / (2.0 * n)
+            next_stock = 3.0 * r_val - 2.0 * (r_val * r_val) / cap
+            return min(next_stock, cap)
+        c_coop = prev_k + 1
+        c_def = prev_k
+        n_c = forecast_next_stock(c_coop)
+        n_d = forecast_next_stock(c_def)
+        if current_stock >= 0.6 * cap and q_bar >= 0.75 and (n_c >= 0.5 * cap) and (n_c >= n_d + 0.1 * cap / r):
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_14(BaseStrategy):
+    """
+    Exponentially weighted reciprocity strategy for the common pool resource game.
+    Starts cooperative, then becomes increasingly conservative near the end,
+    with decisions driven by current stock and a smoothed estimate of opponent cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.coop_rate = 1.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        capacity = float(self.game_description.capacity)
+        t = history.round_number + 1
+        remaining_rounds = r - t + 1
+        if current_stock <= 0:
+            return Action.D
+        coop_rate = 1.0
+        n_opponents = max(n - 1, 1)
+        rounds_played = history.round_number
+        for idx in range(rounds_played):
+            k = int(history.opponent_cooperators[idx])
+            frac = k / n_opponents
+            coop_rate = 0.6 * coop_rate + 0.4 * frac
+        self.coop_rate = coop_rate
+        if remaining_rounds == 1:
+            return Action.D
+        if t == 1:
+            return Action.C
+        if remaining_rounds == 2:
+            return Action.D
+        half_capacity = capacity / 2.0
+        three_quarters_capacity = 3.0 * capacity / 4.0
+        if current_stock >= half_capacity and coop_rate >= 0.5:
+            return Action.C
+        elif current_stock >= three_quarters_capacity and coop_rate >= 1.0 / 3.0:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_15(BaseStrategy):
+    """
+    Exponential-moving-estimate strategy for the common pool resource game.
+
+    Cooperates when doing so helps keep the projected stock in the recovery range,
+    defects when the pool is healthy enough to exploit, and becomes conservative
+    in the final rounds if necessary to avoid collapse.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.q = 1.0
+        self._last_updated_round = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = max(int(self.game_description.n_players), 2)
+        r = max(int(self.game_description.n_rounds), 1)
+        capacity = float(self.game_description.capacity)
+        capacity = max(capacity, 1e-12)
+        round_number = int(history.round_number)
+        n_opponents = max(n - 1, 1)
+        while self._last_updated_round < round_number:
+            idx = self._last_updated_round
+            opp_coop = float(history.opponent_cooperators[idx]) if idx < len(history.opponent_cooperators) else 0.0
+            observed_rate = opp_coop / n_opponents
+            self.q = 0.7 * self.q + 0.3 * observed_rate
+            self.q = min(1.0, max(0.0, self.q))
+            self._last_updated_round += 1
+        if round_number == 0:
+            return Action.C
+        R = max(r - round_number, 1)
+        S = max(float(current_stock), 0.0)
+        k = int(round((n - 1) * self.q))
+        k = max(0, min(n - 1, k))
+
+        def projected_remaining_stock(action: Action) -> float:
+            coop_count = k + (1 if action == Action.C else 0)
+            defect_count = n - 1 - k + (1 if action == Action.D else 0)
+            total_consumption = coop_count * (S / (2.0 * n)) + defect_count * (S / n)
+            rem = S - total_consumption
+            return max(rem, 0.0)
+        rem_c = projected_remaining_stock(Action.C)
+        rem_d = projected_remaining_stock(Action.D)
+        if R <= 1:
+            return Action.D
+        if rem_d >= capacity / 2.0:
+            return Action.D
+        if rem_c >= capacity / 2.0:
+            return Action.C
+        if R <= 3:
+            return Action.D if rem_d > 0.0 else Action.C
+
+        def score(action: Action) -> float:
+            rem = rem_c if action == Action.C else rem_d
+            immediate = S / (2.0 * n) if action == Action.C else S / n
+            next_stock = min(rem + 2.0 * rem * (1.0 - rem / capacity), capacity)
+            return immediate + (R - 1.0) / R * (next_stock / (2.0 * n))
+        return Action.C if score(Action.C) > score(Action.D) else Action.D
+
+class Strategy_SELFINTERESTED_16(BaseStrategy):
+    """
+    Stock-aware trust-based strategy for the Common Pool Resource Game.
+    Starts cooperative, updates trust from observed opponent cooperation,
+    and switches to persistent defection when trust becomes too low.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.trust = 1.0
+        self.last_coop_rate = 1.0
+        self.persistent_defect = False
+        self.last_my_action = Action.C
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        capacity = float(self.game_description.capacity)
+        rounds_done = history.round_number
+        rounds_remaining = self.game_description.n_rounds - rounds_done
+        if rounds_done == 0:
+            self.last_my_action = Action.C
+            return Action.C
+        n_opponents = max(0, n - 1)
+        last_opponent_coop_count = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if n_opponents > 0:
+            coop_rate = max(0.0, min(1.0, last_opponent_coop_count / n_opponents))
+        else:
+            coop_rate = 0.0
+        self.trust = 0.7 * self.trust + 0.3 * coop_rate
+        self.last_coop_rate = coop_rate
+        if self.last_my_action == Action.D and coop_rate >= 0.75:
+            self.trust = min(1.0, self.trust + 0.2)
+        if self.trust < 0.35:
+            self.persistent_defect = True
+        if self.persistent_defect:
+            if coop_rate >= 0.75 and current_stock >= 0.8 * capacity:
+                self.persistent_defect = False
+            else:
+                self.last_my_action = Action.D
+                return Action.D
+        if rounds_remaining <= 1:
+            self.last_my_action = Action.D
+            return Action.D
+        if current_stock <= 2.0 * n:
+            self.last_my_action = Action.D
+            return Action.D
+        if self.trust >= 0.75 and current_stock >= 0.9 * capacity:
+            self.last_my_action = Action.C
+            return Action.C
+        if self.trust >= 0.6 and current_stock >= 0.75 * capacity and (rounds_remaining >= 3):
+            self.last_my_action = Action.C
+            return Action.C
+        if self.trust >= 0.45 and self.last_coop_rate >= 0.5 and (current_stock >= 0.8 * capacity):
+            self.last_my_action = Action.C
+            return Action.C
+        self.last_my_action = Action.D
+        return Action.D
+
+class Strategy_SELFINTERESTED_17(BaseStrategy):
+    """
+    Conditional cooperation strategy for the common pool resource game.
+
+    - Cooperates in the first round.
+    - Defects in the last round.
+    - Defects when stock is low, with a sticky low-stock mode until the pool
+      recovers and the group shows near-full cooperation.
+    - Cooperates only when previous cooperation is strong and stock is healthy.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.last_round_seen = -1
+        self.low_stock_mode = False
+        self.last_observed_q = 0
+        self.last_observed_stock = self.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = int(history.round_number)
+        S = float(current_stock) if current_stock is not None else 0.0
+        if self.capacity <= 0 or self.n <= 1 or self.r <= 1:
+            return Action.D
+        if t > 0:
+            q = int(history.opponent_cooperators[-1])
+            self.last_observed_q = q
+            self.last_observed_stock = S
+            self.last_round_seen = t - 1
+            if S <= self.capacity / 4.0 or S <= 0.0:
+                self.low_stock_mode = True
+            if self.low_stock_mode and S >= self.capacity / 2.0 and (q == self.n - 1):
+                self.low_stock_mode = False
+        if t == 0:
+            return Action.C
+        if t >= self.r - 1:
+            return Action.D
+        if S <= 0.0:
+            self.low_stock_mode = True
+            return Action.D
+        if self.low_stock_mode:
+            q = int(history.opponent_cooperators[-1]) if t > 0 else 0
+            if S >= self.capacity / 2.0 and q == self.n - 1:
+                self.low_stock_mode = False
+            else:
+                return Action.D
+        q = int(history.opponent_cooperators[-1]) if t > 0 else 0
+        if S <= self.capacity / 4.0:
+            self.low_stock_mode = True
+            return Action.D
+        elif q == self.n - 1 and S >= self.capacity / 2.0:
+            return Action.C
+        elif q >= self.n - 2 and S >= 3.0 * self.capacity / 4.0 and (t <= self.r - 2):
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_18(BaseStrategy):
+    """
+    Threshold-based common-pool strategy:
+    cooperate initially, then defect unless cooperation is sustained and stock is healthy.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self._locked_defect = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.n
+        r = self.r
+        if current_stock is None or not np.isfinite(current_stock):
+            return Action.D
+        round_number = int(history.round_number)
+        t = round_number + 1
+        if round_number == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        my_actions = history.my_actions
+        if len(opp) != round_number or len(my_actions) != round_number:
+            self._locked_defect = True
+        n_opponents = max(n - 1, 1)
+        for k in opp:
+            if k < 0 or k > n_opponents:
+                self._locked_defect = True
+                break
+        p_values = []
+        for k in opp:
+            p_values.append(float(k) / float(n_opponents))
+        if self._locked_defect:
+            if len(p_values) >= 2 and p_values[-1] >= 0.8 and (p_values[-2] >= 0.8):
+                self._locked_defect = False
+            else:
+                return Action.D
+        if current_stock <= 2.0 * n:
+            return Action.D
+        if t >= max(1, r - 1):
+            return Action.D
+        if len(p_values) == 0:
+            return Action.D
+        p = p_values[-1]
+        if len(p_values) >= 2 and bool(my_actions[-1]) is True:
+            prev_p = p_values[-2]
+            if prev_p - p >= 0.25:
+                return Action.D
+        if p >= 0.8:
+            field = 'high-cooperation'
+        elif p >= 0.3:
+            field = 'mixed'
+        else:
+            field = 'low-cooperation'
+        allow_high_coop = False
+        if len(p_values) >= 2 and bool(my_actions[-1]) is False:
+            if p_values[-1] >= 0.8 and p_values[-2] >= 0.8:
+                allow_high_coop = True
+        if field == 'low-cooperation':
+            return Action.D
+        if field == 'mixed':
+            if current_stock >= 0.7 * self.capacity and p >= 0.5:
+                return Action.C
+            return Action.D
+        if current_stock >= 0.5 * self.capacity and p >= 0.8 or allow_high_coop:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_19(BaseStrategy):
+    """
+    Conservative common-pool strategy:
+    - Cooperate in the opening round.
+    - Cooperate only under strong cooperation and healthy stock conditions.
+    - Defect in the last two rounds.
+    - Use a recovery gate after defection: require two consecutive good rounds.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n - 1, 0)
+        self.T = int(math.ceil(3 * self.n_opponents / 4)) if self.n_opponents > 0 else 0
+        self.low = 0.4 * self.capacity
+        self.high = 0.7 * self.capacity
+        self.borderline = 0.85 * self.capacity
+
+    def _infer_stock_at_round(self, history: PlayerHistory, idx: int) -> float | None:
+        if idx < 0 or idx >= history.round_number:
+            return None
+        my_action = bool(history.my_actions[idx])
+        payoff = float(history.my_payoffs[idx])
+        if my_action:
+            return payoff * (2.0 * max(self.n, 1))
+        return payoff * max(self.n, 1)
+
+    def _last_two_good_rounds(self, history: PlayerHistory) -> bool:
+        if history.round_number < 2:
+            return False
+        for idx in (history.round_number - 1, history.round_number - 2):
+            if int(history.opponent_cooperators[idx]) < self.T:
+                return False
+            inferred_stock = self._infer_stock_at_round(history, idx)
+            if inferred_stock is None or inferred_stock < self.high:
+                return False
+        return True
+
+    def _previous_two_nonreliable(self, history: PlayerHistory) -> bool:
+        if history.round_number < 2:
+            return False
+        return int(history.opponent_cooperators[-1]) < self.T - 1 or int(history.opponent_cooperators[-2]) < self.T - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = int(history.round_number)
+        if t == 0:
+            return Action.C
+        if t >= max(self.r - 2, 0):
+            return Action.D
+        o = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        current_stock = float(current_stock)
+        if self.n == 2:
+            if o >= 1 and current_stock >= self.high:
+                return Action.C
+            return Action.D
+        if not bool(history.my_actions[-1]):
+            if self._last_two_good_rounds(history):
+                return Action.C
+            return Action.D
+        if current_stock < self.low:
+            if self._last_two_good_rounds(history):
+                return Action.C
+            return Action.D
+        if o < self.T - 1:
+            if self._last_two_good_rounds(history):
+                return Action.C
+            return Action.D
+        if o >= self.T and current_stock >= self.high:
+            return Action.C
+        if o == self.T - 1:
+            prev_ok = False
+            if history.round_number >= 2:
+                prev_ok = int(history.opponent_cooperators[-2]) >= self.T - 1 and int(history.opponent_cooperators[-3]) >= self.T - 1 if history.round_number >= 3 else int(history.opponent_cooperators[-2]) >= self.T - 1
+            if current_stock >= self.borderline and prev_ok:
+                return Action.C
+            return Action.D
+        return Action.D
+
+class Strategy_SELFINTERESTED_20(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Starts by cooperating to probe the environment.
+    - Tracks smoothed opponent cooperation via q_bar.
+    - Rebuilds when stock is depleted and cooperation is at least moderate.
+    - Defects in the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.q_bar = 1.0
+        self.mode = 'probe'
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = int(self.game_description.n_players)
+        r = int(self.game_description.n_rounds)
+        t = int(history.round_number)
+        if t >= r - 1:
+            self.mode = 'harvest'
+            return Action.D
+        if t == 0:
+            self.mode = 'probe'
+            return Action.C
+        opp_count = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        denom = max(n - 1, 1)
+        q = opp_count / denom
+        self.q_bar = 0.7 * self.q_bar + 0.3 * q
+        capacity = float(self.game_description.capacity)
+        x = current_stock / capacity if capacity > 0 else 0.0
+        if opp_count == 0:
+            action = Action.C if x <= 0.15 else Action.D
+            self.mode = 'harvest' if action == Action.D else 'build'
+            return action
+        if x <= 0.25:
+            action = Action.C if self.q_bar >= 0.5 else Action.D
+            self.mode = 'build' if action == Action.C else 'harvest'
+        elif x < 0.75:
+            action = Action.C if self.q_bar >= 0.5 else Action.D
+            self.mode = 'build' if action == Action.C else 'harvest'
+        else:
+            action = Action.D if self.q_bar >= 0.25 else Action.C
+            self.mode = 'harvest' if action == Action.D else 'probe'
+        threshold = math.ceil((n - 1) / 2)
+        if opp_count >= threshold and x < 0.9:
+            action = Action.C
+            self.mode = 'build'
+        return action
+
+class Strategy_SELFINTERESTED_21(BaseStrategy):
+    """
+    Threshold-based reciprocal strategy with memory, endgame defection,
+    and stock-sensitive tie adjustments for the common pool resource game.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(0, self.n_players - 1)
+        self._eps = 1e-12
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        if round_number >= self.n_rounds - 1:
+            return Action.D
+        prev_opp_coops = 0
+        if len(history.opponent_cooperators) > 0:
+            prev_opp_coops = int(history.opponent_cooperators[-1])
+        prev_all_opp_coop = prev_opp_coops >= self.n_opponents
+        if round_number == self.n_rounds - 2:
+            if prev_all_opp_coop and current_stock >= self.capacity / 2.0:
+                return Action.C
+            return Action.D
+        if round_number > 0 and len(history.my_actions) > 0:
+            q = float(np.mean(history.my_actions))
+        else:
+            q = 0.0
+        if prev_opp_coops == 0:
+            return Action.D
+        if current_stock <= self.capacity / 4.0 and prev_opp_coops < self.n_opponents:
+            return Action.D
+        if prev_all_opp_coop and current_stock >= self.capacity / 2.0:
+            return Action.C
+        cap = self.capacity if self.capacity > self._eps else self._eps
+        stock_ratio = current_stock / cap
+        base_theta = math.ceil(self.n_opponents * max(0.5, 1.0 - stock_ratio))
+        theta = int(base_theta)
+        if q < 0.5:
+            theta = min(self.n_opponents, theta + 1)
+        if current_stock >= 3.0 * self.capacity / 4.0:
+            border = math.ceil(self.n_opponents / 2.0)
+            if prev_opp_coops >= border:
+                return Action.C
+        if current_stock <= self.capacity / 4.0:
+            if prev_opp_coops == self.n_opponents:
+                return Action.C
+            return Action.D
+        if prev_opp_coops >= theta:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_22(BaseStrategy):
+    """
+    Start cooperative, punish low cooperation or large stock drops with defection,
+    reward sustained cooperation, and defect in the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 1)
+        self.last_round_number = 0
+        self.last_stock = float(self.capacity)
+        self.bad = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+
+        def frac_coop(count: int) -> float:
+            return float(count) / float(self.n_opponents) if self.n_opponents > 0 else 0.0
+        if round_number == 0:
+            self.last_round_number = 0
+            self.last_stock = float(current_stock)
+            self.bad = False
+            return Action.C
+        if round_number >= self.n_rounds - 1:
+            self._update_state(history, current_stock)
+            return Action.D
+        q_last = frac_coop(int(history.opponent_cooperators[-1])) if round_number >= 1 else 0.0
+        q_prev = frac_coop(int(history.opponent_cooperators[-2])) if round_number >= 2 else q_last
+        qbar = (q_last + q_prev) / 2.0 if round_number >= 2 else q_last
+        stock_drop = 0.0
+        if self.last_round_number == round_number - 1:
+            stock_drop = float(self.last_stock) - float(current_stock)
+        elif round_number >= 2:
+            stock_drop = max(0.0, float(self.last_stock) - float(current_stock))
+        if q_last < 0.5 or qbar < 0.5 or stock_drop > self.capacity / 4.0:
+            self.bad = True
+        elif round_number >= 2 and q_last >= 0.5 and (q_prev >= 0.5):
+            self.bad = False
+        if self.bad:
+            action = Action.D
+        elif float(current_stock) < self.capacity / 2.0:
+            action = Action.C if q_last >= 2.0 / 3.0 else Action.D
+        else:
+            action = Action.C
+        self._update_state(history, current_stock)
+        return action
+
+    def _update_state(self, history: PlayerHistory, current_stock: float) -> None:
+        """
+        Keep lightweight internal state in sync with the most recent observed round.
+        """
+        self.last_round_number = int(history.round_number)
+        self.last_stock = float(current_stock)
+
+class Strategy_SELFINTERESTED_23(BaseStrategy):
+    """
+    Conservation-first exploitative strategy for the Common Pool Resource Game.
+
+    - Starts by cooperating.
+    - Defects on the last round.
+    - Otherwise predicts opponent cooperation with a smoothed estimate and
+      defects unless doing so would push the next stock below a safety floor.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.q = 1.0
+        self.m_hat = max(0, self.n - 1)
+        self._last_processed_round = -1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number > 0 and self._last_processed_round < round_number - 1:
+            m_obs = int(history.opponent_cooperators[-1])
+            n_opponents = max(1, self.n - 1)
+            observed_rate = m_obs / n_opponents
+            self.q = 0.7 * self.q + 0.3 * observed_rate
+            self.m_hat = int(round((self.n - 1) * self.q))
+            if self.m_hat < 0:
+                self.m_hat = 0
+            elif self.m_hat > self.n - 1:
+                self.m_hat = self.n - 1
+            self._last_processed_round = round_number - 1
+        if round_number == 0:
+            return Action.C
+        h = self.r - round_number
+        if h <= 1:
+            return Action.D
+        S = float(current_stock)
+        m_hat = float(self.m_hat)
+        rem_C = S * (m_hat + 1.0) / (2.0 * self.n)
+        rem_D = S * m_hat / (2.0 * self.n)
+        next_C = min(rem_C + 2.0 * rem_C * (1.0 - rem_C / self.capacity), self.capacity)
+        next_D = min(rem_D + 2.0 * rem_D * (1.0 - rem_D / self.capacity), self.capacity)
+        floor = self.capacity / 2.0 if h > 2 else 0.0
+        if next_D >= floor:
+            return Action.D
+        return Action.C
+
+class Strategy_SELFINTERESTED_24(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    cooperates when the pool remains healthy and observed opponent cooperation is high,
+    but defects near the end or when cooperation/stock deteriorates.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.q = 0.5
+        self.k_prev = max(0, game_description.n_players - 1)
+        self._processed_rounds = 0
+        self._last_observed_rate = None
+        self._drop_streak = 0
+        self._high_streak = 0
+        self._pool_failed = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        capacity = float(self.game_description.capacity)
+        if current_stock <= 0:
+            self._pool_failed = True
+        seen = history.round_number
+        if seen > self._processed_rounds:
+            for idx in range(self._processed_rounds, seen):
+                if idx < len(history.opponent_cooperators):
+                    k_obs = int(history.opponent_cooperators[idx])
+                    k_obs = max(0, min(k_obs, max(0, n - 1)))
+                else:
+                    k_obs = self.k_prev
+                if n == 2:
+                    self.q = 1.0 if k_obs >= 1 else 0.0
+                else:
+                    denom = max(1, n - 1)
+                    self.q = 0.7 * (k_obs / denom) + 0.3 * self.q
+                observed_rate = 1.0 if n == 2 and k_obs >= 1 else k_obs / max(1, n - 1)
+                if self._last_observed_rate is not None and observed_rate < self._last_observed_rate:
+                    self._drop_streak += 1
+                else:
+                    self._drop_streak = 0
+                if observed_rate >= 0.8:
+                    self._high_streak += 1
+                else:
+                    self._high_streak = 0
+                self._last_observed_rate = observed_rate
+                self.k_prev = k_obs
+            self._processed_rounds = seen
+        t = history.round_number + 1
+        if self._pool_failed or t >= r + 1:
+            return Action.D
+        if t == r:
+            return Action.D
+        denom = max(1, r - 1)
+        T = max(2 * n, 0.35 * capacity + 0.25 * capacity * (1.0 - (t - 1) / denom))
+        if t < r and self._high_streak >= 3 and (current_stock >= 0.6 * capacity) and (current_stock >= T):
+            return Action.C
+        q_required = 0.6 if self._drop_streak >= 2 else 0.5
+        if t == r - 1:
+            if current_stock >= T and self.q >= 0.75:
+                return Action.C
+            return Action.D
+        if current_stock >= T and self.q >= q_required:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_25(BaseStrategy):
+    """
+    Trust-based common-pool strategy:
+    - Start by cooperating.
+    - Cooperate only when trust is high and the stock is healthy.
+    - Defect when stock is low, trust is weak, or the game is in the final round
+      unless the history is fully cooperative and stock is very high.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self._eps = 1e-09
+
+    def _compute_trust(self, history: PlayerHistory) -> float:
+        q = 1.0
+        n_players = self.game_description.n_players
+        n_opponents = max(n_players - 1, 1)
+        for k in history.opponent_cooperators:
+            share = float(k) / float(n_opponents)
+            q = 0.75 * q + 0.25 * share
+            if share < 0.4:
+                q *= 0.5
+            if q < 0.0:
+                q = 0.0
+            elif q > 1.0:
+                q = 1.0
+        return q
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        capacity = float(self.game_description.capacity)
+        round_number = history.round_number
+        n_rounds = self.game_description.n_rounds
+        if round_number == 0:
+            return Action.C
+        q = self._compute_trust(history)
+        if round_number == n_rounds - 1:
+            if q >= 1.0 - self._eps and current_stock >= 0.8 * capacity:
+                return Action.C
+            return Action.D
+        if current_stock < 0.25 * capacity:
+            return Action.D
+        if q >= 0.6 and current_stock >= 0.45 * capacity:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_26(BaseStrategy):
+    """
+    Common-pool strategy:
+    - Start with cooperation.
+    - React to the previous round's opponent cooperation count and current stock.
+    - Defect in the final round, on depletion, or when cooperation weakens.
+    - Prefer cooperation only when cooperation is sufficiently strong to sustain the pool.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n - 1, 0)
+        self.half_opponents_ceil = math.ceil(self.n_opponents / 2) if self.n_opponents > 0 else 0
+        self.two_thirds_opponents_ceil = math.ceil(2 * self.n_opponents / 3) if self.n_opponents > 0 else 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        if current_stock <= 0:
+            return Action.D
+        if round_number >= self.r - 1:
+            return Action.D
+        m = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        prev_my_action = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else True
+        if self.n <= 2:
+            return Action.C if m >= 1 and current_stock > self.capacity / 3 else Action.D
+        if self.capacity <= 0:
+            return Action.D
+        if current_stock == self.capacity or current_stock >= 2 * self.capacity / 3:
+            return Action.C if m >= self.half_opponents_ceil else Action.D
+        if current_stock <= self.capacity / 3:
+            if prev_my_action and m == self.n_opponents and (current_stock > self.capacity / 3):
+                return Action.C
+            return Action.C if m == self.n_opponents and current_stock > self.capacity / 3 else Action.D
+        if prev_my_action and m == self.n_opponents and (current_stock > self.capacity / 3):
+            return Action.C
+        if m >= self.two_thirds_opponents_ceil:
+            return Action.C
+        if m <= self.half_opponents_ceil - 1:
+            return Action.D
+        return Action.C if m >= self.two_thirds_opponents_ceil else Action.D
+
+class Strategy_SELFINTERESTED_27(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Opens cooperatively.
+    - Cooperates only when the stock is healthy and recent opponent cooperation is strong.
+    - Defects under depletion, weak cooperation, or after apparent exploitation.
+    - Becomes more conservative in the final round(s).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self._recovery_mode = False
+        self._cooperative_mode = True
+        self._last_seen_round = -1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        rounds = self.game_description.n_rounds
+        capacity = float(self.game_description.capacity)
+        round_number = history.round_number
+        if round_number == 0:
+            self._recovery_mode = False
+            self._cooperative_mode = True
+            self._last_seen_round = 0
+            return Action.C
+        last_opponents = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        n_opponents = max(n - 1, 1)
+        c = last_opponents / n_opponents
+        prev_start_stock = float(current_stock)
+        if len(history.my_payoffs) > 0:
+            last_payoff = float(history.my_payoffs[-1])
+            last_action_was_c = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else True
+            if last_action_was_c:
+                prev_start_stock = last_payoff * (2.0 * n)
+            else:
+                prev_start_stock = last_payoff * float(n)
+        s_prev_remaining = min(float(current_stock), prev_start_stock)
+        if current_stock <= 0.4 * capacity:
+            self._cooperative_mode = False
+            self._recovery_mode = True
+            self._last_seen_round = round_number
+            return Action.D
+        if c <= 0.5:
+            self._cooperative_mode = False
+            self._recovery_mode = True
+            self._last_seen_round = round_number
+            return Action.D
+        if round_number >= rounds - 1:
+            action = Action.C if current_stock >= 0.85 * capacity and c >= 0.75 else Action.D
+            self._last_seen_round = round_number
+            return action
+        if current_stock >= 0.9 * capacity and c >= 0.75:
+            self._cooperative_mode = True
+            self._recovery_mode = False
+            self._last_seen_round = round_number
+            return Action.C
+        if len(history.my_actions) > 0 and bool(history.my_actions[-1]) and (c < 0.5):
+            self._recovery_mode = True
+            self._cooperative_mode = False
+        if self._recovery_mode:
+            if current_stock >= 0.75 * capacity and c >= 0.75 and (s_prev_remaining / capacity >= 0.6):
+                self._recovery_mode = False
+                self._cooperative_mode = True
+                self._last_seen_round = round_number
+                return Action.C
+            self._last_seen_round = round_number
+            return Action.D
+        if current_stock >= 0.75 * capacity and c >= 0.75 and (s_prev_remaining / capacity >= 0.6):
+            self._cooperative_mode = True
+            self._last_seen_round = round_number
+            return Action.C
+        self._cooperative_mode = False
+        self._last_seen_round = round_number
+        return Action.D
+
+class Strategy_SELFINTERESTED_28(BaseStrategy):
+    """
+    Cooperative-first common-pool strategy with adaptive smoothing and defensive override rules.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.q_hat = 1.0
+        self._processed_rounds = 0
+        self._force_defect_rounds = 0
+        self._force_cooperate_rounds = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n_players = int(self.game_description.n_players)
+        capacity = float(self.game_description.capacity)
+        n_opponents = max(1, n_players - 1)
+        round_number = int(history.round_number)
+        if round_number > self._processed_rounds:
+            start = self._processed_rounds
+            end = round_number
+            for idx in range(start, end):
+                if idx < 0 or idx >= len(history.opponent_cooperators):
+                    continue
+                coop_count = float(history.opponent_cooperators[idx])
+                q = coop_count / float(n_opponents)
+                if q < 0.0:
+                    q = 0.0
+                elif q > 1.0:
+                    q = 1.0
+                self.q_hat = 0.7 * self.q_hat + 0.3 * q
+                if q == 0.0:
+                    self._force_defect_rounds = 2
+                elif q == 1.0:
+                    self._force_cooperate_rounds = 2
+            self._processed_rounds = round_number
+        if round_number == 0:
+            return Action.C
+        if self._force_defect_rounds > 0:
+            self._force_defect_rounds -= 1
+            return Action.D
+        if round_number >= int(self.game_description.n_rounds) - 1:
+            return Action.D
+        q_obs = 0.0
+        if len(history.opponent_cooperators) > 0:
+            last_count = float(history.opponent_cooperators[-1])
+            q_obs = last_count / float(n_opponents)
+            if q_obs < 0.0:
+                q_obs = 0.0
+            elif q_obs > 1.0:
+                q_obs = 1.0
+        q_use = self.q_hat if abs(q_obs - self.q_hat) >= 0.5 else q_obs
+        if current_stock <= capacity / 3.0:
+            return Action.D
+        if q_use <= 1.0 / 3.0:
+            return Action.D
+        if self._force_cooperate_rounds > 0:
+            self._force_cooperate_rounds -= 1
+            return Action.C
+        if q_use >= 2.0 / 3.0 and current_stock >= capacity / 2.0:
+            return Action.C
+        if q_use >= 0.5 and current_stock >= 2.0 * n_players:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_29(BaseStrategy):
+    """
+    Common pool resource strategy with a recovery mode.
+
+    - Round 1: cooperate.
+    - Final round: defect.
+    - Otherwise:
+      * Defect if stock is depleted or if in recovery mode.
+      * Cooperate only when the number of cooperating opponents in the previous round
+        is at least ceil((n - 1) / 2) and the stock is at least half of capacity.
+    Recovery mode persists after any "bad" observed round (fewer than q opponent
+    cooperators) and ends only after two consecutive good rounds.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(getattr(game_description, 'n_players', 0) or 0)
+        self.n_rounds = int(getattr(game_description, 'n_rounds', 0) or 0)
+        self.capacity = float(getattr(game_description, 'capacity', 0) or 0.0)
+        self.q = math.ceil((self.n_players - 1) / 2) if self.n_players >= 1 else 0
+
+    def _in_recovery_mode(self, history: PlayerHistory) -> bool:
+        opp = history.opponent_cooperators
+        n_hist = len(opp)
+        if n_hist == 0:
+            return False
+        trailing_good = 0
+        idx = n_hist - 1
+        while idx >= 0 and int(opp[idx]) >= self.q:
+            trailing_good += 1
+            idx -= 1
+        if trailing_good >= 2:
+            return False
+        for h in opp:
+            if int(h) < self.q:
+                return True
+        return False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        last_round_index = self.n_rounds - 1
+        if round_number == 0:
+            return Action.C
+        if round_number >= last_round_index:
+            return Action.D
+        if self.capacity <= 0:
+            return Action.D
+        if current_stock <= 0:
+            return Action.D
+        if self._in_recovery_mode(history):
+            return Action.D
+        h_prev = int(history.opponent_cooperators[-1]) if round_number > 0 else 0
+        x = current_stock / self.capacity
+        if h_prev >= self.q and x >= 0.5:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_30(BaseStrategy):
+    """
+    Cautious conditional cooperator with trust tracking and short retaliation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.trust = 1.0
+        self.freeze = 0
+        self.last_stock = float(game_description.capacity)
+        self._last_processed_round = -1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = max(int(self.game_description.n_players), 2)
+        r = max(int(self.game_description.n_rounds), 1)
+        capacity = float(self.game_description.capacity)
+        round_number = int(history.round_number)
+        stock = float(current_stock)
+        if round_number > 0 and round_number != self._last_processed_round:
+            idx = round_number - 1
+            opp_coop = 0
+            if 0 <= idx < len(history.opponent_cooperators):
+                opp_coop = int(history.opponent_cooperators[idx])
+            denom = max(n - 1, 1)
+            q = opp_coop / denom
+            self.trust = 0.6 * float(self.trust) + 0.4 * q
+            if float(self.last_stock) > 0.0 and stock < 0.75 * float(self.last_stock):
+                self.freeze = 2
+            self._last_processed_round = round_number
+        if round_number >= r - 1:
+            self.last_stock = stock
+            return Action.D
+        if self.freeze > 0:
+            self.freeze -= 1
+            self.last_stock = stock
+            return Action.D
+        if stock <= 2.0 * n:
+            self.last_stock = stock
+            return Action.D
+        if round_number == 0:
+            action = Action.C if r >= 5 and capacity >= 4.0 * n else Action.D
+            self.last_stock = stock
+            return action
+        idx = round_number - 1
+        opp_coop = 0
+        if 0 <= idx < len(history.opponent_cooperators):
+            opp_coop = int(history.opponent_cooperators[idx])
+        denom = max(n - 1, 1)
+        q = opp_coop / denom
+        if q < 0.5 or stock < 0.4 * capacity:
+            self.freeze = 2
+            action = Action.D
+        elif float(self.trust) >= 0.75 and stock >= 0.6 * capacity:
+            action = Action.C
+        else:
+            action = Action.D
+        self.last_stock = stock
+        return action
+
+class Strategy_SELFINTERESTED_31(BaseStrategy):
+    """
+    Trust-based common-pool strategy with forgiveness and stock-sensitive overrides.
+    Cooperates initially, becomes cautious when trust or observed cooperation drops,
+    and defects in the final round or under low-stock conditions.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.trust = 1.0
+        self.forgiveness = 0
+        self.high_coop_streak = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = int(self.game_description.n_players)
+        r = int(self.game_description.n_rounds)
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        if round_number >= r - 1:
+            return Action.D
+        n_opponents = max(1, n - 1)
+        k_prev = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        high_coop_threshold = math.ceil((n - 1) / 2)
+        low_coop_threshold = math.floor((n - 1) / 3)
+        coop_rate = k_prev / n_opponents
+        self.trust = 0.7 * self.trust + 0.3 * coop_rate
+        if k_prev >= high_coop_threshold:
+            self.high_coop_streak += 1
+        else:
+            self.high_coop_streak = 0
+        if self.high_coop_streak >= 2:
+            self.forgiveness = 0
+        if k_prev == 0:
+            self.forgiveness = 2
+        if self.forgiveness > 0:
+            self.forgiveness -= 1
+            return Action.D
+        capacity = float(self.game_description.capacity)
+        if current_stock < capacity / 3:
+            return Action.D
+        if current_stock >= 3 * capacity / 4 and k_prev >= high_coop_threshold:
+            return Action.C
+        if current_stock <= capacity / 4 or self.trust < 0.55 or k_prev <= low_coop_threshold:
+            return Action.D
+        return Action.C
+
+class Strategy_SELFINTERESTED_32(BaseStrategy):
+    """
+    Two-mode adaptive strategy for the Common Pool Resource Game.
+
+    Starts in CONSERVE mode, switches to EXPLOIT when opponents overuse the
+    resource or the stock becomes too low, and returns to CONSERVE only under
+    strong cooperative and stock-health conditions. Always defects in the final
+    round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.mode = 'CONSERVE'
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n_rounds = int(self.game_description.n_rounds)
+        n_players = int(self.game_description.n_players)
+        capacity = float(self.game_description.capacity)
+        if history.round_number == 0:
+            self.mode = 'CONSERVE'
+            return Action.C
+        if history.round_number >= n_rounds - 1:
+            self.mode = 'EXPLOIT'
+            return Action.D
+        if current_stock <= 0.0:
+            self.mode = 'EXPLOIT'
+            return Action.D
+        if len(history.opponent_cooperators) == 0:
+            self.mode = 'CONSERVE'
+            return Action.C
+        c_prev = int(history.opponent_cooperators[-1])
+        denom = max(n_players - 1, 1)
+        q = c_prev / denom
+        previous_mode = self.mode
+        if q < 0.5 or current_stock < capacity / 3.0 or (previous_mode == 'EXPLOIT' and q < 2.0 / 3.0):
+            self.mode = 'EXPLOIT'
+        elif q >= 2.0 / 3.0 and current_stock >= capacity / 2.0:
+            self.mode = 'CONSERVE'
+        elif abs(q - 0.5) <= 1e-12:
+            if current_stock >= capacity / 2.0:
+                self.mode = 'CONSERVE'
+            else:
+                self.mode = 'EXPLOIT'
+        if current_stock >= capacity and q >= 0.5:
+            if self.mode != 'EXPLOIT':
+                self.mode = 'CONSERVE'
+        return Action.C if self.mode == 'CONSERVE' else Action.D
+
+class Strategy_OPPORTUNISTIC_5(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Starts with cooperation
+    - Tracks exponentially weighted opponent cooperation
+    - Uses punishment, exploitation, and stock-based thresholds
+    - Defects in the final round(s) with a small second-to-last-round exception
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.q = 1.0
+        self.processed_rounds = 0
+        self.forced_defect_remaining = 0
+        self.zero_coop_lock = False
+        self.last_h = 1.0
+        self.prev_h = 1.0
+        self.consecutive_full_coop = 0
+
+    def _update_state(self, history: PlayerHistory) -> None:
+        n_players = self.game_description.n_players
+        n_opponents = max(0, n_players - 1)
+        while self.processed_rounds < history.round_number:
+            idx = self.processed_rounds
+            opp_coops = int(history.opponent_cooperators[idx]) if idx < len(history.opponent_cooperators) else 0
+            if n_opponents > 0:
+                h = opp_coops / n_opponents
+            else:
+                h = 0.0
+            self.prev_h = self.last_h
+            self.last_h = h
+            self.q = 0.7 * self.q + 0.3 * h
+            if abs(h - 1.0) < 1e-12:
+                self.consecutive_full_coop += 1
+            else:
+                self.consecutive_full_coop = 0
+            if abs(h) < 1e-12:
+                self.zero_coop_lock = True
+                self.forced_defect_remaining = max(self.forced_defect_remaining, 2)
+            elif h <= 0.5 + 1e-12:
+                self.forced_defect_remaining = max(self.forced_defect_remaining, 2)
+            if self.forced_defect_remaining > 0:
+                self.forced_defect_remaining -= 1
+            if self.zero_coop_lock and self.q > 0.6 and (h >= 0.75):
+                self.zero_coop_lock = False
+            self.processed_rounds += 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        self._update_state(history)
+        t = history.round_number
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        capacity = float(self.game_description.capacity)
+        if t == 0:
+            return Action.C
+        if t >= r - 1:
+            return Action.D
+        if t == r - 2:
+            if self.q >= 0.8 and current_stock > 1.4 * n:
+                return Action.C
+            return Action.D
+        if self.forced_defect_remaining > 0:
+            return Action.D
+        if self.zero_coop_lock:
+            return Action.D
+        if self.consecutive_full_coop >= 2:
+            if current_stock < capacity / 3.0:
+                return Action.C
+            return Action.D
+        if current_stock <= 1.0 * n:
+            return Action.D
+        if current_stock > 1.6 * n and self.q >= 0.5:
+            return Action.C
+        if current_stock > 1.0 * n and self.q >= 0.7:
+            return Action.C
+        if self.q >= 0.5 and t < r - 1:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_6(BaseStrategy):
+    """
+    Contingent threshold strategy with harvest, mirror, and lock-in modes.
+    Opens cooperatively, adapts to observed cooperation and stock health,
+    and defects in endgame or when cooperation degrades.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.p_hat = 1.0
+        self.good_streak = 0
+        self.last_action = Action.C
+        self.locked_defect = False
+        self.opportunistic_hold = False
+        self.recovery_streak = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = max(2, int(self.game_description.n_players))
+        n_opponents = max(1, n - 1)
+        capacity = float(self.game_description.capacity) if self.game_description.capacity is not None else 1.0
+        capacity = max(capacity, 1e-09)
+        t = history.round_number + 1
+        rounds_remaining = int(self.game_description.n_rounds) - t + 1
+        if t == 1:
+            self.last_action = Action.C
+            self.opportunistic_hold = False
+            self.locked_defect = False
+            self.good_streak = 0
+            self.recovery_streak = 0
+            self.p_hat = 1.0
+            return Action.C
+        k = int(history.opponent_cooperators[-1]) if history.opponent_cooperators.size > 0 else 0
+        x = 0.0 if n_opponents <= 0 else k / n_opponents
+        self.p_hat = 0.7 * self.p_hat + 0.3 * x
+        tau = 0.5 + 0.25 * (1.0 - float(current_stock) / capacity)
+        tau = min(0.85, max(0.35, tau))
+        high_coop_threshold = int(math.ceil(0.75 * n_opponents))
+        very_high_coop_threshold = int(math.ceil(0.9 * n_opponents))
+        if x < 0.5:
+            self.good_streak = 0
+            self.recovery_streak = 0
+        elif x >= 0.75:
+            self.good_streak += 1
+            self.recovery_streak += 1
+        else:
+            self.good_streak = 0
+            self.recovery_streak = 0
+        if self.locked_defect:
+            self.last_action = Action.D
+            return Action.D
+        if rounds_remaining <= 2:
+            self.last_action = Action.D
+            return Action.D
+        if rounds_remaining == 3 and current_stock >= 0.8 * capacity and (x >= 0.9) and (not self.locked_defect):
+            self.locked_defect = True
+            self.last_action = Action.C
+            return Action.C
+        if current_stock <= 0.25 * capacity:
+            self.last_action = Action.D
+            self.opportunistic_hold = False
+            return Action.D
+        if self.opportunistic_hold:
+            if self.p_hat >= tau and current_stock >= 0.4 * capacity:
+                self.last_action = Action.C
+                return Action.C
+            self.opportunistic_hold = False
+        if self.last_action == Action.C and k >= high_coop_threshold:
+            if self.p_hat >= tau and current_stock >= 0.4 * capacity:
+                self.opportunistic_hold = True
+                self.last_action = Action.C
+                return Action.C
+        if x >= 0.75:
+            if self.good_streak >= 2 and self.p_hat >= tau and (current_stock >= 0.4 * capacity):
+                self.last_action = Action.C
+                return Action.C
+            self.last_action = Action.D
+            return Action.D
+        if self.p_hat >= tau or (k >= high_coop_threshold and current_stock >= 0.5 * capacity):
+            self.last_action = Action.C
+            return Action.C
+        if self.good_streak >= 2 and k >= very_high_coop_threshold and (current_stock >= 0.4 * capacity):
+            self.last_action = Action.C
+            return Action.C
+        self.last_action = Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_7(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Cooperate on the first round.
+    - Defect on the final round.
+    - Preserve the pool when stock is low or opponents are insufficiently cooperative.
+    - Defect near the end only when stock is healthy and cooperation is strong.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.last_round_number = -1
+        self.S_prev = float(self.capacity)
+        self.current_p = 1.0 if self.n <= 2 else 1.0
+        self.last_opponent_cooperators = self.n - 1 if self.n > 1 else 0
+
+    def _compute_p(self, c: int) -> float:
+        n_opponents = max(self.n - 1, 1)
+        if self.n == 2:
+            return 1.0 if c >= 1 else 0.0
+        return float(c) / float(n_opponents)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = int(history.round_number)
+        S = float(current_stock)
+        if t > 0 and len(history.opponent_cooperators) >= t:
+            c_last = int(history.opponent_cooperators[-1])
+            self.last_opponent_cooperators = c_last
+            self.current_p = self._compute_p(c_last)
+            self.S_prev = S if self.last_round_number != t - 1 else self.S_prev
+        if t == 0:
+            self.S_prev = float(self.capacity)
+            self.current_p = 1.0
+            self.last_opponent_cooperators = self.n - 1 if self.n > 1 else 0
+            self.last_round_number = 0
+            return Action.C
+        p = float(min(1.0, max(0.0, self.current_p)))
+        cap = float(self.capacity)
+        if t == self.r - 1:
+            decision = Action.D
+        elif t == self.r - 2:
+            if S <= cap / 2.0:
+                decision = Action.C
+            elif p >= 0.75:
+                decision = Action.D
+            else:
+                decision = Action.C
+        elif S <= cap / 3.0:
+            decision = Action.C
+        elif p < 0.5:
+            decision = Action.C
+        elif p >= 0.75 and S >= cap / 2.0:
+            decision = Action.D
+        elif S > self.S_prev and p >= 0.5:
+            decision = Action.D
+        else:
+            decision = Action.C
+        self.S_prev = float(S)
+        self.last_round_number = t
+        return decision
+
+class Strategy_OPPORTUNISTIC_8(BaseStrategy):
+    """
+    State-based threshold strategy with cautious cooperation, occasional exploitation,
+    and recovery after defection when cooperation or stock levels improve.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.high_threshold = 0.75
+        self.medium_threshold = 0.5
+        self.low_threshold = 0.25
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        if t >= self.n_rounds - 1:
+            return Action.D if current_stock > self.capacity / 2.0 else Action.C
+        m = self.n_players - 1
+        if m <= 0:
+            f = 0.0
+        else:
+            k = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+            if k <= 0:
+                f = 0.0
+            elif k >= m:
+                f = 1.0
+            else:
+                f = k / m
+        last_my_action = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else True
+        last_defected = not last_my_action
+        low_cutoff = self.capacity / 4.0
+        high_cutoff = self.capacity / 2.0
+        if last_defected and current_stock <= low_cutoff:
+            if f >= self.medium_threshold or current_stock > high_cutoff:
+                return Action.C
+            return Action.D
+        if current_stock <= low_cutoff:
+            action = Action.C if f >= self.high_threshold else Action.D
+        elif current_stock <= high_cutoff:
+            action = Action.C if f >= self.medium_threshold else Action.D
+        else:
+            action = Action.C if f >= self.low_threshold else Action.D
+        if f >= self.high_threshold and current_stock > high_cutoff:
+            action = Action.D
+        return action
+
+class Strategy_OPPORTUNISTIC_9(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Start with cooperation.
+    - Avoid collapse when stock is low.
+    - Exploit sustained high cooperation/high stock signals, with a two-round
+      persistent mode after repeated confirmation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(getattr(game_description, 'n_players', 0) or 0)
+        self.r = int(getattr(game_description, 'n_rounds', 0) or 0)
+        self.capacity = float(getattr(game_description, 'capacity', 1.0) or 1.0)
+        self._exploit_remaining = 0
+        self._prev_high_signal = False
+        self._prev_stock_at_cap = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.n if self.n >= 2 else 2
+        round_number = int(getattr(history, 'round_number', 0) or 0)
+        final_round = round_number >= max(self.r - 1, 0)
+        if round_number == 0:
+            self._exploit_remaining = 0
+            self._prev_high_signal = False
+            self._prev_stock_at_cap = abs(float(current_stock) - self.capacity) <= 1e-12
+            return Action.C
+        opp_coops = getattr(history, 'opponent_cooperators', None)
+        if opp_coops is None or len(opp_coops) == 0:
+            if final_round:
+                return Action.D
+            self._exploit_remaining = 0
+            self._prev_high_signal = False
+            self._prev_stock_at_cap = abs(float(current_stock) - self.capacity) <= 1e-12
+            return Action.C
+        last_k = int(opp_coops[-1])
+        if last_k < 0:
+            last_k = 0
+        max_opp = max(n - 1, 0)
+        if last_k > max_opp:
+            last_k = max_opp
+        s = float(current_stock) / self.capacity if self.capacity > 0 else 0.0
+        low_k_threshold = math.floor((n - 1) / 3)
+        high_k_threshold = math.ceil(2 * (n - 1) / 3)
+        mid_k_threshold = math.ceil((n - 1) / 2)
+        high_signal = last_k >= high_k_threshold and s >= 0.65
+        low_signal = last_k <= low_k_threshold or s <= 0.4
+        cap_stuck = abs(float(current_stock) - self.capacity) <= 1e-12
+        if low_signal:
+            self._exploit_remaining = 0
+        if not final_round and self._exploit_remaining == 0 and high_signal:
+            if self._prev_high_signal:
+                self._exploit_remaining = 2
+            elif not self._prev_stock_at_cap:
+                pass
+        if final_round:
+            if s <= 0.25:
+                self._prev_high_signal = high_signal
+                self._prev_stock_at_cap = cap_stuck
+                return Action.C
+            self._prev_high_signal = high_signal
+            self._prev_stock_at_cap = cap_stuck
+            return Action.D
+        if s <= 0.25:
+            self._prev_high_signal = high_signal
+            self._prev_stock_at_cap = cap_stuck
+            return Action.C
+        if self._exploit_remaining > 0:
+            self._exploit_remaining -= 1
+            self._prev_high_signal = high_signal
+            self._prev_stock_at_cap = cap_stuck
+            return Action.D
+        if s <= 0.4 or last_k <= low_k_threshold:
+            action = Action.C
+        elif s >= 0.65 and last_k >= high_k_threshold:
+            action = Action.D
+        elif last_k >= mid_k_threshold and s > 0.4:
+            action = Action.D
+        else:
+            action = Action.C
+        self._prev_high_signal = high_signal
+        self._prev_stock_at_cap = cap_stuck
+        if self._exploit_remaining == 0 and high_signal and self._prev_high_signal:
+            self._exploit_remaining = 2
+        if self._prev_stock_at_cap and high_signal and (self._exploit_remaining == 0):
+            if self._prev_high_signal:
+                self._exploit_remaining = 2
+        return action
+
+class Strategy_OPPORTUNISTIC_10(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Cooperates initially to support regeneration.
+    - Defects when the stock is high and opponents are sufficiently cooperative.
+    - Responds to sustained free-riding with a temporary defensive defection mode.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self._n = int(game_description.n_players)
+        self._r = int(game_description.n_rounds)
+        self._capacity = float(game_description.capacity)
+        self._m = max(self._n - 1, 1)
+        self._avgC = 0.0
+        self._trend = 0.0
+        self._last_seen_round = -1
+        self._in_punishment = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        cap = self._capacity
+        m = self._m
+        half_stock = cap / 2.0
+        quarter_stock = cap / 4.0
+        if round_number == 0:
+            return Action.C
+        if round_number == self._r - 1:
+            return Action.D if current_stock >= half_stock else Action.C
+        opp = history.opponent_cooperators
+        observed_rounds = len(opp)
+        if observed_rounds > 0:
+            opp_rates = np.asarray(opp, dtype=float) / float(m)
+            avg_c = float(np.mean(opp_rates))
+            last_c = int(opp[-1])
+        else:
+            avg_c = 0.0
+            last_c = 0
+        if observed_rounds >= 2:
+            prev_c = int(opp[-2])
+            trend = float(last_c - prev_c)
+        else:
+            trend = 0.0
+        self._avgC = avg_c
+        self._trend = trend
+        self._last_seen_round = round_number - 1
+        low_half_threshold = math.ceil(m / 2.0)
+        strong_coop_threshold = math.ceil(2.0 * m / 3.0)
+        very_high_coop_threshold = math.ceil(3.0 * m / 4.0)
+        two_low_rounds = False
+        if observed_rounds >= 2:
+            two_low_rounds = int(opp[-1]) < low_half_threshold and int(opp[-2]) < low_half_threshold
+        strong_rebound = observed_rounds >= 1 and int(opp[-1]) >= strong_coop_threshold
+        stock_recovered = current_stock > half_stock
+        if two_low_rounds and (not strong_rebound) and (not stock_recovered):
+            self._in_punishment = True
+            return Action.D
+        if strong_rebound or stock_recovered:
+            self._in_punishment = False
+        if current_stock <= quarter_stock:
+            if observed_rounds >= 1 and int(opp[-1]) >= very_high_coop_threshold:
+                return Action.C
+            return Action.D
+        if current_stock >= half_stock:
+            if avg_c >= 2.0 / 3.0 and observed_rounds >= 1 and (int(opp[-1]) >= strong_coop_threshold):
+                return Action.D
+            return Action.C
+        if observed_rounds >= 1 and int(opp[-1]) >= low_half_threshold:
+            return Action.C
+        if trend > 0:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_11(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Cooperate in round 1.
+    - Defect in the final round.
+    - Otherwise, use a stock-forecast rule based on last round's observed cooperation,
+      with a low-stock recovery override.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.opponents = max(self.n - 1, 0)
+        self.half_capacity = self.capacity / 2.0
+        self.quarter_capacity = self.capacity / 4.0
+        self.recovery_threshold = math.ceil((self.n - 1) / 2) if self.n > 1 else 0
+
+    def _predicted_stock(self, cooperators: int, current_stock: float) -> float:
+        n = max(self.n, 2)
+        S = float(current_stock)
+        K = max(0, min(int(cooperators), self.n))
+        remaining = S * K / (2.0 * n)
+        growth = 2.0 * remaining * (1.0 - remaining / self.capacity) if self.capacity > 0 else 0.0
+        predicted = remaining + growth
+        if predicted > self.capacity:
+            predicted = self.capacity
+        if predicted < 0.0:
+            predicted = 0.0
+        return predicted
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        if round_number >= self.r - 1:
+            return Action.D
+        c = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        S = float(current_stock)
+        if c <= 0:
+            return Action.D
+        if S <= self.quarter_capacity:
+            if c >= self.recovery_threshold:
+                return Action.C
+            return Action.D
+        predicted_if_d = self._predicted_stock(c, S)
+        if predicted_if_d >= self.half_capacity:
+            return Action.D
+        predicted_if_c = self._predicted_stock(c + 1, S)
+        if predicted_if_c >= self.half_capacity:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_12(BaseStrategy):
+    """
+    Common-pool strategy:
+    - Cooperate initially.
+    - Defect after full opponent cooperation to exploit.
+    - Cooperate after complete opponent defection to rebuild.
+    - Otherwise respond to recent cooperation frequency and stock pressure.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n - 1, 0)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        opp_counts = history.opponent_cooperators
+        last_c = int(opp_counts[-1]) if len(opp_counts) > 0 else 0
+        prev_c = int(opp_counts[-2]) if len(opp_counts) > 1 else None
+        s_t = float(current_stock)
+        remaining = self.r - t
+        denom = self.n_opponents if self.n_opponents > 0 else 1
+        coop_fraction_last = last_c / denom
+        recent_window = opp_counts[max(0, len(opp_counts) - 3):]
+        if len(recent_window) > 0:
+            recent_fracs = [int(x) / denom for x in recent_window]
+            m_t = float(np.mean(recent_fracs))
+        else:
+            m_t = 0.0
+        decision = None
+        if remaining <= 2:
+            if last_c > 0:
+                decision = Action.D
+            else:
+                decision = Action.C
+        else:
+            if last_c == self.n_opponents:
+                decision = Action.D
+            elif last_c <= self.n_opponents / 2:
+                decision = Action.C
+            elif last_c > self.n_opponents / 2 and last_c < self.n_opponents:
+                decision = Action.C if m_t >= 2.0 / 3.0 else Action.D
+            elif s_t <= self.capacity / 3.0:
+                decision = Action.D
+            elif s_t >= 2.0 * self.capacity / 3.0 and last_c >= self.n_opponents / 2:
+                decision = Action.C
+            else:
+                decision = Action.C if last_c >= self.n_opponents / 2 else Action.D
+            if len(opp_counts) >= 2:
+                last_two = opp_counts[-2:]
+                if int(last_two[0]) >= 2 * self.n_opponents / 3.0 and int(last_two[1]) >= 2 * self.n_opponents / 3.0:
+                    decision = Action.C
+                if int(last_two[0]) <= self.n_opponents / 3.0 and int(last_two[1]) <= self.n_opponents / 3.0:
+                    decision = Action.D
+            if len(history.my_actions) > 0 and bool(history.my_actions[-1]) is True and (last_c == self.n_opponents):
+                decision = Action.D
+            if len(history.my_actions) > 0 and bool(history.my_actions[-1]) is False and (last_c == 0):
+                decision = Action.C
+        return decision if decision is not None else Action.C
+
+class Strategy_OPPORTUNISTIC_13(BaseStrategy):
+    """
+    Threshold-based reciprocal strategy for the Common Pool Resource Game.
+
+    - Cooperates initially only if the stock starts at capacity.
+    - Uses prior-round opponent cooperation rate versus a stock-dependent
+      pressure threshold.
+    - Defects in low-stock and late-game regimes.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        S = float(current_stock)
+        if self.n <= 1:
+            return Action.D
+        if t == 0:
+            return Action.C if math.isclose(S, self.capacity, rel_tol=0.0, abs_tol=1e-12) else Action.D
+        if t == self.r - 1:
+            return Action.D
+        if S <= self.capacity / 8.0:
+            return Action.D
+        if S <= self.capacity / 4.0:
+            return Action.D
+        last_k = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        denom = max(self.n - 1, 1)
+        q = last_k / denom
+        if self.capacity > 0.0:
+            P = 0.35 + 0.25 * (1.0 - S / self.capacity)
+        else:
+            P = 0.6
+        P = max(0.35, min(0.6, P))
+        if t >= self.r - 2:
+            return Action.C if q >= 1.0 and S >= self.capacity / 2.0 else Action.D
+        return Action.C if q >= P else Action.D
+
+class Strategy_OPPORTUNISTIC_14(BaseStrategy):
+    """
+    Opportunistic common-pool strategy:
+    - Cooperates early and in healthy or recovering stocks when opponents cooperate.
+    - Defects selectively in high-stock/high-cooperation situations.
+    - Switches to caution in warning/critical zones and near the endgame.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.full_threshold = 0.8 * self.capacity
+        self.safe_threshold = 0.6 * self.capacity
+        self.warning_threshold = 0.4 * self.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        n_opponents = max(self.n_players - 1, 0)
+        if n_opponents > 0 and len(history.opponent_cooperators) > 0:
+            last_opp_coop = int(history.opponent_cooperators[-1])
+            p_hat = last_opp_coop / n_opponents
+        else:
+            p_hat = 0.0
+        high_coop = p_hat >= 0.75
+        moderate_coop = p_hat >= 0.5
+        S = float(current_stock)
+        in_full = S >= self.full_threshold
+        in_safe = self.safe_threshold <= S < self.full_threshold
+        in_warning = self.warning_threshold <= S < self.safe_threshold
+        in_critical = S < self.warning_threshold
+        remaining_rounds = self.n_rounds - round_number
+        my_actions = history.my_actions
+        last_two_my_defect_heavy = False
+        if len(my_actions) >= 2:
+            last_two_my_defect_heavy = not bool(my_actions[-1]) and (not bool(my_actions[-2]))
+        last_two_my_coop = False
+        if len(my_actions) >= 2:
+            last_two_my_coop = bool(my_actions[-1]) and bool(my_actions[-2])
+        high_coop_two_rounds = False
+        if len(history.opponent_cooperators) >= 2 and n_opponents > 0:
+            p_hat_prev = int(history.opponent_cooperators[-2]) / n_opponents
+            high_coop_two_rounds = p_hat_prev >= 0.75 and high_coop
+        if len(history.opponent_cooperators) == 0 or n_opponents == 0:
+            return Action.C if S >= 0.7 * self.capacity else Action.D
+        if remaining_rounds == 1:
+            if in_critical and high_coop:
+                return Action.C
+            return Action.D
+        if remaining_rounds <= 3:
+            if in_warning or in_critical:
+                return Action.C if S >= self.safe_threshold else Action.C if high_coop else Action.D
+            if in_full:
+                return Action.D if high_coop else Action.C
+            if in_safe:
+                if high_coop and last_two_my_coop:
+                    return Action.D
+                if moderate_coop:
+                    return Action.C
+                return Action.D
+        if last_two_my_defect_heavy and S >= self.safe_threshold:
+            if in_full and high_coop:
+                return Action.D
+            return Action.C
+        if in_full:
+            return Action.D if high_coop else Action.C
+        if in_safe:
+            if high_coop and last_two_my_coop:
+                safe_full_recent = 0
+                for a in my_actions[::-1]:
+                    if bool(a):
+                        safe_full_recent += 1
+                    else:
+                        break
+                if safe_full_recent >= 2 and safe_full_recent % 3 == 2:
+                    return Action.D
+                return Action.C
+            if moderate_coop:
+                return Action.C
+            return Action.D
+        if in_warning:
+            return Action.C if high_coop else Action.D
+        if in_critical:
+            return Action.C if high_coop_two_rounds else Action.D
+        return Action.C if S >= 0.7 * self.capacity else Action.D
+
+class Strategy_OPPORTUNISTIC_15(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - starts with cooperation
+    - cooperates when the stock is healthy and opponents cooperate sufficiently
+    - defects when the stock is depleted, cooperation is too low, or at the endgame
+    - tracks recent cooperation patterns to detect streaks and fallback behavior
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = max(2, int(game_description.n_players))
+        self.r = max(1, int(game_description.n_rounds))
+        self.capacity = float(game_description.capacity)
+        self.q = int(math.ceil((self.n - 1) / 2))
+        self.high_threshold = 0.75 * self.capacity
+        self.medium_threshold = 0.4 * self.capacity
+        self.low_threshold = 0.4 * self.capacity
+        self._prev_opponent_cooperators = None
+        self._alternating_like = False
+        self._consecutive_q_or_more = 0
+        self._last_action = Action.C
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        S = float(current_stock)
+        if not math.isfinite(S):
+            S = 0.0
+        if S < 0.0:
+            S = 0.0
+        if t == 0:
+            self._last_action = Action.C
+            self._prev_opponent_cooperators = None
+            self._alternating_like = False
+            self._consecutive_q_or_more = 0
+            return Action.C
+        opps = history.opponent_cooperators
+        k = int(opps[-1]) if len(opps) > 0 else 0
+        if self._prev_opponent_cooperators is not None and len(opps) >= 2:
+            prev_k = int(opps[-2])
+            if prev_k != k:
+                self._alternating_like = True
+        self._prev_opponent_cooperators = k
+        if k >= self.q:
+            self._consecutive_q_or_more += 1
+        else:
+            self._consecutive_q_or_more = 0
+        is_high = S >= self.high_threshold
+        is_medium = self.medium_threshold <= S < self.high_threshold
+        is_low = S < self.low_threshold
+        if t == self.r - 1:
+            action = Action.C if S >= 2 * self.n else Action.D
+            self._last_action = action
+            return action
+        if S <= 0.0:
+            self._last_action = Action.D
+            return Action.D
+        if k == 0:
+            action = Action.C if is_high else Action.D
+            self._last_action = action
+            return action
+        if self._consecutive_q_or_more >= 2:
+            action = Action.C if S >= self.low_threshold else Action.D
+            self._last_action = action
+            return action
+        if k >= self.q:
+            if is_low:
+                action = Action.D
+            else:
+                action = Action.C
+        elif is_high and k >= max(0, self.q - 1):
+            action = Action.C
+        else:
+            action = Action.D
+        if self._last_action == Action.C:
+            if k < self.q and (not is_high):
+                action = Action.D
+            elif k >= self.q and is_low:
+                action = Action.D
+        elif k >= self.q and (is_high or is_medium):
+            action = Action.C
+        if self._alternating_like:
+            action = Action.C if S >= self.high_threshold else Action.D
+        self._last_action = action
+        return action
+
+class Strategy_OPPORTUNISTIC_16(BaseStrategy):
+    """
+    Common-pool strategy with adaptive preserve/harvest behavior:
+    - Cooperates on the first round.
+    - Defects on the final round.
+    - Cooperates when the stock is at or below a dynamic sustainability threshold.
+    - Otherwise defects, especially when opponents cooperated in the previous round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(0, self.n - 1)
+        self.kappa = int(math.ceil(self.n_opponents / 2.0))
+        self.min_sustainable = float(max(2 * self.n, 0.0))
+        self.mode = 'preserve'
+        self.last_observed_cooperators = None
+        self.last_expected_next_stock = None
+
+    def _theta(self, round_number: int) -> float:
+        """
+        Sustainability threshold for the current decision round.
+        round_number is 0-based for the already-played rounds.
+        """
+        remaining_including_current = max(1, self.r - round_number)
+        frac = self.capacity / 4.0
+        theta = max(self.min_sustainable, frac * (remaining_including_current / max(1, self.r)))
+        return float(theta)
+
+    def _next_stock(self, current_stock: float, my_action: Action, opp_cooperators: int) -> float:
+        """
+        Compute expected next stock after one round given current stock and observed opponents' cooperation.
+        """
+        n = max(2, self.n)
+        S = float(current_stock)
+        S = max(0.0, min(S, self.capacity))
+        opp_cooperators = int(max(0, min(self.n_opponents, opp_cooperators)))
+        if my_action == Action.C:
+            my_consumption = S / (2.0 * n)
+        else:
+            my_consumption = S / n
+        coop_consumption = opp_cooperators * (S / (2.0 * n))
+        defect_consumption = (self.n_opponents - opp_cooperators) * (S / n)
+        remaining = S - my_consumption - coop_consumption - defect_consumption
+        if remaining < 0.0:
+            remaining = 0.0
+        growth = 2.0 * remaining * (1.0 - remaining / self.capacity) if self.capacity > 0 else 0.0
+        next_stock = remaining + growth
+        if next_stock > self.capacity:
+            next_stock = self.capacity
+        if next_stock < 0.0:
+            next_stock = 0.0
+        return float(next_stock)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        current_stock = float(current_stock)
+        if round_number == 0:
+            self.mode = 'preserve'
+            self.last_observed_cooperators = None
+            self.last_expected_next_stock = None
+            return Action.C
+        if round_number >= self.r - 1:
+            self.mode = 'harvest'
+            return Action.D
+        theta_t = self._theta(round_number)
+        last_k = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        last_k = max(0, min(self.n_opponents, last_k))
+        if current_stock <= theta_t:
+            self.mode = 'preserve'
+            expected_next = self._next_stock(current_stock, Action.C, last_k)
+            self.last_observed_cooperators = last_k
+            self.last_expected_next_stock = expected_next
+            return Action.C
+        if last_k >= self.kappa:
+            self.mode = 'harvest'
+            expected_next = self._next_stock(current_stock, Action.D, last_k)
+            self.last_observed_cooperators = last_k
+            self.last_expected_next_stock = expected_next
+            return Action.D
+        if current_stock > theta_t:
+            self.mode = 'harvest'
+            expected_next = self._next_stock(current_stock, Action.D, last_k)
+            self.last_observed_cooperators = last_k
+            self.last_expected_next_stock = expected_next
+            return Action.D
+        self.mode = 'preserve'
+        expected_next = self._next_stock(current_stock, Action.C, last_k)
+        self.last_observed_cooperators = last_k
+        self.last_expected_next_stock = expected_next
+        return Action.C
+
+class Strategy_OPPORTUNISTIC_17(BaseStrategy):
+    """
+    Adaptive common-pool strategy with cooperation estimation, stock-aware
+    mode switching, and endgame/punishment safeguards.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.p_hat = 0.5
+        self.mode = 'build'
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number + 1
+        S = float(current_stock)
+        if S <= 0.0:
+            return Action.C
+        if history.round_number > 0 and self.n_opponents > 0:
+            k_t = int(history.opponent_cooperators[-1])
+            q_t = k_t / self.n_opponents
+            self.p_hat = 0.7 * self.p_hat + 0.3 * q_t
+            if q_t >= 0.75:
+                self.mode = 'build'
+            elif q_t >= 0.45:
+                self.mode = 'harvest'
+            else:
+                self.mode = 'punish'
+        H = 0.8 * self.capacity
+        L = 0.35 * self.capacity
+        S_half = S / 2.0
+        S_C = min(S - S_half + 2.0 * S_half * (1.0 - S_half / self.capacity), self.capacity)
+        S_D = 0.0
+        if t == 1:
+            return Action.C
+        if t == self.n_rounds:
+            if S >= 1.8 * self.n_players or self.p_hat <= 0.55:
+                return Action.D
+            return Action.C
+        if S < 0.15 * self.capacity:
+            return Action.C
+        if self.mode == 'build' and S < H:
+            return Action.C
+        if self.mode == 'punish':
+            if S <= L:
+                return Action.C
+            return Action.D
+        if S <= L:
+            return Action.C if self.p_hat >= 0.6 else Action.D
+        if S >= H:
+            return Action.D if self.p_hat >= 0.7 else Action.C
+        if self.p_hat >= 0.65 and S_C >= S:
+            return Action.D
+        if self.p_hat < 0.65:
+            return Action.C
+        return Action.C
+
+class Strategy_OPPORTUNISTIC_18(BaseStrategy):
+    """
+    Stock-preserving common-pool strategy:
+    - Cooperates initially and under uncertainty or low stock.
+    - Defects only when the pool looks safe and opponents have been fully cooperative.
+    - Falls back to cooperation immediately after any sign of overuse.
+    - Enters a low-stock restraint mode after severe depletion.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.low_stock_restraint = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = int(history.round_number)
+        r_last = self.n_rounds - 1
+        S = float(current_stock)
+        cap = self.capacity
+        n = self.n_players
+        n_opp = self.n_opponents
+        if t == 0:
+            return Action.C
+        if S <= 0.0:
+            return Action.C
+        if S < cap / 4.0:
+            self.low_stock_restraint = True
+        if self.low_stock_restraint:
+            if t == r_last:
+                return Action.D
+            if S <= cap / 3.0:
+                return Action.C
+            self.low_stock_restraint = False
+        if t == r_last:
+            return Action.D if S > 0.0 else Action.C
+        last_coop = int(history.opponent_cooperators[-1])
+        last_coop = max(0, min(last_coop, n_opp))
+        if n_opp <= 0:
+            return Action.C
+        p = last_coop / float(n_opp)
+        m = n_opp - last_coop
+        x = S / cap if cap > 0.0 else 0.0
+        danger = 2.0 * (1.0 - x) - x / float(n) if n > 0 else 0.0
+        if 0.0 < p < 1.0:
+            return Action.C
+        if p >= 1.0:
+            prev_full_coop = False
+            if history.round_number >= 2 and n_opp > 0:
+                prev_prev_coop = int(history.opponent_cooperators[-2])
+                prev_prev_coop = max(0, min(prev_prev_coop, n_opp))
+                prev_full_coop = prev_prev_coop == n_opp
+            if S >= cap / 2.0 and (prev_full_coop or history.round_number >= 1):
+                return Action.D
+            return Action.C
+        if m >= 1 or danger >= 0.25 or S < cap / 2.0:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_19(BaseStrategy):
+    """
+    Common pool strategy:
+    - Starts by cooperating.
+    - Estimates recent opponent cooperation with a weighted average of the last up to 3 rounds.
+    - Protects the stock when low, exploits when stock is high and cooperation is reliable,
+      and becomes conservative near the end of the game.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 1)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        opp_counts = history.opponent_cooperators
+        recent = opp_counts[max(0, round_number - 3):round_number]
+        if len(recent) == 0:
+            bar_h = 0.0
+            h_last = 0.0
+        else:
+            h_vals = [float(x) / float(self.n_opponents) for x in recent]
+            h_last = h_vals[-1]
+            weights = [3.0, 2.0, 1.0][:len(h_vals)]
+            weights_sum = sum(weights)
+            bar_h = sum((w * h for w, h in zip(weights, reversed(h_vals)))) / weights_sum
+        low_stock = current_stock <= 0.45 * self.capacity
+        mid_stock = 0.45 * self.capacity < current_stock < 0.7 * self.capacity
+        high_stock = current_stock >= 0.7 * self.capacity
+        endgame = round_number + 1 >= max(self.n_rounds - 1, 1)
+        if low_stock:
+            return Action.C
+        if endgame:
+            if current_stock <= 0.6 * self.capacity or bar_h < 0.5:
+                return Action.C
+            return Action.D
+        if high_stock and bar_h >= 0.6:
+            return Action.D
+        if mid_stock:
+            if bar_h >= 0.5:
+                return Action.C
+            return Action.D
+        if bar_h < 1.0 / 3.0:
+            return Action.D
+        return Action.C
+
+class Strategy_OPPORTUNISTIC_20(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Cooperates early when the pool is large enough.
+    - Exploits strong cooperation by opponents when the stock is healthy.
+    - Defects when the stock is low, in the final round, or when cooperation weakens.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.m = max(0, self.n - 1)
+        self.q_estimate = 0.5
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = int(history.round_number) + 1
+        if self.capacity <= 0:
+            return Action.D
+        s_t = float(current_stock)
+        if s_t <= 0:
+            return Action.D
+        u_t = s_t / self.capacity
+        if history.round_number > 0 and len(history.opponent_cooperators) > 0 and (self.m > 0):
+            k_last = int(history.opponent_cooperators[-1])
+            k_last = max(0, min(k_last, self.m))
+            q_obs = k_last / self.m
+            self.q_estimate = 0.7 * self.q_estimate + 0.3 * q_obs
+            q = self.q_estimate
+        else:
+            q = self.q_estimate if self.q_estimate is not None else 0.5
+        if t == 1:
+            return Action.C if self.capacity >= 4 * self.n else Action.D
+        if t >= self.r:
+            return Action.D if s_t >= self.capacity / 2 else Action.C
+        if u_t <= 0.2:
+            return Action.D
+        if q >= 0.75 and u_t >= 0.3:
+            return Action.D
+        if u_t >= 0.6 and q >= 0.5:
+            return Action.C
+        if u_t >= 0.45 and q >= 0.6 and (t <= self.r - 2):
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_21(BaseStrategy):
+    """
+    Adaptive common-pool strategy with:
+    - cooperation streak tracking
+    - defensive mode after repeated low cooperation
+    - opportunistic defection when cooperation is strong and stock is healthy
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.last_observed_opponents_cooperators = 0
+        self.cooperation_streak = 0
+        self.low_cooperation_streak = 0
+        self.defensive_mode = False
+        self.last_processed_round = -1
+
+    def _p_from_k(self, k: int) -> float:
+        n = self.game_description.n_players
+        n_opponents = max(n - 1, 1)
+        if n <= 2:
+            if k <= 0:
+                return 0.0
+            if k >= 1:
+                return 1.0
+        return float(k) / float(n_opponents)
+
+    def _update_memory(self, history: PlayerHistory) -> None:
+        if history.round_number <= 0:
+            return
+        current_round = history.round_number - 1
+        if current_round == self.last_processed_round:
+            return
+        k = int(history.opponent_cooperators[-1])
+        p = self._p_from_k(k)
+        if p >= 0.8:
+            self.cooperation_streak += 1
+        else:
+            self.cooperation_streak = 0
+        if p < 0.5:
+            self.low_cooperation_streak += 1
+        else:
+            self.low_cooperation_streak = 0
+        if self.low_cooperation_streak >= 2:
+            self.defensive_mode = True
+        if p >= 0.75:
+            self.defensive_mode = False
+        self.last_observed_opponents_cooperators = k
+        self.last_processed_round = current_round
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        capacity = float(self.game_description.capacity)
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        self._update_memory(history)
+        if round_number >= self.game_description.n_rounds - 1:
+            return Action.D
+        stock = float(current_stock)
+        k = self.last_observed_opponents_cooperators
+        p = self._p_from_k(k)
+        critical_stock = stock <= 0.25 * capacity
+        fragile_stock = stock <= 0.4 * capacity
+        healthy_stock = stock >= 0.6 * capacity
+        safe_stock = stock >= 0.75 * capacity
+        if critical_stock:
+            return Action.C
+        if self.defensive_mode:
+            return Action.C if critical_stock else Action.D
+        if self.cooperation_streak >= 2 and healthy_stock:
+            return Action.D
+        if p < 0.5:
+            return Action.C
+        if fragile_stock and p < 0.75:
+            return Action.C
+        if 0.5 <= p < 0.8 and stock < 0.6 * capacity:
+            return Action.C
+        if safe_stock and p >= 0.8:
+            return Action.D
+        if healthy_stock and p >= 0.9:
+            return Action.D
+        if p == 0.5:
+            return Action.D if healthy_stock else Action.C
+        return Action.C
+
+class Strategy_OPPORTUNISTIC_22(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Starts cooperatively
+    - Defects quickly when cooperation falls below a majority
+    - Rewards full cooperation and abundant stock
+    - Enters extraction mode in the late game unless the group remains fully aligned
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = max(2, int(game_description.n_players))
+        self.r = max(1, int(game_description.n_rounds))
+        self.capacity = float(game_description.capacity)
+        self.theta = math.ceil((self.n - 1) / 2)
+        self.low_majority = math.floor((self.n - 1) / 2)
+        self.high_stock_threshold = 2.0 / 3.0 * self.capacity
+        self.low_stock_threshold = 0.5 * self.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = int(history.round_number)
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        last_k = int(opp[-1]) if len(opp) > 0 else 0
+        if len(opp) > 0:
+            denom = max(1, self.n - 1)
+            m_t = float(np.mean(opp)) / float(denom)
+        else:
+            m_t = 0.0
+        b_t = 0
+        for val in opp[::-1]:
+            if int(val) <= self.low_majority:
+                b_t += 1
+            else:
+                break
+        if b_t >= 2:
+            if last_k >= self.theta:
+                if current_stock >= self.high_stock_threshold and last_k == self.n - 1:
+                    return Action.C
+                return Action.C
+            if current_stock >= self.high_stock_threshold and last_k == self.n - 1:
+                return Action.C
+            return Action.D
+        if t >= self.r - 2:
+            if last_k == self.n - 1 and current_stock >= self.high_stock_threshold:
+                return Action.C
+            return Action.D
+        if current_stock <= self.low_stock_threshold:
+            if last_k == self.n - 1:
+                return Action.C
+            return Action.D
+        if current_stock >= self.high_stock_threshold:
+            if last_k == self.n - 1:
+                return Action.C
+            if m_t >= 0.75:
+                return Action.C
+            if m_t <= 0.5:
+                return Action.D
+        if last_k >= self.theta:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_23(BaseStrategy):
+    """
+    State-contingent threshold strategy for the Common Pool Resource Game.
+    Uses current stock, recent opponent cooperation, running cooperation average,
+    and endgame tightening to decide between cooperate and defect.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.lambda_ = 0.35
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        capacity = float(self.game_description.capacity)
+        if capacity <= 0:
+            return Action.D
+        if n < 2:
+            return Action.D
+        q = max(0.0, min(1.0, float(current_stock) / capacity))
+        round_t = history.round_number
+        if round_t == 0:
+            return Action.C if q >= 0.75 else Action.D
+        opp = history.opponent_cooperators
+        m = n - 1
+        last_k = int(opp[-1]) if len(opp) > 0 else 0
+        x_prev = 0.0 if m <= 0 else max(0.0, min(1.0, last_k / m))
+        a = x_prev
+        if len(opp) >= 2:
+            a = float(opp[0]) / m if m > 0 else 0.0
+            a = max(0.0, min(1.0, a))
+            for idx in range(1, len(opp)):
+                x_i = float(opp[idx]) / m if m > 0 else 0.0
+                x_i = max(0.0, min(1.0, x_i))
+                a = (1.0 - self.lambda_) * a + self.lambda_ * x_i
+        x_eff = 0.5 * x_prev + 0.5 * a
+        coop_streak = 0
+        for idx in range(len(opp) - 1, -1, -1):
+            x_i = float(opp[idx]) / m if m > 0 else 0.0
+            if x_i >= 0.8:
+                coop_streak += 1
+            else:
+                break
+        anti_exploit = False
+        if round_t >= 2 and bool(history.my_actions[-1]):
+            prev_k = int(opp[-2]) if len(opp) >= 2 else last_k
+            x_before = max(0.0, min(1.0, prev_k / m)) if m > 0 else 0.0
+            if x_before - x_prev >= 0.25:
+                anti_exploit = True
+        if round_t >= r - 3:
+            return Action.C if q >= 0.9 and x_eff >= 0.8 else Action.D
+        if x_prev <= 0.25:
+            return Action.C if q >= 0.85 and x_prev >= 0.75 else Action.D
+        if x_prev >= 0.8 and coop_streak >= 2:
+            return Action.C if q >= 0.6 else Action.D
+        if anti_exploit:
+            return Action.C if q >= 0.9 and x_prev >= 0.75 else Action.D
+        if q < 0.55 or x_eff < 0.6:
+            return Action.D
+        if q >= 0.8 and x_eff >= 0.7:
+            return Action.C
+        if 0.55 <= q < 0.8:
+            return Action.C if x_eff >= 0.7 and coop_streak >= 2 else Action.D
+        if q <= 0.45 or x_eff <= 0.5:
+            return Action.D
+        if q >= 0.7 and x_eff >= 0.7:
+            return Action.C
+        if q >= 0.6 and x_eff >= 0.6:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_24(BaseStrategy):
+    """
+    Conservative-foraging common pool strategy:
+    - Cooperate first to preserve stock and observe opponents.
+    - Defect only when cooperation is strong and the stock remains healthy.
+    - Revert to cooperation when stock is low or cooperation weakens.
+    - Defect unconditionally in the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.m = max(self.n - 1, 0)
+        self._one_third = self.capacity / 3.0
+        self._one_half = self.capacity / 2.0
+        self._three_fifths = 3.0 * self.capacity / 5.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        if round_number >= self.r - 1:
+            return Action.D
+        k = None
+        rho = 0.0
+        if len(history.opponent_cooperators) > 0:
+            k = int(history.opponent_cooperators[-1])
+            if self.m > 0:
+                rho = k / self.m
+            else:
+                rho = 0.0
+        S = float(current_stock)
+        if S <= self._one_third:
+            return Action.C
+        if round_number == self.r - 2:
+            if rho >= 0.5:
+                return Action.D
+            return Action.C
+        if rho >= 2.0 / 3.0 and S >= self._one_half:
+            return Action.D
+        if rho >= 0.5 and S >= self._three_fifths:
+            return Action.D
+        if rho <= 1.0 / 3.0:
+            return Action.C
+        return Action.C
+
+class Strategy_OPPORTUNISTIC_25(BaseStrategy):
+    """
+    Adaptive common-pool strategy with exponential smoothing of opponent cooperation.
+
+    - Starts with cooperation.
+    - Defects in the final round.
+    - Uses an estimated opponent cooperation rate to forecast stock evolution.
+    - Defects when the forecast suggests the stock can be sustained; otherwise cooperates.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self._eps = 1e-12
+        self.last_estimated_q = 1.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = int(history.round_number)
+        n = self.n_players
+        r = self.n_rounds
+        S = float(current_stock)
+        if t == 0:
+            self.last_estimated_q = 1.0
+            return Action.C
+        if t >= r - 1:
+            self.last_estimated_q = self._estimate_q(history)
+            return Action.D
+        if S <= self._eps:
+            self.last_estimated_q = self._estimate_q(history)
+            return Action.C
+        q_t = self._estimate_q(history)
+        self.last_estimated_q = q_t
+        opponents = max(0, n - 1)
+        expected_other_consumption = opponents * (q_t * (S / (2.0 * n)) + (1.0 - q_t) * (S / n))
+
+        def score_for(action: Action) -> float:
+            own_consumption = S / (2.0 * n) if action == Action.C else S / n
+            remaining = max(0.0, S - own_consumption - expected_other_consumption)
+            next_stock = min(remaining + 2.0 * remaining * (1.0 - remaining / self.capacity), self.capacity)
+            lambda_t = (r - t) / (r - t + 1.0)
+            return own_consumption + lambda_t * next_stock
+        u_c = score_for(Action.C)
+        u_d = score_for(Action.D)
+        if abs(u_c - u_d) <= self._eps:
+            if q_t >= 0.5 and S >= self.capacity / 2.0:
+                return Action.D
+            return Action.C
+        return Action.D if u_d > u_c else Action.C
+
+    def _estimate_q(self, history: PlayerHistory) -> float:
+        """
+        Exponentially smoothed estimate of opponent cooperation.
+        q_1 = 1
+        q_{t+1} = 0.5 * q_t + 0.5 * (m_t / (n-1))
+        """
+        n = self.n_players
+        opponents = max(1, n - 1)
+        q = 1.0
+        rounds_observed = int(history.round_number)
+        if rounds_observed <= 0:
+            return q
+        opp = history.opponent_cooperators
+        limit = min(rounds_observed, len(opp))
+        for i in range(limit):
+            m_t = float(opp[i])
+            q = 0.5 * q + 0.5 * (m_t / opponents)
+        if q < 0.0:
+            return 0.0
+        if q > 1.0:
+            return 1.0
+        return q
+
+class Strategy_OPPORTUNISTIC_26(BaseStrategy):
+    """
+    Threshold strategy for the Common Pool Resource Game.
+
+    - Opens with cooperation.
+    - Defects in the final round.
+    - Uses current stock and estimated opponent cooperation to decide in between.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        n = max(int(game_description.n_players), 2)
+        capacity = float(game_description.capacity)
+        self.n_players = n
+        self.n_opponents = max(n - 1, 1)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = capacity
+        self.H = math.ceil(2 * (n - 1) / 3)
+        self.M = math.ceil((n - 1) / 2)
+        self.L = capacity / 3.0
+        self.R = 2.0 * capacity / 3.0
+
+    def _estimate_cooperation(self, history: PlayerHistory) -> float:
+        """
+        Compute q_hat for the most recently observed round.
+        If no prior rounds exist, returns 0.0.
+        """
+        rounds_played = history.round_number
+        if rounds_played <= 0:
+            return 0.0
+        opp_counts = history.opponent_cooperators
+        denom = float(self.n_opponents)
+        if denom <= 0.0:
+            return 0.0
+        q_hat = float(opp_counts[0]) / denom
+        for t in range(1, rounds_played):
+            q_t = float(opp_counts[t]) / denom
+            q_hat = 0.7 * q_hat + 0.3 * q_t
+        return q_hat
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number + 1
+        r = self.n_rounds
+        n_opponents = self.n_opponents
+        if t == 1:
+            return Action.C
+        if t == r:
+            return Action.D
+        q_hat_prev = self._estimate_cooperation(history)
+        c_prev = int(history.opponent_cooperators[-1]) if history.round_number > 0 else 0
+        if current_stock <= self.L:
+            if c_prev == n_opponents:
+                return Action.C
+            return Action.D
+        if current_stock >= self.R:
+            if c_prev >= self.H or q_hat_prev >= 0.7:
+                return Action.C
+            return Action.D
+        if c_prev >= self.M and q_hat_prev >= 0.5:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_27(BaseStrategy):
+    """
+    Stock-based threshold strategy with:
+    - cooperative mode in healthy pools,
+    - defensive mode in fragile pools,
+    - recovery after collapse,
+    - periodic exploitation against highly cooperative opponents,
+    - short backlash retaliation after low cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self._eligible_exploit_streak = 0
+        self._backlash_remaining = 0
+        self._last_round_seen = -1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = int(history.round_number)
+        s = float(current_stock)
+        n = self.n_players
+        cap = self.capacity
+        if t > 0 and len(history.opponent_cooperators) > 0:
+            k = int(history.opponent_cooperators[-1])
+            n_opponents = max(n - 1, 1)
+            p = k / n_opponents
+        else:
+            k = 0
+            p = 0.0
+        if t != self._last_round_seen:
+            self._last_round_seen = t
+        if t == 0:
+            self._eligible_exploit_streak = 0
+            self._backlash_remaining = 0
+            return Action.C
+        if t == self.n_rounds - 1:
+            return Action.D if s > 0 else Action.C
+        if self._backlash_remaining > 0:
+            self._backlash_remaining -= 1
+            if p >= 0.8 and s >= 0.55 * cap:
+                self._eligible_exploit_streak += 1
+            else:
+                self._eligible_exploit_streak = 0
+            return Action.D
+        if s <= 0.2 * cap:
+            self._eligible_exploit_streak = 0
+            if s == 0.0:
+                return Action.C if k >= max(n - 1, 0) else Action.D
+            return Action.C if p >= 0.75 else Action.D
+        if p <= 0.2:
+            self._backlash_remaining = 2
+            self._eligible_exploit_streak = 0
+            return Action.D
+        exploit_condition = p >= 0.8 and s >= 0.55 * cap
+        if exploit_condition:
+            self._eligible_exploit_streak += 1
+            if self._eligible_exploit_streak % 3 == 0:
+                return Action.D
+            return Action.C
+        else:
+            self._eligible_exploit_streak = 0
+        safe_zone = s >= 0.6 * cap and p >= 0.6
+        fragile_zone = s <= 0.4 * cap or p <= 0.4
+        transition_zone = not safe_zone and (not fragile_zone)
+        if safe_zone:
+            return Action.C
+        if fragile_zone:
+            return Action.D
+        if s >= 0.5 * cap and p >= 0.5:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_28(BaseStrategy):
+    """
+    Cooperative-by-default common-pool strategy with adaptive opportunism:
+    - Cooperate in fragile or uncertain conditions.
+    - Defect when stock is safe and observed cooperation is sufficiently high.
+    - Maintain a smoothed cooperation score q to slow trust and react to repeated defection.
+    - Use simple memory to temporarily cooperate after unanimous defection.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 0)
+        self.q = 1.0
+        self.force_cooperate_rounds = 0
+        self._last_processed_round = -1
+
+    def _opponent_coop_rate(self, history: PlayerHistory) -> float:
+        if history.round_number <= 0 or self.n_opponents <= 0:
+            return 1.0
+        last_count = int(history.opponent_cooperators[-1])
+        if last_count <= 0:
+            return 0.0
+        if last_count >= self.n_opponents:
+            return 1.0
+        return last_count / self.n_opponents
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        stock = float(current_stock)
+        if round_number > 0 and self._last_processed_round != round_number:
+            c_obs = self._opponent_coop_rate(history)
+            self.q = 0.8 * self.q + 0.2 * c_obs
+            if self.n_opponents > 0 and int(history.opponent_cooperators[-1]) == 0:
+                self.force_cooperate_rounds = max(self.force_cooperate_rounds, 2)
+            self._last_processed_round = round_number
+        fragile = stock < 0.35 * self.capacity or self.q < 0.5
+        safe = stock >= 0.6 * self.capacity and self.q >= 0.5
+        if self.n_opponents <= 0:
+            return Action.D if round_number == self.n_rounds - 1 else Action.C
+        if round_number == 0:
+            return Action.C
+        if round_number == self.n_rounds - 1:
+            return Action.C if fragile else Action.D
+        if stock <= 0.0:
+            return Action.C
+        c = self._opponent_coop_rate(history)
+        if self.force_cooperate_rounds > 0 and (not safe):
+            self.force_cooperate_rounds -= 1
+            return Action.C
+        if fragile:
+            return Action.C
+        if safe:
+            return Action.D
+        if self.q < 0.5:
+            return Action.C
+        return Action.C if c >= 0.5 else Action.D
+
+class Strategy_OPPORTUNISTIC_29(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - starts cooperatively,
+    - tracks opponent cooperation with an exponential moving average,
+    - defects only in healthy, stable cooperation conditions,
+    - enforces a brief cooldown after any defection.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.coop_rate = 1.0
+        self.streak = 0
+        self.cooldown = 0
+        self.high = math.ceil(0.8 * self.n_opponents)
+        self.medium = math.ceil(0.6 * self.n_opponents)
+        self.low = math.floor(0.5 * self.n_opponents)
+        self.safe_stock = 0.75 * self.capacity
+        self.danger_stock = 0.45 * self.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        m = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else self.n_opponents
+        m = max(0, min(m, self.n_opponents))
+        denom = self.n_opponents if self.n_opponents > 0 else 1
+        observed_rate = m / denom
+        self.coop_rate = 0.7 * self.coop_rate + 0.3 * observed_rate
+        if m >= self.high:
+            self.streak += 1
+        else:
+            self.streak = 0
+        if self.cooldown > 0:
+            self.cooldown -= 1
+        if t >= self.n_rounds - 1:
+            return Action.D
+        S = float(current_stock)
+        if S <= self.danger_stock:
+            return Action.C
+        if self.cooldown > 0:
+            return Action.C
+        if S >= self.safe_stock and self.coop_rate >= 0.75 and (self.streak >= 2):
+            self.cooldown = 2
+            return Action.D
+        if S >= self.capacity and m >= self.medium:
+            self.cooldown = 2
+            return Action.D
+        return Action.C
+
+class Strategy_OPPORTUNISTIC_30(BaseStrategy):
+    """
+    Cooperative-by-default common-pool strategy with stock-sensitive defection,
+    short punishment memory, and final-round caution.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.theta_low = 0.65
+        self.theta_high = 0.85
+        self.s_safe = 0.75 * self.capacity
+        self.s_mid = 0.5 * self.capacity
+        self.s_stress = 0.35 * self.capacity
+        self.punishment_mode = False
+        self.consecutive_good = 0
+        self.punishment_remaining = 0
+        self._last_processed_round = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        n_opponents = max(self.n_players - 1, 1)
+        if round_number > self._last_processed_round:
+            start = max(self._last_processed_round, 0)
+            end = round_number
+            for idx in range(start, end):
+                coop_count = int(history.opponent_cooperators[idx])
+                c = coop_count / n_opponents
+                if c < self.theta_low:
+                    self.punishment_mode = True
+                    self.punishment_remaining = 2
+                    self.consecutive_good = 0
+                elif c >= self.theta_high:
+                    self.consecutive_good += 1
+                    if self.consecutive_good >= 2:
+                        self.punishment_mode = False
+                        self.punishment_remaining = 0
+                else:
+                    self.consecutive_good = 0
+                if self.punishment_remaining > 0:
+                    self.punishment_remaining = max(0, self.punishment_remaining - 1)
+                    if self.punishment_remaining == 0 and self.consecutive_good < 2:
+                        self.punishment_mode = False
+            self._last_processed_round = round_number
+        if round_number == 0:
+            return Action.C
+        c_last = int(history.opponent_cooperators[-1]) / n_opponents
+        is_final_decision = round_number == self.n_rounds - 1
+        if is_final_decision:
+            if current_stock >= self.s_mid:
+                return Action.D
+            if c_last >= self.theta_high and current_stock < self.s_mid:
+                return Action.C
+            return Action.D
+        if self.punishment_mode or self.punishment_remaining > 0:
+            if c_last >= self.theta_high and current_stock > self.s_mid or (c_last >= self.theta_low and current_stock > self.s_safe):
+                self.punishment_mode = False
+                self.punishment_remaining = 0
+                self.consecutive_good = 2 if c_last >= self.theta_high else 0
+                return Action.C
+            return Action.D
+        if current_stock <= self.s_stress:
+            if c_last < self.theta_low:
+                self.punishment_mode = True
+                self.punishment_remaining = 2
+                self.consecutive_good = 0
+            return Action.D
+        if current_stock <= self.s_mid:
+            return Action.C if c_last >= self.theta_high else Action.D
+        if current_stock <= self.s_safe:
+            return Action.C if c_last >= self.theta_low else Action.D
+        return Action.C if c_last >= self.theta_low else Action.D
+
+class Strategy_OPPORTUNISTIC_31(BaseStrategy):
+    """
+    State-contingent threshold strategy for the Common Pool Resource Game.
+    Cooperates initially, tracks a smoothed belief about opponent cooperation,
+    and defects when cooperation is weak, the pool is vulnerable, or the game
+    is in the final rounds unless a strong cooperative streak is present.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.capacity = float(game_description.capacity)
+        self.n_players = int(game_description.n_players)
+        self.n_opponents = max(self.n_players - 1, 1)
+        self.n_rounds = int(game_description.n_rounds)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        stock = float(current_stock)
+        capacity = self.capacity
+        if round_number == 0:
+            return Action.C
+        belief = 1.0
+        opponent_counts = history.opponent_cooperators
+        for idx in range(round_number):
+            coop_count = int(opponent_counts[idx])
+            share = coop_count / self.n_opponents if self.n_opponents > 0 else 0.0
+            belief = 0.7 * belief + 0.3 * share
+            if share < 0.5:
+                belief = min(belief, 0.4)
+            if share >= 0.8:
+                belief = max(belief, 0.85)
+        t = round_number + 1
+        if self.n_rounds >= 2 and t >= self.n_rounds - 1:
+            if round_number >= 2:
+                last_share = int(opponent_counts[round_number - 1]) / self.n_opponents if self.n_opponents > 0 else 0.0
+                prev_share = int(opponent_counts[round_number - 2]) / self.n_opponents if self.n_opponents > 0 else 0.0
+                if last_share == 1.0 and prev_share == 1.0 and (stock >= 0.8 * capacity):
+                    return Action.C
+            return Action.D
+        last_share = int(opponent_counts[round_number - 1]) / self.n_opponents if self.n_opponents > 0 else 0.0
+        if last_share == 0.0 and round_number > 1:
+            return Action.D
+        vulnerability = stock / capacity if capacity > 0 else 0.0
+        q_t = 0.55 + 0.25 * (1.0 - vulnerability)
+        if belief >= q_t and stock >= capacity / 4.0:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_32(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Starts by cooperating.
+    - Tracks smoothed opponent cooperation.
+    - Defects only when cooperation is high and stock is comfortably high.
+    - Falls back to cooperation under low stock or weak cooperation.
+    - Always defects on the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self._heavy_defect_cooldown = 0
+        self._last_history_len = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        cap = float(self.game_description.capacity)
+        round_number = history.round_number
+        remaining_rounds = r - round_number
+        if round_number == 0:
+            return Action.C
+        opp_counts = history.opponent_cooperators
+        n_opponents = max(n - 1, 1)
+        e_t = (n - 1) / 2.0
+        if len(opp_counts) >= 1:
+            e_t = float(opp_counts[0])
+            for idx in range(1, len(opp_counts)):
+                e_t = round(0.6 * float(opp_counts[idx]) + 0.4 * float(e_t))
+        last_o = int(opp_counts[-1]) if len(opp_counts) > 0 else 0
+        rho_t = last_o / n_opponents if n_opponents > 0 else 0.0
+        if len(opp_counts) >= 2:
+            rho_prev = float(opp_counts[-2]) / n_opponents if n_opponents > 0 else 0.0
+            if rho_prev < 0.5 and rho_t < 0.5:
+                self._heavy_defect_cooldown = 2
+        if self._heavy_defect_cooldown > 0:
+            self._heavy_defect_cooldown -= 1
+            return Action.C
+        if remaining_rounds == 1:
+            return Action.D
+        if remaining_rounds == 2 and current_stock >= 2.0 * cap / 3.0:
+            return Action.D
+        high_coop_threshold = math.ceil(2.0 * (n - 1) / 3.0)
+        low_coop_threshold = math.floor((n - 1) / 3.0)
+        high_coop = e_t > high_coop_threshold
+        medium_stock = current_stock > cap / 2.0
+        low_stock = current_stock < cap / 3.0
+        low_coop = e_t <= low_coop_threshold
+        if high_coop and medium_stock:
+            return Action.D
+        elif low_stock or low_coop:
+            return Action.C
+        else:
+            if rho_t >= 0.5 and current_stock >= 2.0 * cap / 5.0:
+                return Action.D
+            return Action.C
+
+class Strategy_INDIVIDUALISTIC_5(BaseStrategy):
+    """
+    Common-pool strategy:
+    - Cooperate in round 1.
+    - Defect in the final round.
+    - In the penultimate round, cooperate only under low stock.
+    - In intermediate rounds, cooperate when stock is scarce, or when
+      opponents were sufficiently cooperative last round and stock is not high.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        current_round = round_number + 1
+        if round_number == 0:
+            return Action.C
+        if current_round == self.n_rounds:
+            return Action.D
+        if current_round == self.n_rounds - 1:
+            return Action.C if current_stock <= self.capacity / 3.0 else Action.D
+        n_opponents = max(self.n_players - 1, 1)
+        last_opponents_coop = 0
+        if len(history.opponent_cooperators) > 0:
+            last_opponents_coop = int(history.opponent_cooperators[-1])
+        rho = last_opponents_coop / n_opponents
+        s = current_stock / self.capacity if self.capacity > 0 else 0.0
+        if s <= 1.0 / 3.0:
+            return Action.C
+        if rho <= 1.0 / 3.0 and s <= 2.0 / 3.0:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_6(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Cooperates early when stock and observed cooperation are strong.
+    - Defects under low stock, weak cooperation, pressure shocks, and in the endgame.
+    - Uses a short memory of recent stock movements to enforce temporary punishment.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.opponents = max(self.n - 1, 0)
+        self.cooldown_remaining = 0
+        self.last_stock_seen = None
+        self.last_opponent_cooperation_rate = 0.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.n
+        r = self.r
+        capacity = self.capacity
+        m = self.opponents
+        t_index = history.round_number
+        current_stock = float(current_stock)
+        if history.round_number > 0 and len(history.opponent_cooperators) > 0 and (m > 0):
+            k_prev = int(history.opponent_cooperators[-1])
+            c_t = k_prev / m
+        else:
+            c_t = 0.0
+        prev_stock = self.last_stock_seen
+        dropped_more_than_20 = False
+        increased_stock = False
+        if prev_stock is not None:
+            delta = current_stock - float(prev_stock)
+            if delta < -0.2 * capacity:
+                dropped_more_than_20 = True
+            if delta > 0.0:
+                increased_stock = True
+        if dropped_more_than_20:
+            self.cooldown_remaining = 2
+        emergency_threshold = capacity / n if n > 0 else capacity
+        if current_stock <= emergency_threshold:
+            self.last_stock_seen = current_stock
+            self.last_opponent_cooperation_rate = c_t
+            if self.cooldown_remaining > 0:
+                self.cooldown_remaining = max(0, self.cooldown_remaining - 1)
+            return Action.D
+        if history.round_number == 0:
+            action = Action.C if n <= 3 and current_stock > 0.8 * capacity else Action.D
+            self.last_stock_seen = current_stock
+            self.last_opponent_cooperation_rate = c_t
+            return action
+        if t_index >= max(0, r - 3):
+            if c_t == 1.0 and current_stock > 0.75 * capacity:
+                action = Action.C
+            else:
+                action = Action.D
+            self.last_stock_seen = current_stock
+            self.last_opponent_cooperation_rate = c_t
+            if self.cooldown_remaining > 0:
+                self.cooldown_remaining = max(0, self.cooldown_remaining - 1)
+            return action
+        if self.cooldown_remaining > 0:
+            if increased_stock and c_t >= 0.75:
+                action = Action.C
+            else:
+                action = Action.D
+            self.cooldown_remaining = max(0, self.cooldown_remaining - 1)
+            self.last_stock_seen = current_stock
+            self.last_opponent_cooperation_rate = c_t
+            return action
+        T_t = history.round_number / (r - 1) if r > 1 else 1.0
+        theta_t = 0.55 - 0.15 * T_t
+        sigma_t = 0.45 * capacity + 0.25 * (capacity - current_stock)
+        cooperate = current_stock > sigma_t and c_t > theta_t and (current_stock > 0.5 * capacity or c_t > 0.75)
+        action = Action.C if cooperate else Action.D
+        self.last_stock_seen = current_stock
+        self.last_opponent_cooperation_rate = c_t
+        return action
+
+class Strategy_INDIVIDUALISTIC_7(BaseStrategy):
+    """
+    Probing cooperation early, then adaptive extraction with conservative
+    protection under low stock, endgame tightening, and smoothed belief updates
+    about opponent cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.q = 1.0
+        self._last_processed_round = 0
+
+    def _expected_next_stock(self, current_stock: float, cooperate: bool) -> float:
+        n = max(2, int(self.game_description.n_players))
+        capacity = float(self.game_description.capacity)
+        S = max(0.0, float(current_stock))
+        opp_per_player = self.q * (S / (2.0 * n)) + (1.0 - self.q) * (S / n)
+        total_opp = (n - 1) * opp_per_player
+        my_consumption = S / (2.0 * n) if cooperate else S / n
+        remaining = S - my_consumption - total_opp
+        if remaining < 0.0:
+            remaining = 0.0
+        growth = 2.0 * remaining * (1.0 - remaining / capacity) if capacity > 0 else 0.0
+        new_stock = remaining + growth
+        return min(max(new_stock, 0.0), capacity)
+
+    def _sync_belief(self, history: PlayerHistory) -> None:
+        n = max(2, int(self.game_description.n_players))
+        total_rounds = int(history.round_number)
+        start = min(self._last_processed_round, total_rounds)
+        if start >= total_rounds:
+            return
+        for idx in range(start, total_rounds):
+            coop_count = int(history.opponent_cooperators[idx]) if idx < len(history.opponent_cooperators) else 0
+            denom = max(1, n - 1)
+            observed_rate = coop_count / denom
+            self.q = 0.7 * self.q + 0.3 * observed_rate
+            if idx >= 1 and idx < len(history.opponent_cooperators):
+                prev = int(history.opponent_cooperators[idx - 1]) / denom
+                curr = observed_rate
+                if prev <= 0.5 and curr <= 0.5:
+                    self.q = min(self.q, 0.25)
+                elif prev >= 0.5 and curr >= 0.5:
+                    self.q = max(self.q, 0.75)
+        self._last_processed_round = total_rounds
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        self._sync_belief(history)
+        n = max(2, int(self.game_description.n_players))
+        r = max(1, int(self.game_description.n_rounds))
+        t = int(history.round_number) + 1
+        S = max(0.0, float(current_stock))
+        capacity = float(self.game_description.capacity)
+        if t == 1:
+            return Action.C
+        if t >= r:
+            return Action.D
+        last_coop_count = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        last_two_avg = None
+        if len(history.opponent_cooperators) >= 2:
+            denom = max(1, n - 1)
+            last_two_avg = (int(history.opponent_cooperators[-1]) + int(history.opponent_cooperators[-2])) / (2.0 * denom)
+        if last_coop_count == 0:
+            if last_two_avg is None or last_two_avg <= 0.5:
+                return Action.D
+        if S < 0.2 * capacity:
+            return Action.C if self.q >= 0.75 else Action.D
+        if t == r - 1:
+            return Action.C if S >= 0.85 * capacity and self.q >= 0.75 else Action.D
+        if not (self.q >= 0.5 and S >= 0.35 * capacity):
+            return Action.D
+        next_c = self._expected_next_stock(S, cooperate=True)
+        next_d = self._expected_next_stock(S, cooperate=False)
+        m = r - t + 1
+        if m > 2 and next_c >= next_d or (m == 2 and next_c > 0.85 * capacity):
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_8(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Round 1: cooperate
+    - Final round: defect
+    - Intermediate rounds: threshold-based response to current stock and prior opponent cooperation,
+      with extra caution at very low stock and a limited upgrade when stock has risen for two rounds.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self._last_stock = None
+        self._prev_stock = None
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number
+        last_round_index = self.n_rounds - 1
+        self._prev_stock = self._last_stock
+        self._last_stock = float(current_stock)
+        if round_number == 0:
+            return Action.C
+        if round_number >= last_round_index:
+            return Action.D
+        s = float(current_stock)
+        cap = self.capacity
+        prev_opp_coop = 0
+        if len(history.opponent_cooperators) > 0:
+            prev_opp_coop = int(history.opponent_cooperators[-1])
+        n_opponents = max(self.n_players - 1, 1)
+        p = prev_opp_coop / n_opponents
+        decision = Action.D
+        if s > cap / 3:
+            if s >= 5 * cap / 6 and p >= 2 / 3:
+                decision = Action.C
+            elif s >= cap / 2 and p >= 1 / 2:
+                decision = Action.C
+        if s < cap / 6:
+            decision = Action.D
+        rising_two_rounds = False
+        if self._prev_stock is not None and self._last_stock is not None:
+            if self._prev_stock is not None:
+                if self._prev_stock is not None:
+                    rising_two_rounds = self._prev_stock is not None and self._last_stock is not None and (self._prev_stock < self._last_stock)
+        if self._prev_stock is not None and self._last_stock is not None:
+            pass
+        if round_number >= 2 and self._prev_stock is not None:
+            rising_two_rounds = False
+        if decision == Action.D and s >= cap / 2 and (p >= 1 / 2):
+            if self._prev_stock is not None and self._last_stock is not None:
+                if self._last_stock >= self._prev_stock:
+                    decision = Action.C
+        return decision
+
+class Strategy_INDIVIDUALISTIC_9(BaseStrategy):
+    """
+    Stock-preserving threshold strategy with aggregate reciprocity.
+
+    - Cooperates in the first round only if the initial capacity is sufficiently high.
+    - In intermediate rounds, cooperates only when both observed opponent cooperation
+      and current stock are at least half of their respective benchmarks.
+    - In the last round, cooperates only under full observed cooperation.
+    - Defaults to defection when information is missing or the stock is depleted.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.n
+        r = self.r
+        capacity = self.capacity
+        round_number = int(history.round_number)
+        if current_stock <= 0:
+            return Action.D
+        if round_number == 0:
+            return Action.C if capacity >= 4 * n else Action.D
+        k_t = 0.0
+        try:
+            last_opponents = history.opponent_cooperators[-1]
+            denom = max(n - 1, 1)
+            k_t = float(last_opponents) / float(denom)
+        except Exception:
+            k_t = 0.0
+        q_t = float(current_stock) / capacity if capacity > 0 else 0.0
+        if round_number >= r - 1:
+            return Action.C if k_t == 1.0 else Action.D
+        if k_t >= 0.5 and q_t >= 0.5:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_10(BaseStrategy):
+    """
+    Start cooperatively, then use stock level and observed opponent cooperation
+    to decide whether to keep cooperating or switch to defection to protect the
+    common pool.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(0, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        if self.capacity <= 0:
+            return Action.D
+        x = float(current_stock) / self.capacity
+        x = max(0.0, min(1.0, x))
+        last_opponent_coop = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if self.n_opponents > 0:
+            q = last_opponent_coop / self.n_opponents
+        else:
+            q = 1.0
+        last_my_action = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else True
+        last_played_c = last_my_action is True
+        if round_number >= self.n_rounds - 1:
+            return Action.D if x < 0.5 else Action.C
+        if x < 2.0 / max(1, self.n_players):
+            return Action.D
+        if q < 0.5:
+            return Action.D
+        if last_played_c and q >= 1.0 and (x >= 0.5):
+            return Action.C
+        if last_played_c and q <= 0.5:
+            return Action.D
+        if not last_played_c and x < 1.0 / 3.0:
+            return Action.D
+        if x >= 0.5:
+            return Action.C
+        if x >= 1.0 / 3.0:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_11(BaseStrategy):
+    """
+    Trust-based common pool strategy:
+    - Cooperate initially.
+    - Update a smoothed trust score from opponent cooperation.
+    - Defect when the pool is depleted, trust is low, majority cooperation is absent,
+      the stock has dropped sharply, or in the final round.
+    - Once a low-cooperation / low-stock trigger activates the reset rule, keep defecting
+      until both cooperation and stock health recover.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.trust = 1.0
+        self.defect_lock = False
+        self.last_seen_stock = float(game_description.capacity)
+        self.last_rho = 1.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        capacity = float(self.game_description.capacity)
+        round_number = history.round_number
+        if round_number == 0:
+            self.trust = 1.0
+            self.defect_lock = False
+            self.last_seen_stock = float(current_stock)
+            self.last_rho = 1.0
+            return Action.C
+        last_opponent_cooperators = int(history.opponent_cooperators[-1]) if round_number > 0 else 0
+        if n > 2:
+            denom = max(1, n - 1)
+            rho = last_opponent_cooperators / denom
+        else:
+            rho = float(last_opponent_cooperators)
+        self.last_rho = rho
+        self.trust = 0.6 * self.trust + 0.4 * rho
+        stock_ratio = current_stock / capacity if capacity > 0 else 0.0
+        if rho < 0.5 or stock_ratio < 0.35:
+            self.defect_lock = True
+        if self.defect_lock and rho >= 0.5 and (stock_ratio >= 0.5):
+            self.defect_lock = False
+        next_round = round_number + 1
+        if next_round >= r:
+            self.last_seen_stock = float(current_stock)
+            return Action.D
+        if self.defect_lock:
+            self.last_seen_stock = float(current_stock)
+            return Action.D
+        if stock_ratio < 0.35:
+            self.defect_lock = True
+            self.last_seen_stock = float(current_stock)
+            return Action.D
+        if self.trust < 0.55:
+            self.last_seen_stock = float(current_stock)
+            return Action.D
+        if last_opponent_cooperators < math.ceil((n - 1) / 2):
+            self.defect_lock = True
+            self.last_seen_stock = float(current_stock)
+            return Action.D
+        if self.last_seen_stock - current_stock > 0.15 * capacity:
+            self.last_seen_stock = float(current_stock)
+            return Action.D
+        self.last_seen_stock = float(current_stock)
+        return Action.C
+
+class Strategy_INDIVIDUALISTIC_12(BaseStrategy):
+    """
+    Adaptive self-interested strategy for the Common Pool Resource Game.
+
+    - Cooperates in round 1.
+    - Uses the previous round's observed opponent cooperation rate as a forecast.
+    - Defects when stock is scarce or when defection has higher expected value.
+    - In the final round, cooperates only under favorable stock and cooperation conditions.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = max(2, int(game_description.n_players))
+        self.r = max(1, int(game_description.n_rounds))
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(1, self.n - 1)
+
+    def _growth(self, x: float) -> float:
+        cap = self.capacity
+        if cap <= 0:
+            return 0.0
+        x = max(0.0, min(float(x), cap))
+        return min(x + 2.0 * x * (1.0 - x / cap), cap)
+
+    def _expected_next_stock(self, current_stock: float, q: float, my_action_is_cooperate: bool) -> float:
+        n = self.n
+        cap = self.capacity
+        s = max(0.0, min(float(current_stock), cap))
+        q = max(0.0, min(1.0, float(q)))
+        other_expected = (n - 1) * (q * (s / (2.0 * n)) + (1.0 - q) * (s / n))
+        my_consumption = s / (2.0 * n) if my_action_is_cooperate else s / n
+        total_consumption = my_consumption + other_expected
+        remaining = max(0.0, s - total_consumption)
+        return self._growth(remaining)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number + 1
+        s = max(0.0, min(float(current_stock), self.capacity))
+        if history.round_number == 0:
+            return Action.C
+        last_opponents = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        q = last_opponents / self.n_opponents if self.n_opponents > 0 else 0.0
+        q = max(0.0, min(1.0, q))
+        if s <= self.capacity / 4.0:
+            return Action.D
+        if t >= self.r:
+            if s >= self.capacity / 2.0 and q >= 0.5:
+                return Action.C
+            return Action.D
+        remaining_rounds_after_this = self.r - t
+        denom = remaining_rounds_after_this + 1.0
+        lam = remaining_rounds_after_this / denom if denom > 0.0 else 0.0
+        next_c = self._expected_next_stock(s, q, True)
+        next_d = self._expected_next_stock(s, q, False)
+        v_c = s / (2.0 * self.n) + lam * next_c
+        v_d = s / self.n + lam * next_d
+        eps = 1e-12
+        if v_d > v_c + eps:
+            return Action.D
+        if v_c > v_d + eps:
+            return Action.C
+        return Action.C if s >= self.capacity / 2.0 else Action.D
+
+class Strategy_INDIVIDUALISTIC_13(BaseStrategy):
+    """
+    Stock-preserving threshold strategy with short-memory retaliation.
+
+    - Cooperates initially to probe sustainability.
+    - Continues cooperating only under high observed cooperation and healthy stock.
+    - Escalates to defection under depletion, repeated low cooperation, or low stock.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.coop_threshold = 0.7
+        self.stock_threshold = 0.75 * self.capacity
+        self.depletion_threshold = 0.55 * self.capacity
+        self.very_low_stock_threshold = 0.35 * self.capacity
+        self.low_coop_threshold = 0.5
+        self._eps = 1e-12
+        self._last_stock = None
+        self._stock_increase_streak = 0
+        self._same_stock_streak = 0
+        self._last_bad_value = 0
+
+    def _safe_m(self, coop_count: int) -> float:
+        denom = max(self.n - 1, 1)
+        return float(coop_count) / float(denom)
+
+    def _observed_m_values(self, history: PlayerHistory) -> list[float]:
+        vals: list[float] = []
+        if history.opponent_cooperators is None:
+            return vals
+        for x in history.opponent_cooperators.tolist():
+            try:
+                coop_count = int(x)
+                vals.append(self._safe_m(coop_count))
+            except Exception:
+                vals.append(0.5)
+        return vals
+
+    def _compute_avg_m(self, m_values: list[float]) -> float:
+        if not m_values:
+            return 1.0
+        window = m_values[-3:]
+        return float(np.mean(np.array(window, dtype=float)))
+
+    def _compute_bad(self, m_values: list[float]) -> int:
+        bad = 0
+        for m in m_values:
+            if m < self.low_coop_threshold:
+                bad += 1
+            else:
+                bad = 0
+        return int(bad)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        stock = float(current_stock)
+        if self._last_stock is None:
+            self._same_stock_streak = 0
+            self._stock_increase_streak = 0
+        else:
+            if abs(stock - self._last_stock) <= self._eps:
+                self._same_stock_streak += 1
+            else:
+                self._same_stock_streak = 0
+            if stock > self._last_stock + self._eps:
+                self._stock_increase_streak += 1
+            else:
+                self._stock_increase_streak = 0
+        self._last_stock = stock
+        if round_number == 0:
+            return Action.C
+        if self.r <= 1:
+            return Action.C
+        m_values = self._observed_m_values(history)
+        avg_m = self._compute_avg_m(m_values)
+        bad = self._compute_bad(m_values)
+        if self._same_stock_streak >= 2:
+            bad = self._last_bad_value
+        self._last_bad_value = bad
+        last_m = m_values[-1] if m_values else 1.0
+        if round_number == self.r - 1:
+            if last_m >= 1.0 - self._eps and stock >= self.stock_threshold:
+                return Action.C
+            return Action.D
+        if stock <= self.very_low_stock_threshold:
+            return Action.D
+        if stock < self.depletion_threshold:
+            if avg_m >= 1.0 - self._eps and self._stock_increase_streak >= 2:
+                pass
+            else:
+                return Action.D
+        if stock >= self.stock_threshold and avg_m >= self.coop_threshold and (bad == 0):
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_14(BaseStrategy):
+    """
+    Conservative common-pool strategy:
+    - Cooperate in round 1.
+    - In later rounds, react to current stock, opponent cooperation in the previous round,
+      and whether the game is nearing the end.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self._cap_third = self.capacity / 3.0
+        self._cap_half = self.capacity / 2.0
+        self._cap_two_thirds = 2.0 * self.capacity / 3.0
+        self._n_opponents = max(self.n - 1, 0)
+        self._coop_high = math.ceil(2.0 * self._n_opponents / 3.0)
+        self._coop_low = math.floor(self._n_opponents / 3.0)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        if len(history.opponent_cooperators) > 0:
+            c_prev = int(history.opponent_cooperators[-1])
+        else:
+            c_prev = 0
+        if self._n_opponents <= 0:
+            rho = 0.0
+        else:
+            rho = c_prev / self._n_opponents
+        S = float(current_stock)
+        if t >= self.r - 1:
+            return Action.D if S > self._cap_third else Action.C
+        if S <= self._cap_third:
+            return Action.C
+        if rho >= 2.0 / 3.0 and S >= self._cap_half:
+            return Action.D
+        if rho <= 1.0 / 3.0:
+            return Action.C
+        if S >= self._cap_two_thirds:
+            return Action.D
+        return Action.C
+
+class Strategy_INDIVIDUALISTIC_15(BaseStrategy):
+    """
+    Defect by default, but cooperate when stock is low or when defection would
+    push next stock below a conservation threshold. Updates a smoothed belief
+    about opponent cooperation from past rounds.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.alpha = 0.5
+        self.initial_p_hat = 0.5
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = int(history.round_number)
+        if t == 0:
+            return Action.D
+        if t >= self.n_rounds - 2:
+            return Action.D
+        n_opponents = max(self.n_players - 1, 1)
+        p_hat = self.initial_p_hat
+        if len(history.opponent_cooperators) > 0:
+            for c in history.opponent_cooperators:
+                q = float(c) / float(n_opponents)
+                p_hat = self.alpha * q + (1.0 - self.alpha) * p_hat
+        c_last = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        c_last = max(0, min(c_last, n_opponents))
+        S = float(current_stock)
+        S = max(0.0, min(S, self.capacity))
+        T = self.capacity * (0.3 + 0.2 * (1.0 - p_hat))
+        opp_cons = c_last * (S / (2.0 * self.n_players)) + (n_opponents - c_last) * (S / self.n_players)
+        S_rem_C = S - opp_cons - S / (2.0 * self.n_players)
+        S_rem_C = max(0.0, S_rem_C)
+        S_next_C = S_rem_C + 2.0 * S_rem_C * (1.0 - S_rem_C / self.capacity)
+        S_next_C = min(max(S_next_C, 0.0), self.capacity)
+        S_rem_D = S - opp_cons - S / self.n_players
+        S_rem_D = max(0.0, S_rem_D)
+        S_next_D = S_rem_D + 2.0 * S_rem_D * (1.0 - S_rem_D / self.capacity)
+        S_next_D = min(max(S_next_D, 0.0), self.capacity)
+        if S <= T:
+            return Action.C
+        if S_next_D < T and S_next_C >= T:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_16(BaseStrategy):
+    """
+    Stock-Guarded Conditional Cooperation:
+    - Cooperate in the first round.
+    - Cooperate only when the previous round's opponent cooperation rate was at least 50%
+      and the current stock is sufficiently viable.
+    - Defect immediately in the final round, or whenever cooperation/support is too weak.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self._n_opponents = max(self.n_players - 1, 1)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        t = round_number + 1
+        if round_number == 0:
+            return Action.C
+        if t >= self.n_rounds:
+            return Action.D
+        last_opponent_cooperators = int(history.opponent_cooperators[-1])
+        x = last_opponent_cooperators / self._n_opponents if self._n_opponents > 0 else 0.0
+        stock_threshold = 2.0 * self.n_players
+        if float(current_stock) < stock_threshold:
+            return Action.D
+        if x >= 0.5:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_17(BaseStrategy):
+    """
+    Conservative tit-for-survival strategy for the Common Pool Resource Game.
+
+    Defaults to cooperation only in the first round.
+    Thereafter, cooperates only when the pool is healthy and opponents
+    have recently cooperated enough; otherwise defects.
+    Tightens cooperation requirements after low opponent cooperation,
+    and defects unconditionally if the stock becomes critically low.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.coop_threshold = 0.5
+        self.low_stock_lock = False
+        self.permanent_defect = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = max(2, int(self.game_description.n_players))
+        rounds = max(1, int(self.game_description.n_rounds))
+        capacity = float(self.game_description.capacity) if self.game_description.capacity else 1.0
+        x_t = current_stock / capacity if capacity > 0 else 0.0
+        if x_t < 0.35:
+            self.permanent_defect = True
+        if x_t < 0.5:
+            self.low_stock_lock = True
+        if self.low_stock_lock and x_t >= 0.7:
+            self.low_stock_lock = False
+        if history.round_number == 0:
+            return Action.C
+        if len(history.opponent_cooperators) > 0:
+            n_opponents = max(1, n - 1)
+            h_t = int(history.opponent_cooperators[-1])
+            q_t = h_t / n_opponents
+            if q_t < 0.5:
+                self.coop_threshold = max(self.coop_threshold, 0.75)
+        current_round = history.round_number + 1
+        if current_round >= rounds - 1:
+            return Action.D
+        if self.permanent_defect:
+            return Action.D
+        if self.low_stock_lock:
+            return Action.D
+        if len(history.opponent_cooperators) == 0:
+            return Action.D
+        n_opponents = max(1, n - 1)
+        h_t = int(history.opponent_cooperators[-1])
+        q_t = h_t / n_opponents
+        if x_t >= 0.7 and q_t >= self.coop_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_18(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Cooperate on round 1
+    - Defect on the final round
+    - Use a stock threshold and opponent cooperation baseline in normal play
+    - Escalate to strict defection after repeated low cooperation
+    - Switch permanently to defection after two consecutive sharp stock drops
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self._permanent_defect = False
+        self._prev_stock = None
+        self._low_stock_streak = 0
+
+    def _opponent_coop_rate(self, count: int) -> float:
+        n_players = int(self.game_description.n_players)
+        n_opponents = max(n_players - 1, 0)
+        if n_opponents <= 0:
+            return 0.0
+        return float(count) / float(n_opponents)
+
+    def _baseline_and_low_streak(self, history: PlayerHistory) -> tuple[float, int]:
+        b = 1.0
+        m = 0
+        n_opponents = max(int(self.game_description.n_players) - 1, 0)
+        for c in history.opponent_cooperators:
+            q = 0.0 if n_opponents <= 0 else float(c) / float(n_opponents)
+            b = 0.8 * b + 0.2 * q
+            if q < 0.5:
+                m += 1
+            else:
+                m = 0
+        return (b, m)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n_players = int(self.game_description.n_players)
+        n_rounds = int(self.game_description.n_rounds)
+        round_number = int(history.round_number)
+        if self._prev_stock is not None:
+            prev_stock = float(self._prev_stock)
+            threshold_ratio = float(n_players - 1) / float(max(2 * n_players - 1, 1))
+            low_now = float(current_stock) < threshold_ratio * prev_stock
+            if low_now:
+                self._low_stock_streak += 1
+            else:
+                self._low_stock_streak = 0
+            if self._low_stock_streak >= 2:
+                self._permanent_defect = True
+        if self._permanent_defect:
+            self._prev_stock = float(current_stock)
+            return Action.D
+        if round_number >= n_rounds - 1:
+            self._prev_stock = float(current_stock)
+            return Action.D
+        if round_number == 0:
+            self._prev_stock = float(current_stock)
+            return Action.C
+        baseline, low_streak = self._baseline_and_low_streak(history)
+        denom = float(max(2 * n_players - 1, 1))
+        theta = float(n_players) / denom * float(current_stock)
+        last_count = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        q_prev = self._opponent_coop_rate(last_count)
+        if low_streak >= 2:
+            action = Action.C if q_prev == 1.0 and float(current_stock) > theta else Action.D
+            self._prev_stock = float(current_stock)
+            return action
+        if float(current_stock) <= theta:
+            self._prev_stock = float(current_stock)
+            return Action.D
+        action = Action.C if q_prev >= baseline else Action.D
+        self._prev_stock = float(current_stock)
+        return action
+
+class Strategy_INDIVIDUALISTIC_19(BaseStrategy):
+    """
+    Adaptive common-pool strategy with exploit/preserve modes, low-stock lockout,
+    and a one-round cooperative exception under near-perfect cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_opponents = max(self.n_players - 1, 1)
+        self.capacity = float(game_description.capacity)
+        self.last_seen_stock = None
+        self.last_mode = 'exploit'
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        S_t = float(current_stock)
+        cap = self.capacity
+        if t == 0:
+            self.last_seen_stock = S_t
+            self.last_mode = 'exploit'
+            return Action.D
+        if t >= int(self.game_description.n_rounds) - 1:
+            self.last_seen_stock = S_t
+            self.last_mode = 'exploit'
+            return Action.D
+        if len(history.opponent_cooperators) > 0:
+            k_prev = int(history.opponent_cooperators[-1])
+            q_prev = k_prev / self.n_opponents if self.n_opponents > 0 else 0.0
+        else:
+            q_prev = 0.0
+        S_prev = self.last_seen_stock if self.last_seen_stock is not None else S_t
+        sharp_fall = S_t < 0.7 * cap or (t > 1 and S_t < S_prev - 0.15 * cap)
+        if S_t <= 0.4 * cap:
+            action = Action.D
+            self.last_mode = 'exploit'
+        else:
+            if q_prev >= 2.0 / 3.0 and (not sharp_fall):
+                self.last_mode = 'preserve'
+            else:
+                self.last_mode = 'exploit'
+            if self.last_mode == 'preserve':
+                if S_t >= 0.6 * cap and q_prev >= 2.0 / 3.0:
+                    action = Action.C
+                else:
+                    action = Action.D
+            elif S_t >= 0.9 * cap and q_prev == 1.0:
+                action = Action.C
+            else:
+                action = Action.D
+        self.last_seen_stock = S_t
+        return action
+
+class Strategy_INDIVIDUALISTIC_20(BaseStrategy):
+    """
+    State-based threshold strategy with momentum and personal-payoff protection
+    for the Common Pool Resource Game.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 0)
+        self.high_threshold = 0.75 * self.capacity
+        self.medium_threshold = 0.45 * self.capacity
+        self.low_threshold = 0.2 * self.capacity
+        self.low_payoff_threshold = self.capacity / (4.0 * self.n_players) if self.n_players > 0 else 0.0
+        self.high_payoff_threshold = self.capacity / (2.0 * self.n_players) if self.n_players > 0 else 0.0
+        self.final_round_low_stock_threshold = self.capacity / (4.0 * self.n_players) if self.n_players > 0 else 0.0
+
+    def _shift_action(self, base_action: Action, selfish_shift: int) -> Action:
+        if selfish_shift == 1 and base_action == Action.C:
+            return Action.D
+        if selfish_shift == -1 and base_action == Action.D:
+            return Action.C
+        return base_action
+
+    def _average_payoff_so_far(self, history: PlayerHistory) -> float:
+        rounds_played = int(history.round_number)
+        if rounds_played <= 0:
+            return 0.0
+        payoffs = history.my_payoffs
+        if payoffs is None or len(payoffs) == 0:
+            return 0.0
+        return float(np.mean(payoffs))
+
+    def _coop_rate_from_history(self, history: PlayerHistory, idx: int) -> float:
+        if history.opponent_cooperators is None:
+            return 0.0
+        if idx < 0 or idx >= len(history.opponent_cooperators):
+            return 0.0
+        if self.n_opponents <= 0:
+            return 0.0
+        return float(history.opponent_cooperators[idx]) / float(self.n_opponents)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = int(history.round_number) + 1
+        S_t = float(current_stock)
+        if t == 1:
+            return Action.C
+        has_history = history.my_actions is not None and history.my_payoffs is not None and (history.opponent_cooperators is not None) and (len(history.my_actions) > 0) and (len(history.my_payoffs) > 0) and (len(history.opponent_cooperators) > 0)
+        if not has_history:
+            if t <= (self.n_rounds + 1) // 2:
+                return Action.C
+            return Action.C if S_t <= self.low_threshold else Action.D
+        if t >= self.n_rounds:
+            if S_t <= self.final_round_low_stock_threshold:
+                return Action.C
+            return Action.D
+        avg_payoff_so_far = self._average_payoff_so_far(history)
+        if avg_payoff_so_far < self.low_payoff_threshold and S_t > self.medium_threshold:
+            return Action.D
+        if avg_payoff_so_far > self.high_payoff_threshold and S_t < self.high_threshold:
+            return Action.C
+        if S_t <= self.low_threshold:
+            return Action.C
+        x_t = self._coop_rate_from_history(history, -1)
+        prev_x = self._coop_rate_from_history(history, -2) if len(history.opponent_cooperators) >= 2 else None
+        selfish_shift = 0
+        if prev_x is not None:
+            if x_t <= prev_x - 0.2:
+                selfish_shift = 1
+            elif x_t >= prev_x + 0.2:
+                selfish_shift = -1
+        if S_t >= self.high_threshold:
+            base_action = Action.C if x_t >= 0.5 else Action.D
+        elif S_t >= self.medium_threshold:
+            base_action = Action.C if x_t >= 0.75 else Action.D
+        else:
+            base_action = Action.C if x_t >= 0.9 else Action.D
+        action = self._shift_action(base_action, selfish_shift)
+        if avg_payoff_so_far < self.low_payoff_threshold and S_t > self.medium_threshold:
+            action = Action.D
+        elif avg_payoff_so_far > self.high_payoff_threshold and S_t < self.high_threshold:
+            action = Action.C
+        return action
+
+class Strategy_INDIVIDUALISTIC_21(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - start with one cooperative round,
+    - track opponent cooperation with exponential smoothing,
+    - protect the pool when stock is low,
+    - defect at the end and generally punish weak cooperation when the stock is comfortable.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.q_hat = 1.0
+        self.lambda_ = 0.7
+        self.reserve = 0.45 * self.capacity
+        self.comfort = 0.75 * self.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.n
+        r = self.r
+        S = float(current_stock)
+        round_number = history.round_number
+        t = round_number + 1
+        if round_number == 0:
+            return Action.C
+        n_opponents = max(n - 1, 1)
+        last_k = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        observed_rate = last_k / n_opponents
+        self.q_hat = self.lambda_ * self.q_hat + (1.0 - self.lambda_) * observed_rate
+        self.q_hat = max(0.0, min(1.0, self.q_hat))
+        m = (n - 1) * self.q_hat
+        if n <= 0:
+            return Action.D
+        cons_C = S / (2.0 * n) * (m + 1.0) + S / n * (n - 1.0 - m)
+        cons_D = S / (2.0 * n) * m + S / n * (n - 1.0 - m + 1.0)
+        R_C = S - cons_C
+        R_D = S - cons_D
+        N_C = min(R_C + 2.0 * R_C * (1.0 - R_C / self.capacity), self.capacity)
+        N_D = min(R_D + 2.0 * R_D * (1.0 - R_D / self.capacity), self.capacity)
+        if t == r:
+            return Action.D
+        if t == r - 1:
+            return Action.D if S > self.reserve else Action.C
+        if S <= self.reserve:
+            return Action.C
+        if S >= self.comfort and self.q_hat < 0.5:
+            return Action.D
+        if self.q_hat >= 0.5 and N_C > N_D:
+            return Action.C
+        if self.q_hat >= 0.65:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_22(BaseStrategy):
+    """
+    Adaptive common-pool strategy:
+    - Round 1: defect.
+    - Later rounds: defect on the final round, when stock is depleted, or when opponents
+      were mostly cooperative; cooperate when stock is low or opponents were mostly defecting.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.last_observed_opponent_cooperators = None
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        capacity = float(self.game_description.capacity)
+        round_number = history.round_number
+        if round_number == 0:
+            self.last_observed_opponent_cooperators = None
+            return Action.D
+        c = 0
+        if len(history.opponent_cooperators) > 0:
+            c = int(history.opponent_cooperators[-1])
+            self.last_observed_opponent_cooperators = c
+        elif self.last_observed_opponent_cooperators is not None:
+            c = int(self.last_observed_opponent_cooperators)
+        if round_number >= max(r - 1, 0):
+            return Action.D
+        if current_stock <= 1e-12:
+            return Action.D
+        if current_stock <= capacity / 3.0:
+            return Action.C
+        threshold = math.ceil((n - 1) / 2.0)
+        if c >= threshold:
+            return Action.D
+        return Action.C
+
+class Strategy_INDIVIDUALISTIC_23(BaseStrategy):
+    """
+    Common pool strategy:
+    - Start with defection.
+    - In intermediate rounds, defect by default, but cooperate when defecting would
+      collapse the stock below a safety threshold while cooperation preserves it.
+    - Defect again in the final round.
+    - In the penultimate round, cooperate if the stock is already very low.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.D
+        if round_number >= self.r - 1:
+            return Action.D
+        if round_number == self.r - 2 and current_stock < 0.35 * self.capacity:
+            return Action.C
+        m = 0
+        if len(history.opponent_cooperators) > 0:
+            m = int(history.opponent_cooperators[-1])
+        n = self.n
+        S = float(current_stock)
+        cap = self.capacity
+        remaining_D = S * m / (2.0 * n) if n > 0 else 0.0
+        next_D = remaining_D + 2.0 * remaining_D * (1.0 - remaining_D / cap) if cap > 0 else remaining_D
+        remaining_C = S * (m + 1) / (2.0 * n) if n > 0 else 0.0
+        next_C = remaining_C + 2.0 * remaining_C * (1.0 - remaining_C / cap) if cap > 0 else remaining_C
+        if next_D < 0.55 * cap and next_C >= 0.55 * cap:
+            return Action.C
+        elif S >= 0.85 * cap and m <= (n - 1) / 2:
+            return Action.D
+        elif m >= math.ceil(3 * (n - 1) / 4) and S >= 0.7 * cap:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_24(BaseStrategy):
+    """
+    Selective preservation strategy for the common pool.
+
+    - Tracks a smoothed estimate of opponent cooperation q_t.
+    - Cooperates early when the pool is healthy and opponents look reliable.
+    - Defects when stock is low, the horizon is short, or trust deteriorates.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.q_estimate = 1.0
+        self.processed_rounds = 0
+        self.last_stock_seen = None
+        self.high_stock_streak = 0
+        self.defect_for_rest = False
+
+    def _update_state_from_history(self, history: PlayerHistory) -> None:
+        total_rounds = history.round_number
+        n_opponents = max(self.n_players - 1, 1)
+        start = self.processed_rounds
+        if start < 0:
+            start = 0
+        if start > total_rounds:
+            start = total_rounds
+        for idx in range(start, total_rounds):
+            k_t = int(history.opponent_cooperators[idx])
+            coop_share = k_t / n_opponents
+            self.q_estimate = 2.0 / 3.0 * self.q_estimate + 1.0 / 3.0 * coop_share
+            if coop_share < 0.5:
+                self.q_estimate = min(self.q_estimate, 0.5)
+        self.processed_rounds = total_rounds
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        self._update_state_from_history(history)
+        t = history.round_number + 1
+        S = float(current_stock)
+        cap = self.capacity
+        r = self.n_rounds
+        if self.last_stock_seen is not None and self.last_stock_seen > 0.9 * cap and (S > 0.9 * cap):
+            self.high_stock_streak += 1
+        else:
+            self.high_stock_streak = 1 if S > 0.9 * cap else 0
+        self.last_stock_seen = S
+        if S < 0.4 * cap:
+            self.defect_for_rest = True
+        if self.defect_for_rest:
+            return Action.D
+        if S <= 0.0:
+            return Action.D
+        if t >= r:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C if cap >= 3.0 * self.n_players else Action.D
+        q_t = self.q_estimate
+        allow_late_coop = self.high_stock_streak >= 2 and q_t >= 0.7
+        if t == r - 1:
+            if S >= 0.85 * cap and q_t >= 0.75:
+                return Action.C
+            return Action.D
+        if t <= r - 2:
+            in_time_window = t <= math.floor(0.8 * r)
+            if S >= 0.7 * cap and q_t >= 0.6 and (in_time_window or allow_late_coop):
+                return Action.C
+            return Action.D
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_25(BaseStrategy):
+    """
+    Start with defection. In later rounds, estimate whether cooperation is
+    needed to keep the common stock above a reserve threshold, based on the
+    previous round's observed opponent cooperation and predicted next stocks.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 1)
+        self.reserve = self.capacity / 2.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        S = float(current_stock)
+        if S <= 0.0:
+            return Action.D
+        last_opp_coop = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        last_opp_coop = max(0, min(last_opp_coop, self.n_opponents))
+        q = last_opp_coop / self.n_opponents if self.n_opponents > 0 else 0.0
+        if last_opp_coop == 0:
+            return Action.D
+        t = history.round_number + 1
+        if t >= self.n_rounds:
+            return Action.D
+        c = q * self.n_opponents
+        denom = 2.0 * self.n_players
+
+        def next_stock(x: float) -> float:
+            x = max(0.0, min(float(x), self.capacity))
+            growth = 2.0 * x * (1.0 - x / self.capacity) if self.capacity > 0.0 else 0.0
+            return min(x + growth, self.capacity)
+        S_D = next_stock(S * c / denom)
+        S_C = next_stock(S * (c + 1.0) / denom)
+        if S == 0.0:
+            return Action.D
+        if q >= 0.5 and S_C >= self.reserve and (S_D < self.reserve or S_C > S_D):
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_26(BaseStrategy):
+    """
+    Conditional cooperation strategy for the common pool resource game.
+
+    - Starts by cooperating.
+    - Cooperates only when the stock is healthy and opponents are sustaining it.
+    - Defects under depletion, low cooperation, or late-game uncertainty.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self._last_stock: float | None = None
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n_players = max(2, int(self.game_description.n_players))
+        n_rounds = max(1, int(self.game_description.n_rounds))
+        capacity = float(self.game_description.capacity)
+        if history.round_number == 0:
+            self._last_stock = float(current_stock)
+            return Action.C
+        n_opponents = max(1, n_players - 1)
+        prev_opponents = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        q = prev_opponents / n_opponents
+        q_bar = 1.0
+        if len(history.opponent_cooperators) > 0:
+            for k in history.opponent_cooperators:
+                q_t = int(k) / n_opponents
+                q_bar = 0.7 * q_bar + 0.3 * q_t
+        stock_increased = False
+        if self._last_stock is not None:
+            stock_increased = float(current_stock) > float(self._last_stock)
+        self._last_stock = float(current_stock)
+        if history.round_number >= n_rounds - 2:
+            if current_stock >= 0.7 * capacity and q == 1.0:
+                return Action.C
+            return Action.D
+        if current_stock < 0.4 * capacity or q <= 0.25:
+            return Action.D
+        if stock_increased and q >= 0.5:
+            return Action.C
+        if current_stock >= 0.6 * capacity and q >= 0.5 and (q_bar >= 0.5):
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_27(BaseStrategy):
+    """
+    Start cooperative, continue cooperating only under healthy stock and sustained
+    high opponent cooperation, and defect in the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.m = max(self.n - 1, 0)
+        self.high = math.ceil(2 * self.m / 3) if self.m > 0 else 0
+        self.low_stock = self.capacity / 3.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number + 1
+        if current_stock <= 0:
+            return Action.D
+        if t >= self.r:
+            return Action.D
+        if t == 1:
+            return Action.C
+        if current_stock < self.low_stock:
+            return Action.D
+        if self.m <= 0:
+            return Action.D
+        k = int(history.opponent_cooperators[-1]) if history.round_number > 0 else 0
+        k_prev = int(history.opponent_cooperators[-2]) if history.round_number > 1 else None
+        if k < self.high:
+            return Action.D
+        if t == 2:
+            return Action.C
+        if k_prev is not None and k_prev >= k:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_28(BaseStrategy):
+    """
+    Hysteresis-based common-pool strategy:
+    - Start cooperatively.
+    - Use persistent selfish/cooperative mode updated from the previous round's
+      opponent cooperation rate and current stock.
+    - Defect in terminal or unrecoverable situations.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.capacity = float(game_description.capacity)
+        self.n_players = int(game_description.n_players)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.n_rounds = int(game_description.n_rounds)
+        self.mode = 'selfish'
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        stock = float(current_stock)
+        if round_number == 0:
+            self.mode = 'selfish'
+            return Action.C
+        remaining_rounds = self.n_rounds - round_number
+        if stock <= 0.0:
+            self.mode = 'selfish'
+            return Action.D
+        if remaining_rounds <= 1:
+            self.mode = 'selfish'
+            return Action.D
+        prev_count = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if self.n_opponents > 0:
+            q_prev = prev_count / self.n_opponents
+        else:
+            q_prev = 0.0
+        if q_prev == 0.0 or stock < 0.25 * self.capacity:
+            self.mode = 'selfish'
+        no_recovery_practical = remaining_rounds <= 2 or stock < 0.35 * self.capacity
+        if no_recovery_practical and (not (q_prev == 1.0 and stock >= 0.9 * self.capacity)):
+            self.mode = 'selfish'
+            return Action.D
+        if self.mode == 'selfish':
+            if q_prev >= 0.8 and stock >= 0.75 * self.capacity:
+                self.mode = 'cooperative'
+        elif not (q_prev >= 0.6 and stock >= 0.6 * self.capacity):
+            self.mode = 'selfish'
+        if q_prev == 1.0 and stock >= 0.9 * self.capacity:
+            self.mode = 'cooperative'
+            return Action.C
+        return Action.C if self.mode == 'cooperative' else Action.D
+
+class Strategy_INDIVIDUALISTIC_29(BaseStrategy):
+    """
+    Cautious common-pool strategy:
+    - Cooperate on the first round to probe.
+    - Defect on the final round.
+    - Otherwise, cooperate only when the pool looks healthy and the previous round
+      showed strong cooperation.
+    - Enter a defect mode after any non-unanimous round and only exit after two
+      consecutive unanimous cooperation observations.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self._defect_mode = False
+        self._unanimous_streak = 0
+        self._last_processed_round = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = int(self.game_description.n_players)
+        r = int(self.game_description.n_rounds)
+        capacity = float(self.game_description.capacity)
+        round_number = int(history.round_number)
+        if current_stock <= 1e-12:
+            return Action.D
+        if round_number == 0:
+            return Action.C
+        if round_number >= r - 1:
+            return Action.D
+        start_idx = min(self._last_processed_round, round_number)
+        for idx in range(start_idx, round_number):
+            c_obs = int(history.opponent_cooperators[idx]) if idx < len(history.opponent_cooperators) else 0
+            if c_obs >= n - 1:
+                self._unanimous_streak += 1
+            else:
+                self._unanimous_streak = 0
+                self._defect_mode = True
+            if self._unanimous_streak >= 2:
+                self._defect_mode = False
+        self._last_processed_round = round_number
+        if self._defect_mode and self._unanimous_streak < 2:
+            return Action.D
+        c = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if c == n - 1 and current_stock >= capacity / 2.0:
+            return Action.C
+        threshold = math.ceil(2.0 * (n - 1) / 3.0)
+        if c >= threshold and current_stock >= 3.0 * capacity / 5.0:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_30(BaseStrategy):
+    """
+    Stock-aware conditional cooperator with last-round defection and hysteresis.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n_players - 1, 1)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        if round_number >= self.n_rounds - 1:
+            return Action.D
+        last_opp_coop = int(history.opponent_cooperators[-1]) if round_number >= 1 else 0
+        q = last_opp_coop / self.n_opponents if self.n_opponents > 0 else 0.0
+        prev_q = None
+        if round_number >= 2:
+            prev_opp_coop = int(history.opponent_cooperators[-2])
+            prev_q = prev_opp_coop / self.n_opponents if self.n_opponents > 0 else 0.0
+        low_zone_threshold = self.capacity / 3.0
+        high_zone_threshold = 2.0 * self.capacity / 3.0
+        half_capacity = self.capacity / 2.0
+        if prev_q is not None and prev_q <= 1.0 / 3.0 and (q <= 1.0 / 3.0):
+            return Action.C if q >= 1.0 / 2.0 else Action.D
+        if q == 1.0 and current_stock >= half_capacity and (current_stock < high_zone_threshold):
+            return Action.C
+        if current_stock <= low_zone_threshold:
+            return Action.C if q >= 1.0 / 2.0 else Action.D
+        if current_stock < high_zone_threshold:
+            return Action.C if q >= 2.0 / 3.0 else Action.D
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_31(BaseStrategy):
+    """
+    Conservative, state-aware common-pool strategy:
+    - Cooperates in round 1.
+    - Defects at low stock, in the final round, or after repeated stock declines.
+    - Cooperates only when recent opponent cooperation is strong enough,
+      with stricter thresholds as stock falls.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = max(self.n - 1, 0)
+        self.half_others_ceil = math.ceil(self.n_opponents / 2) if self.n_opponents > 0 else 0
+        self.half_players_ceil = math.ceil(self.n / 2)
+        self.near_zero_threshold = 1e-09
+        self.near_capacity_threshold = 0.95 * self.capacity
+        self.prev_stock = None
+        self.prev_prev_stock = None
+        self.last_my_action = None
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        stock = float(current_stock)
+        round_number = int(history.round_number)
+        rounds_remaining = max(self.r - round_number, 0)
+        if round_number == 0:
+            self.prev_prev_stock = self.prev_stock
+            self.prev_stock = stock
+            self.last_my_action = True
+            return Action.C
+        m = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        my_last_coop = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else False
+        k_prev = m + (1 if my_last_coop else 0)
+        prev_unanimous_coop = m == self.n_opponents and my_last_coop
+        stock_fell_two_rounds = self.prev_prev_stock is not None and self.prev_stock is not None and (stock < self.prev_stock) and (self.prev_stock < self.prev_prev_stock)
+        if rounds_remaining <= 1:
+            self.prev_prev_stock = self.prev_stock
+            self.prev_stock = stock
+            self.last_my_action = False
+            return Action.D
+        if stock <= self.near_zero_threshold:
+            self.prev_prev_stock = self.prev_stock
+            self.prev_stock = stock
+            self.last_my_action = False
+            return Action.D
+        if stock_fell_two_rounds and (not prev_unanimous_coop):
+            self.prev_prev_stock = self.prev_stock
+            self.prev_stock = stock
+            self.last_my_action = False
+            return Action.D
+        if rounds_remaining == 2:
+            should_cooperate = m == self.n_opponents and k_prev == self.n and (stock <= 0.4 * self.capacity)
+            self.prev_prev_stock = self.prev_stock
+            self.prev_stock = stock
+            self.last_my_action = should_cooperate
+            return Action.C if should_cooperate else Action.D
+        if stock >= 0.6 * self.capacity:
+            should_cooperate = m >= self.half_others_ceil and k_prev >= self.half_players_ceil
+        elif stock >= 0.2 * self.capacity:
+            should_cooperate = m >= self.half_others_ceil + 1
+        else:
+            should_cooperate = m == self.n_opponents
+        if stock >= self.near_capacity_threshold and (not should_cooperate):
+            action = Action.D
+        else:
+            action = Action.C if should_cooperate else Action.D
+        self.prev_prev_stock = self.prev_stock
+        self.prev_stock = stock
+        self.last_my_action = action == Action.C
+        return action
+
+class Strategy_INDIVIDUALISTIC_32(BaseStrategy):
+    """
+    Conservative common-pool strategy:
+    - Cooperate in the first round.
+    - Defect in the final rounds.
+    - Otherwise cooperate only when opponent cooperation and stock level
+      indicate the pool is being sustained, with a small tolerance for
+      a single isolated bad round under strong cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.capacity = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = int(history.round_number)
+        n = self.n_players
+        total_rounds = self.n_rounds
+        if round_number == 0:
+            return Action.C
+        next_round_index = round_number
+        if next_round_index >= total_rounds - 1:
+            return Action.D
+        if self.capacity <= 0:
+            p = 0.0
+        else:
+            p = float(current_stock) / self.capacity
+        last_opponent_cooperators = int(history.opponent_cooperators[-1])
+        n_opponents = max(n - 1, 0)
+        q = last_opponent_cooperators / n_opponents if n_opponents > 0 else 0.0
+        good_streak = 0
+        bad_streak = 0
+        for idx in range(round_number - 1, -1, -1):
+            opp = int(history.opponent_cooperators[idx])
+            q_prev = opp / n_opponents if n_opponents > 0 else 0.0
+            if q_prev >= 0.5:
+                if bad_streak > 0:
+                    break
+                good_streak += 1
+            else:
+                if good_streak > 0:
+                    break
+                bad_streak += 1
+        if n == 2:
+            if q >= 0.5 and p >= 0.4 and (bad_streak == 0):
+                return Action.C
+            return Action.D
+        if bad_streak >= 2:
+            return Action.D
+        if p < 0.4:
+            return Action.D
+        if q >= 2.0 / 3.0 and p >= 0.6 and (bad_streak <= 1):
+            return Action.C
+        if q >= 0.5 and p >= 0.4 and (bad_streak == 0):
+            return Action.C
+        return Action.D

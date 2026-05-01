@@ -1176,3 +1176,6906 @@ class Strategy_COLLECTIVE_8(BaseStrategy):
             if history.round_number == self.game_description.n_rounds - 1:
                 return Action.C
             return Action.D
+
+class Strategy_COLLECTIVE_9(BaseStrategy):
+    """
+    Threshold-Based Conditional Cooperation with Adaptive Forgiveness.
+    
+    Cooperates in round 1 unconditionally. In middle rounds, cooperates if the
+    observed cooperation rate meets an adaptive threshold. Adjusts threshold
+    and forgiveness probability based on cooperation trends. In the final round,
+    cooperates only if cooperation rate is sufficiently high.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = game_description.k / game_description.n_players
+        self.forgive_prob = 0.3
+        self.consecutive_defections = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        round_num = history.round_number
+        if round_num == 0:
+            return Action.C
+        m = history.opponent_cooperators[-1]
+        c_rate = m / (n - 1) if n > 1 else 0.0
+        if round_num >= 2:
+            prev_m = history.opponent_cooperators[-2]
+            prev_coop = prev_m / (n - 1) if n > 1 else 0.0
+            if prev_coop - c_rate > 0.3:
+                self.threshold = max(k / n, self.threshold - 0.15)
+                self.forgive_prob = min(0.5, self.forgive_prob + 0.1)
+        if round_num >= 2:
+            if not history.my_actions[-1] and (not history.my_actions[-2]):
+                self.consecutive_defections += 1
+                self.threshold = max(k / n, self.threshold - 0.1)
+                self.forgive_prob = min(0.5, self.forgive_prob + 0.1)
+            else:
+                self.consecutive_defections = 0
+        if round_num == r - 1:
+            if c_rate >= self.threshold:
+                return Action.C
+            elif c_rate >= 0.5:
+                return Action.C
+            else:
+                return Action.D
+        if c_rate >= self.threshold:
+            self.threshold = c_rate - 0.05
+            return Action.C
+        elif m == 0:
+            if random.random() < 0.1:
+                return Action.C
+            else:
+                return Action.D
+        elif c_rate >= k / n:
+            if random.random() < self.forgive_prob:
+                return Action.C
+            else:
+                return Action.D
+        elif random.random() < 0.15:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_10(BaseStrategy):
+    """
+    Adaptive Conditional Cooperation with Endgame Adjustment.
+    
+    Cooperates based on observed cooperation rate of others, with dynamic thresholds
+    that tighten as the game approaches the end. Tracks consecutive low cooperation
+    rounds to detect and exit prolonged exploitation patterns.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.consecutive_low_rounds = 0
+        self.last_observed_rate = None
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        cooperators_last_round = history.opponent_cooperators[-1]
+        if history.my_actions[-1]:
+            total_cooperators_last_round = cooperators_last_round + 1
+        else:
+            total_cooperators_last_round = cooperators_last_round
+        observed_rate = total_cooperators_last_round / n if n > 0 else 0
+        rounds_remaining = r - current_round
+        if rounds_remaining <= 1:
+            threshold = 0.75
+        elif rounds_remaining <= 3:
+            threshold = 2 * k / n
+        else:
+            threshold = k / n
+            if self.last_observed_rate is not None and observed_rate < self.last_observed_rate:
+                threshold = k / n + 0.15
+        if observed_rate < threshold:
+            self.consecutive_low_rounds += 1
+        else:
+            self.consecutive_low_rounds = 0
+        if self.consecutive_low_rounds >= 2:
+            threshold = threshold + 0.1
+        self.last_observed_rate = observed_rate
+        if observed_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_11(BaseStrategy):
+    """
+    Reciprocal Cooperation with Threshold Trigger strategy.
+    
+    - Round 1: Always cooperate to signal collective willingness.
+    - Rounds 2+: Cooperate if previous round had ≥50% cooperation rate, else defect.
+    - Final round: Apply same threshold rule (no opportunistic defection).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        my_prev_action = history.my_actions[-1]
+        total_cooperators_prev_round = history.opponent_cooperators[-1] + (1 if my_prev_action else 0)
+        cooperation_rate = total_cooperators_prev_round / self.game_description.n_players
+        if cooperation_rate >= 0.5:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_12(BaseStrategy):
+    """
+    Adaptive Reciprocal Cooperation with Threshold Response.
+    
+    Cooperates conditionally based on observed opponent cooperation rates
+    relative to a dynamic threshold θ = k/n.
+    
+    - Round 0: Always cooperate (unconditional)
+    - Rounds 1 to r-2: Cooperate if opponent cooperation rate ≥ θ
+    - Round r-1 (final): Cooperate if opponent cooperation rate > θ, else defect
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = game_description.k / game_description.n_players
+        self.n_opponents = game_description.n_players - 1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        final_round = self.game_description.n_rounds - 1
+        if current_round == 0:
+            return Action.C
+        cooperators_prev = history.opponent_cooperators[-1]
+        if self.n_opponents <= 0:
+            return Action.C
+        cooperation_rate = cooperators_prev / self.n_opponents
+        if current_round == final_round:
+            if cooperation_rate > self.threshold:
+                return Action.C
+            else:
+                return Action.D
+        if cooperation_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_13(BaseStrategy):
+    """
+    Reciprocal Threshold Cooperation strategy for N-Player Public Goods Game.
+    
+    Cooperates in round 1. In subsequent rounds, cooperates if and only if
+    the total number of cooperators in the previous round exceeds the
+    multiplication factor k. This maintains cooperation when the public good
+    pool is sufficiently funded while defecting when returns are depleted.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        my_prev_contribution = 1 if history.my_actions[-1] else 0
+        total_cooperators_last_round = history.opponent_cooperators[-1] + my_prev_contribution
+        if total_cooperators_last_round > self.game_description.k:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_14(BaseStrategy):
+    """
+    Collective Threshold Cooperation Strategy for N-Player Public Goods Game.
+    
+    Cooperates in the first round and subsequently based on empirical cooperation rate,
+    comparing against a threshold (1/k - ε) to maintain collective welfare.
+    Cooperates if observed cooperation rate ≥ (1/k - ε), defects otherwise.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.epsilon = 0.03
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        n = self.game_description.n_players
+        k = self.game_description.k
+        t = history.round_number
+        my_total_cooperations = int(np.sum(history.my_actions[0:t]))
+        opponents_total_cooperations = int(np.sum(history.opponent_cooperators[0:t]))
+        total_cooperators = my_total_cooperations + opponents_total_cooperations
+        empirical_coop_rate = total_cooperators / (t * n) if t > 0 else 0.0
+        threshold = 1.0 / k - self.epsilon
+        if empirical_coop_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_15(BaseStrategy):
+    """
+    Adaptive Threshold Cooperation Strategy for N-Player Public Goods Game.
+    
+    Cooperates unconditionally in round 1, then cooperates in subsequent rounds
+    if the number of cooperating opponents meets a threshold that ensures mutual
+    benefit is achievable. The threshold is ceil(n/k - 1), representing the minimum
+    cooperators needed for a contribution to yield at least 1 unit of payoff.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil(game_description.n_players / game_description.k - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        cooperators_last_round = history.opponent_cooperators[-1]
+        if cooperators_last_round >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_16(BaseStrategy):
+    """
+    Adaptive Threshold Cooperation Strategy for N-Player Public Goods Game.
+    
+    Phase 1 (Round 0): Cooperate unconditionally to signal willingness.
+    Phase 2 (Rounds 1 to r-2): Conditionally contribute based on observed cooperation
+                               density relative to threshold θ = k/n.
+    Phase 3 (Final round): Decide based on average cooperation density across all
+                          previous rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+        self.theta = self.k / self.n
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_num = history.round_number
+        if round_num == 0:
+            return Action.C
+        if round_num == self.r - 1:
+            total_cooperators = 0
+            for t in range(round_num):
+                total_cooperators += history.opponent_cooperators[t]
+                if history.my_actions[t]:
+                    total_cooperators += 1
+            denominator = round_num * (self.n - 1)
+            if denominator == 0:
+                rho_avg = 0.0
+            else:
+                rho_avg = total_cooperators / denominator
+            if rho_avg >= self.theta:
+                return Action.C
+            else:
+                return Action.D
+        prev_round = round_num - 1
+        cooperators_prev = history.opponent_cooperators[prev_round]
+        if history.my_actions[prev_round]:
+            cooperators_prev += 1
+        rho = cooperators_prev / (self.n - 1)
+        if rho >= self.theta:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_17(BaseStrategy):
+    """
+    Adaptive Threshold-Based Cooperation Strategy for N-Player Public Goods Game.
+    
+    Cooperates in the first round to signal willingness, defects in the last round
+    due to lack of future shadow, and adaptively cooperates in middle rounds based
+    on observed cooperation rate among opponents relative to a dynamic threshold.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = max(game_description.k / game_description.n_players, 0.4)
+        self.p_sustain = 0.95
+        self.p_recover = 0.2
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        round_num = history.round_number
+        if round_num == 0:
+            return Action.C
+        if round_num == r - 1:
+            return Action.D
+        cooperators_last_round = history.opponent_cooperators[-1]
+        cooperation_rate = cooperators_last_round / (n - 1)
+        if cooperation_rate >= self.threshold:
+            p = self.p_sustain
+        else:
+            p = self.p_recover
+        return Action.C if random.random() < p else Action.D
+
+class Strategy_COLLECTIVE_18(BaseStrategy):
+    """
+    Adaptive Cooperation Strategy for N-Player Public Goods Game.
+    
+    Cooperates in round 1. In subsequent rounds, cooperates if the observed cooperation
+    rate in the previous round meets or exceeds the threshold k/n. In the final round,
+    defects unless cooperation has been strictly increasing over the last 3 rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.k = game_description.k
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.r - 1:
+            return self._final_round_decision(history)
+        total_cooperators_prev = history.opponent_cooperators[-1] + (1 if history.my_actions[-1] else 0)
+        threshold = self.k
+        if total_cooperators_prev >= threshold:
+            return Action.C
+        return Action.D
+
+    def _final_round_decision(self, history: PlayerHistory) -> Action:
+        """
+        For the final round: cooperate if cooperation rate has been strictly increasing
+        over the last 3 rounds (or all rounds if fewer than 3 remain).
+        """
+        current_round = history.round_number
+        lookback_rounds = min(3, current_round)
+        if lookback_rounds < 1:
+            return Action.D
+        cooperation_rates = []
+        for i in range(current_round - lookback_rounds, current_round):
+            total_cooperators = history.opponent_cooperators[i] + (1 if history.my_actions[i] else 0)
+            rate = total_cooperators / self.n
+            cooperation_rates.append(rate)
+        is_strictly_increasing = all((cooperation_rates[j] < cooperation_rates[j + 1] for j in range(len(cooperation_rates) - 1)))
+        if is_strictly_increasing:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_19(BaseStrategy):
+    """
+    Threshold-Based Reciprocal Cooperation strategy for N-Player Public Goods Game.
+    
+    Round 1: Play C unconditionally to establish cooperative norm and test responsiveness.
+    Rounds 2-r: Reciprocate based on majority cooperation. Play C if cooperation_rate ≥ 0.5,
+    else play D. Maintains consistent threshold throughout to sustain collective norms.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        n_opponents = self.game_description.n_players - 1
+        cooperation_last_round = history.opponent_cooperators[-1]
+        cooperation_rate = cooperation_last_round / n_opponents
+        if cooperation_rate >= 0.5:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_20(BaseStrategy):
+    """
+    Reciprocal Conditional Cooperation Strategy for N-Player Public Goods Game.
+    
+    Cooperates in the first round to signal willingness, then adopts a threshold-based
+    reciprocal strategy in subsequent rounds. The decision depends on whether the observed
+    cooperation rate of opponents exceeds the break-even point where contribution becomes
+    profitable (i.e., where the public good multiplier k makes cooperation worthwhile).
+    
+    Core mechanism: Tracks the aggregate cooperation rate across all previous rounds and
+    compares it against a dynamically calculated break-even threshold of ceil(n/k) cooperators.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.break_even_cooperators = math.ceil(game_description.n_players / game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        total_opponent_cooperators = int(np.sum(history.opponent_cooperators))
+        total_opponent_slots = (self.game_description.n_players - 1) * history.round_number
+        if total_opponent_slots == 0:
+            observed_coop_rate = 0.0
+        else:
+            observed_coop_rate = total_opponent_cooperators / total_opponent_slots
+        effective_opponents_cooperating = observed_coop_rate * (self.game_description.n_players - 1)
+        if effective_opponents_cooperating >= self.break_even_cooperators - 0.5:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_21(BaseStrategy):
+    """
+    Adaptive Reciprocity with Threshold Monitoring for N-Player Public Goods Game.
+    
+    Cooperates in round 0, then monitors cooperation rates and uses threshold-based
+    decision making. Uses a base threshold of k/(2n) for middle rounds and adds 0.15
+    buffer for the final round to prevent last-round free-riding.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.base_threshold = game_description.k / (2 * game_description.n_players)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        total_cooperators_prev = history.opponent_cooperators[-1] + (1 if history.my_actions[-1] else 0)
+        observed_rate = total_cooperators_prev / self.game_description.n_players
+        is_final_round = history.round_number == self.game_description.n_rounds - 1
+        if is_final_round:
+            final_threshold = self.base_threshold + 0.15
+            if observed_rate >= final_threshold:
+                return Action.C
+            else:
+                return Action.D
+        elif observed_rate >= self.base_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_22(BaseStrategy):
+    """
+    Threshold Reciprocity Strategy for N-Player Public Goods Game.
+    
+    Cooperates unconditionally in round 0, then applies conditional reciprocity
+    based on observing whether opponents meet a cooperation threshold.
+    
+    Threshold τ = k/n + 0.15 ensures cooperation only when opponents demonstrate
+    sufficient collective commitment to the public good.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = game_description.k / game_description.n_players + 0.15
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        cooperators_last_round = history.opponent_cooperators[-1]
+        n_opponents = self.game_description.n_players - 1
+        cooperation_rate = cooperators_last_round / n_opponents
+        if cooperation_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_23(BaseStrategy):
+    """
+    Adaptive Threshold Reciprocity Strategy for N-Player Public Goods Game.
+    
+    Uses dynamic thresholds that adjust based on game phase to encourage 
+    conditional cooperation while protecting against exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.consecutive_low_coop_rounds = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        k = self.game_description.k
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        cooperators_prev = history.opponent_cooperators[-1]
+        rho_prev = cooperators_prev / max(1, n - 1)
+        if rho_prev < 0.1:
+            self.consecutive_low_coop_rounds += 1
+        else:
+            self.consecutive_low_coop_rounds = 0
+        if self.consecutive_low_coop_rounds >= 2:
+            return Action.D
+        if current_round == r - 1:
+            if rho_prev >= k / n:
+                return Action.C
+            else:
+                return Action.D
+        if current_round <= 2:
+            phi = 0.15
+        elif current_round >= r - 2:
+            phi = -0.1
+        else:
+            phi = 0.0
+        theta = k / n + phi
+        if (k / n < 0.5 or n > 8) and current_round <= 2:
+            theta += 0.1
+        epsilon = 0.1
+        if rho_prev >= theta:
+            return Action.C
+        elif rho_prev < theta - epsilon:
+            return Action.D
+        else:
+            p_coop = (rho_prev - (theta - epsilon)) / epsilon
+            if random.random() < p_coop:
+                return Action.C
+            else:
+                return Action.D
+
+class Strategy_COLLECTIVE_24(BaseStrategy):
+    """
+    Adaptive Threshold Cooperation strategy for N-Player Public Goods Game.
+    
+    Cooperates in round 1, conditionally in rounds 2 to r-1 based on whether
+    previous round cooperation exceeded the threshold n/k, and defects in the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            return Action.D
+        prev_opponent_cooperators = history.opponent_cooperators[-1]
+        my_prev_action = history.my_actions[-1]
+        total_cooperators_prev = (1 if my_prev_action else 0) + prev_opponent_cooperators
+        threshold = n / k
+        if total_cooperators_prev > threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_25(BaseStrategy):
+    """
+    Threshold-Based Conditional Cooperation strategy for N-Player Public Goods Game.
+    
+    Cooperates in round 1, then cooperates in subsequent rounds if the number of 
+    cooperators in the previous round meets or exceeds a majority threshold 
+    T = max(2, ⌈n/2⌉). Otherwise defects.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = max(2, math.ceil(game_description.n_players / 2))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        previous_round_idx = history.round_number - 1
+        opponent_cooperators_prev = history.opponent_cooperators[previous_round_idx]
+        self_cooperated_prev = history.my_actions[previous_round_idx]
+        total_cooperators_prev = opponent_cooperators_prev + (1 if self_cooperated_prev else 0)
+        if total_cooperators_prev >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_26(BaseStrategy):
+    """
+    Adaptive Reciprocal Cooperation Strategy.
+    
+    Cooperates unconditionally in round 1 to signal willingness to cooperate.
+    In middle rounds (2 to r-1), cooperates if opponent cooperation rate >= 50%.
+    In final round, cooperates only if opponent cooperation rate >= 75%.
+    Gracefully transitions to defection when cooperation cannot be sustained.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        n_opponents = self.game_description.n_players - 1
+        if n_opponents <= 0:
+            return Action.C
+        opp_coop_count = history.opponent_cooperators[-1]
+        opp_coop_rate = opp_coop_count / n_opponents
+        if history.round_number == self.game_description.n_rounds - 1:
+            if opp_coop_rate >= 0.75:
+                return Action.C
+            else:
+                return Action.D
+        if opp_coop_rate >= 0.5:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_27(BaseStrategy):
+    """
+    Adaptive Reciprocal Cooperation Strategy for N-Player Public Goods Game.
+    
+    Maintains cooperation conditional on observing sufficient participation.
+    Uses previous round cooperation rates to inform current decisions with
+    threshold-based adaptive reciprocity.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+        self.theta_high = (self.k + 1) / (2 * self.n) + 0.5
+        self.theta_low = max(1 / self.n, (self.k - 1) / (2 * self.n) + 0.4)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        prev_opponent_cooperators = history.opponent_cooperators[-1]
+        prev_my_action = history.my_actions[-1]
+        total_cooperators = prev_opponent_cooperators
+        if prev_my_action:
+            total_cooperators += 1
+        cooperation_rate = total_cooperators / self.n
+        if current_round == self.r - 1:
+            if cooperation_rate >= 0.6:
+                return Action.C
+            else:
+                return Action.D
+        if cooperation_rate >= self.theta_high:
+            return Action.C
+        elif cooperation_rate < self.theta_low:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_COLLECTIVE_28(BaseStrategy):
+    """
+    Threshold Reciprocity Strategy for N-Player Public Goods Game.
+    
+    Cooperates unconditionally in round 0, then conditionally reciprocates based on
+    whether the cooperation rate in the previous round meets or exceeds the threshold
+    τ = (n+1)/(2n). This maintains cooperation when the group sustains majority-level
+    cooperation and signals defection when cooperation drops below this critical threshold.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = (game_description.n_players + 1) / (2 * game_description.n_players)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        prev_opponent_cooperators = history.opponent_cooperators[-1]
+        prev_self_cooperated = history.my_actions[-1]
+        total_cooperators = prev_opponent_cooperators + int(prev_self_cooperated)
+        cooperation_rate = total_cooperators / self.game_description.n_players
+        if cooperation_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_29(BaseStrategy):
+    """
+    Adaptive Public Goods Cooperation Strategy
+    
+    Round 1: Always cooperate to establish mutual contribution.
+    Rounds 2+: Cooperate if the previous round had at least ceil(k) total cooperators,
+    otherwise defect. This threshold-based approach maintains cooperation when the
+    public good is sufficiently multiplied to generate positive per-capita returns.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        prev_round_idx = history.round_number - 1
+        my_prev_contribution = 1 if history.my_actions[prev_round_idx] else 0
+        opponent_cooperators_prev = history.opponent_cooperators[prev_round_idx]
+        total_cooperators_prev = my_prev_contribution + opponent_cooperators_prev
+        threshold = math.ceil(self.game_description.k)
+        if total_cooperators_prev >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_30(BaseStrategy):
+    """
+    Conditional Cooperation with Majority Threshold strategy.
+    
+    Cooperates in round 1, then conditionally cooperates based on whether
+    a majority (≥50%) of all players cooperated in the previous round.
+    If m ≥ ceil(n/2) cooperators were observed, cooperate; otherwise defect.
+    Applies the same rule in the final round (no endgame defection).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.theta = math.ceil(game_description.n_players / 2)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        opponents_cooperated = history.opponent_cooperators[-1]
+        my_previous_cooperated = history.my_actions[-1]
+        total_cooperators_previous = opponents_cooperated + (1 if my_previous_cooperated else 0)
+        if total_cooperators_previous >= self.theta:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_31(BaseStrategy):
+    """
+    Generous Threshold Cooperation with Symmetric Treatment.
+    
+    Round 1: Cooperate unconditionally to bootstrap mutual cooperation.
+    Rounds 2+: Cooperate if at least ceil(n/2) total players (including self) 
+    cooperated in the previous round; otherwise defect.
+    Final round applies the same rule (no unconditional defection).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        c_prev = history.opponent_cooperators[-1] + (1 if history.my_actions[-1] else 0)
+        threshold = math.ceil(self.game_description.n_players / 2)
+        if c_prev >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_32(BaseStrategy):
+    """
+    Threshold-Conditional Cooperation with Graduated Response
+    
+    Enforces cooperative norms through conditional cooperation,
+    punishing free-riders while allowing recovery. Balances individual
+    protection against collective welfare.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+        if self.n == 2:
+            self.tau = 2
+        else:
+            self.tau = math.ceil((self.n - 1) * (self.k / (1 + self.k)))
+        self.defected_last_round = False
+        self.all_opponents_defected_at_start = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.r - 1:
+            if self.r <= 3:
+                total_cooperators_last = history.opponent_cooperators[-1] + (1 if history.my_actions[-1] else 0)
+                if total_cooperators_last >= self.tau:
+                    return Action.C
+            return Action.D
+        if current_round == 1 and history.opponent_cooperators[0] == 0:
+            self.all_opponents_defected_at_start = True
+            self.defected_last_round = True
+            return Action.D
+        if self.all_opponents_defected_at_start:
+            return Action.D
+        total_cooperators_last = history.opponent_cooperators[-1] + (1 if history.my_actions[-1] else 0)
+        if self.defected_last_round:
+            if total_cooperators_last >= self.tau:
+                self.defected_last_round = False
+                return Action.C
+            else:
+                return Action.D
+        if total_cooperators_last >= self.tau:
+            return Action.C
+        else:
+            self.defected_last_round = True
+            return Action.D
+
+class Strategy_PROSOCIAL_5(BaseStrategy):
+    """
+    Adaptive Conditional Cooperation Strategy for N-Player Public Goods Game.
+    
+    Cooperates unconditionally in the first and final rounds to establish and 
+    reinforce cooperative norms. In intermediate rounds, cooperates if a majority 
+    of other players cooperated in the previous round, otherwise defects to protect 
+    against exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n = self.game_description.n_players
+        n_rounds = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.C
+        if current_round == n_rounds - 1:
+            return Action.C
+        threshold = math.ceil((n - 1) / 2)
+        opponents_cooperated_last_round = history.opponent_cooperators[-1]
+        if opponents_cooperated_last_round >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_6(BaseStrategy):
+    """
+    Adaptive Conditional Cooperation with Endgame Commitment.
+    
+    Cooperates unconditionally in the first and final rounds, establishing prosocial intent
+    and commitment. In middle rounds, adapts to opponent cooperation levels with a majority
+    threshold—full cooperation if most cooperate, otherwise probabilistic participation
+    proportional to observed cooperation rates.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil((game_description.n_players - 1) / 2)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_rounds = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.C
+        if current_round == n_rounds - 1:
+            return Action.C
+        c_prev = history.opponent_cooperators[-1]
+        n_opponents = self.game_description.n_players - 1
+        if c_prev >= self.threshold:
+            return Action.C
+        probability = c_prev / n_opponents
+        if random.random() < probability:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_7(BaseStrategy):
+    """
+    Conditional Cooperation with Prosocial Threshold.
+    
+    Cooperates unconditionally in round 1. In subsequent rounds, observes the number
+    of cooperators from the previous round and cooperates if it meets or exceeds a
+    prosocial threshold τ = max(⌈n/k⌉ − 1, 1). This strategy balances reciprocity
+    with generosity, forgiving occasional free-riding while maintaining consistency.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = game_description.n_players
+        k = game_description.k
+        self.threshold = max(math.ceil(n / k) - 1, 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        previous_cooperators = history.opponent_cooperators[-1]
+        did_i_cooperate = history.my_actions[-1]
+        m = previous_cooperators + (1 if did_i_cooperate else 0)
+        if m >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_8(BaseStrategy):
+    """
+    Cooperative Threshold Strategy with dynamic phase-based adjustment.
+    
+    Initiates unconditional cooperation, observes opponent cooperation rates,
+    and applies dynamically adjusted thresholds:
+    - Early game (rounds 1-2): permissive (40%)
+    - Mid-game: gradually increasing (55-70%)
+    - End game (final 2 rounds): strict (80%)
+    
+    Embodies conditional prosociality while protecting against exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def _compute_threshold(self, current_round: int) -> float:
+        """
+        Compute cooperation threshold based on game phase.
+        current_round is 0-indexed (0 to n_rounds-1).
+        """
+        n_rounds = self.game_description.n_rounds
+        round_1indexed = current_round + 1
+        if round_1indexed <= 2:
+            return 0.4
+        elif round_1indexed <= n_rounds - 2:
+            progress_ratio = (round_1indexed - 3) / (n_rounds - 4)
+            return 0.55 + 0.15 * progress_ratio
+        else:
+            return 0.8
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        n_opponents = self.game_description.n_players - 1
+        if n_opponents <= 0:
+            return Action.C
+        cooperators_last_round = history.opponent_cooperators[-1]
+        cooperation_rate = cooperators_last_round / n_opponents
+        threshold = self._compute_threshold(history.round_number)
+        if cooperation_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_9(BaseStrategy):
+    """
+    Adaptive Reciprocal Cooperation Strategy for N-Player Public Goods Game.
+    
+    Cooperates in the first round to establish prosocial intent, then adapts based on
+    observed cooperation levels using a parameter-dependent threshold. Maintains commitment
+    through the final round without strategic exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        total_cooperators = history.opponent_cooperators[-1] + int(history.my_actions[-1])
+        if total_cooperators == 0:
+            return Action.D
+        if total_cooperators == self.game_description.n_players:
+            return Action.C
+        if total_cooperators >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_10(BaseStrategy):
+    """
+    Conditional Cooperation with Majority Threshold strategy for N-Player Public Goods Game.
+    
+    Initiates cooperation unconditionally in round 1 to establish trust.
+    Always cooperates in the final round to sustain prosocial norms.
+    In intermediate rounds, cooperates only if at least 50% of all players 
+    cooperated in the immediately preceding round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            return Action.C
+        prev_opponent_cooperators = history.opponent_cooperators[-1]
+        prev_my_action = history.my_actions[-1]
+        prev_total_cooperators = prev_opponent_cooperators + (1 if prev_my_action else 0)
+        if prev_total_cooperators >= n / 2:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_11(BaseStrategy):
+    """
+    Generous Reciprocity Strategy: Cooperate by default, withdraw only if others 
+    substantially abandon cooperation. Uses a 0.95-discounted breakeven threshold 
+    to signal prosocial optimism and willingness to rebuild mutual cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        k = self.game_description.k
+        if history.round_number == 0:
+            return Action.C
+        cooperators_prev = history.opponent_cooperators[-1]
+        n_opponents = n - 1
+        rate_prev = cooperators_prev / n_opponents if n_opponents > 0 else 0
+        threshold = 1.0 / k * 0.95
+        if threshold < 0:
+            threshold = 0.2
+        if rate_prev >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_12(BaseStrategy):
+    """
+    Adaptive Threshold Cooperation Strategy for N-Player Public Goods Game.
+    
+    Cooperates in round 1. In subsequent rounds, observes the cooperation rate 
+    from the previous round and cooperates if it exceeds threshold = 1/k, 
+    otherwise defects. The threshold represents the sustainability boundary where
+    cooperation becomes collectively rational.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        n = self.game_description.n_players
+        k = self.game_description.k
+        total_cooperators = history.opponent_cooperators[-1] + int(history.my_actions[-1])
+        coop_rate = total_cooperators / n
+        threshold = 1.0 / k
+        if coop_rate > threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_13(BaseStrategy):
+    """
+    Adaptive cooperation strategy for N-Player Public Goods Game.
+    
+    Leads with cooperation in round 1 to signal prosocial intent.
+    In subsequent rounds, cooperates if observed opponent cooperation rate exceeds
+    a threshold of (k/n) + buffer, where buffer depends on group size.
+    Remains forgiving by continuously re-evaluating rather than holding grudges.
+    Final round uses a slightly higher buffer (+0.15) to avoid endgame defection collapse.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        if self.n_players <= 3:
+            self.buffer = 0.2
+        else:
+            self.buffer = 0.1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        n_opponents = self.n_players - 1
+        if n_opponents <= 0:
+            return Action.C
+        total_coop = np.sum(history.opponent_cooperators)
+        total_rounds_observed = len(history.opponent_cooperators)
+        if total_rounds_observed > 0:
+            avg_coop = total_coop / (total_rounds_observed * n_opponents)
+        else:
+            avg_coop = 0.0
+        base_threshold = self.k / self.n_players
+        is_final_round = current_round == self.n_rounds - 1
+        if is_final_round:
+            threshold = base_threshold + 0.15
+        else:
+            threshold = base_threshold + self.buffer
+        if avg_coop >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_14(BaseStrategy):
+    """
+    Generous Threshold Conditional Cooperator
+    
+    Cooperates unconditionally in round 1, then cooperates if the observed
+    cooperation rate of other players meets or exceeds 25%, otherwise defects.
+    Applies the same conditional rule in the final round without end-game defection.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = 0.25
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        n_opponents = self.game_description.n_players - 1
+        observed_cooperators = history.opponent_cooperators[-1]
+        cooperation_rate = observed_cooperators / n_opponents
+        if cooperation_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_15(BaseStrategy):
+    """
+    Prosocial Adaptive Conditional Cooperation Strategy for N-Player Public Goods Game.
+    
+    Strategy outline:
+    - Round 1: Cooperate to establish prosocial intent
+    - Rounds 2 to r-1: Adapt based on cooperation rate in previous round
+      * If cooperation rate ≥ k/n: Cooperate (mutual benefit achievable)
+      * Else if cooperation rate ≥ 1/(2n): Cooperate (benefit of doubt)
+      * Else: Defect (cooperation has collapsed)
+    - Final round: Cooperate to maintain prosocial commitment
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n = self.game_description.n_players
+        k = self.game_description.k
+        r = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            return Action.C
+        prev_round_idx = current_round - 1
+        cooperators_prev = history.opponent_cooperators[prev_round_idx]
+        if history.my_actions[prev_round_idx]:
+            cooperators_prev += 1
+        c_prev = cooperators_prev / n
+        threshold_high = k / n
+        threshold_low = 1.0 / (2.0 * n)
+        if c_prev >= threshold_high:
+            return Action.C
+        elif c_prev >= threshold_low:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_16(BaseStrategy):
+    """
+    Adaptive Reciprocal Cooperation Strategy for N-Player Public Goods Game.
+    
+    Cooperates unconditionally in round 1.
+    In subsequent rounds, cooperates if at least 40% of opponents cooperated 
+    in the previous round; otherwise defects.
+    
+    This strategy aims to establish prosocial norms while avoiding indefinite 
+    exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.alpha = 0.4
+        self.threshold = math.ceil((game_description.n_players - 1) * self.alpha)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        cooperators_last_round = history.opponent_cooperators[-1]
+        if cooperators_last_round >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_17(BaseStrategy):
+    """
+    Generous Conditional Cooperator with Recovery Threshold.
+    
+    Starts with cooperation and maintains broad cooperation unless it collapses completely.
+    Uses two thresholds: a high bar for sustainable cooperation and a low bar for recovery.
+    Matches any signal of cooperation in middle rounds to encourage reciprocity.
+    Switches to stricter defection criteria in the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = game_description.n_players
+        k = game_description.k
+        self.t_low = k / (2.0 * n)
+        self.t_high = min(2.0 * k / n, 1.0)
+        self.n_rounds = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        m = history.opponent_cooperators[-1] + (1 if history.my_actions[-1] else 0)
+        n = self.game_description.n_players
+        cooperation_rate = m / n
+        is_final_round = history.round_number == self.n_rounds - 1
+        if is_final_round:
+            if cooperation_rate >= self.t_low:
+                return Action.C
+            else:
+                return Action.D
+        elif cooperation_rate >= self.t_high:
+            return Action.C
+        elif cooperation_rate >= self.t_low:
+            return Action.C
+        elif m >= 1:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_18(BaseStrategy):
+    """
+    Optimistic Reciprocity with Prosocial Floor strategy.
+    
+    Leads with cooperation, reciprocates based on group cooperation rate with lenient thresholds,
+    protects against persistent free-riding, and shows final-round commitment.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.consecutive_zero_coop = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        total_cooperators_prev = history.opponent_cooperators[-1] + (1 if history.my_actions[-1] else 0)
+        p_prev = total_cooperators_prev / n
+        is_final = current_round == r - 1
+        T = max(1.0 / k, 0.35)
+        is_lenient_round = current_round in [1, 2]
+        if is_lenient_round:
+            T_lenient = min(1.0, 1.0 / k + 0.15)
+            T = T_lenient
+        if is_final:
+            if p_prev >= T:
+                return Action.C
+            total_past_rounds = len(history.opponent_cooperators)
+            if total_past_rounds > 0:
+                total_all_cooperators = 0
+                for i in range(total_past_rounds):
+                    total_all_cooperators += history.opponent_cooperators[i] + (1 if history.my_actions[i] else 0)
+                p_avg = total_all_cooperators / (n * total_past_rounds)
+            else:
+                p_avg = 0.0
+            if p_avg == 0.0:
+                return Action.D
+            if 0 < p_prev < T and p_avg >= T:
+                return Action.C
+            return Action.C
+        if p_prev >= T:
+            self.consecutive_zero_coop = 0
+            return Action.C
+        if 0 < p_prev < T:
+            self.consecutive_zero_coop = 0
+            return Action.C
+        if p_prev == 0:
+            self.consecutive_zero_coop += 1
+            if self.consecutive_zero_coop >= 2:
+                return Action.D
+            return Action.C
+        return Action.C
+
+class Strategy_PROSOCIAL_19(BaseStrategy):
+    """
+    Adaptive Threshold Cooperation Strategy for N-Player Public Goods Game.
+    
+    Cooperates in round 1 unconditionally. In subsequent rounds, adapts cooperation
+    based on observed cooperation rate relative to a dynamic threshold (k/n) with
+    a tolerance band for noise. Includes adaptive refinement to adjust tolerance
+    band based on sustained cooperation/defection patterns.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = game_description.k / game_description.n_players
+        self.base_tolerance = 0.15
+        self.tolerance = self.base_tolerance
+        self.high_coop_rounds = 0
+        self.low_coop_rounds = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        opponent_coop_last = history.opponent_cooperators[-1]
+        my_action_last = history.my_actions[-1]
+        total_cooperators_last = opponent_coop_last + (1 if my_action_last else 0)
+        observed_rate = total_cooperators_last / self.game_description.n_players
+        self._update_adaptive_state(observed_rate)
+        if observed_rate >= self.threshold:
+            return Action.C
+        elif observed_rate >= self.threshold - self.tolerance:
+            if self.threshold > 0:
+                prob = observed_rate / self.threshold
+                return Action.C if random.random() < prob else Action.D
+            return Action.C
+        else:
+            return Action.D
+
+    def _update_adaptive_state(self, observed_rate: float):
+        """
+        Update adaptive refinement tracking:
+        - Increase defection pressure if cooperation is sustained low
+        - Tighten tolerance if cooperation is sustained high
+        """
+        high_coop_threshold = self.threshold
+        low_coop_threshold = self.threshold - self.base_tolerance
+        if observed_rate > high_coop_threshold:
+            self.high_coop_rounds += 1
+            self.low_coop_rounds = 0
+            if self.high_coop_rounds >= 3:
+                self.tolerance = max(0.05, self.base_tolerance - 0.03)
+        elif observed_rate < low_coop_threshold:
+            self.low_coop_rounds += 1
+            self.high_coop_rounds = 0
+            if self.low_coop_rounds >= 2:
+                self.tolerance = min(self.base_tolerance, self.base_tolerance - 0.05)
+        else:
+            self.high_coop_rounds = 0
+            self.low_coop_rounds = 0
+            self.tolerance = self.base_tolerance
+
+class Strategy_PROSOCIAL_20(BaseStrategy):
+    """
+    Prosocial Threshold Cooperation strategy for N-Player Public Goods Game.
+    
+    Initiates with unconditional cooperation, then maintains cooperation whenever
+    the observed cooperation level meets or exceeds a break-even threshold.
+    Uses average cooperation trend for final round decisions.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil(game_description.n_players / game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.game_description.n_rounds - 1:
+            prior_coop_counts = history.my_actions[:current_round].astype(int) + history.opponent_cooperators[:current_round]
+            avg_coop = np.mean(prior_coop_counts) if len(prior_coop_counts) > 0 else 0.0
+            if avg_coop >= self.threshold:
+                return Action.C
+            else:
+                return Action.D
+        c_prev = int(history.my_actions[current_round - 1]) + history.opponent_cooperators[current_round - 1]
+        if c_prev >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_21(BaseStrategy):
+    """
+    Cooperative Tipping Point Strategy for N-Player Public Goods Game.
+    
+    Round 1: Cooperate unconditionally to signal willingness to contribute.
+    
+    Rounds 2+: Observe cooperation rate from previous round and apply:
+    - rate ≥ 0.5: Cooperate
+    - 0.2 < rate < 0.5: Cooperate with probability (0.2 + rate)
+    - rate ≤ 0.2: Defect
+    
+    No end-game defection; maintains consistency through final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        prev_round_idx = history.round_number - 1
+        total_cooperators = history.opponent_cooperators[prev_round_idx]
+        if history.my_actions[prev_round_idx]:
+            total_cooperators += 1
+        rate_prev = total_cooperators / self.game_description.n_players
+        if rate_prev >= 0.5:
+            return Action.C
+        elif rate_prev > 0.2:
+            cooperation_probability = 0.2 + rate_prev
+            if random.random() < cooperation_probability:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_22(BaseStrategy):
+    """
+    Adaptive Reciprocal Cooperation Strategy for N-Player Public Goods Game.
+    
+    Opens with unconditional cooperation to signal prosocial intent.
+    In middle rounds, adapts by cooperating if opponent cooperation rate >= 1/3.
+    Closes with unconditional cooperation to prioritize collective welfare.
+    This balances reciprocal fairness with generosity, avoiding exploitation 
+    while maintaining potential for high-welfare cooperative equilibria.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_players = self.game_description.n_players
+        n_rounds = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.C
+        if current_round == n_rounds - 1:
+            return Action.C
+        opponents_cooperated = history.opponent_cooperators[-1]
+        n_opponents = n_players - 1
+        if n_opponents <= 0:
+            return Action.C
+        cooperation_rate = opponents_cooperated / n_opponents
+        if cooperation_rate >= 1.0 / 3.0:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_23(BaseStrategy):
+    """
+    Threshold-Based Prosocial Cooperation Strategy for N-Player Public Goods Game.
+    
+    Initiates with cooperation and maintains it conditional on observing sufficient
+    collective contributions to sustain the public good above the viability threshold.
+    The strategy calculates min_coop = ⌈n / k⌉ as the minimum cooperators needed for
+    the public good to be individually worthwhile. It cooperates in round 1, then
+    continues cooperating if and only if total cooperators in the previous round
+    met or exceeded this threshold.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.min_coop = math.ceil(game_description.n_players / game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        my_prev_action = history.my_actions[-1]
+        opponent_cooperators_prev = history.opponent_cooperators[-1]
+        total_cooperators_prev = opponent_cooperators_prev + (1 if my_prev_action else 0)
+        if total_cooperators_prev >= self.min_coop:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_24(BaseStrategy):
+    """
+    Adaptive Threshold Cooperator with Prosocial Initialization.
+    
+    Cooperates in round 1 as a prosocial signal.
+    From round 2 onwards, cooperates if opponent cooperation rate meets
+    an adaptive threshold that varies by game phase:
+    - Early phase (t ≤ r/2): θ(t) = k/n
+    - Late phase (t > r/2): θ(t) = (k - ε)/n where ε = min(0.1, k/10)
+    
+    Maintains reciprocal commitment by checking thresholds every round,
+    allowing immediate re-cooperation if opponent cooperation recovers.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        n_opponents = self.n_players - 1
+        if n_opponents <= 0:
+            return Action.C
+        c_prev = history.opponent_cooperators[-1]
+        rho = c_prev / n_opponents
+        current_round = history.round_number
+        mid_point = self.n_rounds / 2
+        if current_round <= mid_point:
+            theta = self.k / self.n_players
+        else:
+            epsilon = min(0.1, self.k / 10)
+            theta = (self.k - epsilon) / self.n_players
+        if rho >= theta:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_25(BaseStrategy):
+    """
+    Conditional Reciprocity with Prosocial Bias for N-Player Public Goods Game.
+    
+    Cooperates based on observed fraction of cooperators in the previous round,
+    comparing against a prosocial threshold of k/(n+1). Embeds early cooperation,
+    single-round punishment for sustained zero cooperation, and refusal to betray
+    in the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.zero_coop_streak = 0
+        self.punishment_active = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        round_num = history.round_number
+        if round_num == 0:
+            return Action.C
+        prev_round_idx = round_num - 1
+        cooperators_prev = history.opponent_cooperators[prev_round_idx]
+        n_opponents = n - 1
+        if n_opponents <= 0:
+            return Action.C
+        coop_rate_prev = cooperators_prev / n_opponents
+        threshold = k / (n + 1)
+        if cooperators_prev == 0:
+            self.zero_coop_streak += 1
+        else:
+            self.zero_coop_streak = 0
+            self.punishment_active = False
+        if self.zero_coop_streak >= 2 and (not self.punishment_active) and (round_num <= r - 2):
+            self.punishment_active = True
+            return Action.D
+        if self.punishment_active:
+            self.punishment_active = False
+            self.zero_coop_streak = 0
+        if coop_rate_prev >= threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_26(BaseStrategy):
+    """
+    Adaptive Reciprocal Cooperator strategy for N-Player Public Goods Game.
+    
+    Cooperates in round 1, then reciprocates based on whether the observed
+    cooperation rate in the previous round meets or exceeds a sustainability threshold.
+    The threshold is max(0.15, 1/k), representing the break-even point where 
+    cooperation becomes mutually beneficial.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = max(0.15, 1.0 / game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        opponents_cooperated = history.opponent_cooperators[-1]
+        our_contribution = 1 if history.my_actions[-1] else 0
+        total_cooperators = opponents_cooperated + our_contribution
+        cooperation_rate = total_cooperators / self.game_description.n_players
+        if cooperation_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_27(BaseStrategy):
+    """
+    Prosocial Conditional Cooperation in N-Player Public Goods Game.
+    
+    Cooperates unconditionally in round 0 (first) and round n_rounds-1 (last).
+    In middle rounds, cooperates if at least 40% of opponents cooperated previously.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.threshold = 0.4 * (self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.n_rounds - 1:
+            return Action.C
+        prev_opponent_cooperators = history.opponent_cooperators[-1]
+        if prev_opponent_cooperators >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_28(BaseStrategy):
+    """
+    Prosocial Reciprocal Strategy for N-Player Public Goods Game.
+    
+    Cooperates on the first round, then conditions on observed cooperation levels.
+    Uses a threshold of max(2, ⌈k⌉) cooperators to maintain cooperation in subsequent rounds.
+    Final round has a relaxed threshold to maintain prosocial behavior.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = max(2, math.ceil(self.k))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        opponent_coop_last_round = history.opponent_cooperators[-1]
+        my_coop_last_round = history.my_actions[-1]
+        total_cooperators_last_round = opponent_coop_last_round + (1 if my_coop_last_round else 0)
+        is_final_round = current_round == self.r - 1
+        if is_final_round:
+            relaxed_threshold = self.n * self.threshold / 2.0
+            if total_cooperators_last_round > relaxed_threshold:
+                return Action.C
+            else:
+                return Action.D
+        elif total_cooperators_last_round >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_29(BaseStrategy):
+    """
+    Prosocial Threshold-Based Conditional Cooperation for N-Player Public Goods Game.
+    
+    Cooperates in first and last rounds unconditionally.
+    In middle rounds, uses threshold-based conditional cooperation with periodic
+    rebound attempts to escape defection equilibria.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.defection_counter = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        k = self.game_description.k
+        r = self.game_description.n_rounds
+        round_num = history.round_number
+        if round_num == 0:
+            return Action.C
+        if round_num == r - 1:
+            return Action.C
+        coop_last = history.opponent_cooperators[-1]
+        if history.my_actions[-1]:
+            coop_last += 1
+        coop_rate = coop_last / n if n > 0 else 0
+        if n > 1:
+            min_rate = (k - 1) / (k * (n - 1))
+        else:
+            min_rate = 0
+        if min_rate > 0.5:
+            min_rate = 0.5
+        simple_threshold = k / n if n > 0 else 0
+        min_rate = max(min_rate, simple_threshold)
+        if coop_rate >= min_rate:
+            self.defection_counter = 0
+            return Action.C
+        elif self.defection_counter <= 1:
+            self.defection_counter += 1
+            return Action.D
+        else:
+            self.defection_counter = 0
+            return Action.C
+
+class Strategy_PROSOCIAL_30(BaseStrategy):
+    """
+    Reciprocal Participation Threshold Strategy for N-Player Public Goods Game.
+    
+    Cooperates in round 1 unconditionally. In subsequent rounds, cooperates if and only if
+    the cooperation rate in the previous round meets or exceeds the threshold θ = k/n.
+    The threshold represents the minimum cooperation fraction needed for the public good
+    to provide at least 1 unit of return to each contributor.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = game_description.k / game_description.n_players
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        total_cooperators = history.opponent_cooperators[-1]
+        if history.my_actions[-1]:
+            total_cooperators += 1
+        cooperation_fraction = total_cooperators / self.game_description.n_players
+        if cooperation_fraction >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_31(BaseStrategy):
+    """
+    Conditional Cooperation with Prosocial Endgame strategy.
+    
+    Cooperates in the first and final rounds unconditionally.
+    In intermediate rounds, cooperates if and only if the observed 
+    cooperation rate among opponents meets or exceeds threshold 
+    τ = max(0.4, k/n).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = max(0.4, self.k / self.n_players)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_num = history.round_number
+        if round_num == 0:
+            return Action.C
+        if round_num == self.n_rounds - 1:
+            return Action.C
+        n_opponents = self.n_players - 1
+        cooperators_last_round = history.opponent_cooperators[-1]
+        coop_rate = cooperators_last_round / n_opponents
+        if coop_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_32(BaseStrategy):
+    """
+    Adaptive Reciprocal Cooperation Strategy that maintains historical cooperation rates
+    and adjusts play based on whether the group maintains surplus-generating cooperation
+    above the threshold (k-1)/k. Starts cooperative, tolerates fluctuations, and only
+    defects if cooperation genuinely collapses or recent cooperation drops significantly.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperation_rates = []
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        k = self.game_description.k
+        n_rounds = self.game_description.n_rounds
+        round_num = history.round_number
+        if round_num == 0:
+            return Action.C
+        n_opponents = n - 1
+        if n_opponents > 0:
+            prev_coop_rate = history.opponent_cooperators[-1] / n_opponents
+        else:
+            prev_coop_rate = 0.0
+        self.cooperation_rates.append(prev_coop_rate)
+        avg_cooperation = np.mean(self.cooperation_rates) if len(self.cooperation_rates) > 0 else 0.0
+        threshold = (k - 1.0) / k
+        if round_num == n_rounds - 1:
+            final_avg_cooperation = np.mean(self.cooperation_rates) if len(self.cooperation_rates) > 0 else 0.0
+            if final_avg_cooperation >= threshold:
+                return Action.C
+            elif final_avg_cooperation < 0.5:
+                return Action.D
+            else:
+                return Action.C
+        elif avg_cooperation >= threshold:
+            return Action.C
+        elif avg_cooperation < threshold and prev_coop_rate < avg_cooperation - 0.2:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_ALTRUISTIC_5(BaseStrategy):
+    """
+    Adaptive Altruistic Contribution Strategy for N-Player Public Goods Game.
+    
+    Initiates cooperation, continues based on observed cooperation rates and
+    public good thresholds, uses probabilistic cooperation in ambiguous middle
+    game, and strategically exits only against systematic defection.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        round_num = history.round_number
+        if round_num == 0:
+            return Action.C
+        c_prev = history.opponent_cooperators[-1]
+        if round_num == r - 1:
+            cooperation_rate = c_prev / n
+            if cooperation_rate >= 0.4:
+                return Action.C
+            else:
+                return Action.D
+        threshold = (2 * k - n) / k if k != 0 else 0
+        if c_prev >= threshold:
+            return Action.C
+        if round_num > 2 * r / 3:
+            return Action.D
+        p = c_prev / n
+        prob = min(p * k, 1.0)
+        if random.random() < prob:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_6(BaseStrategy):
+    """
+    Threshold-Based Reciprocal Altruist strategy for N-Player Public Goods Game.
+    
+    - Round 0: Cooperate unconditionally to establish cooperative signal.
+    - Middle rounds: Cooperate if cooperation rate ρ ≥ θ, where θ = max(0.4, k/n).
+    - Final round: Cooperate unconditionally.
+    - Edge case: If round 1 sees unanimous defection and r > 3, cooperate again in 
+      round r-2 to test for reciprocal cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+        self.theta = max(0.4, self.k / self.n)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.r - 1:
+            return Action.C
+        if current_round == self.r - 2 and self.r > 3:
+            return Action.C
+        m = history.opponent_cooperators[-1]
+        if self.n - 1 == 0:
+            rho = 0.0
+        else:
+            rho = m / (self.n - 1)
+        if rho >= self.theta:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_7(BaseStrategy):
+    """
+    Adaptive Altruistic Strategy for N-Player Public Goods Game.
+    
+    Core principle: Cooperate to maximize collective welfare while adapting to 
+    opponents' behavior. Maintains altruistic baseline even under defection.
+    
+    Decision rule:
+    - Round 0 (first): Cooperate unconditionally
+    - Rounds 1 to r-2 (middle): Cooperate if any prior cooperation detected, 
+      else cooperate with 40% probability
+    - Round r-1 (final): Cooperate unconditionally
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        round_num = history.round_number
+        if round_num == 0:
+            return Action.C
+        if round_num == r - 1:
+            return Action.C
+        n_opponents = n - 1
+        if n_opponents > 0:
+            last_round_cooperators = history.opponent_cooperators[-1]
+            observed_coop_rate = last_round_cooperators / n_opponents
+        else:
+            observed_coop_rate = 0
+        if round_num > 0 and n_opponents > 0:
+            total_cooperators = np.sum(history.opponent_cooperators[:round_num])
+            total_opponent_slots = round_num * n_opponents
+            average_coop_rate = total_cooperators / total_opponent_slots
+        else:
+            average_coop_rate = 0
+        if observed_coop_rate > 0 or average_coop_rate > 0:
+            return Action.C
+        else:
+            return Action.C if random.random() < 0.4 else Action.D
+
+class Strategy_ALTRUISTIC_8(BaseStrategy):
+    """
+    Altruistic Cooperative Strategy for N-Player Public Goods Game.
+    
+    Cooperates unconditionally in the opening round and final round.
+    In intermediate rounds, adaptively cooperates based on observed 
+    cooperation rate of opponents against threshold θ = max(1/k, 0.33).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = max(1.0 / game_description.k, 0.33)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        n_rounds = self.game_description.n_rounds
+        n_players = self.game_description.n_players
+        if round_number == 0:
+            return Action.C
+        if round_number == n_rounds - 1:
+            return Action.C
+        opponent_cooperators = history.opponent_cooperators[-1]
+        n_opponents = n_players - 1
+        if n_opponents > 0:
+            cooperation_rate = opponent_cooperators / n_opponents
+        else:
+            cooperation_rate = 0.0
+        if cooperation_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_9(BaseStrategy):
+    """
+    Altruistic Adaptive Cooperation Strategy.
+    
+    Cooperates unconditionally in the first and final rounds.
+    In middle rounds, cooperates if at least 45% of other players cooperated previously.
+    Uses threshold-based adaptation to balance altruism with defense against exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil((game_description.n_players - 1) * 0.45)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_rounds = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.C
+        if current_round == n_rounds - 1:
+            return Action.C
+        cooperators_in_previous_round = history.opponent_cooperators[-1]
+        if cooperators_in_previous_round >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_10(BaseStrategy):
+    """
+    Graduated Altruistic Reciprocity Strategy for N-Player Public Goods Game.
+    
+    Starts with unconditional cooperation in round 1, then adapts based on 
+    observed opponent cooperation rates with a graduated response function.
+    Maintains an altruistic baseline (45% cooperation) even against defectors,
+    with smooth amplification as observed cooperation increases.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        m = history.opponent_cooperators[-1]
+        n_opponents = self.game_description.n_players - 1
+        if n_opponents <= 0:
+            p = 0.0
+        else:
+            p = m / n_opponents
+        if p >= 0.65:
+            coop_prob = 1.0
+        elif p >= 0.4:
+            coop_prob = 0.65 + 0.35 * p
+        else:
+            coop_prob = 0.45
+        if random.random() < coop_prob:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_11(BaseStrategy):
+    """
+    Altruistic Contribution Strategy for N-Player Public Goods Game.
+    
+    Maximizes the public good by consistently contributing to the community pool
+    across all rounds. Accepts personal sacrifice to promote cooperation and 
+    collective benefit. Never defects, regardless of others' actions or round number.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.C
+
+class Strategy_ALTRUISTIC_12(BaseStrategy):
+    """
+    Altruistic Contribution Strategy for N-Player Public Goods Game.
+    
+    Opens with unconditional cooperation, adaptively responds to observed cooperation rates
+    using a threshold based on the multiplication factor, and terminates with cooperation
+    to signal commitment to the collective good. Sustains cooperation even when defection
+    rises, balancing responsiveness with altruistic endurance.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            return Action.C
+        observed_cooperators = history.opponent_cooperators[-1]
+        observed_coop_rate = observed_cooperators / (n - 1)
+        threshold = (k - 1) / (n - 1)
+        if observed_coop_rate >= threshold:
+            return Action.C
+        if n == 2:
+            p = min(0.5 + observed_coop_rate, 1.0)
+        else:
+            p = min(observed_coop_rate + 0.3, 1.0)
+        if random.random() < p:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_13(BaseStrategy):
+    """
+    Adaptive Conditional Cooperation Strategy for N-Player Public Goods Game.
+    
+    Cooperates unconditionally in the first and last rounds to signal intent and 
+    reject backward induction. In middle rounds, cooperates conditionally based on 
+    observed cooperation rate from the previous round, switching to defection only 
+    when cooperation drops below a threshold adjusted for the public good's value.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_players = self.game_description.n_players
+        n_rounds = self.game_description.n_rounds
+        k = self.game_description.k
+        if current_round == 0:
+            return Action.C
+        if current_round == n_rounds - 1:
+            return Action.C
+        cooperators_in_previous_round = history.opponent_cooperators[-1]
+        cooperation_threshold = k * (n_players - 1) / (2 * n_players)
+        if cooperators_in_previous_round >= cooperation_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_14(BaseStrategy):
+    """
+    Persistent Gradualist Strategy for N-Player Public Goods Game.
+    
+    Cooperates unconditionally in the first third of rounds to seed cooperation.
+    In subsequent rounds, cooperates if observed average opponent cooperation rate ≥ 1/k.
+    Maintains integrity by applying the same threshold to the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.establishment_threshold = math.ceil(game_description.n_rounds / 3)
+        self.cooperation_threshold = 1.0 / game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round < self.establishment_threshold:
+            return Action.C
+        total_cooperators = int(np.sum(history.opponent_cooperators[:current_round]))
+        n_opponents = self.game_description.n_players - 1
+        total_possible_cooperations = n_opponents * current_round
+        if total_possible_cooperations == 0:
+            return Action.C
+        p_avg = total_cooperators / total_possible_cooperations
+        if p_avg >= self.cooperation_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_15(BaseStrategy):
+    """
+    Altruistic Reciprocal Contribution Strategy for N-Player Public Goods Game.
+    
+    Cooperates in round 1, then adjusts cooperation probability based on the 
+    observed cooperation rate from the previous round. Maintains a strong bias 
+    toward cooperation across all conditions to signal willingness to cooperate 
+    and enable collective benefit.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        cooperators_last_round = history.opponent_cooperators[-1]
+        n_opponents = self.game_description.n_players - 1
+        cooperation_rate = cooperators_last_round / n_opponents
+        if cooperation_rate >= 0.5:
+            return Action.C
+        elif cooperation_rate >= 0.25:
+            return Action.C if random.random() < 0.7 else Action.D
+        elif cooperation_rate >= 0.1:
+            return Action.C if random.random() < 0.4 else Action.D
+        else:
+            return Action.C if random.random() < 0.25 else Action.D
+
+class Strategy_ALTRUISTIC_16(BaseStrategy):
+    """
+    Altruistic Adaptive Contribution Strategy for N-Player Public Goods Game.
+    
+    Round 1 (Opening): Cooperate to signal willingness to contribute.
+    Rounds 2 to r-1 (Adaptive): Cooperate if any opponents cooperated, 
+                                 defect only if all opponents defected.
+    Final round: Cooperate unconditionally (altruistic commitment).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.game_description.n_rounds - 1:
+            return Action.C
+        opponents_cooperated = history.opponent_cooperators[-1]
+        if opponents_cooperated > 0:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_17(BaseStrategy):
+    """
+    Adaptive Altruistic Cooperation Strategy for N-Player Public Goods Game.
+    
+    - Round 1: Cooperate unconditionally to signal cooperation.
+    - Rounds 2+: Cooperate if previous round's cooperation_rate >= 0.35, else defect.
+    - Applies same rule to final round (no defection at end despite incentives).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        prev_cooperators = history.opponent_cooperators[-1]
+        prev_cooperators += int(history.my_actions[-1])
+        cooperation_rate = prev_cooperators / self.game_description.n_players
+        if cooperation_rate >= 0.35:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_18(BaseStrategy):
+    """
+    Altruistic Reciprocal Cooperation Strategy for N-Player Public Goods Game.
+    
+    Opens with unconditional cooperation, adapts probabilistically to observed
+    cooperation in middle rounds (scaling from 40% to 90% based on opponent cooperation),
+    and closes with final-round cooperation to affirm altruistic commitment.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            return Action.C
+        prev_cooperators = history.opponent_cooperators[-1]
+        n_opponents = n - 1
+        if n_opponents <= 0:
+            return Action.C
+        c_prev = prev_cooperators / n_opponents
+        coop_prob = min(0.9, 0.4 + 0.6 * c_prev)
+        if random.random() < coop_prob:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_19(BaseStrategy):
+    """
+    Altruistic Adaptive Strategy that maximizes group welfare through cooperative contribution
+    with sensitivity to reciprocation and unconditional final-round cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            return Action.C
+        m = history.opponent_cooperators[-1]
+        n_opponents = n - 1
+        p = m / n_opponents if n_opponents > 0 else 0
+        threshold_generous = 1 / k - (0.2 if n <= 3 else 0.15)
+        threshold_base = 1 / k
+        if p >= threshold_base:
+            return Action.C
+        if current_round <= 2:
+            return Action.C
+        if p >= threshold_generous and r - current_round >= 3:
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_20(BaseStrategy):
+    """
+    Altruistic Reciprocal Threshold Strategy for N-Player Public Goods Game.
+    
+    Opens with unconditional cooperation, maintains probabilistic reciprocity based
+    on observed group cooperation levels, and closes with unconditional cooperation
+    to uphold altruistic principles regardless of final-round exploitation risk.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil(game_description.n_players * 0.35)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            return Action.C
+        opponent_cooperators = history.opponent_cooperators[-1]
+        my_prev_action = history.my_actions[-1]
+        total_cooperators = opponent_cooperators + (1 if my_prev_action else 0)
+        if total_cooperators >= self.threshold:
+            return Action.C
+        cooperation_probability = total_cooperators / n
+        if random.random() < cooperation_probability:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_21(BaseStrategy):
+    """
+    Altruistic Generous Cooperation Strategy for N-Player Public Goods Game.
+    
+    Prioritizes group welfare through consistent cooperation (75%+ in middle rounds,
+    100% in first and last rounds) while using modest defection probability to signal
+    awareness of imbalance when cooperation falls below 50%.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            return Action.C
+        m = history.opponent_cooperators[-1]
+        n_opponents = n - 1
+        if n_opponents <= 0:
+            return Action.C
+        cooperation_rate = m / n_opponents
+        if cooperation_rate >= 0.5:
+            return Action.C
+        if random.random() < 0.75:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_22(BaseStrategy):
+    """
+    Generous Threshold Cooperation: Cooperate unconditionally in round 1 to signal 
+    trustworthiness. In subsequent rounds, cooperate if the observed cooperation rate 
+    among opponents meets or exceeds a generous threshold set below the break-even point 
+    k/n, subsidized by an altruistic margin of 0.15. This embodies altruism through 
+    initial trust, willingness to subsidize cooperation, and adaptive forgiveness.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.altruistic_margin = 0.15
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        n = self.game_description.n_players
+        k = self.game_description.k
+        opponents_count = n - 1
+        opponents_who_cooperated = history.opponent_cooperators[-1]
+        observed_cooperation_rate = opponents_who_cooperated / opponents_count
+        threshold = k / n - self.altruistic_margin
+        if threshold < 0:
+            threshold = 0
+        if observed_cooperation_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_23(BaseStrategy):
+    """
+    Altruistic Adaptive Cooperation Strategy for N-Player Public Goods Game.
+    
+    Cooperates unconditionally in the first round to establish good faith.
+    In subsequent rounds, cooperates if:
+    - Observed cooperation rate among opponents ≥ (k-1)/k (sustainability threshold), OR
+    - Still in the early-middle phase (round < ⌈2r/3⌉)
+    
+    Otherwise defects. This balances altruistic leadership with rational adaptation
+    to observed reciprocation, maintaining cooperation even when others defect during
+    the signaling phase.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        if round_number == 0:
+            return Action.C
+        cooperation_threshold = (k - 1) / k
+        total_opponent_cooperators = np.sum(history.opponent_cooperators[:round_number])
+        total_opponent_observations = (n - 1) * round_number
+        if total_opponent_observations > 0:
+            observed_cooperation_rate = total_opponent_cooperators / total_opponent_observations
+        else:
+            observed_cooperation_rate = 0
+        phase_threshold = math.ceil(2 * r / 3)
+        if observed_cooperation_rate >= cooperation_threshold:
+            return Action.C
+        elif round_number < phase_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_24(BaseStrategy):
+    """
+    Adaptive Reciprocal Altruism Strategy for N-Player Public Goods Game.
+    
+    Initiates cooperation unconditionally in the first round, adapts based on
+    a cooperation threshold in intermediate rounds, and commits to cooperation
+    in the final round. Uses probabilistic response to low cooperation environments.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_rounds = self.game_description.n_rounds
+        k = self.game_description.k
+        n = self.game_description.n_players
+        if current_round == 0:
+            return Action.C
+        if current_round == n_rounds - 1:
+            return Action.C
+        c_prev = history.opponent_cooperators[-1]
+        if c_prev >= self.threshold:
+            return Action.C
+        if random.random() < k / n:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_25(BaseStrategy):
+    """
+    Generous Conditional Cooperator strategy for N-Player Public Goods Game.
+    
+    Cooperates unconditionally in round 1 and the final round. In intermediate rounds,
+    maintains cooperation if at least 50% of players cooperated in the previous round;
+    otherwise, cooperates with declining probability based on remaining rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            return Action.C
+        opponent_coop_last = history.opponent_cooperators[-1]
+        my_coop_last = 1 if history.my_actions[-1] else 0
+        total_cooperators = opponent_coop_last + my_coop_last
+        cooperation_rate = total_cooperators / n
+        if cooperation_rate >= 0.5:
+            return Action.C
+        p_remain = (r - current_round) / (r - 1)
+        if random.random() < p_remain:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_26(BaseStrategy):
+    """
+    Altruistic Threshold Cooperation Strategy.
+    
+    Cooperates in round t if the observed cooperation rate in round t-1 meets or exceeds
+    a threshold τ = (k - 1) / (n - 1). Always cooperates in the first round to signal
+    willingness and give all strategies a chance to reciprocate.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = (game_description.k - 1) / (game_description.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        my_cooperation_prev = 1 if history.my_actions[-1] else 0
+        total_cooperators_prev = my_cooperation_prev + history.opponent_cooperators[-1]
+        cooperation_rate_prev = total_cooperators_prev / self.game_description.n_players
+        if cooperation_rate_prev >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_27(BaseStrategy):
+    """
+    Generous Reciprocator strategy for N-Player Public Goods Game.
+    
+    Cooperates unconditionally in first and last rounds.
+    In middle rounds, reciprocates based on observed opponent cooperation rate with a 30% altruistic buffer.
+    - Cooperates deterministically if opponent cooperation rate ≥ k/n
+    - Otherwise cooperates probabilistically with rate min(p + 0.3, 1) where p is the observed cooperation rate
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.alpha = 0.3
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            return Action.C
+        m = history.opponent_cooperators[-1]
+        p = m / (n - 1) if n > 1 else 0.0
+        threshold = k / n
+        if p >= threshold:
+            return Action.C
+        else:
+            coop_probability = min(p + self.alpha, 1.0)
+            if random.random() < coop_probability:
+                return Action.C
+            else:
+                return Action.D
+
+class Strategy_ALTRUISTIC_28(BaseStrategy):
+    """Adaptive Generous Cooperation Strategy for N-Player Public Goods Game
+    
+    Uses conditional generosity with probability-based reciprocation based on
+    observed opponent cooperation rates, with a threshold-based final round decision.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.theta = (self.k - 1) / (self.n_players - 1) if self.n_players > 1 else 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_num = history.round_number
+        if round_num == 0:
+            return Action.C
+        n_opponents = self.n_players - 1
+        cooperators_count = history.opponent_cooperators[-1]
+        m = cooperators_count / n_opponents if n_opponents > 0 else 0
+        if round_num == self.n_rounds - 1:
+            threshold_half = self.theta / 2
+            if m >= threshold_half:
+                return Action.C
+            else:
+                return Action.D
+        if m >= self.theta:
+            p = 0.9
+        elif m >= self.theta / 2:
+            p = 0.6
+        else:
+            p = 0.2
+        if random.random() < p:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_29(BaseStrategy):
+    """
+    Altruistic Reciprocator Strategy for N-Player Public Goods Game.
+    
+    Cooperates unconditionally in the first and final rounds to signal willingness
+    and maximize final payoffs. In middle rounds, employs reciprocal altruism with
+    a generous 0.4 threshold: cooperates if cooperation ratio >= 0.4, defects otherwise.
+    This balances altruistic intent with protection against systematic exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_rounds = self.game_description.n_rounds
+        n_players = self.game_description.n_players
+        if current_round == 0:
+            return Action.C
+        if current_round == n_rounds - 1:
+            return Action.C
+        total_cooperators = history.opponent_cooperators[-1] + int(history.my_actions[-1])
+        cooperation_ratio = total_cooperators / n_players
+        if cooperation_ratio >= 0.4:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_30(BaseStrategy):
+    """
+    Altruistic Conditional Cooperation with Public Good Prioritization.
+    
+    - Round 1: Always cooperate to establish trust.
+    - Middle rounds: Cooperate if at least ~25% of opponents cooperated OR 
+                    if my cooperation creates tangible public value (>1 per player).
+    - Final round: Always cooperate altruistically.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        k = self.game_description.k
+        r = self.game_description.n_rounds
+        round_num = history.round_number
+        if round_num == 0:
+            return Action.C
+        if round_num == r - 1:
+            return Action.C
+        c_prev = history.opponent_cooperators[-1]
+        threshold = math.ceil((n - 1) * 0.25)
+        if c_prev >= threshold:
+            return Action.C
+        if c_prev > 0 and k * (c_prev + 1) / n > 1:
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_31(BaseStrategy):
+    """
+    Altruistic Conditional Cooperation strategy for N-Player Public Goods Game.
+    
+    Initiates with cooperation, maintains it based on observed cooperation rates,
+    attempts recovery in middle rounds, and makes final-round decision based on
+    stricter threshold. Subordinates individual profit maximization to collective
+    welfare promotion through generous thresholds and recovery attempts.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        current_round = history.round_number
+        total_cooperators_observed = np.sum(history.opponent_cooperators[:current_round])
+        total_previous_rounds = current_round
+        if total_previous_rounds == 0:
+            avg_cooperation_rate = 0.0
+        else:
+            avg_cooperation_rate = total_cooperators_observed / (total_previous_rounds * n)
+        if current_round == r - 1:
+            if avg_cooperation_rate >= k / n:
+                return Action.C
+            else:
+                return Action.D
+        elif avg_cooperation_rate >= k / (n + 1):
+            return Action.C
+        else:
+            rounds_remaining = r - current_round
+            if rounds_remaining >= 2:
+                return Action.C
+            else:
+                return Action.D
+
+class Strategy_ALTRUISTIC_32(BaseStrategy):
+    """
+    Altruistic Adaptive Strategy for N-Player Public Goods Game.
+    
+    Defaults to cooperation with selective defection only when universal defection
+    persists and sufficient rounds remain. In endgame (≤3 rounds left), always cooperates
+    to maximize collective welfare. Uses probabilistic cooperation weighted by observed
+    cooperation rates to balance altruism with protection against exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        if t == 0:
+            return Action.C
+        if t == r - 1:
+            return Action.C
+        rounds_remaining = r - t
+        if rounds_remaining <= 2:
+            return Action.C
+        total_cooperators = 0
+        for round_idx in range(t):
+            cooperators_in_round = history.opponent_cooperators[round_idx] + (1 if history.my_actions[round_idx] else 0)
+            total_cooperators += cooperators_in_round
+        c_avg = total_cooperators / (t * n)
+        if c_avg > 0:
+            threshold = k / (2 * n)
+            if c_avg >= threshold:
+                return Action.C
+            elif rounds_remaining <= 4:
+                return Action.C
+            elif random.random() < c_avg:
+                return Action.C
+            else:
+                return Action.D
+        elif rounds_remaining > 3:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_BENEVOLENT_5(BaseStrategy):
+    """
+    Benevolent Adaptive Cooperation Strategy for N-Player Public Goods Game.
+    
+    Cooperates based on observed average cooperation rates from previous rounds:
+    - Round 1: Always cooperate (benevolent opening)
+    - Rounds 2 to r-1: Cooperate if avg cooperation >= 40%
+    - Final round: Cooperate if avg cooperation >= 30%
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        total_cooperators = int(np.sum(history.opponent_cooperators[:current_round])) + int(np.sum(history.my_actions[:current_round]))
+        avg_coop_rate = total_cooperators / (self.game_description.n_players * current_round)
+        if current_round == self.game_description.n_rounds - 1:
+            if avg_coop_rate >= 0.3:
+                return Action.C
+            else:
+                return Action.D
+        if avg_coop_rate >= 0.4:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_6(BaseStrategy):
+    """
+    Generous Conditional Cooperation strategy for N-Player Public Goods Game.
+    
+    Cooperates in the first round to signal benevolent intent. From round 2 onwards,
+    cooperates if at least ceil((n-1)/3) opponents cooperated in the previous round.
+    This threshold is benevolent and encourages cooperation while protecting against
+    wholesale defection.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil((game_description.n_players - 1) / 3)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        opponents_cooperated = history.opponent_cooperators[-1]
+        if opponents_cooperated >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_7(BaseStrategy):
+    """
+    Cooperative Reciprocity with Adaptive Thresholds strategy.
+    
+    - Round 1: Cooperate unconditionally to signal good faith
+    - Rounds 2 to r-1: Adaptively cooperate based on observed cooperation rate
+      with phase-based thresholds (1/3 in early phase, 1/2 in late phase)
+    - Round r: Defect unconditionally (endgame constraint)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = self.game_description.n_rounds
+        n_players = self.game_description.n_players
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == n_rounds - 1:
+            return Action.D
+        opponents_cooperated = history.opponent_cooperators[-1]
+        if history.my_actions[-1]:
+            total_cooperators = opponents_cooperated + 1
+        else:
+            total_cooperators = opponents_cooperated
+        cooperation_rate = total_cooperators / n_players
+        phase_boundary = math.floor(n_rounds / 2)
+        if current_round < phase_boundary:
+            threshold = 1.0 / 3.0
+        else:
+            threshold = 1.0 / 2.0
+        if cooperation_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_8(BaseStrategy):
+    """
+    Benevolent Threshold Cooperator with Forgiveness strategy for N-Player Public Goods Game.
+    
+    This strategy cooperates in round 1, has a patience window in rounds 2-3,
+    then uses a dynamic threshold based on opponent cooperation rates and the
+    multiplication factor k. It includes a forgiveness zone with probabilistic
+    cooperation for imperfectly cooperative opponents.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        opponent_coops = history.opponent_cooperators[-1]
+        n_opponents = self.game_description.n_players - 1
+        if n_opponents <= 0:
+            return Action.C
+        opponent_coop_rate = opponent_coops / n_opponents
+        k = self.game_description.k
+        dynamic_threshold = max(0.35, 1.0 / k)
+        round_1indexed = history.round_number + 1
+        if round_1indexed <= 3:
+            return Action.C
+        if opponent_coop_rate >= dynamic_threshold:
+            return Action.C
+        forgiveness_lower = dynamic_threshold - 0.2
+        if opponent_coop_rate >= forgiveness_lower:
+            prob = opponent_coop_rate / dynamic_threshold
+            if random.random() < prob:
+                return Action.C
+            else:
+                return Action.D
+        return Action.D
+
+class Strategy_BENEVOLENT_9(BaseStrategy):
+    """
+    Benevolent Adaptive Cooperation Strategy for N-Player Public Goods Game.
+    
+    Cooperates unconditionally in first and last rounds. In intermediate rounds,
+    adapts based on observed opponent cooperation: cooperates if the average
+    cooperation signal (fraction of cooperating opponents) meets a threshold of 1/k.
+    Handles edge cases where no cooperation is observed by maintaining patience
+    for the first few rounds before turning pragmatic.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        k = self.game_description.k
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            return Action.C
+        opponent_coop_history = history.opponent_cooperators[:current_round]
+        m_avg = np.mean(opponent_coop_history)
+        if m_avg == 0:
+            if current_round <= 2:
+                return Action.C
+            else:
+                return Action.D
+        s = m_avg / (n - 1)
+        threshold = 1 / k
+        if s >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_10(BaseStrategy):
+    """
+    Benevolent Conditional Cooperation Strategy for N-Player Public Goods Game.
+    
+    Cooperates unconditionally in round 0, then conditionally cooperates based on 
+    the proportion of cooperators among opponents in the previous round, with 
+    graceful degradation and a 40% minimum cooperation floor.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        n_opponents = self.game_description.n_players - 1
+        if n_opponents <= 0:
+            return Action.C
+        prev_cooperators = history.opponent_cooperators[-1]
+        p = prev_cooperators / n_opponents
+        if p >= 0.6:
+            coop_prob = min(p + 0.1, 1.0)
+        elif p >= 0.3:
+            coop_prob = p
+        else:
+            coop_prob = max(0.4, p / 2)
+        if random.random() < coop_prob:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_11(BaseStrategy):
+    """
+    Benevolent Conditional Cooperation strategy for N-Player Public Goods Game.
+    
+    Cooperates in round 1, then adapts based on observed cooperation rate.
+    Uses thresholds k/n and k/(2n) to decide cooperation, with probabilistic
+    generosity in the intermediate band. In the final round, does not exploit
+    even if cooperation has declined.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        n = self.game_description.n_players
+        k = self.game_description.k
+        r = self.game_description.n_rounds
+        opponent_coop = history.opponent_cooperators[-1]
+        self_coop = history.my_actions[-1]
+        total_coop = opponent_coop + (1 if self_coop else 0)
+        gamma = total_coop / n
+        threshold_high = k / n
+        threshold_low = k / (2 * n)
+        if history.round_number == r - 1:
+            if gamma >= threshold_high:
+                return Action.C
+            else:
+                return Action.D
+        if gamma >= threshold_high:
+            return Action.C
+        elif gamma >= threshold_low:
+            cooperation_prob = min(gamma * n / k, 1.0)
+            if random.random() < cooperation_prob:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_12(BaseStrategy):
+    """
+    Benevolent Conditional Cooperation Strategy for N-Player Public Goods Game.
+    
+    Maintains running estimate of opponent cooperation and adapts threshold
+    across rounds, starting optimistically and gradually becoming more selective.
+    Embeds benevolence through cooperative optimism, graduated adjustment, and
+    final-round restraint against exploitative defection.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == 1:
+            return Action.C
+        others_coop_prev = history.opponent_cooperators[-1]
+        coop_rate_prev = others_coop_prev / (n - 1) if n > 1 else 0
+        if current_round == r - 1:
+            threshold = k / (2 * n)
+            return Action.C if coop_rate_prev >= threshold else Action.D
+        round_fraction = (current_round - 1) / r
+        threshold = k / n + round_fraction * 0.3
+        consecutive_zero_rounds = 0
+        if current_round >= 2:
+            check_idx = current_round - 1
+            while check_idx >= 2 and history.opponent_cooperators[check_idx] == 0:
+                consecutive_zero_rounds += 1
+                check_idx -= 1
+            if consecutive_zero_rounds >= 2:
+                return Action.D
+        return Action.C if coop_rate_prev >= threshold else Action.D
+
+class Strategy_BENEVOLENT_13(BaseStrategy):
+    """
+    Adaptive Reciprocal Cooperation strategy for N-Player Public Goods Game.
+    
+    Strategy:
+    - Round 1: Always cooperate (signal willingness)
+    - Rounds 2 to r-1: Adapt based on observed cooperation rate with early coordination window
+    - Round r (final): Sustain cooperation if meaningful participation observed
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.defection_duration = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        previous_cooperators = history.opponent_cooperators[-1]
+        my_previous_action = history.my_actions[-1]
+        total_cooperators = previous_cooperators + int(my_previous_action)
+        p = total_cooperators / self.n_players if self.n_players > 0 else 0.0
+        if current_round == self.n_rounds - 1:
+            if p >= 0.4:
+                return Action.C
+            else:
+                return Action.D
+        if current_round <= 2:
+            self.defection_duration = 0
+            return Action.C
+        if p >= self.k / self.n_players:
+            self.defection_duration = 0
+            return Action.C
+        if p >= 0.4:
+            self.defection_duration = 0
+            return Action.C
+        if self.defection_duration >= 1 and p >= 0.5:
+            self.defection_duration = 0
+            return Action.C
+        self.defection_duration += 1
+        return Action.D
+
+class Strategy_BENEVOLENT_14(BaseStrategy):
+    """
+    Benevolent Conditional Cooperation Strategy for N-Player Public Goods Game.
+    
+    Cooperates in round 1 to signal good faith. In subsequent rounds, observes the
+    cooperation rate among opponents in the previous round and conditionally cooperates
+    if at least 50% of opponents cooperated. This threshold-based approach balances
+    reciprocity with protection against free-riding, while maintaining benevolent
+    commitment throughout all rounds including the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        m = history.opponent_cooperators[-1]
+        n_opponents = self.game_description.n_players - 1
+        rho = m / n_opponents
+        if rho >= 0.5:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_15(BaseStrategy):
+    """
+    Adaptive conditional cooperator with benevolence alignment.
+    
+    Strategy: Cooperate unconditionally in round 1, then use reciprocity-based decision rules
+    in middle rounds (threshold 40% cooperation from others), and a lower threshold (35%) 
+    in the final round to allow recovery. Demonstrates good faith, proportional response, 
+    and forgiveness mechanisms while resisting final-round exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        n_rounds = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == n_rounds - 1:
+            total_prev_cooperators = np.sum(history.opponent_cooperators[:current_round])
+            avg_other_coop = total_prev_cooperators / (current_round * (n - 1)) if current_round > 0 else 0.0
+            if avg_other_coop >= 0.35:
+                return Action.C
+            else:
+                return Action.D
+        cooperators_prev_round = history.opponent_cooperators[current_round - 1]
+        other_coop_rate = cooperators_prev_round / (n - 1) if n > 1 else 0.0
+        if other_coop_rate >= 0.4:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_16(BaseStrategy):
+    """
+    Benevolent Threshold Strategy for N-Player Public Goods Game.
+    
+    Cooperates in round 1 to establish benevolence. In rounds 2 to r-1,
+    adapts based on the cooperation rate threshold k/n. In the final round,
+    cooperates unconditionally to signal intrinsic benevolence.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_num = history.round_number
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        if round_num == 0:
+            return Action.C
+        if round_num == r - 1:
+            return Action.C
+        total_cooperators_prev = history.opponent_cooperators[-1] + int(history.my_actions[-1])
+        cooperation_rate = total_cooperators_prev / n
+        threshold = k / n
+        if cooperation_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_17(BaseStrategy):
+    """
+    Sustainability-Conditioned Generosity strategy.
+    
+    Cooperates in the first round to signal benevolent intent.
+    In subsequent rounds, cooperates if the number of cooperating opponents
+    in the previous round meets or exceeds a threshold based on the public good's
+    productivity, otherwise defects. Maintains cooperation through the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.floor((game_description.n_players - 1) * game_description.k / game_description.n_players)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        cooperators_last_round = history.opponent_cooperators[-1]
+        if cooperators_last_round >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_18(BaseStrategy):
+    """
+    Benevolent Reciprocal Cooperator strategy for N-Player Public Goods Game.
+    
+    Initiates cooperation in round 1, then reciprocates any cooperation observed
+    in previous rounds using a threshold-based decision rule for robustness.
+    
+    Core behavior:
+    - Round 1: COOPERATE (benevolent initiation)
+    - Rounds 2 to r: COOPERATE if observed cooperators ≥ ceil(k/n), else DEFECT
+    
+    The threshold ensures reciprocation only when others are contributing meaningfully.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil(game_description.k / game_description.n_players)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        prev_total_cooperators = int(history.my_actions[-1]) + history.opponent_cooperators[-1]
+        if prev_total_cooperators >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_19(BaseStrategy):
+    """
+    Benevolent Conditional Cooperation strategy for N-Player Public Goods Game.
+    
+    - Round 1: Cooperate (benevolent signal)
+    - Rounds 2 to r-1: Cooperate if opponent cooperation rate >= 33.3%, else defect
+    - Final round r: Cooperate if opponent cooperation rate >= 25%, else defect
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        n_opponents = self.game_description.n_players - 1
+        cooperators_last_round = history.opponent_cooperators[-1]
+        cooperation_rate = cooperators_last_round / n_opponents
+        is_final_round = history.round_number == self.game_description.n_rounds - 1
+        if is_final_round:
+            return Action.C if cooperation_rate >= 0.25 else Action.D
+        else:
+            return Action.C if cooperation_rate >= 0.333 else Action.D
+
+class Strategy_BENEVOLENT_20(BaseStrategy):
+    """
+    Benevolent Cooperative Strategy for N-Player Public Goods Game.
+    
+    Cooperates first to signal benevolence. In intermediate rounds, cooperates 
+    if at least one opponent cooperated. In the final round, applies a stricter 
+    threshold—cooperating only if k or more opponents cooperated (ensuring the 
+    public good generates mutual benefit).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        prev_cooperators = history.opponent_cooperators[-1]
+        if history.round_number == self.game_description.n_rounds - 1:
+            if prev_cooperators >= self.game_description.k:
+                return Action.C
+            else:
+                return Action.D
+        if prev_cooperators >= 1:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_21(BaseStrategy):
+    """
+    Benevolent Adaptive Cooperation Strategy for N-Player Public Goods Game.
+    
+    This strategy begins with cooperation and adaptively responds to observed
+    cooperation levels based on a rationality threshold. It maintains benevolent
+    commitment throughout all rounds, avoiding last-round defection.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil(game_description.n_players / game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        cooperators_last_round = history.opponent_cooperators[-1]
+        if cooperators_last_round >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_22(BaseStrategy):
+    """
+    Benevolent Adaptive Strategy: Cooperative Catalyst with Responsiveness.
+    
+    Opens and closes with cooperation, maintains cooperation as default,
+    and temporarily defects only to signal efficiency threshold violations.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.has_signaled_defection = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            return Action.C
+        prev_opponent_cooperators = history.opponent_cooperators[current_round - 1]
+        prev_we_cooperated = history.my_actions[current_round - 1]
+        total_cooperators_prev = prev_opponent_cooperators + (1 if prev_we_cooperated else 0)
+        p_prev = total_cooperators_prev / n if n > 0 else 0.0
+        threshold = k / n
+        if p_prev >= threshold:
+            return Action.C
+        elif not self.has_signaled_defection and current_round < r - 1:
+            self.has_signaled_defection = True
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_BENEVOLENT_23(BaseStrategy):
+    """
+    Benevolent Adaptive Reciprocity Strategy for N-Player Public Goods Game.
+    
+    Cooperates in round 1 to signal benevolent intent. In subsequent rounds,
+    cooperates if at least 40% of opponents cooperated in the previous round,
+    otherwise defects. Maintains this threshold even in the final round to
+    avoid opportunistic exploitation and preserve benevolent signaling integrity.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        num_opponents = self.game_description.n_players - 1
+        opponents_who_cooperated = history.opponent_cooperators[-1]
+        if opponents_who_cooperated >= 0.4 * num_opponents:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_24(BaseStrategy):
+    """
+    Encouraging Conditional Cooperation with Benevolent Commitment
+    
+    Strategy overview:
+    - Round 1: Always cooperate (signal benevolence and initiate cooperation)
+    - Rounds 2 to r-1: Cooperate if previous round's cooperation rate >= k/n, else defect
+    - Round r: Always cooperate (benevolent commitment regardless of prior behavior)
+    
+    The threshold k/n represents the cooperation rate at which each cooperator 
+    receives back at least their contribution in returns.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = game_description.k / game_description.n_players
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_rounds = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.C
+        if current_round == n_rounds - 1:
+            return Action.C
+        prev_round_idx = current_round - 1
+        opponent_cooperators_prev = history.opponent_cooperators[prev_round_idx]
+        my_action_prev = history.my_actions[prev_round_idx]
+        total_cooperators_prev = opponent_cooperators_prev + (1 if my_action_prev else 0)
+        cooperation_rate = total_cooperators_prev / self.game_description.n_players
+        if cooperation_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_25(BaseStrategy):
+    """
+    Benevolent Adaptive Cooperation Strategy for N-Player Public Goods Game.
+    
+    Core rule: Cooperate if the proportion of cooperators in the previous round
+    meets or exceeds the breakeven threshold β = (k - 1) / (n - 1).
+    
+    Special cases:
+    - Round 1: Always cooperate (initial good faith)
+    - If all defect in round 1: Switch to pure defection thereafter
+    - Final round: Apply threshold rule, maintaining integrity
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold_cooperators = game_description.k - 1
+        self.all_defected_round_one = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == 1:
+            if history.opponent_cooperators[0] == 0:
+                self.all_defected_round_one = True
+        if self.all_defected_round_one:
+            return Action.D
+        if history.opponent_cooperators[-1] >= self.threshold_cooperators:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_26(BaseStrategy):
+    """
+    Benevolent Cooperation with Adaptive Reciprocity
+    
+    Cooperates unconditionally in the first round to signal benevolent intent.
+    In subsequent rounds, cooperates if the average cooperation rate across all
+    previous rounds meets or exceeds a benevolent threshold calibrated as
+    (1 + k/2) / n. This threshold is set above mutual defection payoff but
+    below mutual cooperation, allowing gradual recovery from exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.k = game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        total_cooperators = 0
+        for r in range(history.round_number):
+            round_cooperators = int(history.my_actions[r]) + history.opponent_cooperators[r]
+            total_cooperators += round_cooperators
+        total_possible = self.n * history.round_number
+        avg_cooperation_rate = total_cooperators / total_possible if total_possible > 0 else 0.0
+        threshold = (1.0 + self.k / 2.0) / self.n
+        if avg_cooperation_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_27(BaseStrategy):
+    """
+    Benevolent Conditional Cooperation Strategy for N-Player Public Goods Game.
+    
+    Opens with unconditional cooperation, then dynamically adjusts threshold based on
+    observed opponent cooperation rates. Uses a higher threshold (k/n - 0.1) in final
+    rounds to encourage collective recovery and mutual cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.n_opponents = self.n_players - 1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_num = history.round_number
+        if round_num == 0:
+            return Action.C
+        if round_num >= self.n_rounds - 2:
+            threshold = self.k / self.n_players - 0.1
+        else:
+            threshold = self.k / self.n_players
+        m_prev = history.opponent_cooperators[-1]
+        rho_prev = m_prev / self.n_opponents if self.n_opponents > 0 else 0.0
+        if round_num >= 2:
+            all_defected = True
+            for i in range(round_num):
+                if history.opponent_cooperators[i] > 0:
+                    all_defected = False
+                    break
+            if all_defected:
+                return Action.D
+        if round_num == self.n_rounds - 1:
+            window_size = min(5, round_num)
+            start_idx = round_num - window_size
+            recent_cooperators = history.opponent_cooperators[start_idx:]
+            avg_cooperation = np.mean([c / self.n_opponents for c in recent_cooperators]) if self.n_opponents > 0 else 0.0
+            if avg_cooperation >= self.k / self.n_players - 0.1 or avg_cooperation >= 0.3:
+                return Action.C
+            return Action.D
+        if rho_prev >= threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_28(BaseStrategy):
+    """
+    Benevolent Adaptive Conditional Cooperation Strategy.
+    
+    Opens with cooperation and adapts based on observed cooperation rates.
+    Maintains optimistic, loosening thresholds and rewards improving trends.
+    Uses average cooperation in final round for a benevolent closing signal.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.r - 1:
+            total_cooperators = np.sum(history.opponent_cooperators)
+            avg_coop_rate = total_cooperators / current_round / self.n
+            if avg_coop_rate >= 0.35:
+                return Action.C
+            else:
+                return Action.D
+        prev_coop_rate = history.opponent_cooperators[-1] / self.n
+        theta = 0.5 - 0.08 * (current_round / self.r)
+        if prev_coop_rate >= theta:
+            return Action.C
+        else:
+            if current_round >= 2:
+                prev_prev_coop_rate = history.opponent_cooperators[-2] / self.n
+                curr_coop_rate = history.opponent_cooperators[-1] / self.n
+                if curr_coop_rate > prev_prev_coop_rate:
+                    return Action.C if random.random() < 0.7 else Action.D
+            return Action.D
+
+class Strategy_BENEVOLENT_29(BaseStrategy):
+    """
+    Benevolent Adaptive Cooperation with Generous Threshold.
+    
+    Cooperates unconditionally in round 1, then adapts based on whether
+    the total cooperators in the previous round met or exceeded a 30% threshold.
+    No end-game defection—maintains the same strategy in the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil(game_description.n_players * 0.3)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        my_prev_action = int(history.my_actions[-1])
+        opponent_cooperators_prev = history.opponent_cooperators[-1]
+        total_cooperators_prev = my_prev_action + opponent_cooperators_prev
+        if total_cooperators_prev >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_30(BaseStrategy):
+    """
+    Benevolent Adaptive Threshold Strategy for N-Player Public Goods Game.
+    
+    Cooperates in the first round to establish goodwill. In middle rounds, adapts
+    based on the previous round's cooperation rate with thresholds at 0.5, 0.4, and 0.25.
+    In the final round, considers the average cooperation rate across all previous rounds
+    with a threshold of 0.35. This strategy balances optimism with punishment while
+    avoiding permanent exploitation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_players = self.game_description.n_players
+        n_rounds = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == n_rounds - 1:
+            total_cooperators = np.sum(history.opponent_cooperators) + np.sum(history.my_actions.astype(np.int_))
+            avg_coop_rate = total_cooperators / (n_players * current_round)
+            if avg_coop_rate >= 0.35:
+                return Action.C
+            else:
+                return Action.D
+        prev_opponent_cooperators = history.opponent_cooperators[-1]
+        prev_self_cooperated = history.my_actions[-1]
+        prev_total_cooperators = prev_opponent_cooperators + (1 if prev_self_cooperated else 0)
+        prev_coop_rate = prev_total_cooperators / n_players
+        if prev_coop_rate >= 0.4:
+            return Action.C
+        elif prev_coop_rate >= 0.25:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_31(BaseStrategy):
+    """
+    Benevolent Cooperative Threshold Strategy for N-Player Public Goods Game.
+    
+    - Round 1: Always cooperate to signal benevolent intent
+    - Middle rounds (2 to r-1): Cooperate if average opponent cooperation rate ≥ 0.35
+    - Final round: Always cooperate to affirm genuine cooperation
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_players = self.game_description.n_players
+        n_rounds = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.C
+        if current_round == n_rounds - 1:
+            return Action.C
+        total_cooperators = int(np.sum(history.opponent_cooperators[:current_round]))
+        n_opponents = n_players - 1
+        total_opponent_rounds = current_round * n_opponents
+        if total_opponent_rounds == 0:
+            return Action.C
+        avg_coop_rate = total_cooperators / total_opponent_rounds
+        if avg_coop_rate >= 0.35:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_32(BaseStrategy):
+    """
+    Benevolent Reciprocity Strategy for N-Player Public Goods Game.
+    
+    Establishes cooperation first, then reciprocates based on opponent behavior.
+    Uses generous thresholds (0.35 midgame, 0.20 final) to forgive sporadic defection.
+    Always cooperates in the final round to prevent mutual destruction.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.total_opponent_cooperations = 0
+        self.total_opponent_decisions = 0
+        self.last_updated_round = -1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        for round_idx in range(self.last_updated_round + 1, current_round):
+            self.total_opponent_decisions += self.game_description.n_players - 1
+            self.total_opponent_cooperations += history.opponent_cooperators[round_idx]
+        self.last_updated_round = current_round - 1
+        if self.total_opponent_decisions > 0:
+            opp_coop_rate = self.total_opponent_cooperations / self.total_opponent_decisions
+        else:
+            opp_coop_rate = 0.0
+        if current_round == self.game_description.n_rounds - 1:
+            return Action.C
+        if opp_coop_rate >= 0.35:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_5(BaseStrategy):
+    """
+    Selfish Threshold Exploitation Strategy for N-Player Public Goods Game.
+    
+    Default behavior: Always defect to maximize individual payoff.
+    
+    Rare exception: Cooperate only if:
+    1. Not in the first or final round
+    2. Observed cooperators in previous round exceed max(k, n-k)
+    
+    This captures cases where the public good multiplier k is strong enough
+    and cooperation widespread enough that the marginal benefit of contributing
+    exceeds the cost. However, defection in the final round and against
+    low/high cooperation regimes remains dominant.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round == r - 1:
+            return Action.D
+        m_prev = history.opponent_cooperators[-1]
+        threshold = max(k, n - k)
+        if m_prev > threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_6(BaseStrategy):
+    """
+    Selfish Adaptive Defection Strategy for N-Player Public Goods Game.
+    
+    Core principle: Always defect since k < n makes defection strictly dominant.
+    Tracks opponent cooperation rates and adaptively tests exploitability in 
+    middle rounds. Includes robust variants for edge cases.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.cooperation_history = []
+        self.tested_in_middle_game = False
+        self.defect_streak_counter = 0
+        self.k_near_n = abs(self.k - self.n_players) < 1.0
+        self.large_r = self.n_rounds > 20
+        if self.k_near_n and self.n_players > self.k:
+            self.prob_defect = (self.k - 1) / (self.n_players - self.k)
+        else:
+            self.prob_defect = 1.0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.D
+        prev_coop_count = history.opponent_cooperators[-1]
+        self.cooperation_history.append(prev_coop_count)
+        early_threshold = max(1, self.n_rounds // 3)
+        late_threshold = max(1, 2 * self.n_rounds // 3)
+        if current_round < early_threshold:
+            return Action.D
+        if current_round >= late_threshold:
+            return Action.D
+        if self.cooperation_history:
+            avg_coop = sum(self.cooperation_history) / len(self.cooperation_history)
+            coop_rate = avg_coop / max(1, self.n_players - 1)
+        else:
+            coop_rate = 0.0
+        if coop_rate > 0.7 and self.n_rounds > 4 and (not self.tested_in_middle_game):
+            self.tested_in_middle_game = True
+            return Action.C
+        if self.large_r:
+            self.defect_streak_counter += 1
+            if self.defect_streak_counter % 10 == 0:
+                return Action.D
+        if self.k_near_n:
+            if random.random() < self.prob_defect:
+                return Action.D
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_7(BaseStrategy):
+    """
+    Adaptive Threshold Reciprocity with End-Game Defection.
+    
+    - Round 1: Always defect
+    - Rounds 2 through r-1: Cooperate if opponent cooperators >= threshold, else defect
+    - Final round: Always defect
+    
+    Threshold θ = max(1, ⌊k⌋) ensures cooperation only when public good return
+    is substantial relative to endowment cost.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = max(1, math.floor(game_description.k))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_rounds = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.D
+        if current_round == n_rounds - 1:
+            return Action.D
+        opponent_cooperators_previous = history.opponent_cooperators[-1]
+        if opponent_cooperators_previous >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_8(BaseStrategy):
+    """
+    Selfish Threshold Cooperation Strategy.
+    
+    Defects by default, but exploits large cooperative pools (rounds 2 to r-1).
+    Cooperates when observed cooperators exceed a threshold calculated from game parameters.
+    Always defects in the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = math.ceil(self.k - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round == self.r - 1:
+            return Action.D
+        previous_cooperators = history.opponent_cooperators[-1]
+        if previous_cooperators >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_9(BaseStrategy):
+    """
+    Selfish Defection with Adaptive Observation
+    
+    Always defects in every round, as defection is a dominant strategy.
+    While maintaining this constant strategy, observes cooperation patterns
+    to confirm the optimality of defection across different opponent compositions.
+    No adaptation of actual play occurs; observation is informational only.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperation_history = []
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number > 0:
+            observed_opponent_cooperators = history.opponent_cooperators[-1]
+            self.cooperation_history.append(observed_opponent_cooperators)
+            if len(self.cooperation_history) > 0:
+                avg_opponent_cooperation = np.mean(self.cooperation_history)
+                n_opponents = self.game_description.n_players - 1
+                if n_opponents > 0:
+                    defection_rate = (n_opponents - avg_opponent_cooperation) / n_opponents
+        return Action.D
+
+class Strategy_SELFISH_10(BaseStrategy):
+    """
+    Adaptive Threshold Cooperator strategy for N-Player Public Goods Game.
+    
+    Defects in round 0 and the last round. In middle rounds, cooperates only if
+    the number of cooperating opponents in the previous round meets or exceeds
+    a threshold calculated as max(2, ceil(n/k)).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperation_threshold = max(2, math.ceil(game_description.n_players / game_description.k))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        cooperators_in_previous_round = history.opponent_cooperators[-1]
+        if cooperators_in_previous_round >= self.cooperation_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_11(BaseStrategy):
+    """
+    Greedy Exploitation with Adaptive Thresholding.
+    
+    Always defects to maximize payoff by exploiting cooperation, as defection is 
+    strictly dominant in every round. Maintains adaptive tracking of observed 
+    cooperation rates to confirm the environment justifies continued exploitation,
+    but never changes the core behavior of unconditional defection.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.total_cooperators_observed = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number > 0:
+            self.total_cooperators_observed += history.opponent_cooperators[-1]
+        if history.round_number > 0:
+            avg_coop = self.total_cooperators_observed / history.round_number
+        else:
+            avg_coop = 0
+        return Action.D
+
+class Strategy_SELFISH_12(BaseStrategy):
+    """
+    Selfish Threshold Reciprocity Strategy for N-Player Public Goods Game.
+    
+    Cooperates in round 1 to test cooperation levels. Defects in the final round
+    due to backward induction. In intermediate rounds, cooperates if and only if
+    the number of cooperators in the previous round strictly exceeds the threshold n/k,
+    where at this threshold the public good payoff equals the private payoff.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = game_description.n_players / game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_rounds = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.C
+        if current_round == n_rounds - 1:
+            return Action.D
+        prev_round_idx = current_round - 1
+        total_cooperators_prev = history.opponent_cooperators[prev_round_idx]
+        if history.my_actions[prev_round_idx]:
+            total_cooperators_prev += 1
+        if total_cooperators_prev > self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_13(BaseStrategy):
+    """
+    Always defect strategy. Tracks observed opponent cooperation rates to update
+    internal beliefs about opponent composition, but constant defection remains optimal
+    because Payoff(D) - Payoff(C) = 1 - (k/n) > 0 when k < n, regardless of observed
+    cooperation levels or round number.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.observed_cooperation_rates = []
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number > 0:
+            n_opponents = self.game_description.n_players - 1
+            if n_opponents > 0:
+                cooperation_rate = history.opponent_cooperators[-1] / n_opponents
+                self.observed_cooperation_rates.append(cooperation_rate)
+        return Action.D
+
+class Strategy_SELFISH_14(BaseStrategy):
+    """
+    Threshold Exploitation Strategy for N-Player Public Goods Game.
+    
+    Pure defection strategy based on the mathematical principle that defection
+    strictly dominates cooperation when k < n. The payoff difference between
+    defecting and cooperating is (k/n) - 1 = (k-n)/n < 0, making defection
+    always preferable regardless of others' actions or game state.
+    
+    Defects in every round: round 0 (baseline selfish play), middle rounds
+    (cooperation never individually rational), and final round (no future
+    to punish). Adaptively monitors cooperation counts but rationally
+    concludes that pure defection is optimal throughout.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_15(BaseStrategy):
+    """
+    Selfish Threshold Opportunist with Endgame Defection.
+    
+    Round 1: Defect unconditionally.
+    Rounds 2 to (r-1): Cooperate if previous round had at least ceil(k) cooperating opponents.
+    Final round: Defect unconditionally.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = max(1, math.ceil(game_description.k))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        n_rounds = self.game_description.n_rounds
+        if round_number == 0:
+            return Action.D
+        if round_number == n_rounds - 1:
+            return Action.D
+        prev_opponent_cooperators = history.opponent_cooperators[-1]
+        if prev_opponent_cooperators >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_16(BaseStrategy):
+    """
+    Selfish Threshold-Response Strategy for N-Player Public Goods Game.
+    
+    Cooperates in round 1 to gather information. In subsequent rounds,
+    cooperates only if the observed number of cooperating opponents meets
+    or exceeds the breakeven threshold. Always defects in the final round.
+    Includes safeguards against exploitation and early convergence detection.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = math.ceil((self.n_players - 1) / self.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.n_rounds - 1:
+            return Action.D
+        if self.threshold >= self.n_players:
+            return Action.D
+        observed_cooperators_last = history.opponent_cooperators[current_round - 1]
+        if not history.my_actions[current_round - 1]:
+            if observed_cooperators_last == 0:
+                return Action.D
+        if current_round >= 2:
+            if history.my_actions[current_round - 1]:
+                observed_cooperators_two_rounds_ago = history.opponent_cooperators[current_round - 2]
+                if observed_cooperators_last < observed_cooperators_two_rounds_ago:
+                    return Action.D
+        if observed_cooperators_last >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_17(BaseStrategy):
+    """
+    Unconditional Defection with Information Gathering.
+    
+    Defects in every round, including the first and last round.
+    
+    Rationale: When k < n, the per-capita return from the public good (k/n)
+    is strictly less than 1. Therefore, defection is strictly dominant.
+    Cooperating costs 1 unit of endowment but returns at most (k/n) < 1 from
+    the public good share. This mathematical advantage persists regardless of
+    round number or observed cooperation levels.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_18(BaseStrategy):
+    """
+    Conditional Defection with Threshold Cooperation strategy.
+    
+    Defects in first and final rounds. In middle rounds, cooperates only if
+    the observed cooperators from the previous round met or exceeded ceil(k).
+    This exploits existing cooperation while remaining selfish.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = self.game_description.n_rounds
+        k = self.game_description.k
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round == n_rounds - 1:
+            return Action.D
+        my_previous_contribution = 1 if history.my_actions[-1] else 0
+        opponent_cooperators_prev = history.opponent_cooperators[-1]
+        total_cooperators_prev = my_previous_contribution + opponent_cooperators_prev
+        threshold = math.ceil(k)
+        if total_cooperators_prev >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_19(BaseStrategy):
+    """
+    Pure defection strategy with conditional awareness.
+    
+    Always defects because defection is the dominant strategy:
+    defection payoff (1 + (k/n)×m) always exceeds cooperation payoff ((k/n)×(m+1))
+    when k < n, so 1 - k/n > 0 always.
+    
+    Acknowledges high-cooperation environments in middle rounds but maintains
+    defection as the optimal choice regardless.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        n = self.game_description.n_players
+        k = self.game_description.k
+        m = history.opponent_cooperators[-1]
+        efficiency_threshold = k / n
+        high_cooperation = m >= (n - 1) * 0.7
+        material_payoff = efficiency_threshold * m > 0.5
+        return Action.D
+
+class Strategy_SELFISH_20(BaseStrategy):
+    """
+    Selfish Adaptive Strategy: Threshold-Based Defection with Contingent Cooperation
+    
+    Core rule: Cooperate in round t if and only if observed cooperators in round t-1
+    exceed the threshold n - k, otherwise defect.
+    
+    Edge cases:
+    - Round 1 (round_number == 0): Always defect (no history)
+    - Last round (round_number == n_rounds - 1): Always defect (no future punishment)
+    - Middle rounds: Cooperate if previous round had m > n - k cooperators
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.epsilon = 0.01
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        observed_cooperators = history.opponent_cooperators[-1]
+        threshold = self.game_description.n_players - self.game_description.k
+        if observed_cooperators > threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_21(BaseStrategy):
+    """
+    Selfish Threshold Strategy for N-Player Public Goods Game.
+    
+    Cooperate in middle rounds only if the previous round showed sufficient
+    cooperation from opponents (threshold = ceil(n/k)). Always defect in
+    the first and last rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil(game_description.n_players / game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        cooperators_last_round = history.opponent_cooperators[-1]
+        if cooperators_last_round >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_22(BaseStrategy):
+    """
+    Selfish Adaptive Threshold Strategy for N-Player Public Goods Game.
+    
+    Defects unconditionally in the first and last rounds.
+    In middle rounds, cooperates if and only if the number of cooperating
+    opponents in the previous round meets or exceeds the threshold:
+    threshold = ceil(n × k / (n - 1))
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = game_description.n_players
+        k = game_description.k
+        self.threshold = math.ceil(n * k / (n - 1))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        n_rounds = self.game_description.n_rounds
+        if round_number == 0:
+            return Action.D
+        if round_number == n_rounds - 1:
+            return Action.D
+        observed_cooperators = history.opponent_cooperators[-1]
+        if observed_cooperators >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_23(BaseStrategy):
+    """
+    Adaptive Cooperation Threshold with Endgame Defection.
+    
+    This strategy dynamically adjusts a cooperation threshold based on observed payoffs:
+    - Cooperates if recent opponents' cooperation >= current threshold
+    - Starts with majority threshold and adjusts based on payoff comparison
+    - Defects unconditionally in the final three rounds (endgame unraveling)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil(game_description.n_players / 2)
+        self.delta = 0.1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round >= r - 3:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        coop_payoffs = []
+        defect_payoffs = []
+        for i in range(current_round):
+            if history.my_actions[i]:
+                coop_payoffs.append(history.my_payoffs[i])
+            else:
+                defect_payoffs.append(history.my_payoffs[i])
+        avg_coop = np.mean(coop_payoffs) if len(coop_payoffs) > 0 else 0.0
+        avg_defect = np.mean(defect_payoffs) if len(defect_payoffs) > 0 else 0.0
+        if avg_coop > avg_defect + self.delta:
+            self.threshold = max(1, self.threshold - 1)
+        else:
+            self.threshold = min(n - 1, self.threshold + 1)
+        m = history.opponent_cooperators[-1]
+        if m >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_24(BaseStrategy):
+    """
+    Selfish Adaptive Strategy for N-Player Public Goods Game.
+    
+    Core principle: Always defect (play D). Defection is strictly dominant.
+    For any opponent cooperation count m:
+      Defecting yields: 1 + (k/n) × m
+      Cooperating yields: (k/n) × (m + 1)
+      Defection advantage: 1 - k/n > 0 (since k < n)
+    
+    Refinement: Adaptively defect based on observed cooperation threshold.
+    In practice, defection dominates in nearly all realistic parameter ranges.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.k = game_description.k
+        self.n_rounds = game_description.n_rounds
+        k_over_n = self.k / self.n_players
+        defection_advantage = 1.0 - k_over_n
+        if defection_advantage > 0 and self.n_players > 1:
+            self.threshold = 1.0 / defection_advantage * self.n_players / (self.n_players - 1)
+        else:
+            self.threshold = 1.0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        if history.round_number == self.n_rounds - 1:
+            return Action.D
+        opponent_cooperators_prev = history.opponent_cooperators[-1]
+        n_opponents = self.n_players - 1
+        if n_opponents == 0:
+            return Action.D
+        cooperation_rate = opponent_cooperators_prev / n_opponents
+        return Action.D
+
+class Strategy_SELFISH_25(BaseStrategy):
+    """
+    Adaptive Exploitation Strategy for N-Player Public Goods Game.
+    
+    First round: Defect to probe baseline behavior.
+    Middle rounds: Track average cooperation rate and cooperate if it exceeds 1/k threshold.
+    Final round: Always defect for maximum private payoff.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_players = self.game_description.n_players
+        n_rounds = self.game_description.n_rounds
+        k = self.game_description.k
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round == n_rounds - 1:
+            return Action.D
+        total_cooperators = np.sum(history.opponent_cooperators[:current_round])
+        total_possible_cooperators = current_round * (n_players - 1)
+        if total_possible_cooperators == 0:
+            avg_cooperation_rate = 0.0
+        else:
+            avg_cooperation_rate = total_cooperators / total_possible_cooperators
+        threshold = 1.0 / k
+        if avg_cooperation_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_26(BaseStrategy):
+    """
+    Adaptive Exploitation Strategy for N-Player Public Goods Game.
+    
+    Cooperates in round 1 to efficiently gather information about opponent behavior,
+    then defects in all subsequent rounds to maximize individual payoff through
+    exploitation regardless of observed cooperation levels.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_27(BaseStrategy):
+    """
+    Conditional defection with opportunistic cooperation.
+    
+    Defects in first and last rounds. In middle rounds, cooperates only when 
+    the observed cooperation rate of opponents justifies it (payoff-wise).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.k = game_description.k
+        self.r = game_description.n_rounds
+        self.threshold = (self.n - self.k) / (self.n - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round == self.r - 1:
+            return Action.D
+        total_opponent_cooperators = np.sum(history.opponent_cooperators[:current_round])
+        rounds_observed = current_round
+        n_opponents = self.n - 1
+        if rounds_observed == 0:
+            return Action.D
+        avg_coop_rate = total_opponent_cooperators / (n_opponents * rounds_observed)
+        if avg_coop_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_28(BaseStrategy):
+    """
+    Unconditional Defection with Payoff Monitoring.
+    
+    Always plays Defect (Action.D) in every round regardless of history or 
+    observed cooperation rates. Defection is the strictly dominant strategy 
+    in the N-player public goods game, yielding a constant advantage of 1 unit 
+    over cooperation for any configuration of opponent actions.
+    
+    While opponent cooperation is observed and could reveal opponent types, 
+    this information does not affect the decision to defect, as the dominance 
+    inequality (Payoff(D) - Payoff(C) = 1) holds universally.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_29(BaseStrategy):
+    """
+    Selfish Adaptive Threshold Strategy for N-Player Public Goods Game.
+    
+    Cooperates in round 1 to probe, adapts in intermediate rounds based on whether
+    prior cooperation levels exceed ceil(n/k) - 1, and defects unconditionally in
+    the final round to maximize immediate payoff.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        k = self.game_description.k
+        r = self.game_description.n_rounds
+        round_num = history.round_number
+        if round_num == 0:
+            return Action.C
+        if round_num == r - 1:
+            return Action.D
+        threshold = math.ceil(n / k) - 1
+        cooperators_in_prev_round = history.opponent_cooperators[-1]
+        if cooperators_in_prev_round >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_30(BaseStrategy):
+    """
+    Unconditional Defection with Payoff Verification
+    
+    Defects in every round without exception. Defection strictly dominates cooperation
+    by exactly 1 unit of payoff regardless of opponent behavior, since the payoff
+    advantage (1 - k/n) is positive and constant across all possible opponent compositions,
+    where 1 < k < n guarantees k/n < 1.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_31(BaseStrategy):
+    """
+    Adaptive Threshold Free-Rider Strategy.
+    
+    Cooperates in the first round to seed the public good. In subsequent rounds 
+    (except the last), calculates a cooperation threshold based on game parameters 
+    and either defects (if enough others cooperated) or cooperates (if cooperation 
+    is fragile). Always defects in the final round to maximize immediate payoff.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            return Action.D
+        cooperators_prev_round = history.opponent_cooperators[current_round - 1]
+        if history.my_actions[current_round - 1]:
+            cooperators_prev_round += 1
+        theta = round((n - 1) * k / (n + 1))
+        if theta < 1:
+            theta = 1
+        if theta >= n:
+            theta = n
+        if cooperators_prev_round >= theta:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_SELFISH_32(BaseStrategy):
+    """
+    Selfish Adaptive Strategy for N-Player Public Goods Game.
+    
+    Always defects (plays D) in every round, as defection is a strict dominant strategy.
+    Maintains a rolling average of observed cooperators to monitor opponent behavior,
+    but continues defecting regardless since cooperation would sacrifice 1 unit with no benefit.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperators_history = []
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number > 0:
+            self.cooperators_history.append(int(history.opponent_cooperators[-1]))
+        if len(self.cooperators_history) > 0:
+            n_opponents = self.game_description.n_players - 1
+            if n_opponents > 0:
+                avg_cooperators = np.mean(self.cooperators_history)
+                coop_rate = avg_cooperators / n_opponents
+        return Action.D
+
+class Strategy_SELFINTERESTED_5(BaseStrategy):
+    """
+    Adaptive Threshold Cooperation with Endgame Defection.
+    
+    Computes a cooperation threshold T = ceil(n/k) representing the minimum
+    number of cooperators needed for cooperation to be individually profitable.
+    
+    - Round 0: Always cooperate (probe to gather information)
+    - Rounds 1 to r-3: Cooperate iff total cooperators observed in previous round ≥ T
+    - Rounds r-2 and r-1: Always defect (endgame collapse)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil(game_description.n_players / game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.C
+        if current_round >= r - 2:
+            return Action.D
+        previous_round_opponent_cooperators = history.opponent_cooperators[-1]
+        my_previous_action = history.my_actions[-1]
+        total_cooperators_previous_round = previous_round_opponent_cooperators + (1 if my_previous_action else 0)
+        if total_cooperators_previous_round >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_6(BaseStrategy):
+    """
+    Adaptive Threshold with Endgame Defection strategy.
+    
+    Cooperates in round 1 to probe reciprocators, uses conditional cooperation
+    based on a threshold in intermediate rounds, and defects in the final round.
+    The strategy maximizes payoff by exploiting early cooperation, capturing
+    public goods when they exceed private value, and harvesting the final round
+    without retaliation costs.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.theta = math.ceil(game_description.n_players / game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        m = history.opponent_cooperators[-1] + (1 if history.my_actions[-1] else 0)
+        if m >= self.theta:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_7(BaseStrategy):
+    """
+    Adaptive Reciprocal Defection Strategy for N-Player Public Goods Game.
+    
+    Cooperates unconditionally in round 1 to gather information. Defects in the
+    final round (subgame perfect rationality). In intermediate rounds, maintains
+    a running average of opponent cooperation rates and cooperates only if the
+    average meets or exceeds a threshold (min(1/k, 0.5)).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = min(1.0 / game_description.k, 0.5)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_players = self.game_description.n_players
+        n_rounds = self.game_description.n_rounds
+        if current_round == n_rounds - 1:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        n_opponents = n_players - 1
+        total_cooperators_observed = np.sum(history.opponent_cooperators[:current_round])
+        total_opponent_plays = n_opponents * current_round
+        avg_observed_cooperation = total_cooperators_observed / total_opponent_plays if total_opponent_plays > 0 else 0.0
+        if avg_observed_cooperation >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_8(BaseStrategy):
+    """
+    Adaptive Threshold Defection strategy for N-Player Public Goods Game.
+    
+    Defects in round 1 and final round. In middle rounds, cooperates only if
+    opponent cooperation meets a threshold θ = ceil(n - k) and at least 2 rounds
+    remain after the current round, indicating a window for reciprocal gains.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round == r - 1:
+            return Action.D
+        m = history.opponent_cooperators[-1]
+        threshold = math.ceil(n - k)
+        remaining_rounds_after = r - current_round - 1
+        if m >= threshold and remaining_rounds_after >= 2:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_9(BaseStrategy):
+    """
+    Threshold Exploitation with End-Game Defection strategy.
+    
+    Analyzes cooperation rates to determine a break-even threshold,
+    but always defects since defection strictly dominates cooperation
+    in any single round and reputation-based enforcement is impossible
+    with only aggregate cooperation counts.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        current_round = history.round_number
+        n_rounds = self.game_description.n_rounds
+        n_players = self.game_description.n_players
+        k = self.game_description.k
+        if current_round >= n_rounds - 2:
+            return Action.D
+        total_cooperators_observed = 0
+        for round_idx in range(current_round):
+            cooperators_in_round = history.opponent_cooperators[round_idx]
+            if history.my_actions[round_idx]:
+                cooperators_in_round += 1
+            total_cooperators_observed += cooperators_in_round
+        if current_round > 0:
+            avg_cooperation = total_cooperators_observed / (n_players * current_round)
+            threshold = (k - 1) / k
+            if avg_cooperation >= threshold:
+                return Action.D
+            else:
+                return Action.D
+        return Action.D
+
+class Strategy_SELFINTERESTED_10(BaseStrategy):
+    """
+    Adaptive Defection with Limited Exploration
+    
+    Threshold-based conditional cooperation strategy:
+    - Round 1: Always defect to avoid risk
+    - Rounds 2 to r-1: Cooperate if total cooperators in previous round >= ceil(n/k), else defect
+    - Last round: Always defect (no opportunity for reciprocation)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil(game_description.n_players / game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        n_rounds = self.game_description.n_rounds
+        if round_number == 0:
+            return Action.D
+        if round_number == n_rounds - 1:
+            return Action.D
+        cooperators_last_round = history.opponent_cooperators[-1] + int(history.my_actions[-1])
+        if cooperators_last_round >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_11(BaseStrategy):
+    """
+    Threshold-Based Conditional Defection strategy for N-Player Public Goods Game.
+    
+    Exploits cooperation when population is sufficiently cooperative (threshold-based),
+    then defects in the final two rounds via backwards induction.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.threshold = max(2, math.ceil(self.n_players / 2))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round >= self.n_rounds - 2:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        cooperators_in_previous_round = history.opponent_cooperators[-1]
+        if history.my_actions[-1]:
+            cooperators_in_previous_round += 1
+        if cooperators_in_previous_round >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_12(BaseStrategy):
+    """
+    Threshold-Based Conditional Opportunism strategy for N-Player Public Goods Game.
+    
+    Defects in the first and last round. In intermediate rounds (2 to r-1),
+    cooperates if and only if the observed cooperation rate among opponents
+    is at least k/n, where k/n is the break-even threshold for public goods.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_players = self.game_description.n_players
+        k = self.game_description.k
+        n_rounds = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.D
+        if current_round == n_rounds - 1:
+            return Action.D
+        total_cooperators_observed = np.sum(history.opponent_cooperators[:current_round])
+        n_opponents = n_players - 1
+        cooperation_rate = total_cooperators_observed / (current_round * n_opponents)
+        threshold = k / n_players
+        if cooperation_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_13(BaseStrategy):
+    """
+    Adaptive Defection with Conditional Cooperation.
+    
+    Defects in the first round (information gathering) and last round (no future repercussions).
+    In middle rounds, cooperates only when the previous round's cooperation rate exceeded 
+    the threshold (k/n) + ε, indicating sustained commitment to the public good that makes 
+    cooperation worthwhile.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.epsilon = 0.05
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round == r - 1:
+            return Action.D
+        prev_opponents_cooperated = history.opponent_cooperators[-1]
+        prev_my_action = history.my_actions[-1]
+        prev_total_cooperators = prev_opponents_cooperated + (1 if prev_my_action else 0)
+        prev_cooperation_rate = prev_total_cooperators / n
+        threshold = k / n + self.epsilon
+        if prev_cooperation_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_14(BaseStrategy):
+    """
+    Adaptive Exploitation with Threshold-Triggered Cooperation.
+    
+    - Round 1: Defect (establish non-cooperative baseline)
+    - Rounds 2 through r-1: Cooperate if opponents' cooperation rate ≥ 50%, else defect
+    - Round r: Defect (terminal round maximizes private payoff)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_players = self.game_description.n_players
+        n_rounds = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.D
+        if current_round == n_rounds - 1:
+            return Action.D
+        n_opponents = n_players - 1
+        cooperators_last_round = history.opponent_cooperators[-1]
+        if n_opponents > 0:
+            cooperation_rate = cooperators_last_round / n_opponents
+        else:
+            cooperation_rate = 0.0
+        if cooperation_rate >= 0.5:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_15(BaseStrategy):
+    """
+    Self-Interested Adaptive Strategy for N-Player Public Goods Game.
+    
+    Exploits the strictly dominant action of defection in each round.
+    Always defects because:
+    - Round 1: Establish conservative baseline
+    - Rounds 2 to r-1: Exploit any public good from cooperators or match dominant strategy when others defect
+    - Final round: Maximize immediate payoff with no future consequences
+    
+    This strategy prioritizes capturing maximum individual payoff by parasitic behavior
+    against any cooperators while avoiding the 1-unit opportunity cost of cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFINTERESTED_16(BaseStrategy):
+    """
+    Adaptive Exploitation with End-Game Defection.
+    
+    Cooperates in main game phase if previous round had > n/2 cooperators total.
+    Defects unconditionally in final two rounds (no future payoff).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round >= r - 2:
+            return Action.D
+        prev_round_idx = current_round - 1
+        opponents_cooperated = history.opponent_cooperators[prev_round_idx]
+        my_prev_action = history.my_actions[prev_round_idx]
+        total_cooperators = opponents_cooperated + (1 if my_prev_action else 0)
+        if total_cooperators > n / 2:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_17(BaseStrategy):
+    """
+    Adaptive Exploitation with Terminal Defection.
+    
+    Round 1: Defect to gather information.
+    Rounds 2 to r-1: Cooperate if previous round's total cooperators > k, else defect.
+    Final round: Always defect (terminal dominance).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.D
+        if round_number == r - 1:
+            return Action.D
+        previous_round_idx = -1
+        total_cooperators_previous = history.opponent_cooperators[previous_round_idx] + int(history.my_actions[previous_round_idx])
+        if total_cooperators_previous > k:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_18(BaseStrategy):
+    """
+    Adaptive Threshold Strategy for N-Player Public Goods Game.
+    
+    Maintains a running estimate of opponent cooperation tendency based on observed
+    history. Cooperates in early rounds if observed cooperation rate meets a 
+    threshold that adapts to game parameters (n, k). Defects unconditionally in 
+    the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = (self.n - self.k) / (self.n - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.r - 1:
+            return Action.D
+        total_cooperators_observed = np.sum(history.opponent_cooperators[:current_round])
+        total_opponent_observations = current_round * (self.n - 1)
+        if total_opponent_observations == 0:
+            obs_rate = 0.0
+        else:
+            obs_rate = total_cooperators_observed / total_opponent_observations
+        if total_cooperators_observed == 0:
+            return Action.D
+        if obs_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_19(BaseStrategy):
+    """
+    Conditional Defection with Selective Cooperation.
+    
+    - Round 0: Defect (initial probe, dominant single move)
+    - Rounds 1 to r-2: Observe opponent cooperation rate and adapt
+      - Cooperate if α > k/n (threshold adapted to game structure)
+      - Defect otherwise (conservative when uncertain)
+    - Round r-1: Defect (endgame defection, no future to punish/reward)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = game_description.k / game_description.n_players
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_rounds = self.game_description.n_rounds
+        n_players = self.game_description.n_players
+        if current_round == 0:
+            return Action.D
+        if current_round == n_rounds - 1:
+            return Action.D
+        opponent_cooperators_prev = history.opponent_cooperators[-1]
+        n_opponents = n_players - 1
+        if n_opponents == 0:
+            return Action.D
+        cooperation_rate = opponent_cooperators_prev / n_opponents
+        if cooperation_rate > self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_20(BaseStrategy):
+    """
+    Adaptive Threshold Cooperation Strategy for N-Player Public Goods Game.
+    
+    Cooperates in the first round to probe cooperation potential. In subsequent rounds,
+    cooperates if the observed cooperation rate from the previous round meets or exceeds
+    a time-adjusted threshold that decreases as the game progresses. Defects unconditionally
+    in the final round due to backward induction (no future punishment possible).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            return Action.D
+        cooperators_in_previous_round = history.opponent_cooperators[-1]
+        observed_rate = cooperators_in_previous_round / (n - 1) if n > 1 else 0.0
+        rounds_remaining = r - current_round
+        if rounds_remaining <= 1:
+            threshold = 1.0
+        else:
+            time_decay = current_round / (r - 1)
+            threshold = max(0.15, 1.0 - 0.65 * time_decay)
+        if observed_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_21(BaseStrategy):
+    """
+    Adaptive Threshold Cooperation with End-Game Exit
+    
+    - Round 1: Cooperate unconditionally
+    - Rounds 2 to r-2: Cooperate if majority (≥50%) of opponents cooperated last round
+    - Rounds r-1 and r: Defect (backward induction)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        round_num = history.round_number
+        if round_num == 0:
+            return Action.C
+        if round_num >= r - 2:
+            return Action.D
+        m = history.opponent_cooperators[-1]
+        threshold = (n - 1) / 2.0
+        if m >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_22(BaseStrategy):
+    """
+    Threshold-Dependent Cooperation strategy for N-Player Public Goods Game.
+    
+    Defects in round 1 and the final round. In intermediate rounds, cooperates
+    if the number of cooperators observed in the previous round meets or exceeds 
+    the threshold θ = k (the public goods multiplier). This threshold is calibrated
+    to the game fundamentals: cooperation is worthwhile only when sufficient
+    players contribute to make the shared public good competitive with the 
+    private endowment.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        m = history.opponent_cooperators[-1]
+        threshold = self.game_description.k
+        if m >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_23(BaseStrategy):
+    """
+    Threshold-Based Reciprocity with Terminal Defection.
+    
+    Round 1: Cooperate to probe the environment.
+    Rounds 2 to r-1: Cooperate if majority of opponents (≥ ⌈(n-1)/2⌉) cooperated in previous round.
+    Final round r: Always defect (no future rounds to incentivize cooperation).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil((game_description.n_players - 1) / 2)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        final_round_index = self.game_description.n_rounds - 1
+        if current_round == 0:
+            return Action.C
+        if current_round == final_round_index:
+            return Action.D
+        previous_round_cooperators = history.opponent_cooperators[-1]
+        if previous_round_cooperators >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_24(BaseStrategy):
+    """
+    Threshold-Based Adaptive Contribution Strategy for N-Player Public Goods Game.
+    
+    Cooperates conditionally based on observed cooperation rates with a calculated
+    sustainability threshold. Always cooperates in round 1 to probe the environment,
+    adapts in middle rounds based on opponent cooperation vs. threshold, and defects
+    in the final round since there is no opportunity for reciprocation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil(game_description.n_players / game_description.k) - 1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_num = history.round_number
+        n_rounds = self.game_description.n_rounds
+        if round_num == 0:
+            return Action.C
+        if round_num == n_rounds - 1:
+            return Action.D
+        opponent_cooperators_last_round = history.opponent_cooperators[-1]
+        if opponent_cooperators_last_round >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_25(BaseStrategy):
+    """
+    Empirical Defection with Adaptive Monitoring strategy.
+    
+    Establishes a cooperation threshold C* = ceil(k) representing the minimum
+    cooperators needed for public good returns to exceed private endowment.
+    
+    Decision rule: Always defect, regardless of round or history.
+    
+    Rationale: Defection dominates because it yields an additional k/n payoff
+    compared to cooperation (since k < n). The strategy monitors previous-round
+    cooperators (C_prev) against the threshold C*, but this monitoring serves
+    only to track environmental quality—it does not change the defection decision.
+    Defection is optimal at every stage: Round 1 (no history to exploit), 
+    Rounds 2 to r-1 (free-ride on collective contributions), and Round r 
+    (no future rounds to influence).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperation_threshold = math.ceil(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number > 0:
+            c_prev = self.game_description.n_players - 1 + history.opponent_cooperators[-1]
+            pass
+        return Action.D
+
+class Strategy_SELFINTERESTED_26(BaseStrategy):
+    """
+    Adaptive Threshold Reciprocity Strategy for N-Player Public Goods Game.
+    
+    Cooperates in round 1 (to signal willingness and gather information),
+    applies reciprocal cooperation based on a threshold in middle rounds,
+    and defects in the final round (to capture private value with no future penalty).
+    
+    The cooperation threshold is set to ceil(k), representing the point where
+    public good returns balance private contribution cost.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperation_threshold = math.ceil(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        cooperators_last_round = history.opponent_cooperators[-1] + (1 if history.my_actions[-1] else 0)
+        if cooperators_last_round >= self.cooperation_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_27(BaseStrategy):
+    """
+    Adaptive Defection with Cooperation Probing.
+    
+    Strategy that probes for opponent cooperation through initial play,
+    establishes a break-even threshold, and adapts decisions based on
+    observed cooperation rates with backward induction (defect in final round).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.consecutive_all_defect = 0
+        self.cooperation_ema = None
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        t = history.round_number + 1
+        if t == 1:
+            return Action.C
+        if t == r:
+            return Action.D
+        n_opponents = n - 1
+        m_prev = history.opponent_cooperators[-1]
+        p_current = m_prev / n_opponents
+        if self.cooperation_ema is None:
+            self.cooperation_ema = p_current
+        else:
+            self.cooperation_ema = 0.6 * p_current + 0.4 * self.cooperation_ema
+        p_estimated = self.cooperation_ema
+        theta = n / k
+        d_t = (r - t) / r
+        theta_adjusted = theta + (1.0 - theta) * (1.0 - d_t)
+        if t == 2:
+            theta_adjusted += 0.1
+        if m_prev == 0:
+            self.consecutive_all_defect += 1
+        else:
+            self.consecutive_all_defect = 0
+        if self.consecutive_all_defect >= 2:
+            return Action.D
+        if p_estimated >= theta_adjusted:
+            coop_probability = d_t
+            return Action.C if random.random() < coop_probability else Action.D
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_28(BaseStrategy):
+    """
+    Adaptive Cooperation Threshold Strategy for N-Player Public Goods Game.
+    
+    Decision rule:
+    - Round 1: Cooperate (probe for reciprocity)
+    - Final round: Defect (endgame, no future reciprocation possible)
+    - Other rounds: Cooperate if observed cooperation rate > 1/k, else defect
+    
+    The threshold τ = 1/k is the breakeven point where public good contribution
+    equals the private payoff loss from cooperating.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = 1.0 / game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        total_cooperators = history.opponent_cooperators[-1] + (1 if history.my_actions[-1] else 0)
+        cooperation_rate = total_cooperators / self.game_description.n_players
+        if cooperation_rate > self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_29(BaseStrategy):
+    """
+    Conditional Majority Cooperator with Last-Round Defection.
+    
+    Strategy:
+    - Round 1: Unconditionally cooperate (costly signal to test cooperation)
+    - Rounds 2 to r-1: Cooperate if majority cooperated in previous round, else defect
+    - Final round: Unconditionally defect (no future punishment mechanism)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            return Action.D
+        my_prev_action = history.my_actions[-1]
+        opponent_prev_cooperators = history.opponent_cooperators[-1]
+        total_prev_cooperators = opponent_prev_cooperators + (1 if my_prev_action else 0)
+        majority_threshold = math.ceil(n / 2)
+        if total_prev_cooperators >= majority_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_30(BaseStrategy):
+    """
+    Adaptive Cutoff Strategy for N-Player Public Goods Game.
+    
+    Cooperates in round 1, applies adaptive threshold rule in rounds 2 to r-1,
+    and defects in the final round. The threshold is set as α = min(k/n, 0.5) + 0.05.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.alpha = min(game_description.k / game_description.n_players, 0.5) + 0.05
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_rounds = self.game_description.n_rounds
+        n_players = self.game_description.n_players
+        if current_round == 0:
+            return Action.C
+        if current_round == n_rounds - 1:
+            return Action.D
+        prev_opponent_cooperators = history.opponent_cooperators[-1]
+        my_prev_action_val = int(history.my_actions[-1])
+        total_cooperators_prev = prev_opponent_cooperators + my_prev_action_val
+        cooperation_rate = total_cooperators_prev / n_players
+        if cooperation_rate >= self.alpha:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_31(BaseStrategy):
+    """
+    Greedy Defector with Cooperation Threshold.
+    
+    Defects unconditionally in round 1 and the final round.
+    In non-terminal rounds, cooperates only if the previous round's
+    total cooperation count meets or exceeds the threshold ⌈n/k⌉ - 1.
+    This high bar ensures cooperation only occurs when public good
+    contribution is substantial enough to offset defection advantage.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil(game_description.n_players / game_description.k) - 1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_rounds = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.D
+        if current_round == n_rounds - 1:
+            return Action.D
+        previous_opponent_cooperators = history.opponent_cooperators[-1]
+        previous_self_cooperated = int(history.my_actions[-1])
+        total_previous_cooperators = previous_opponent_cooperators + previous_self_cooperated
+        if total_previous_cooperators >= self.threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_32(BaseStrategy):
+    """
+    Adaptive Threshold Cooperation Strategy for N-Player Public Goods Game.
+    
+    - Defects in round 1 and final 2 rounds
+    - Cooperates in middle rounds if total cooperators in previous round exceed threshold T=ceil(k)
+    - Threshold reflects that k or more cooperators make the public good worth sustaining
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = self.game_description.n_rounds
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.D
+        if round_number >= n_rounds - 2:
+            return Action.D
+        prev_opponent_cooperators = history.opponent_cooperators[-1]
+        prev_my_cooperation = history.my_actions[-1]
+        total_previous_cooperators = prev_opponent_cooperators + (1 if prev_my_cooperation else 0)
+        if total_previous_cooperators > self.threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_5(BaseStrategy):
+    """
+    Threshold-based free-riding strategy in N-player public goods game.
+    
+    Exploits others' cooperation when present and defects otherwise.
+    Always defects in round 1 (no history), rounds 2 to r-1 based on
+    whether cooperation threshold is met, and unconditionally in final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cooperation_threshold = game_description.n_players / game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_6(BaseStrategy):
+    """
+    Opportunistic Exploitation Strategy for N-Player Public Goods Game.
+    
+    Exploits the dominant action (defection) by consistently free-riding on others' 
+    contributions while minimizing personal costs. Always defects except in round 2,
+    where it cooperates only if nearly universal cooperation is observed (n-1 cooperators).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n = self.game_description.n_players
+        if current_round == 0:
+            return Action.D
+        if current_round == self.game_description.n_rounds - 1:
+            return Action.D
+        c_prev = history.opponent_cooperators[-1]
+        if current_round == 1 and c_prev == n - 1:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_7(BaseStrategy):
+    """
+    Opportunistic Adaptive Strategy for N-Player Public Goods Game.
+    
+    Systematically defects to extract maximum personal payoff. While the strategy
+    observes opponent cooperation rates to understand game dynamics, it never
+    reciprocates—only defects consistently to exploit cooperators and avoid
+    costly mistakes in mutual defection scenarios.
+    
+    Core logic: ALWAYS DEFECT across all rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = 0.5
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_8(BaseStrategy):
+    """
+    Opportunistic Strategy: Cooperate in round 1 to establish a signal of cooperativeness
+    and probe opponents' willingness to contribute. Then defect in all subsequent rounds
+    to exploit any public good contributions while keeping the endowment privately.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_9(BaseStrategy):
+    """
+    Opportunistic Probe-and-Exploit Strategy for N-Player Public Goods Game.
+    
+    Cooperates in early rounds (1-2) to signal receptiveness and probe for reciprocal behavior.
+    Switches to defection from round 3 onwards to exploit the public good while avoiding
+    contribution costs. Defects unconditionally in the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = max(1, math.ceil((game_description.n_players - 1) * 0.4))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_num = history.round_number
+        n_rounds = self.game_description.n_rounds
+        if round_num < 2:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_10(BaseStrategy):
+    """
+    Opportunistic Adaptive Strategy for N-Player Public Goods Game.
+    
+    Exploits others' cooperation through selective defection while minimizing
+    own contribution, with a pivot to pure defection in the endgame.
+    
+    Decision logic:
+    - Round 0: Always defect (probe baseline)
+    - Rounds 1 to r-3: Apply dynamic threshold based on cooperation proportion
+    - Rounds r-2 to r-1: Always defect (endgame)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round_0based = history.round_number
+        if current_round_0based == 0:
+            return Action.D
+        if current_round_0based >= self.n_rounds - 2:
+            return Action.D
+        num_opponent_cooperators_prev = history.opponent_cooperators[-1]
+        if num_opponent_cooperators_prev == 0:
+            return Action.D
+        p = num_opponent_cooperators_prev / self.n_players
+        t_1based = current_round_0based + 1
+        theta = 0.35 - t_1based / self.n_rounds * 0.1
+        threshold_lower = theta - 0.05
+        threshold_upper = theta + 0.05
+        if p >= threshold_lower:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_OPPORTUNISTIC_11(BaseStrategy):
+    """
+    Opportunistic Strategy: Adaptive Exploitation with Endgame Defection
+    
+    This strategy maximizes individual payoff by:
+    - Establishing no initial commitment in round 0 (Defect)
+    - Free-riding when cooperation is high (c_t-1 >= k)
+    - Avoiding wasted contributions when cooperation is low (c_t-1 < k)
+    - Occasionally probing collapsed cooperation states (c_t-1 = 0, every 3 rounds)
+    - Always defecting in the final round (no future reputation value)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_rounds = self.game_description.n_rounds
+        k = self.game_description.k
+        if current_round == 0:
+            return Action.D
+        if current_round == n_rounds - 1:
+            return Action.D
+        prev_cooperators = history.opponent_cooperators[current_round - 1]
+        threshold = k
+        if prev_cooperators < threshold:
+            if prev_cooperators == 0 and current_round % 3 == 0:
+                if random.random() < 0.15:
+                    return Action.C
+            return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_12(BaseStrategy):
+    """
+    Opportunistic Threshold Exploitation Strategy.
+    
+    Maximizes exploitation of cooperative states by:
+    - Defecting in round 1 to test cooperation levels
+    - Defecting when observed cooperation meets or exceeds threshold T = ⌈k⌉
+    - Cooperating when cooperation falls below threshold to restart exploitable cycles
+    - Always defecting in the final round to capture maximum payoff
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round == self.game_description.n_rounds - 1:
+            return Action.D
+        prev_opponent_cooperators = history.opponent_cooperators[-1]
+        prev_self_cooperated = history.my_actions[-1]
+        total_prev_cooperators = prev_opponent_cooperators + int(prev_self_cooperated)
+        if total_prev_cooperators >= self.threshold:
+            return Action.D
+        return Action.C
+
+class Strategy_OPPORTUNISTIC_13(BaseStrategy):
+    """
+    Greedy Exploitation with Adaptive Switching strategy.
+    
+    Exploits public goods contributions by switching between cooperation and defection
+    based on whether total cooperation exceeds a profitable threshold. Defects in the
+    first and final rounds to maximize immediate payoff.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil(game_description.n_players / game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_rounds = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.D
+        if current_round == n_rounds - 1:
+            return Action.D
+        previous_round_idx = current_round - 1
+        my_previous_action = history.my_actions[previous_round_idx]
+        opponent_cooperators_prev = history.opponent_cooperators[previous_round_idx]
+        total_cooperators_prev = (1 if my_previous_action else 0) + opponent_cooperators_prev
+        if total_cooperators_prev >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_14(BaseStrategy):
+    """
+    Opportunistic Threshold Exploitation Strategy.
+    
+    Defects by default to maximize immediate payoff. Only cooperates in mid-game 
+    rounds when others provide sufficient contributions (c_prev >= threshold) and 
+    multiple future rounds remain for exploitation. Avoids sucker's payoff by 
+    defecting when cooperation is insufficient or declining.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.c_threshold = math.ceil(game_description.n_players / game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        n_rounds = self.game_description.n_rounds
+        if round_number == 0:
+            return Action.D
+        if round_number == n_rounds - 1:
+            return Action.D
+        c_prev = history.opponent_cooperators[-1]
+        if c_prev <= 1:
+            return Action.D
+        if round_number >= 2:
+            c_prev_prev = history.opponent_cooperators[-2]
+            if c_prev < c_prev_prev:
+                return Action.D
+        remaining_rounds = n_rounds - round_number
+        if c_prev >= self.c_threshold and remaining_rounds > 2:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_15(BaseStrategy):
+    """
+    Threshold Exploitation Strategy for N-Player Public Goods Game.
+    
+    Cooperates in round 1 to probe for cooperative opponents, then exploits
+    by free-riding (defecting) in subsequent rounds. Uses a majority threshold
+    to identify exploitation opportunities, though optimal play is to always
+    defect from round 2 onward due to the one-shot incentive structure.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil(game_description.n_players / 2)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_16(BaseStrategy):
+    """
+    Opportunistic Exploitation Strategy for N-Player Public Goods Game.
+    
+    Core behavior: Always defect except in strategic edge cases.
+    - Round 1: Defect (gather information)
+    - Rounds 2 to r-1: Defect unless attempting tactical cooperation signal
+    - Last round: Always defect
+    
+    Optional adaptive modification: Cooperate once if observing sustained
+    high cooperation (rate >= (k-1)/(n-1) for 3+ consecutive rounds) and
+    sufficient runway remains (round <= r-2), then immediately revert.
+    Disabled for very short games (r <= 3).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.signaled_cooperation = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round == r - 1:
+            return Action.D
+        m_prev = history.opponent_cooperators[-1]
+        opponent_coop_rate = m_prev / (n - 1) if n > 1 else 0
+        threshold_exploit = k / n
+        threshold_signal = (k - 1) / (n - 1) if n > 1 else 0
+        if r > 3 and current_round <= r - 2:
+            if current_round >= 2:
+                start_idx = max(0, current_round - 2)
+                recent_cooperators = history.opponent_cooperators[start_idx:current_round]
+                if len(recent_cooperators) >= 3:
+                    recent_rates = [opp_coop / (n - 1) for opp_coop in recent_cooperators[-3:]]
+                    high_coop_sustained = all((rate >= threshold_signal for rate in recent_rates))
+                    if high_coop_sustained and (not self.signaled_cooperation):
+                        self.signaled_cooperation = True
+                        return Action.C
+        if self.signaled_cooperation:
+            self.signaled_cooperation = False
+            return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_17(BaseStrategy):
+    """
+    Opportunistic Public Goods Strategy: Cooperate early to gather information,
+    exploit observed behavior in the middle phase, and defect outright as the
+    game approaches its end.
+    
+    Decision rule:
+    - Early phase (rounds 0 to floor(r/3)): Play C
+    - Middle phase (floor(r/3) to ceil(2*r/3)): Play D (exploit high cooperation)
+    - Late phase (ceil(2*r/3) onwards): Play D (end-game defection)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.n_players = game_description.n_players
+        self.early_phase_end = math.floor(self.n_rounds / 3)
+        self.late_phase_start = math.ceil(2 * self.n_rounds / 3)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round < self.early_phase_end:
+            return Action.C
+        if current_round >= self.late_phase_start:
+            return Action.D
+        if current_round > 0:
+            observed_cooperation_counts = history.opponent_cooperators[:current_round]
+            avg_cooperation_rate = np.mean(observed_cooperation_counts)
+            if avg_cooperation_rate >= self.k / 2:
+                return Action.D
+            else:
+                return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_18(BaseStrategy):
+    """
+    Opportunistic Strategy: Defect by default, cooperate only in first round
+    to establish false expectations of reciprocity, then exploit.
+    
+    - Round 0: COOPERATE (probe to signal cooperation)
+    - Last round: DEFECT (endgame exploitation, no future reputation cost)
+    - Middle rounds: DEFECT (free-ride on any established cooperation or capture baseline payoff)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_rounds = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.C
+        if current_round == n_rounds - 1:
+            return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_19(BaseStrategy):
+    """
+    Opportunistic Exploitation Strategy for N-Player Public Goods Game.
+    
+    Adapts contributions based on observed cooperation from opponents,
+    free-riding when others cooperate and defecting when exploitation
+    opportunities vanish. Unconditionally defects in end-game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.n_opponents = self.n_players - 1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round >= self.n_rounds - 2:
+            return Action.D
+        opponent_cooperators = history.opponent_cooperators[:current_round]
+        if len(opponent_cooperators) == 0:
+            return Action.D
+        total_observed_cooperators = float(np.sum(opponent_cooperators))
+        rounds_completed = len(opponent_cooperators)
+        average_cooperators_per_round = total_observed_cooperators / rounds_completed
+        threshold = self.n_players / self.k
+        if average_cooperators_per_round >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_20(BaseStrategy):
+    """
+    Opportunistic Exploitation Strategy for N-Player Public Goods Game.
+    
+    Core principle: Exploit cooperators through defection while monitoring group 
+    cooperation levels. Maintains appearance of potential future cooperation only 
+    to sustain exploitable cooperation in the group.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = self.k / self.n
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.D
+        if t == self.r - 1:
+            return Action.D
+        if self.r <= 3:
+            if t == 1 and len(history.opponent_cooperators) > 0:
+                avg_coop = history.opponent_cooperators[0] / max(1, self.n - 1)
+                if avg_coop >= 0.5:
+                    return Action.C
+            return Action.D
+        total_cooperators_sum = np.sum(history.opponent_cooperators[:t])
+        n_opponents = self.n - 1
+        if t == 0 or n_opponents == 0:
+            return Action.D
+        avg_coop = total_cooperators_sum / (n_opponents * t)
+        if np.all(history.opponent_cooperators[:t] == 0):
+            return Action.D
+        if avg_coop > 0.8:
+            return Action.D
+        if avg_coop <= self.threshold:
+            return Action.D
+        if avg_coop <= 0.5:
+            return Action.D
+        rounds_remaining = self.r - t
+        if rounds_remaining <= 2:
+            return Action.D
+        coop_probability = 1.0 - avg_coop
+        if random.random() < coop_probability:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_21(BaseStrategy):
+    """
+    Opportunistic Exploitation Strategy: Always defect to free-ride on others' 
+    contributions while avoiding any personal contribution cost.
+    
+    Core principle: Maintain permanent defection since cooperators provide free 
+    public goods, and this player captures k/n of aggregate contributions while 
+    paying nothing.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_22(BaseStrategy):
+    """
+    Opportunistic Strategy: Adaptive Free-Riding with Controlled Cooperation Bait
+    
+    Cooperates strategically in early rounds (Phase 1) to gather intelligence on opponents,
+    exploits high cooperation in middle rounds (Phase 2) with probabilistic mixing,
+    and always defects in the final round (Phase 3).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.all_cooperate_consecutive_count = 0
+        self.phase2_defection_occurred = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        n_opponents = n - 1
+        if current_round < 2:
+            return Action.C
+        if current_round == r - 1:
+            return Action.D
+        c_prev = history.opponent_cooperators[-1]
+        if current_round >= 2:
+            prior_cooperation = history.opponent_cooperators[-2]
+            if prior_cooperation > 0:
+                drop_rate = (prior_cooperation - c_prev) / prior_cooperation
+                if drop_rate > 0.5:
+                    return Action.D
+        if c_prev == n_opponents:
+            self.all_cooperate_consecutive_count += 1
+            if self.all_cooperate_consecutive_count >= 2:
+                self.phase2_defection_occurred = True
+                return Action.D
+        else:
+            self.all_cooperate_consecutive_count = 0
+        defection_urgency = False
+        if current_round >= r // 2 and (not hasattr(self, '_checked_midpoint')):
+            defections = np.sum(~history.my_actions[:current_round])
+            defection_rate = defections / current_round if current_round > 0 else 0.0
+            if defection_rate < 0.6:
+                defection_urgency = True
+            self._checked_midpoint = True
+        high_coop_threshold = n_opponents * (2.0 / 3.0)
+        mid_coop_threshold = n_opponents * (1.0 / 3.0)
+        if c_prev >= high_coop_threshold:
+            self.phase2_defection_occurred = True
+            return Action.D
+        elif c_prev >= mid_coop_threshold:
+            base_prob = 0.3
+            decay_factor = (r - current_round) / r if r > current_round else 0.0
+            coop_prob = base_prob * decay_factor
+            if defection_urgency:
+                coop_prob *= 0.5
+            if not self.phase2_defection_occurred and c_prev > 0:
+                if current_round == 2:
+                    self.phase2_defection_occurred = True
+                    return Action.D
+            return Action.C if random.random() < coop_prob else Action.D
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_23(BaseStrategy):
+    """
+    Maximizes personal gain through systematic defection after an initial cooperative probe.
+    Cooperates in round 1 to test exploitability, then defects in all subsequent rounds
+    to free-ride on others' contributions while extracting maximum private payoff.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = game_description.k / (game_description.n_players - game_description.k) if game_description.n_players - game_description.k > 0 else float('inf')
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_rounds = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.C
+        if current_round >= n_rounds - 2:
+            return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_24(BaseStrategy):
+    """
+    Threshold Exploitation Strategy: Establishes free-rider reputation, exploits
+    cooperative players, and uses occasional probes to test opponent responsiveness.
+    Defects in endgame and early rounds; opportunistically cooperates mid-game only
+    on specific rounds when substantial cooperation is observed.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n = self.game_description.n_players
+        k = self.game_description.k
+        r = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.D
+        if current_round == r - 1:
+            return Action.D
+        if current_round <= 1:
+            return Action.D
+        if current_round >= r - 2:
+            return Action.D
+        observed_cooperators = history.opponent_cooperators[-1]
+        cooperation_threshold = (n - 1) * 0.5
+        if observed_cooperators >= cooperation_threshold:
+            public_benefit = k / n * observed_cooperators
+            if public_benefit > 1.2:
+                return Action.D
+            if current_round % 3 == 0:
+                return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_25(BaseStrategy):
+    """
+    Opportunistic Adaptive Strategy for N-Player Public Goods Game.
+    
+    Defects to maximize personal gain, but strategically cooperates when the 
+    public good reaches sufficient scale. Exploits high cooperation, withdraws 
+    from low cooperation, and extracts maximum value in final rounds with zero 
+    consequences.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.consecutive_zero_cooperation = 0
+        self.in_full_defection_mode = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round == r - 1:
+            return Action.D
+        if r == 2:
+            return Action.D
+        if k <= 1.2 and n > 5:
+            return Action.D
+        prev_opponent_cooperators = history.opponent_cooperators[-1]
+        prev_self_cooperated = history.my_actions[-1]
+        total_cooperators_prev = prev_opponent_cooperators + (1 if prev_self_cooperated else 0)
+        if total_cooperators_prev == 0:
+            self.consecutive_zero_cooperation += 1
+        else:
+            self.consecutive_zero_cooperation = 0
+        if self.consecutive_zero_cooperation >= 3:
+            self.in_full_defection_mode = True
+        if self.in_full_defection_mode:
+            return Action.D
+        m = total_cooperators_prev
+        if n == 2:
+            threshold = 1
+        else:
+            threshold = math.ceil(0.6 * n)
+        if m >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_26(BaseStrategy):
+    """
+    Opportunistic Free-Rider Strategy for N-Player Public Goods Game.
+    
+    Defects by default to secure the full 1-unit endowment while exploiting
+    high cooperation periods. Monitors cooperation levels (coop_ratio vs k/n threshold)
+    but always plays D regardless of history. Guaranteed payoff of at least 1 per round
+    (mutual defection equilibrium) with potential for higher payoffs when others
+    cooperate, capturing the asymmetry before opponents adjust.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        if history.round_number < self.game_description.n_rounds - 1:
+            cooperation_count = history.opponent_cooperators[-1]
+            n = self.game_description.n_players
+            k = self.game_description.k
+            coop_ratio = cooperation_count / n if n > 0 else 0
+            threshold = k / n
+            return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_27(BaseStrategy):
+    """
+    Opportunistic Defection with Selective Exploitation.
+    
+    Always defects to maximize immediate payoff by free-riding on others' 
+    cooperation and avoiding endowment costs. Unconditionally defects in 
+    first round, all middle rounds, and final round regardless of observed 
+    cooperation patterns.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_28(BaseStrategy):
+    """
+    Probe-then-Exploit Strategy for N-Player Public Goods Game.
+    
+    Cooperates in round 1 to gather information about the opponent pool and signal
+    willingness to cooperate, then defects in all subsequent rounds regardless of
+    observed cooperation levels. This strategy extracts free-rider benefits from
+    others' contributions without reciprocating, as individual contribution is
+    unprofitable when k < n.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_29(BaseStrategy):
+    """
+    Opportunistic strategy that exploits cooperative opponents while minimizing losses.
+    
+    - Round 1: Cooperate to probe the population
+    - Rounds 2 to r-1: Defect based on observed cooperation rates
+    - Round r: Defect unconditionally
+    
+    The strategy exploits the public goods game by cooperating once to gather
+    information, then defecting to capture the private endowment plus any public
+    good returns from cooperating opponents.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = (self.n - self.k) / self.n if self.n > 0 else 0.0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        if round_number == self.r - 1:
+            return Action.D
+        if round_number > 0:
+            cooperators_last_round = history.opponent_cooperators[-1]
+            n_opponents = self.n - 1
+            if n_opponents > 0:
+                cooperation_rate = cooperators_last_round / n_opponents
+            else:
+                cooperation_rate = 0.0
+            if cooperation_rate > self.threshold:
+                return Action.D
+            else:
+                return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_30(BaseStrategy):
+    """
+    Systematically exploits the public good whenever others contribute, while defecting otherwise.
+    Cooperates only strategically when necessary to sustain a high-cooperation environment that can be exploited.
+    
+    Core behavior:
+    - Round 1: Always defect
+    - Middle rounds: Defect probabilistically based on previous round's cooperator count
+    - Final rounds: Always defect (end-game effect)
+    - Special case: Occasionally cooperate when cooperation is very high to preserve exploitation opportunities
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = math.ceil(self.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round >= self.r - 2:
+            return Action.D
+        c_prev = history.opponent_cooperators[-1]
+        total_cooperators_prev = c_prev + (1 if history.my_actions[-1] else 0)
+        if total_cooperators_prev > self.k:
+            coop_probability = 1.0 / (3.0 + total_cooperators_prev)
+            if random.random() < coop_probability:
+                return Action.C
+        if c_prev >= self.threshold:
+            defect_prob = min(0.95, 1.0 - 1.0 / (2.0 + c_prev))
+            if random.random() < defect_prob:
+                return Action.D
+            else:
+                return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_31(BaseStrategy):
+    """
+    Opportunistic Adaptive Strategy for N-Player Public Goods Game.
+    Defaults to defection but adaptively cooperates only when observing high aggregate cooperation,
+    exploiting the public good while avoiding contribution costs. Always defects in final rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round >= r - 2:
+            return Action.D
+        my_previous_action = int(history.my_actions[-1])
+        opponent_coop_previous = history.opponent_cooperators[-1]
+        observed_coop = my_previous_action + opponent_coop_previous
+        cooperation_ratio = observed_coop / n
+        adaptive_threshold = k / (n + k)
+        if cooperation_ratio >= adaptive_threshold + 0.15:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_32(BaseStrategy):
+    """
+    Threshold-Exploitation Strategy for N-Player Public Goods Game.
+    
+    Decision rule: Cooperate in round t iff the return from public goods
+    (k/n × observed_cooperators) meets or exceeds the endowment opportunity cost (1 - δ).
+    Special handling: defect in round 1 and final round; use cumulative averaging
+    to smooth volatile histories.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.delta = 0.01
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        round_num = history.round_number
+        if round_num == 0:
+            return Action.D
+        if round_num == r - 1:
+            return Action.D
+        threshold = n / k - self.delta
+        opponent_coop_history = history.opponent_cooperators[:round_num]
+        if len(opponent_coop_history) > 2:
+            mean_coop = np.mean(opponent_coop_history)
+            std_coop = np.std(opponent_coop_history)
+            volatility_threshold = 0.3 * max(mean_coop, 1.0)
+            if std_coop > volatility_threshold:
+                observed = mean_coop
+            else:
+                observed = float(opponent_coop_history[-1])
+        else:
+            observed = float(opponent_coop_history[-1])
+        if observed >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_5(BaseStrategy):
+    """
+    Adaptive threshold-based strategy for N-player public goods game.
+    
+    Tracks observed cooperation rates and cooperates only when the observed
+    average cooperation frequency from opponents suggests the public good will
+    exceed the breakeven threshold (n/k total cooperators needed).
+    
+    Decision rule:
+    - Round 1: Always cooperate to probe opponent behavior
+    - Final round: Always defect (no future reciprocity possible)
+    - Other rounds: Cooperate iff avg_coop_rate × (n-1) > n/k
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n = self.game_description.n_players
+        k = self.game_description.k
+        r = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            return Action.D
+        total_cooperators_observed = np.sum(history.opponent_cooperators[:current_round])
+        denominator = (n - 1) * current_round
+        if denominator == 0:
+            return Action.D
+        avg_coop_rate = total_cooperators_observed / denominator
+        threshold_value = avg_coop_rate * (n - 1)
+        breakeven = n / k
+        if threshold_value > breakeven:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_6(BaseStrategy):
+    """
+    Threshold-Based Adaptive Strategy for N-Player Public Goods Game.
+    
+    Cooperates when the observed cooperation rate among opponents exceeds the 
+    break-even threshold τ = (n - k) / (n - 1). Always defects in round 1 
+    (no history) and the final round (no reputational benefit). Adapts to 
+    recent opponent behavior in intermediate rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        n = game_description.n_players
+        k = game_description.k
+        self.threshold = (n - k) / (n - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round == r - 1:
+            return Action.D
+        m_t = history.opponent_cooperators[-1]
+        n_opponents = n - 1
+        if n_opponents <= 0:
+            return Action.D
+        p_t = m_t / n_opponents
+        if p_t >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_7(BaseStrategy):
+    """
+    Individualistic Adaptive Strategy using Dominance-Respecting Defection.
+    
+    Always defects because defection is the strictly dominant action.
+    The payoff from defecting exceeds cooperating by 1 - k/n > 0 (guaranteed by 1 < k < n).
+    
+    Includes optional monitoring of opponent cooperation rates for information gathering,
+    though this does not influence the defection decision.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.cumulative_opponent_cooperators = 0
+        self.rounds_completed = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number > 0:
+            self.cumulative_opponent_cooperators += history.opponent_cooperators[-1]
+            self.rounds_completed = history.round_number
+        if self.game_description.k / self.game_description.n_players > 1:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_8(BaseStrategy):
+    """
+    Rationality-Conditional Cooperation Strategy for N-Player Public Goods Game.
+    
+    Cooperates only when the number of cooperators in the previous round meets or exceeds
+    a rationality threshold T = ⌈n/k⌉. Defects unconditionally in the first round and
+    the final round, as these rounds lack reciprocal benefit potential.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil(game_description.n_players / game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_rounds = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.D
+        if current_round == n_rounds - 1:
+            return Action.D
+        previous_total_cooperators = int(history.my_actions[current_round - 1]) + history.opponent_cooperators[current_round - 1]
+        if previous_total_cooperators >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_9(BaseStrategy):
+    """
+    Adaptive Cooperation with Empirical Threshold (ACET).
+    
+    Cooperates in round t if the empirical cooperation rate from the previous 
+    round meets or exceeds the threshold k/n. In round 1, defects as a 
+    conservative default. This strategy is self-interested and responds 
+    dynamically to observed aggregate behavior.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        total_cooperators = history.opponent_cooperators[-1] + (1 if history.my_actions[-1] else 0)
+        p_prev = total_cooperators / self.game_description.n_players
+        threshold = self.game_description.k / self.game_description.n_players
+        if p_prev >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_10(BaseStrategy):
+    """
+    Adaptive Threshold Strategy for N-Player Public Goods Game.
+    
+    Cooperates if the total number of cooperators in the previous round
+    meets or exceeds the threshold ceil(n/k). Always defects in the first
+    and last rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        threshold = math.ceil(self.game_description.n_players / self.game_description.k)
+        total_cooperators = history.opponent_cooperators[-1] + int(history.my_actions[-1])
+        if total_cooperators >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_11(BaseStrategy):
+    """
+    Adaptive Threshold Cooperation Strategy for N-Player Public Goods Game.
+    
+    - Round 1: Cooperate unconditionally (probe behavior)
+    - Rounds 2+: Cooperate if average opponent cooperation rate ≥ 1/k threshold,
+                 else defect. The threshold reflects when cooperation becomes 
+                 individually rational as a best response.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        completed_rounds = history.round_number
+        n_opponents = self.game_description.n_players - 1
+        total_opponent_cooperators = np.sum(history.opponent_cooperators)
+        denominator = completed_rounds * n_opponents
+        if denominator > 0:
+            avg_coop_rate = total_opponent_cooperators / denominator
+        else:
+            avg_coop_rate = 0.0
+        threshold = 1.0 / self.game_description.k
+        if avg_coop_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_12(BaseStrategy):
+    """
+    Adaptive Exploitation Strategy for N-Player Public Goods Game.
+    
+    Uses dynamic cooperation threshold based on observed cooperation rates.
+    Defects in round 1 and final round, applies adaptive rule in between.
+    Includes hysteresis avoidance, variance-based threshold adjustment, and endgame acceleration.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.epsilon = 0.05
+        self.last_decision = None
+        self.last_round_threshold_exceeded = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        current_round = history.round_number
+        n_opponents = n - 1
+        if current_round == 0:
+            self.last_decision = Action.D
+            self.last_round_threshold_exceeded = False
+            return Action.D
+        if current_round == r - 1:
+            return Action.D
+        opponent_coop_counts = history.opponent_cooperators[:current_round]
+        if len(opponent_coop_counts) == 0 or n_opponents == 0:
+            avg_coop = 0.0
+        else:
+            avg_coop = float(np.mean(opponent_coop_counts)) / float(n_opponents)
+        current_epsilon = self.epsilon
+        if len(opponent_coop_counts) > 1:
+            variance = float(np.var(opponent_coop_counts))
+            high_variance_threshold = (n_opponents / 2.0) ** 2
+            if variance > high_variance_threshold:
+                current_epsilon = self.epsilon + 0.05
+        threshold = k / n + current_epsilon
+        if current_round >= int(r * 0.8):
+            threshold = max(0.0, threshold - 0.1)
+        threshold_exceeded = avg_coop >= threshold
+        if self.last_decision is None:
+            decision = Action.C if threshold_exceeded else Action.D
+        else:
+            intended_action = Action.C if threshold_exceeded else Action.D
+            if intended_action != self.last_decision and (not self.last_round_threshold_exceeded):
+                decision = self.last_decision
+            else:
+                decision = intended_action
+        self.last_decision = decision
+        self.last_round_threshold_exceeded = threshold_exceeded
+        return decision
+
+class Strategy_INDIVIDUALISTIC_13(BaseStrategy):
+    """
+    Adaptive Defection Strategy: Always defects.
+    
+    Mathematical analysis shows that cooperation is never beneficial.
+    The condition for cooperation (k/n > 1) is never satisfied since k < n by constraint.
+    Therefore, rational payoff maximization dictates defection in all rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_14(BaseStrategy):
+    """
+    Threshold Defection with Decaying Cooperation.
+    
+    Defects by default. Cooperates only if observed opponent cooperation rate
+    exceeds a dynamic threshold that decays across rounds. Uses a robustness
+    parameter β to modulate threshold decay.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.beta = 0.8
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.D
+        if current_round >= r - 1:
+            return Action.D
+        opponents_cooperated = history.opponent_cooperators[-1]
+        n_opponents = n - 1
+        if n_opponents <= 0:
+            return Action.D
+        cooperation_rate = opponents_cooperated / n_opponents
+        t = current_round + 1
+        if r <= 1:
+            threshold = self.beta
+        else:
+            threshold = self.beta * (r - t) / (r - 1)
+        if cooperation_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_15(BaseStrategy):
+    """
+    Adaptive Cooperation Threshold with Terminal Defection
+    
+    Strategy: Cooperates adaptively based on observed cooperation rates during 
+    middle rounds, but always defects in the first and last rounds.
+    
+    Decision rule:
+    - Round 1: Always defect
+    - Rounds 2 to r-1: Cooperate if observed cooperation rate exceeds threshold θ = 1/k
+    - Round r: Always defect
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = 1.0 / game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        n_players = self.game_description.n_players
+        n_rounds = self.game_description.n_rounds
+        n_opponents = n_players - 1
+        if round_number == 0:
+            return Action.D
+        if round_number == n_rounds - 1:
+            return Action.D
+        rounds_elapsed = round_number
+        if rounds_elapsed == 0 or n_opponents == 0:
+            avg_coop = 0.0
+        else:
+            total_opponent_cooperators = float(np.sum(history.opponent_cooperators[:rounds_elapsed]))
+            avg_coop = total_opponent_cooperators / (rounds_elapsed * n_opponents)
+        if avg_coop > self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_16(BaseStrategy):
+    """
+    Adaptive Threshold Exploitation Strategy for N-Player Public Goods Game.
+    
+    Gathers information in early rounds, applies threshold-based probabilistic 
+    cooperation in middle rounds based on observed cooperation rates, and defects 
+    in the final round to maximize immediate payoff.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = math.ceil(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        n_rounds = self.game_description.n_rounds
+        n_players = self.game_description.n_players
+        if round_number <= 1:
+            return Action.D
+        if round_number == n_rounds - 1:
+            return Action.D
+        m_t_minus_1 = history.opponent_cooperators[-1]
+        if m_t_minus_1 >= self.threshold:
+            p = (m_t_minus_1 - 1) / n_players
+            if random.random() < p:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_17(BaseStrategy):
+    """
+    Adaptive Free-Riding Strategy for N-Player Public Goods Game.
+    
+    Exploits defection dominance while selectively free-riding when cooperation 
+    levels justify it. Defaults to defection as the dominant strategy, but 
+    opportunistically cooperates when the public good is sufficiently funded.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        k = self.game_description.k
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round == r - 1:
+            return Action.D
+        cooperators_last_round = history.opponent_cooperators[-1]
+        n_opponents = n - 1
+        cooperation_rate = cooperators_last_round / n_opponents
+        threshold = (n - k) / (n - 1)
+        if cooperation_rate >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_18(BaseStrategy):
+    """
+    Threshold-Based Adaptive Strategy for N-Player Public Goods Game.
+    
+    Decision Rule:
+    - Round 0 (first round): Defect (gather information)
+    - Rounds 1 to r-2: Cooperate if previous round's cooperators > n/k, else defect
+    - Round r-1 (final round): Always defect (no future to influence)
+    
+    The threshold n/k represents the breakeven point where public good returns
+    exceed the private cost of cooperation.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.threshold = self.n_players / self.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round == self.n_rounds - 1:
+            return Action.D
+        previous_round_idx = current_round - 1
+        opponent_coop_prev = history.opponent_cooperators[previous_round_idx]
+        my_action_prev = history.my_actions[previous_round_idx]
+        total_cooperators_prev = opponent_coop_prev + (1 if my_action_prev else 0)
+        if total_cooperators_prev > self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_19(BaseStrategy):
+    """
+    Individualistic Threshold Defection Strategy.
+    
+    Always defects to maximize individual payoff. Checks cooperation threshold
+    in middle rounds but consistently defaults to defection regardless, as it
+    is the dominant strategy when k < n.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        cooperation_threshold = self.game_description.n_players * 0.6
+        cooperators_prev_round = history.opponent_cooperators[-1]
+        if cooperators_prev_round >= cooperation_threshold:
+            return Action.D
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_20(BaseStrategy):
+    """
+    Adaptive Threshold Defection Strategy for N-Player Public Goods Game.
+    
+    Defects in round 1 and the final round. In intermediate rounds, cooperates only if
+    the observed cooperation rate of opponents in the previous round exceeds the threshold
+    k/n, which represents the breakeven point where public good returns justify the
+    cooperation cost.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        if current_round == 0:
+            return Action.D
+        if current_round == r - 1:
+            return Action.D
+        n_opponents = n - 1
+        cooperators_prev = history.opponent_cooperators[-1]
+        if n_opponents > 0:
+            cooperation_rate_prev = cooperators_prev / n_opponents
+        else:
+            cooperation_rate_prev = 0.0
+        threshold = k / n
+        if cooperation_rate_prev > threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_21(BaseStrategy):
+    """
+    Individual Payoff Maximization Strategy: Always defect.
+    
+    Defection is the dominant strategy in the N-player public goods game.
+    Since π_D = 1 + (k/n) × m_total always exceeds π_C = (k/n) × m_total
+    by a margin of (1 - k/n) > 0 (given k < n), defection maximizes individual
+    payoff regardless of cooperation level, history, or round number.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_22(BaseStrategy):
+    """
+    Empirical Best Response with Cautious Probing.
+    
+    Probes for cooperation in round 1, responds to observed cooperation rate
+    in middle rounds, and defects in the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.p_0 = min(game_description.k / game_description.n_players, 0.5)
+        self.rho_threshold = max(0, (game_description.n_players - game_description.k) / (game_description.n_players - 1))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            if random.random() < self.p_0:
+                return Action.C
+            else:
+                return Action.D
+        if current_round == r - 1:
+            return Action.D
+        opponent_history = history.opponent_cooperators[:current_round]
+        if np.all(opponent_history == 0):
+            return Action.D
+        if np.all(opponent_history == n - 1):
+            return Action.C
+        if current_round < 3:
+            rho = 0.0
+        else:
+            total_cooperators = np.sum(opponent_history)
+            rho = total_cooperators / (current_round * (n - 1))
+        if rho >= self.rho_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_23(BaseStrategy):
+    """
+    Adaptive Threshold Defection strategy for N-Player Public Goods Game.
+    
+    Defects in round 1 (no history to base decision on).
+    Defects in final round (no future reciprocal benefit possible).
+    In middle rounds, cooperates if and only if the observed number of cooperators
+    from the previous round reaches the threshold where cooperation's payoff from
+    the public good meets or exceeds the cost of contributing.
+    
+    Decision: Cooperate if c_prev ≥ (n/k) - 1, where c_prev is the total number
+    of cooperators (including self) in the previous round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        round_num = history.round_number
+        if round_num == 0:
+            return Action.D
+        if round_num == r - 1:
+            return Action.D
+        prev_opponent_cooperators = history.opponent_cooperators[-1]
+        prev_my_action = history.my_actions[-1]
+        c_prev = prev_opponent_cooperators + (1 if prev_my_action else 0)
+        threshold = n / k - 1
+        if c_prev >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_24(BaseStrategy):
+    """
+    Threshold Defection with Selective Cooperation.
+    
+    Maintains a running estimate of opponent cooperation and defects by default.
+    Cooperates only when observed cooperation is negligible (≤5%) to seed future
+    cooperation and avoid mutual defection lock-in. Always defects in round 1 and
+    the final round. Uses threshold k/(n-1) as the breakeven point for profitability.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.k
+        round_num = history.round_number
+        if round_num == 0:
+            return Action.D
+        if round_num == r - 1:
+            return Action.D
+        n_opponents = n - 1
+        if n_opponents <= 0 or round_num <= 0:
+            return Action.D
+        total_opponent_coop = np.sum(history.opponent_cooperators[:round_num])
+        avg_coop = total_opponent_coop / (round_num * n_opponents)
+        threshold = k / n_opponents
+        if avg_coop <= 0.05:
+            seed_prob = min(0.2, k / n)
+            if random.random() < seed_prob:
+                return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_25(BaseStrategy):
+    """
+    Adaptive Defection with Conditional Cooperation.
+    
+    Cooperates in round 1, defects unconditionally in the final round,
+    and in intermediate rounds cooperates if and only if the observed
+    cooperation rate in the previous round meets or exceeds a dynamic
+    threshold θ = k/(2n).
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = game_description.k / (2 * game_description.n_players)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        my_prev_action = 1 if history.my_actions[-1] else 0
+        total_cooperators_prev = my_prev_action + history.opponent_cooperators[-1]
+        coop_rate_prev = total_cooperators_prev / self.game_description.n_players
+        if coop_rate_prev >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_26(BaseStrategy):
+    """
+    Threshold-Adaptive Defection with Last-Round Optimization.
+    
+    Cooperates only when observed cooperation rate among opponents exceeds a 
+    dynamic threshold (k/n + buffer, minimum 0.5). Defects in final round 
+    regardless. Locks into defection if cooperation remains persistently low.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = max(game_description.k / game_description.n_players + 0.15, 0.5)
+        self.locked_defect = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n = self.game_description.n_players
+        n_rounds = self.game_description.n_rounds
+        if current_round == n_rounds - 1:
+            return Action.D
+        if current_round == 0:
+            return Action.D
+        if current_round == 1:
+            if history.opponent_cooperators[0] == n - 1:
+                return Action.C
+            return Action.D
+        if self.locked_defect:
+            return Action.D
+        total_opponent_cooperators = np.sum(history.opponent_cooperators[:current_round])
+        total_possible_cooperations = current_round * (n - 1)
+        if total_possible_cooperations == 0:
+            coop_rate = 0.0
+        else:
+            coop_rate = total_opponent_cooperators / total_possible_cooperations
+        if current_round >= 2:
+            recent_coop_sum = np.sum(history.opponent_cooperators[1:current_round])
+            recent_possible = (current_round - 1) * (n - 1)
+            if recent_possible > 0:
+                recent_coop_rate = recent_coop_sum / recent_possible
+                if recent_coop_rate < 0.2:
+                    self.locked_defect = True
+                    return Action.D
+        if coop_rate > self.threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_27(BaseStrategy):
+    """
+    Adaptive Threshold Exploitation Strategy.
+    
+    Cooperates based on empirical payoff comparisons:
+    - Round 0: Cooperate (probe)
+    - Rounds 1 to r-2: Cooperate iff observed cooperators >= ceil(n/k) - 1
+    - Round r-1: Defect (final round)
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        m = history.opponent_cooperators[-1]
+        n = self.game_description.n_players
+        k = self.game_description.k
+        threshold = math.ceil(n / k) - 1
+        if m >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_28(BaseStrategy):
+    """
+    Adaptive Individualistic Strategy for N-Player Public Goods Game.
+    
+    Always defects because k < n implies defection is strictly dominant.
+    
+    Since k < n, the payoff-maximizing action is defection in every round:
+    π_defect = 1 + (k/n) × C(t-1)
+    π_cooperate = (k/n) × (C(t-1) + 1)
+    
+    The inequality 1 + (k/n) × C(t-1) > (k/n) × (C(t-1) + 1) holds because
+    1 > k/n when k < n. This makes defection optimal regardless of opponent behavior.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_29(BaseStrategy):
+    """
+    Adaptive Threshold Strategy for N-Player Public Goods Game.
+    
+    Defects in round 1 and final round. In middle rounds, cooperates if and only if
+    the observed cooperation rate from the previous round meets or exceeds the
+    threshold θ = n/k, where cooperation is individually rational.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = game_description.n_players / game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.D
+        if current_round == r - 1:
+            return Action.D
+        prev_round_idx = current_round - 1
+        opponent_cooperators_prev = history.opponent_cooperators[prev_round_idx]
+        my_action_prev = history.my_actions[prev_round_idx]
+        total_cooperators = opponent_cooperators_prev + (1 if my_action_prev else 0)
+        cooperation_rate = total_cooperators / n
+        if cooperation_rate >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_30(BaseStrategy):
+    """
+    Unconditional Defection Strategy.
+    
+    Defects unconditionally in every round, regardless of history, round number,
+    or opponent behavior. Defection is a dominant strategy because it yields a
+    strictly higher payoff than cooperation for any configuration of opponent actions:
+    
+    Payoff from Defect: 1 + (k/n) × M
+    Payoff from Cooperate: 0 + (k/n) × M
+    
+    where M is the total number of cooperators. The payoff advantage of 1 is
+    constant and independent of M, making defection the unique best response
+    in every round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_31(BaseStrategy):
+    """
+    Adaptive Threshold Strategy for N-Player Public Goods Game.
+    
+    Defects in round 1 and final round (no history/future incentives).
+    In middle rounds, cooperates only if the observed cooperation frequency 
+    from the previous round meets or exceeds the profitability threshold (n-k)/k.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.threshold = (game_description.n_players - game_description.k) / game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.D
+        if current_round == r - 1:
+            return Action.D
+        cooperators_last_round = history.opponent_cooperators[-1]
+        cooperation_frequency = cooperators_last_round / (n - 1)
+        if cooperation_frequency >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_32(BaseStrategy):
+    """
+    Conditional Defection with Cooperation Testing strategy for N-Player Public Goods Game.
+    
+    Core strategy:
+    - Round 0 (first): Cooperate to probe the environment
+    - Rounds 1 to n_rounds-2 (middle): Probabilistically cooperate based on observed
+      cooperation rate, conditional on exceeding threshold θ = (n-k)/(n-1)
+    - Round n_rounds-1 (final): Defect unconditionally
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.k = game_description.k
+        self.theta = (self.n - self.k) / (self.n - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        n_opponents = self.n - 1
+        if current_round == 0:
+            return Action.C
+        if current_round == self.n_rounds - 1:
+            return Action.D
+        m_prev = history.opponent_cooperators[-1]
+        if n_opponents <= 0:
+            return Action.D
+        rate_prev = m_prev / n_opponents
+        if rate_prev >= self.theta:
+            if random.random() < min(rate_prev, 1.0):
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D

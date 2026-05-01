@@ -7797,3 +7797,1816 @@ description_OPPORTUNISTIC_13 = '''
 
 **Edge case - tie in threshold:** If cooperation_{t-1} = threshold, play C (marginal gain from the public good offsets indifference, while positioning as a potential reciprocator if others increase cooperation).
 '''
+
+description_OPPORTUNISTIC_14 = '''
+# Opportunistic Threshold Exploitation Strategy
+
+## Core Decision Rule
+
+Defect in all rounds except when the aggregate contribution level from others is sufficiently high to justify the cost of cooperating. Exploit cooperation opportunistically while minimizing commitment.
+
+## Specific Decision Rules
+
+**Round 1:** DEFECT
+- No history exists. Start by claiming the full private payoff (1) while observing opponent responses.
+
+**Rounds 2 through r-1:**
+- Let c_prev = number of cooperators observed in round t-1
+- Let c_threshold = ⌈n/k⌉ (the minimum cooperator count needed for public good to exceed private payoff of 1)
+
+Decision:
+```
+if c_prev ≥ c_threshold:
+    DEFECT
+    (Exploit: they contribute enough that you gain (k/n)×c_prev ≥ 1 
+     without sacrificing your endowment)
+else:
+    DEFECT
+    (Not enough cooperation to justify contribution)
+```
+
+**Round r (final round):** DEFECT
+- End-game defection. No future rounds means no retaliation possible; extract maximum immediate payoff.
+
+## Edge Cases & Adaptive Adjustments
+
+- **Declining cooperation trend:** If cooperation drops round-over-round (c_t < c_{t-1}), accelerate defection. The public good is collapsing; free-ride on residual contributions.
+
+- **Near-universal defection:** If c_prev ≤ 1, defect consistently. The public good yields (k/n)×1 < 1 (given k < n), making cooperation irrational.
+
+- **Mid-game opportunity:** Rounds 2 through r-2: if c_prev ≥ c_threshold AND (r - t) > 2, you may cooperate once to sustain the high-cooperation state for future exploitation. But only if it's not the last round.
+
+## Opportunistic Logic
+
+This strategy maximizes personal payoff by:
+- Never sacrificing endowment when others won't sustain the public good (defect when c_prev is low)
+- Free-riding aggressively when others cooperate (defect when c_prev is high, capturing (k/n)×c_prev while keeping private payoff of 1)
+- Avoiding sucker's payoff (never cooperate into universal defection)
+- Eliminating future commitment in the final round
+'''
+
+description_OPPORTUNISTIC_15 = '''
+# THRESHOLD EXPLOITATION STRATEGY
+
+## Core Decision Rule
+
+Maintain a running estimate of opponent cooperation tendency and exploit opportunistically:
+
+**For each round t ∈ {1, ..., r}:**
+
+1. **If t = 1:** Cooperate (probe for cooperators; establish baseline)
+
+2. **If t ∈ {2, ..., r-1}:** 
+   - Let m = number of cooperators observed in round t-1
+   - If m ≥ threshold θ: **Defect** (free-ride on high cooperation)
+   - If m < θ: **Defect** (defection is strictly better)
+   - Default: Always defect from round 2 onward, except reconsider if...
+
+3. **If t = r (final round):** **Always defect** (no future rounds to influence)
+
+## Threshold Calculation
+
+Set **θ = ⌈n/2⌉** (majority threshold)
+
+This triggers exploitation when roughly half or more opponents cooperated in the previous round. At this cooperation level, free-riding yields the gains from (k/n) × m while keeping the private endowment, beating cooperation's (k/n) × m payoff by exactly 1.
+
+## Edge Cases & Refinement
+
+**Round 1:** Cooperate unconditionally. This serves as a probe; if opponents are cooperative, you'll observe m ≥ θ in round 2 and begin exploitation.
+
+**Rounds 2 onward:** If observed m < θ (low cooperation), defect anyway since defection dominates. Continue defecting; don't return to cooperation.
+
+**Last round:** Ignore history entirely. Defect. No reputational payoff exists beyond round r.
+
+## Opportunistic Logic
+
+This strategy embodies three opportunistic principles:
+- **Exploit high cooperation:** When you observe m ≥ θ, opponents are vulnerable to free-riding; extract surplus
+- **Abandon failed probes:** If round 1 cooperation was low, defect permanently—no collective benefit justifies cooperation
+- **Terminal defection:** Recognize the endgame collapse; defection in round r is costless to reputation
+'''
+
+description_OPPORTUNISTIC_16 = '''
+## Opportunistic Exploitation Strategy
+
+**Core Decision Rule:**
+Always defect when the payoff is immediately superior. Cooperate only when you calculate that forward-looking exploitation requires a sacrificial move to manipulate opponent behavior in future rounds—but abandon this immediately if the manipulation fails.
+
+**Round-by-Round Framework:**
+
+**Round 1 (First Round):**
+Defect. Gather baseline information about opponent cooperation without exposing yourself.
+
+**Rounds 2 to r-1 (Middle Rounds):**
+- Let m = number of cooperators in the immediately preceding round
+- Calculate opponent cooperation rate: rate = m / (n-1)
+- **Primary rule:** If rate ≥ (k/n), defect to free-ride (exploit the public good funded by others)
+- **Fallback rule:** If rate < (k/n), defect because the public good is underfunded and cooperation yields minimal return
+
+**Last Round r:**
+Defect unconditionally. There are no future rounds, so reputation costs are zero. The immediate payoff dominates.
+
+**Adaptive Modification (Optional Tactical Cooperation):**
+- If you observe rate ≥ (k-1)/(n-1) for three consecutive rounds AND you are in round t where t ≤ r-2, you may attempt a single cooperate to signal "I'll join if you maintain this level." This is exploitation through mimicry—testing whether you can shift to a profitable high-cooperation regime without bearing the full cooperation cost yourself.
+- Immediately revert to defection in the next round regardless of response.
+
+**Edge Case - Very Short Games (r ≤ 3):**
+Skip the adaptive modification. Pure defection is safer when there is insufficient runway to exploit any behavioral shift.
+
+**Rationale:**
+Cooperate only as bait or irrelevant; defect is the dominant move in every payoff comparison. Exploit high cooperation by free-riding. Match low cooperation with defection to avoid wasting endowment on a depleted public good.
+'''
+
+description_OPPORTUNISTIC_17 = '''
+# OPPORTUNISTIC PUBLIC GOODS STRATEGY
+
+## Decision Rule
+
+Cooperate in early-to-mid rounds to establish a baseline understanding of opponent behavior. Shift systematically toward defection as information accumulates and the shadow of the future shrinks.
+
+```
+if round ≤ floor(r/3):
+    play C
+else if round >= ceil(2*r/3):
+    play D
+else:  // Middle phase: exploit observed behavior
+    observed_cooperation_last_round = c_total from previous round
+    avg_cooperation_rate = mean of all observed cooperation counts
+    
+    if avg_cooperation_rate ≥ k/2:
+        play D  // exploit high cooperation
+    else:
+        play D  // defect anyway; cooperation is unproductive
+```
+
+## Opportunistic Rationale
+
+The strategy exploits the fundamental asymmetry: defection yields exactly k/n additional payoff relative to cooperation, regardless of opponent actions. By initially cooperating, you gather information about whether opponents are cooperators or structural defectors. Once opponent types are revealed, you pivot to exclusive defection to capture maximum surplus from any cooperators still playing.
+
+The temporal dimension compounds this: early cooperation appears "soft" and may encourage reciprocal cooperation; this data becomes actionable precisely when you have enough rounds remaining to exploit it profitably (middle phase), then you defect outright as remaining rounds dwindle (end-game phase).
+
+## Edge Cases
+
+- **Round 1:** Play C to avoid signaling pure defection while still learning.
+- **Rounds 2–⌊r/3⌋:** Continue C; accumulating observation data with minimal cost.
+- **Final round (r):** Play D unconditionally. No future shadow exists to constrain payoff-maximization.
+- **If all opponents defected throughout:** Defection becomes a riskless default; no lost opportunity from switching.
+- **If cooperation emerges late:** The exploitation window closes, but you are already defecting, so losses are minimal.
+'''
+
+description_OPPORTUNISTIC_18 = '''
+# Opportunistic Strategy
+
+## Core Decision Rule
+
+Defect by default. Cooperate only to establish false expectations of reciprocity, or when observed cooperation rates make it temporarily efficient.
+
+**For round t:**
+
+```
+if t == 1:
+  action = COOPERATE  // probe opponents
+else if t == r:
+  action = DEFECT  // endgame exploitation
+else:
+  prev_cooperators = observed cooperators in round t-1
+  coop_threshold = ceil(n/k)  // minimum cooperators needed for my contribution to net positive
+  
+  if prev_cooperators >= coop_threshold:
+    action = DEFECT  // free-ride on established cooperation
+  else:
+    action = DEFECT  // low cooperation, nothing to exploit
+```
+
+## Rationale for Defection Dominance
+
+Since k < n, we have k/n < 1. For any expected number of cooperators m:
+- Payoff from cooperating: (k/n) × (m + 1)
+- Payoff from defecting: 1 + (k/n) × m
+
+Defection always yields 1 more than cooperation. The only advantage to cooperation is signaling reciprocity, which an opportunistic strategy exploits rather than honors.
+
+## Edge Cases
+
+**First round:** Cooperate exactly once. This signals cooperation to opponents, creating a false impression that may trigger reciprocal cooperation in subsequent rounds. Exploit this in later rounds.
+
+**Last round:** Always defect. No future reputation cost exists. The endgame effect guarantees opportunistic payoff maximization.
+
+**Rounds 2 through r-1:** If any round shows fewer than ⌈n/k⌉ cooperators, both cooperation and defection yield approximately 1. Defect in either case—either you're free-riding or earning the baseline payoff. The strategy makes no distinction because opportunism demands capturing every available advantage.
+
+## Adaptation Logic
+
+Track the trend of cooperation over time. If cooperation is declining, acceleration to pure defection is justified. If cooperation somehow remains stable (indicating cooperative opponents), maintain defection to capture maximum payoff from their persistence. Do not reciprocate or adjust based on fairness—only based on whether additional cooperators are present to exploit.
+'''
+
+description_OPPORTUNISTIC_19 = '''
+## Opportunistic Exploitation Strategy
+
+**Core Principle:** Adapt your contribution based on observed cooperation, prioritizing free-riding on others' contributions while defecting when exploitation opportunities disappear.
+
+---
+
+### DECISION RULE
+
+In round t, maintain a running estimate `coop_rate` = (total cooperators observed in rounds 1 to t-1) / (number of opponents × (t-1))
+
+**Cooperate if and only if:**
+```
+(k/n) * (expected_cooperators) >= 1
+
+where expected_cooperators is estimated as:
+  - If t ≤ 2: use (n-1) * coop_rate + a small probe bonus
+  - If t > 2: use (n-1) * coop_rate (historical average)
+```
+
+More concretely:
+- **Rounds 1-2:** Defect. Observe what others do without cost.
+- **Rounds 3 to r-2:** Cooperate only if observed cooperation rate among opponents × (n-1) × (k/n) ≥ 1. Otherwise defect.
+  - Threshold: `observed_cooperators_per_round ≥ n/k`
+- **Rounds r-1 to r:** Defect unconditionally. End-game defection dominates any reputation concern.
+
+---
+
+### OPPORTUNISTIC ADAPTATION
+
+- **If cooperation rate climbs above n/k:** You're witnessing profit-generating cooperation. Cooperate to harvest the public good while staying in the zone where your contribution is outweighed by others' payoff boost.
+- **If cooperation rate falls below n/k:** Public good shrinks below your contribution cost. Defect immediately.
+- **Exploit volatility:** If cooperation fluctuates, defect in high-defection rounds (guaranteed 1 + share of smaller pool) and cooperate only when you observe sustained high contribution from prior rounds.
+
+---
+
+### EDGE CASES
+
+- **First round:** Always defect. Gathering information is free; contributing blindly is not.
+- **Last two rounds:** Always defect. No future to build reputation in.
+- **Tie-breaking:** If expected payoff from cooperation equals defection (rare), defect—it's the safer exploit.
+- **Zero cooperation observed:** Defect permanently. No pool to free-ride on.
+- **All opponents cooperate consistently:** Cooperate if k/n > 1, which is always true. But re-evaluate; others may be using same strategy and will defect in final rounds.
+'''
+
+description_OPPORTUNISTIC_20 = '''
+# Opportunistic Exploitation Strategy
+
+**Core principle:** Exploit cooperators through defection while monitoring group cooperation levels. Maintain the appearance of potential future cooperation only to the extent needed to sustain exploitable cooperation in the group.
+
+## Decision Rules
+
+**Last round (t = r):**
+Always defect. No future payoff dependency.
+
+**First round (t = 1):**
+Defect. Establish the baseline by taking from the common pool before observing anything.
+
+**Rounds 2 to r-1:**
+- Compute the cooperation rate from all previous rounds: `avg_coop = total_cooperators_observed / (n-1) / (t-1)`
+- Compute your hypothetical payoffs:
+  - `payoff_if_defect = 1 + (k/n) × (expected_cooperators_next_round)`
+  - `payoff_if_cooperate = (k/n) × (expected_cooperators_next_round + 1)`
+  
+- If `avg_coop > 0` and `payoff_if_defect > payoff_if_cooperate`: **Defect**
+- If `avg_coop ≤ threshold` (cooperation has collapsed): **Defect**
+- If cooperation is moderate (threshold < avg_coop ≤ 0.5): **Defect** (still exploitative)
+- If cooperation is high (avg_coop > 0.5) AND (r - t) ≤ 2: **Defect** (endgame exploitation)
+- If cooperation is high AND (r - t) > 2: **Cooperate with probability = 1 - avg_coop**. This maintains the group's cooperation tendency just enough to sustain exploitation opportunities in subsequent rounds.
+
+## Threshold Definition
+
+Set threshold = `k / n`. Below this, the public good provides insufficient return to justify cooperation. Above it, sustained cooperation is possible and worth maintaining.
+
+## Edge Cases
+
+- If you observe all opponents defect every round: Defect forever. No exploitation opportunity exists.
+- If cooperation climbs above 80%: Defect consistently while it lasts.
+- If this is a short game (r ≤ 3): Defect every round except possibly round 2 if all prior rounds showed ≥50% cooperation.
+
+## Summary of Behavior
+
+Aggressive defection dominates. Selective cooperation only serves the instrumental purpose of keeping potential cooperators engaged enough to exploit them later. This strategy treats other players' willingness to contribute as a resource to extract rather than a signal to reciprocate.
+'''
+
+description_OPPORTUNISTIC_21 = '''
+# Opportunistic Exploitation Strategy
+
+**Core principle**: Free-ride on others' contributions and exploit cooperation whenever present.
+
+## Decision Rules
+
+For each round t, observe the number of cooperators in the previous round (or set to 0 for round 1). Compute the observed cooperation rate:
+
+```
+coop_rate(t) = average proportion of other players who cooperated 
+               in all previous rounds (or 0 if round 1)
+```
+
+**Action selection**:
+- **Rounds 1 through r-1**: 
+  - If `coop_rate ≥ 0.3`: DEFECT
+  - If `coop_rate < 0.3`: DEFECT
+  - (Result: always DEFECT, since defection exploits cooperators and at least ties mutual defection)
+
+- **Final round (t = r)**: DEFECT unconditionally
+
+The strategy is opportunistic threshold-based exploitation: maintain permanent defection since cooperators provide free public goods, and you capture k/n of aggregate contributions while paying nothing.
+
+## Edge Cases
+
+- **Round 1**: DEFECT (no history; testing without commitment)
+- **Last round**: DEFECT (no retaliation possible in future rounds; extract maximum value)
+- **Rounds with sparse data** (early game): DEFECT (conservative approach maximizes payoff against unknowns)
+
+## Opportunistic Alignment
+
+This strategy actively exploits:
+- Naive cooperators who fail to punish defection
+- Coordination failures where some players cooperate while others defect
+- The public goods structure itself (you receive k/n benefit from each contribution regardless of contribution)
+- Endgame predictability (final round defection is costless since no future rounds exist)
+
+The strategy avoids cooperative investment entirely, minimizing personal loss while capturing returns from others' contributions. Adaptive response is limited but robust: defection remains optimal against pure cooperators, mutual defectors, and most adaptive strategies at these parameter ranges where k/n < 1.
+'''
+
+description_OPPORTUNISTIC_22 = '''
+## Opportunistic Strategy: Adaptive Free-Riding with Controlled Cooperation Bait
+
+**Core Principle**: Cooperate only strategically in early-to-middle rounds to signal willingness and sustain high cooperation levels among opponents, then defect opportunistically to maximize personal payoff from their contributions. Defect mercilessly in the final round and exploit whenever observed cooperation exceeds a profitable threshold.
+
+---
+
+### Decision Rules by Phase
+
+**Phase 1 - Rounds 1 to 2 (Bait Phase)**
+- Action: Cooperate
+- Rationale: Signal cooperation-willingness to establish baseline of other players' cooperation propensity. Gather intelligence on cooperation rate without revealing defection tendency early.
+
+**Phase 2 - Rounds 3 to r-2 (Exploitation Phase)**
+- Let C_prev = number of opponents who cooperated in the previous round
+- Let C_threshold = ⌈k⌉ (defect point: when own defection payoff exceeds cooperation payoff)
+
+Decision rule:
+```
+if C_prev ≥ (n-1) × (2/3):
+    → Defect (exploit high cooperation)
+else if C_prev ≥ (n-1) × (1/3):
+    → Cooperate with probability p = 0.3
+      (maintain just enough cooperation signal to keep some players cooperative)
+else:
+    → Defect (no exploitable cooperation exists)
+```
+
+Rationale: When cooperation is abundant, free-ride to capture private endowment (1) plus public good share. When cooperation is sparse, defection is dominant. Inject rare cooperation to prevent cascade to all-defect equilibrium.
+
+**Phase 3 - Final Round (r)**
+- Action: Always Defect
+- Rationale: No future punishment possible; maximize immediate payoff regardless of opponents' moves.
+
+---
+
+### Edge Cases and Adjustments
+
+**Round-dependent decay**: As round number t increases, reduce cooperation probability:
+- Multiply cooperation probability in Phase 2 by factor (r - t) / r
+- This intensifies exploitation pressure in middle-to-late rounds before final defection
+
+**Cooperation drop-off detection**: If C_prev suddenly drops by more than 50% from prior round, switch to pure defection for remaining rounds. Signal that widespread defection is self-reinforcing.
+
+**All-cooperate trap avoidance**: If C_prev = n-1 (all opponents cooperated) for two consecutive rounds, defect on round 3 of observing this. Exploit the most generous environment. Resume opportunistic mixing only if cooperation rate recovers.
+
+**Minimum exploitation window**: Ensure at least one round of guaranteed defection in Phase 2 if any cooperation is observed. Do not become locked into perpetual cooperation by reciprocal motives.
+
+---
+
+### Adaptation Rule
+
+Track the ratio of defections to rounds played. If defection rate drops below 60% by round r/2, shift to higher defection probability in subsequent rounds—this indicates you've been too cooperative and are leaving payoff on the table.
+'''
+
+description_OPPORTUNISTIC_23 = '''
+# Opportunistic Exploitation Strategy
+
+**Core Logic:**
+Maximize personal gain by free-riding on the contributions of others while preserving the option to cooperate only when information scarcity demands testing. Always defect when payoff is higher, which is always.
+
+**Decision Rules:**
+
+**Round 1:**
+- Cooperate. This is a probe move that tests the cooperative disposition of the environment at minimal cost (you haven't yet established whether exploitation is viable).
+
+**Rounds 2 through r-2:**
+- Let cooperation_rate = (number of cooperators in previous round) / (n-1)
+- Defect if cooperation_rate ≥ threshold T
+- Defect if cooperation_rate < threshold T (defection dominates always, but this confirms the environment)
+- Set threshold T = k/(n(1-k/n)) ≈ k/(n-k). This is the break-even point where public goods returns approximately match the value of keeping your endowment.
+
+**Round r-1 (Penultimate):**
+- Defect unconditionally. There is one round remaining; final-round defection is locked in, so no reputation consequence exists.
+
+**Last Round r:**
+- Defect unconditionally. No future exists; extract maximum value from any cooperation in the environment.
+
+**Handling History:**
+Track cumulative cooperation rates across all prior rounds. If you observe *any* round where cooperation exceeded T, the environment has signaled exploitability; maintain defection. If cooperation remains persistently below T, defection still dominates—you gain the full endowment while others pool less.
+
+**Opportunistic Edge:**
+The strategy explicitly capitalizes on the asymmetry between your defection (keeping 1 unit) and others' cooperation (yielding k/n units per cooperator to the pool). Each defection round where others cooperate nets you a private surplus of approximately 1 - (k/n), which widens as the cooperation rate climbs. The initial probe in Round 1 is the price of identifying whether the playing field contains exploitable cooperation; thereafter, systematic defection converts that information into payoff advantage.
+'''
+
+description_OPPORTUNISTIC_24 = '''
+# Threshold Exploitation Strategy
+
+**Core Logic:**
+Defect by default. Cooperate only when others demonstrate sufficient collective cooperation in prior rounds and it's not the endgame, as a conditional exploitation signal.
+
+**Decision Rule:**
+
+```
+if (current_round == r) {
+  // Final round: no future consequences
+  return DEFECT
+}
+
+observed_cooperators = count of cooperators in previous round
+
+if (current_round <= 2) {
+  // Establish baseline: defect to signal opportunism and test opponents
+  return DEFECT
+}
+
+if (observed_cooperators >= n * threshold) {
+  // Others are cooperating significantly
+  // Defect to exploit, unless cooperation itself was marginal
+  if ((k/n) * observed_cooperators > 1.2) {
+    return DEFECT  // Exploit the commons
+  }
+}
+
+// Check endgame window: last 2 rounds
+if (current_round >= r - 1) {
+  return DEFECT
+}
+
+// Mid-game adaptive response
+if (observed_cooperators >= n * 0.5 && current_round < r - 2) {
+  // Test a single cooperation to probe if it triggers reciprocation
+  // Use round number as pseudo-randomization: only cooperate on specific rounds
+  if (current_round % 3 == 0) {
+    return COOPERATE  // Probe move
+  }
+}
+
+// Default case
+return DEFECT
+```
+
+**Edge Cases:**
+
+- **Round 1:** Always defect. No history; cooperation cannot be reciprocated yet. Signal intent to exploit.
+- **Last round (r):** Always defect. No repeated game leverage exists.
+- **Penultimate round (r-1):** Defect. Opponent cannot punish defection next round.
+- **When cooperation is sparse (<50% opponents):** Defect consistently. Free-riding is safer.
+- **When cooperation reaches threshold (≥50%):** Defect to capture maximum surplus from public good while minimizing personal contribution cost.
+
+**Opportunistic Positioning:**
+
+The strategy establishes you as a free-rider early (rounds 1-2), observes whether naive cooperators exist, and systematically defects against any cooperation signal. Occasional cooperation probes mid-game (round 3, 6, 9...) test whether opponents are conditionally responsive; if they are, switch to pure defection to exploit that responsiveness. The endgame abandons even the pretense of reciprocation.
+
+This maximizes expected payoff against both cooperators (exploit them fully) and defectors (match their strategy) while remaining adaptive to the observed aggregate behavior without requiring individual-level tracking.
+'''
+
+description_OPPORTUNISTIC_25 = '''
+# OPPORTUNISTIC ADAPTIVE STRATEGY
+
+**CORE PRINCIPLE**: Defect to maximize personal gain, but strategically cooperate only when the public good reaches sufficient scale to justify the cost.
+
+## DECISION RULES
+
+**Round 1:**
+Defect. Establish a baseline of maximal extraction with no reputation to manage.
+
+**Rounds 2 through r-1 (middle game):**
+Let m = number of cooperators observed in the immediately previous round.
+
+- If m ≥ ceil(0.6 × n): Cooperate
+  - The public good has reached critical mass; your contribution generates return (k/n) × m that exceeds 0.6, making cooperation marginally rational
+  
+- If m < ceil(0.6 × n): Defect
+  - Public good is underfunded; free-ride on whatever contributions exist, keep your endowment, and avoid sunk investment in a failing commons
+
+**Final round r:**
+Defect unconditionally. No future rounds exist to punish defection or reward investment. Extract maximum value: keep endowment + claim share of any remaining contributions.
+
+**Round r-1 (penultimate round):**
+Apply the same m ≥ ceil(0.6 × n) rule as middle rounds, but bias toward defection. Once you confirm others are free-riding in round r-1 observations, you've confirmed the cooperation collapse and should exit.
+
+## EDGE CASES
+
+**If n = 2**: Set threshold to m ≥ 1 (i.e., opponent cooperates). Cooperate only if opponent just cooperated.
+
+**If k ≤ 1.2 and n > 5**: Defect throughout except final few rounds. The multiplication factor is weak; public good provides minimal return. Opportunism means avoiding sunk costs.
+
+**If r = 2**: Defect round 1, defect round 2. No opportunity to establish a cooperative equilibrium exists.
+
+**Cooperation drought**: If m = 0 for three consecutive rounds, remain in full defection mode for remaining rounds. Interpret as coordinated defection and never cooperate again.
+
+## OPPORTUNISTIC ALIGNMENT
+
+This strategy opportunistically oscillates between exploitation and withdrawal:
+- Exploit high cooperation (rounds where m is high): join to extract maximum public good while others fund it
+- Withdraw from low cooperation: do not waste endowment on underfunded commons
+- Terminal extraction: defect in final rounds to capture last-minute value with zero consequences
+- Never cooperate on faith or principle—only on observable evidence of sufficient opponent contribution
+'''
+
+description_OPPORTUNISTIC_26 = '''
+## OPPORTUNISTIC FREE-RIDER STRATEGY
+
+**Core Principle:** Defect by default to secure the full 1-unit endowment, while dynamically exploiting high cooperation periods in opponents. Monitor public good value and adjust defection intensity based on whether free-riding is currently profitable.
+
+**Decision Rule:**
+
+*Round 1:*
+- Defect. Establish a baseline and maximize first-round payoff with no history to exploit.
+
+*Rounds 2 to r-1:*
+- Observe: cooperation_count = number of cooperators in previous round
+- Calculate: coop_ratio = cooperation_count / n
+- If coop_ratio ≥ (k/n): Defect
+  - Condition: public good payoff per player meets or exceeds your private endowment. Free-ride on this value.
+- If coop_ratio < (k/n): Defect
+  - Condition: public good is underprovisioned; cooperation yields weak returns. Defect regardless.
+- *Result: Always Defect in rounds 2 to r-1*
+
+*Round r (final round):*
+- Always Defect. No future retaliation possible; extract full endowment with zero contribution.
+
+**Opportunistic Element:**
+
+Your defection is strategically timed to capture maximum value:
+- When cooperation is high, you free-ride at peak payoff (1 + (k/n)×many_cooperators)
+- When cooperation is low, you avoid wasting your endowment on a weak public good
+- You exploit the lag structure: opponent cooperation in round t-1 informs your defection in round t, ensuring you capture the asymmetry before they adjust
+
+**Edge Cases:**
+
+- If cooperation monotonically declines across rounds, continuous defection accelerates the collapse, forcing all players toward mutual defection at payoff 1
+- If cooperation stabilizes at a high level, you maintain consistent exploitation
+- Ties at the threshold: Defect (treat weak public goods as unworthy of contribution)
+
+**Robustness:**
+
+This strategy yields at least 1 per round (pure mutual defection equilibrium) and potentially much higher (when others cooperate). It contains no assumptions about opponent rationality, communication, or coordination—only observed aggregate behavior.
+'''
+
+description_OPPORTUNISTIC_27 = '''
+**OPPORTUNISTIC DEFECTION WITH SELECTIVE EXPLOITATION**
+
+**Round 1:**
+Defect. Establish immediately that you are willing to take payoff without contributing, while gathering information on how many others are similarly inclined.
+
+**Rounds 2 through r-1:**
+Calculate the observed cooperation rate m from the previous round (number of cooperators among the n-1 opponents).
+
+- If m = n-1 (all opponents cooperated): Defect. Exploit maximal cooperation by taking the full public good benefit (k/n) × (n-1) + 1 without paying the contribution cost.
+
+- If m ≥ k: Defect. Your payoff from defection is 1 + (k/n) × m, which always exceeds cooperation's payoff of (k/n) × m. Capitalize on whatever cooperation exists.
+
+- If m < k: Defect. Cooperation yields insufficient public goods benefit to justify losing your endowment, so continue extracting while others still contribute.
+
+**Final Round (round r):**
+Defect unconditionally. This is the last opportunity to take the one-unit payoff without future consequences. No repeated-game reputation mechanisms apply since opponents are anonymous and won't interact with you again.
+
+**Decision Logic Summary:**
+```
+if round = 1 or round = r:
+    action = DEFECT
+else:
+    m = observed cooperators from previous round
+    if m > 0:
+        action = DEFECT  // exploit the public good
+    else:
+        action = DEFECT  // nothing to exploit, still better than cooperate
+```
+
+The strategy treats cooperation solely as a resource to exploit when present, never as an end in itself.
+'''
+
+description_OPPORTUNISTIC_28 = '''
+# Probe-then-Exploit Strategy
+
+**Initial Cooperation Phase (Round 1):**
+Cooperate in round 1. This gathers information about potential reciprocators while keeping commitment minimal.
+
+**Observation-Based Exploitation (Rounds 2 through r-1):**
+After each round, observe the total number of cooperators. 
+
+If observed_cooperators ≥ threshold, play Defect. Otherwise, play Defect.
+
+In practice: Always play Defect from round 2 onward.
+
+The threshold is irrelevant because defection is strictly preferable in every round after the first, given that k < n makes individual contribution unprofitable (your share of the public good is always less than the private endowment you surrender).
+
+**Last Round (Round r):**
+Always play Defect. There is no future to influence, and no repeated-game incentives apply.
+
+---
+
+**Decision Logic in Pseudocode:**
+
+```
+if round == 1:
+    play Cooperate
+else if round == r:
+    play Defect
+else:  // rounds 2 to r-1
+    play Defect
+```
+
+**Opportunistic Orientation:**
+
+This strategy starts with one round of cooperation to signal willingness and extract baseline information about the opponent pool. It then immediately switches to pure defection regardless of observed behavior. The approach is parasitic: it obtains the free-rider benefit (k/n multiplier) of others' contributions without reciprocating. The initial cooperation is sunk cost information-gathering; subsequent defection captures all asymmetric gains. The last-round defection closes without moral hazard, since no future behavior can be punished.
+'''
+
+description_OPPORTUNISTIC_29 = '''
+# Opportunistic Strategy: Exploit and Minimize Loss
+
+## Decision Rules
+
+**Round 1:**
+Cooperate. Use this as a low-cost probe to assess the cooperation rate of the population.
+
+**Rounds 2 through r-1:**
+For each round t, observe cooperation count c_t from the previous round. Calculate the cooperation rate among opponents: rate_t = c_t / n.
+
+- If rate_t > threshold T: **Defect**  
+  (Others are cooperating sufficiently; exploit them by keeping your endowment)
+
+- If rate_t ≤ threshold T: **Defect**  
+  (Cooperation is not widespread enough to justify your contribution; free-riding is not available, so defect to maximize payoff)
+
+**Round r (final round):**
+Defect unconditionally. No future rounds remain to recoup losses from cooperation.
+
+## Threshold Selection
+
+Set T = (n - k) / n, or approximately 0.3–0.5 depending on k and n. This threshold represents the breakeven point: only defect if others' cooperation rate is high enough that the public good return exceeds your private payoff loss. Adjust T lower if you want to exploit more aggressively.
+
+## Edge Cases
+
+- **All opponents defect after round 1:** Continue defecting—there is no public good to share.
+- **All opponents cooperate:** Defect in rounds 2–r to capture maximum private payoff plus the inflated public good.
+- **Cooperation rate fluctuates:** Respond dynamically each round based on the observed rate. If it drops below T after previously exceeding it, immediately switch to defection.
+
+## Opportunistic Rationale
+
+This strategy systematically exploits cooperative opponents. Cooperation in round 1 is purely instrumental—it masks your intent and allows you to observe the population's willingness to contribute. Once you have that information, you switch to defection to capture the highest payoff available: the private endowment (1) plus a share of others' contributions. You never invest in cooperation when it does not generate sufficient returns, and you extract maximum value from any cooperation that emerges in the group.
+'''
+
+description_OPPORTUNISTIC_30 = '''
+## OPPORTUNISTIC EXPLOITATION STRATEGY
+
+**Core Logic:** Systematically exploit the public good whenever others contribute, while defecting otherwise. Cooperate only strategically when necessary to sustain a high-cooperation environment that you can then exploit.
+
+**Decision Rules:**
+
+**Round 1 (First Round):**
+Defect. No history exists; gather information by exploiting potential contributors.
+
+**Rounds 2 through r-2 (Middle Rounds):**
+Observe c_prev = number of cooperators in the immediately preceding round.
+
+- If c_prev ≥ threshold: Defect with probability min(0.95, 1 - 1/(2 + c_prev))
+  - Exploit the public good that others funded
+  - Cooperate only with minimal probability to avoid signaling weakness
+  - Threshold = ceiling(k/n × n) = when per-capita public good payoff exceeds ε (e.g., k/n ≥ 0.2)
+
+- If c_prev < threshold: Defect with probability 1
+  - Free-riding is pointless; cooperation is collapsing anyway
+
+**Rounds r-1 and r (Final Two Rounds):**
+Defect with probability 1. No future rounds mean cooperation cannot influence future behavior. End-game effect dominates.
+
+**Special Opportunistic Signal:**
+If and only if c_prev > (n-1)×k/(n-1) (very high cooperation with strong public goods value), cooperate in the next round with probability 1/(3 + c_prev) to sustain the cooperation pool slightly longer—this preserves the exploit opportunity for subsequent rounds.
+
+**Aggregated Behavior:** Default to defection. Occasionally cooperate when others are already highly cooperative and many rounds remain, purely to prevent cooperation from collapsing entirely—keeping the resource you can exploit alive as long as possible.
+'''
+
+description_OPPORTUNISTIC_31 = '''
+## OPPORTUNISTIC ADAPTIVE STRATEGY
+
+**CORE LOGIC:**
+Defection is individually dominant in every round (defecting yields 1 − k/n more than cooperating regardless of others' actions). Exploit this by defaulting to defection, but adaptively cooperate only when observing high aggregate cooperation, signaling a large public good worth sharing. This maximizes free-riding while participating in high-payoff collective outcomes.
+
+**DECISION RULES:**
+
+*Round 1:*
+Defect. Establish baseline information about the environment.
+
+*Rounds 2 through r−2 (middle game):*
+- Let observed_coop = number of cooperators in the previous round
+- Calculate cooperation_ratio = observed_coop / n
+- Set adaptive_threshold = k / (n + k)
+  
+  - If cooperation_ratio ≥ (adaptive_threshold + 0.15): **Cooperate**
+    - Rationale: Others' contributions are funding a large public good; your share of (k/n) × high_total outweighs the endowment cost
+  - Else: **Defect**
+    - Rationale: Public good is too small, or cooperation is collapsing; maximize private payoff
+
+*Rounds r−1 and r (final two rounds):*
+Always **Defect**. Time-pressure exploitation—no future rounds for reputation or reciprocal effects, so extract maximum value from any remaining cooperation.
+
+**EDGE CASES:**
+
+- If observed_coop = 0: Defect (public good is zero; defection yields 1, cooperation yields 0)
+- If observed_coop = n: Defect (everyone cooperated last round; you gain 1 + k by free-riding)
+- First round uncertainty: Defect to avoid wasting endowment on unknown cooperators
+
+**OPPORTUNISTIC CHARACTER:**
+
+This strategy embodies opportunism by:
+1. Treating cooperation as a *resource to exploit* rather than a norm to follow
+2. Parasitizing high-cooperation environments (defecting when others fund the public good)
+3. Showing zero commitment—switching immediately when observed cooperation drops below threshold
+4. Ending with pure extraction (final rounds always defect regardless of context)
+5. Using past observations tactically to maximize short-term individual payoff, not to build long-term trust
+'''
+
+description_OPPORTUNISTIC_32 = '''
+# Threshold-Exploitation Strategy
+
+**Decision Rule — Exploitation Payoff Comparison:**
+
+Cooperate in round t if and only if:
+```
+k/n × (observed_cooperators in round t-1) ≥ 1 - δ
+```
+
+where δ is a small tolerance (δ ≈ 0.01), equivalently:
+```
+observed_cooperators in round t-1 ≥ n/k - δ'
+```
+
+Otherwise defect.
+
+**Rationale:** When others cooperate at rate m, your payoff from defection is 1 + k×m/n, versus k×m/n from cooperation. You cooperate only when the public good return reaches your endowment opportunity cost. The threshold n/k identifies the minimum cooperators needed for cooperative payoff to approach defection payoff.
+
+---
+
+**Round-Specific Rules:**
+
+- **Round 1:** Defect. No history exists; exploit the unknown.
+
+- **Rounds 2 through r-1:** Apply the threshold rule based on the immediately previous round's observed cooperation count. Use a moving average if r is large (average the last 2-3 rounds to smooth noise).
+
+- **Round r (final round):** Defect unconditionally. No future rounds remain, so the shadow of the future is zero. Cooperation yields only k/n per cooperator observed; defection guarantees 1 + k/n per cooperator. Always defect.
+
+---
+
+**Handling Volatile Histories:**
+
+- If observed cooperation fluctuates wildly, use cumulative average across all prior rounds rather than the immediately previous round. This prevents whipsaw between cooperation and defection.
+- If you observe zero cooperators in round t-1, defect in round t (0 < n/k always).
+- If you observe n cooperators (all others plus yourself if you cooperated), cooperate again in t+1 only if k/n ≥ 1 - δ; since k > 1 and n ≥ 2, this threshold *sometimes* holds. Re-evaluate each round.
+
+---
+
+**Summary Logic:**
+
+Opportunism means: exploit cooperative opponents when the public good is valuable enough; abandon cooperation when it's not. Front-run the final round with defection. Respond mechanically to the cooperation rate—no punishment, no forgiveness—just pure payoff-chasing.
+'''
+
+description_INDIVIDUALISTIC_5 = '''
+**STRATEGY SPECIFICATION**
+
+**State tracking:** Maintain a running count of observed cooperators across all completed rounds. Calculate the average cooperation frequency:
+```
+avg_coop_rate = (total cooperators observed in rounds 1 to t-1) / (n-1) × (t-1)
+```
+
+**Cooperation threshold calculation:** Compute the breakeven cooperation level. You cooperate if and only if:
+```
+expected_future_cooperators ≥ n/k
+```
+
+where `expected_future_cooperators` is estimated from the observed average cooperation rate.
+
+**Decision rule by round:**
+
+- **Rounds 1 to r-1:**
+  - If this is round 1: Cooperate (probe to gather information about opponents)
+  - If round t > 1: Calculate whether the observed average cooperation rate from prior rounds suggests others will cooperate at a sufficient level
+  - Cooperate if `avg_coop_rate × (n-1) ≥ n/k`, otherwise Defect
+  - Rationale: You cooperate only when the observed cooperation level is high enough that the public good share (k/n) × expected_total_cooperators exceeds your private endowment
+
+- **Final round (round r):**
+  - Always Defect
+  - Rationale: No future rounds remain where others can reciprocate; defection strictly dominates
+
+**Edge case handling:**
+
+- Round 1 with limited priors: Cooperate to establish a baseline of opponent behavior
+- If all rounds prior show zero cooperators: Defect (no future gain from contributing)
+- If cooperation dips midgame after being high: Return to Defect if the new average falls below threshold
+- Ties on threshold (avg_coop_rate × (n-1) exactly equals n/k): Defect (maintain conservative posture)
+
+**Individualistic alignment:** This strategy is purely self-interested—it adapts to maximize your own payoff given what you observe others doing. You never cooperate out of norm maintenance or collective welfare. You cooperate only when the observable behavior of others makes it instrumentally rational for you.
+'''
+
+description_INDIVIDUALISTIC_6 = '''
+**THRESHOLD-BASED ADAPTIVE STRATEGY**
+
+**Core Decision Rule:**
+In each round, observe the number of cooperators among the other n-1 players from the previous round. Call this m_t.
+
+Calculate the observed cooperation rate among opponents: p_t = m_t / (n - 1)
+
+Cooperate in round t if and only if: p_t ≥ τ, where τ = (n - k) / (n - 1)
+
+Otherwise defect.
+
+**Threshold Justification:**
+The threshold τ represents the break-even cooperation rate. When opponent cooperation exceeds this level, the marginal return from the public good multiplier (k/n per cooperator) justifies bearing the contribution cost, because you benefit from both your own contribution and the synergistic multiplier effect on others' contributions.
+
+**Round-Specific Rules:**
+
+*Round 1:* Defect. No history exists, so assume the worst case—minimal cooperation among opponents. This establishes a conservative baseline.
+
+*Rounds 2 to r-1:* Apply the threshold rule above. Calculate p_t using only the immediately preceding round (not historical average), making the strategy responsive to recent opponent behavior. This allows rapid adaptation if opponent strategies shift.
+
+*Final Round r:* Defect. Since no future rounds exist, there is no reputational benefit to cooperation. The single-round payoff dominance of defection applies with full force.
+
+**Edge Cases:**
+
+- If τ ≥ 1: The threshold is impossible to meet (occurs when k ≤ 1, excluded by assumption). Strategy defaults to permanent defection.
+- If τ ≤ 0: The threshold is always satisfied (occurs when k ≥ n, excluded by assumption). Strategy defaults to permanent cooperation after round 1.
+- When m_t = n - 1 (all opponents cooperated): Cooperate if and only if τ ≤ 1, which is always true given 1 < k < n. Always cooperate here.
+- When m_t = 0 (all opponents defected): Only cooperate if 0 ≥ τ, which is false. Always defect here.
+
+**Robustness Properties:**
+
+This strategy exploits pure-defection opponents while matching reciprocal cooperators when cooperation reaches profitable density. Against mixed-strategy opponents, it automatically calibrates sensitivity based on parameter values: higher k/n ratios lower the threshold, making early cooperation more likely; larger groups raise the threshold, requiring higher opponent cooperation density to justify contribution.
+'''
+
+description_INDIVIDUALISTIC_7 = '''
+# Individualistic Adaptive Strategy
+
+## Decision Rule: Dominance-Respecting Defection
+
+**Core principle:** Defect in every round.
+
+**Reasoning:** Defection is the strictly dominant action. Regardless of the aggregate cooperation level in any round, your payoff from defecting (1 + k/n × C, where C = observed cooperators) exceeds your payoff from cooperating (k/n × (C + 1)). The difference is 1 - k/n > 0, making defection always superior.
+
+## Adaptive Component: Monitoring & Information Gathering
+
+While maintaining defection as your action, track opponent behavior:
+- Calculate the cooperation rate p = (cooperators observed in round t) / (n - 1)
+- Maintain a running average of opponent cooperation across rounds
+- Use this to refine your prediction of future cooperation rates
+
+**Decision gate:** If at any point your calculation reveals k/n > 1, switch to cooperation (this will not occur given the constraint 1 < k < n, so this gate never activates).
+
+## Edge Cases
+
+**Round 1:** Defect. You have no history; defection is the safe baseline that guarantees payoff 1 + 0.
+
+**Penultimate rounds (t < r):** Defect. No reputation concerns since opponents are independent strategies.
+
+**Final round (t = r):** Defect. Terminal round with no future consequences; dominance is strongest here.
+
+**Extreme cooperation scenarios:** Even if all other n-1 players cooperated in round t-1, defection still outperforms cooperation (you'd gain 1 + k/n × (n-1) versus k/n × n). Continue defecting.
+
+## Why This Is Individualistic
+
+You pursue maximum personal payoff every round without regard to collective welfare or fairness. You don't punish defectors or reward cooperators—you ignore opponent actions entirely except as information. The strategy is self-contained and doesn't depend on establishing norms or reciprocal behavior.
+'''
+
+description_INDIVIDUALISTIC_8 = '''
+# Rationality-Conditional Cooperation Strategy
+
+**Core Decision Rule:**
+
+In each round t, cooperate if and only if the expected number of other players cooperating meets or exceeds a calculated threshold. Otherwise, defect.
+
+**Threshold Calculation:**
+
+Calculate T = ⌈n/k⌉
+
+This is the minimum number of cooperators (including yourself if you join) needed for your payoff to be non-negative relative to pure defection.
+
+**Decision Rules by Round:**
+
+*Round 1:*
+Defect. Without historical data, there is no rational basis to cooperate. You have no information about opponent behavior.
+
+*Rounds 2 through r-1:*
+Let C_{t-1} = number of cooperators observed in round t-1.
+
+- If C_{t-1} ≥ T: Cooperate in round t
+- If C_{t-1} < T: Defect in round t
+
+The rationale: if past cooperation was sufficient to make your contribution part of a net-positive public good, continue participating. If cooperation fell below the threshold, you are better off defecting regardless.
+
+*Final Round r:*
+Defect unconditionally. There are no future rounds where cooperation could be reciprocated or leveraged. Secure the individual payoff.
+
+**Intuition:**
+
+Since k < n, each unit of contribution yields less than 1 unit of private return. You cooperate only when the aggregate cooperation level is high enough that your share of the multiplied pool justifies the loss of your private endowment. You abandon cooperation when observed cooperation drops below this threshold, as defection strictly dominates. The final-round defection is a rational end-game move with no cost to future relationships.
+'''
+
+description_INDIVIDUALISTIC_9 = '''
+# Adaptive Cooperation with Empirical Threshold (ACET)
+
+## Core Decision Rule
+
+**For round t ∈ {1, ..., r}:**
+
+1. Compute the empirical cooperation rate from round t-1: `p_{t-1} = (count of cooperators in round t-1) / n`
+2. Cooperate in round t if and only if: `p_{t-1} ≥ k/n`
+3. Otherwise defect.
+
+## Edge Cases
+
+**Round 1 (no history):**
+Defect. Without prior information, expect low cooperation and capitalize on it. Alternatively, if taking a calculated initial signal: Cooperate with probability `min(k/n, 0.5)` (weak cooperative signal). Conservative default is defect.
+
+**Final round (t = r):**
+Apply standard rule above. No special incentive exists to cooperate since no future rounds remain.
+
+**Rounds where history is ambiguous:**
+If exactly `p_{t-1} = k/n`, cooperate. This is the indifference point; cooperation and defection yield equal payoffs, so cooperate to explore.
+
+## Rationality Foundation
+
+This strategy rests on forward-looking payoff comparison:
+- If m cooperators existed last round and others maintain similar behavior, I earn `(k/n) × m` from cooperation vs. `1 + (k/n) × m` from defection.
+- However, the threshold `k/n` captures the intuition that *if cooperation is sufficiently common*, the benefit from my marginal contribution outweighs the immediate loss.
+- When `p_{t-1} ≥ k/n`, the group's cooperation rate suggests sustained collective output justifies participation.
+
+## Individualistic Framing
+
+This strategy is purely self-interested:
+- No reciprocal punishment of identifiable defectors (impossible given anonymity).
+- No reputation-building beyond what emerges mechanically from observed aggregate behavior.
+- Decision depends only on impersonal statistics and parameters.
+- Defection remains optimal against below-threshold cooperation, reflecting individual payoff-maximization.
+
+## Robustness
+
+- Against always-defect opponents: defects symmetrically.
+- Against always-cooperate opponents: eventually cooperates if `k/n > 0` (which it is by assumption).
+- Against mixed/threshold strategies: responds dynamically to observed rates, preventing lock-in to bad equilibria.
+- Parameter-invariant: works for any valid (n, k, r) without modification.
+'''
+
+description_INDIVIDUALISTIC_10 = '''
+# Adaptive Threshold Strategy
+
+**Decision Rule:**
+
+Cooperate in round t if and only if the observed number of cooperators in round t−1 exceeds or equals the threshold `n/k`. Otherwise defect.
+
+```
+For each round t:
+  if t == 1:
+    defect()
+  else if t == r:
+    defect()
+  else:
+    if observed_cooperators[t-1] >= ceil(n/k):
+      cooperate()
+    else:
+      defect()
+```
+
+**Rationale:**
+
+- Cooperation yields a payoff of `(k/n) × c` while defection yields `1 + (k/n) × c`, where c is the number of cooperators
+- Cooperation becomes individually rational only when the multiplied public pool benefit justifies the 1-unit private cost
+- This occurs when `(k/n) × c ≥ 1`, requiring at least `n/k` cooperators
+- The threshold is individualistic: it's a breakeven calculation based purely on my expected payoff, not on reciprocity or fairness
+
+**Edge Cases:**
+
+- **Round 1:** Defect. No history exists. Without evidence of others cooperating, contributing is suboptimal.
+- **Last round (t = r):** Always defect. There is no future opportunity for cooperation to be rewarded through reciprocal behavior, so the 1-unit private gain is unambiguous.
+- **Threshold rounding:** Use `ceil(n/k)` to handle non-integer thresholds conservatively. If n/k = 3.5, require at least 4 observed cooperators before cooperating.
+
+**Adaptation Mechanism:**
+
+Each round's observation directly updates my belief about the feasibility of profitable cooperation. If others fail to meet the threshold, I defect in the next round. If they exceed it, I cooperate once, betting they'll continue. I immediately revert to defection if cooperation becomes unprofitable.
+'''
+
+description_INDIVIDUALISTIC_11 = '''
+# ADAPTIVE THRESHOLD COOPERATION STRATEGY
+
+**State tracking:**
+Maintain a history of observed cooperation counts from each completed round.
+
+**Decision rule:**
+
+*Round 1:* 
+Cooperate. This serves as a probe of opponent behavior while committing to potential mutual cooperation.
+
+*Rounds 2 through r:*
+1. Calculate the average cooperation rate across all previous rounds:
+   ```
+   avg_coop_rate = (sum of cooperators observed per round) / (completed rounds × (n−1))
+   ```
+
+2. Set threshold: τ = 1/k
+
+3. Decision:
+   - If avg_coop_rate ≥ τ: **Cooperate**
+   - If avg_coop_rate < τ: **Defect**
+
+**Rationale for the threshold:**
+When average opponent cooperation exceeds 1/k, the expected public good return from one additional cooperator (k/n per cooperator) exceeds the private return from defecting (1 unit). This threshold identifies when cooperation becomes individually rational as a best response to expected opponent behavior.
+
+**Individualistic alignment:**
+This strategy prioritizes my payoff maximization: it cooperates only when opponents' demonstrated willingness to cooperate makes it materially beneficial, creating a self-reinforcing dynamic. It does not pursue cooperative outcomes for their own sake, but only insofar as they reward me through reciprocation.
+
+**Robustness:**
+The rolling average dampens noise from individual rounds and adapts to gradual shifts in opponent behavior. The strategy performs well against pure defectors (quickly converges to defection), conditional cooperators (mirrors their threshold), and free-riders (exploits them until adapting).
+'''
+
+description_INDIVIDUALISTIC_12 = '''
+# Adaptive Exploitation Strategy
+
+## Core Decision Rule
+
+Compute a dynamic cooperation threshold based on the sustained cooperation level you observe. Cooperate in round t if and only if the average observed cooperation rate among all opponents in the preceding rounds is at or above a critical threshold.
+
+**Threshold calculation:**
+- threshold = k/n + ε, where ε is a small buffer (e.g., 0.05)
+- This represents the point where collective cooperation begins to generate surplus worth capturing
+
+**Cooperation decision:**
+- Let avg_coop = average number of opponents who cooperated across all completed rounds divided by (n-1)
+- **IF** avg_coop ≥ threshold **THEN** play C in this round
+- **ELSE** play D
+
+## Round-Specific Behavior
+
+**Round 1:** Defect unconditionally.
+- No history exists; cooperation cannot be rewarded in a single round.
+
+**Rounds 2 through (r-1):** Apply the adaptive threshold rule above.
+- Continuously update avg_coop as new information arrives.
+- If avg_coop creeps above threshold, switch to cooperation.
+- If avg_coop falls below threshold, revert to defection immediately.
+
+**Round r (final round):** Defect unconditionally.
+- No future rounds remain; cooperation yields no payoff advantage and only costs the endowment.
+
+## Robustness Mechanisms
+
+**Hysteresis avoidance:** If cooperation rate oscillates near the threshold, add a one-round delay before switching strategies. This prevents thrashing between C and D on borderline observations.
+
+**Opponent diversity:** If you estimate that the opponent pool is heterogeneous (high variance in round-to-round cooperation), maintain a slightly **higher** threshold (increase ε) to avoid exploitation by isolated defectors masquerading within a mostly-cooperative group.
+
+**Endgame acceleration:** In the final 20% of rounds, lower the threshold by 0.1 to capture any late-stage cooperative momentum before the game ends.
+
+This strategy prioritizes individual payoff extraction while remaining opportunistic to stable cooperation when observable evidence suggests it will materialize.
+'''
+
+description_INDIVIDUALISTIC_13 = '''
+# Adaptive Defection Strategy
+
+## Core Decision Rule
+
+Compute your expected payoff under both actions based on last round's observed cooperation count. Choose the action that maximizes your payoff.
+
+**For round t > 1:** Let m = number of cooperators observed in round t-1.
+- Expected payoff if you cooperate: (k/n) × (m + 1)
+- Expected payoff if you defect: 1 + (k/n) × m
+
+**Cooperate if and only if:** (k/n) × (m + 1) > 1 + (k/n) × m
+
+This simplifies to: k/n > 1, which is never satisfied given k < n.
+
+Therefore: **Always defect.**
+
+## Edge Cases
+
+**Round 1:** Defect. You have no information about opponent behavior and mathematically cannot benefit from cooperating against unknown strategies.
+
+**Final round (t = r):** Defect. No future rounds remain where cooperation could build reciprocal benefit. Cooperation yields strictly lower payoff this round.
+
+**All other rounds:** Defect. The mathematical condition for cooperation never materializes under rational expectations.
+
+## Individualistic Alignment
+
+This strategy reflects pure payoff maximization without regard for social welfare or reciprocity norms. You never sacrifice your endowment based on optimistic beliefs about others' future behavior. You ignore sunk costs of others' cooperation and instead extract maximum value from whatever cooperation does occur. The strategy is indifferent to whether you are perceived as trustworthy or whether others retaliate—you only respond to the material incentive structure.
+'''
+
+description_INDIVIDUALISTIC_14 = '''
+# Threshold Defection with Decaying Cooperation
+
+**Core Decision Rule:**
+
+Defect by default. Cooperate only if the observed opponent cooperation rate exceeds a dynamic threshold that decays across rounds.
+
+For round t, let o_t denote the number of opponents who cooperated in round t−1 (out of n−1 possible):
+
+```
+cooperation_rate = o_t / (n - 1)
+
+threshold(t) = β × (r - t) / (r - 1)
+
+if cooperation_rate ≥ threshold(t):
+    play C
+else:
+    play D
+```
+
+where β ∈ [0.7, 0.9] is a robustness parameter.
+
+**Early Rounds (t = 1):**
+
+Play D. Observe how many opponents cooperate. This tests the environment without cost to you. The first round's observation informs your threshold.
+
+**Middle Rounds (t = 2 to r−2):**
+
+Apply the threshold rule above. If opponents show cooperation at rate ≥ threshold(t), cooperate. The threshold decreases as rounds progress, reflecting declining incentive to build a cooperative base.
+
+The rationale: if (k/n) × (o_t + 1) approaches 1 + (k/n) × o_t, cooperation barely changes your payoff vs defection. Only cooperate when others' contributions are substantial enough that the public good multiplier makes up for your lost private endowment—and only if you believe this will persist.
+
+**Final Rounds (t = r−1, t = r):**
+
+Play D unconditionally. Cooperation in the final rounds yields no benefit for reputation or future reciprocation, making defection strictly better.
+
+**Adaptation to Opponent Diversity:**
+
+- Against high-cooperation opponents (o_t consistently > (n-1)×0.8): you'll cooperate in middle rounds, capturing public good benefits.
+- Against defectors (o_t ≈ 0): threshold is unmet, you defect, protecting your endowment.
+- Against mixed strategies: threshold acts as a discriminator, cooperating only when the empirical signal justifies it.
+
+**Individualistic Logic:**
+
+This strategy never sacrifices payoff for group benefit. It cooperates only instrumentally—when the mathematics of the public good multiplier makes it profitable to do so given observed behavior. It exploits free-riding in early rounds and ceases cooperation in final rounds when no future return is possible.
+'''
+
+description_INDIVIDUALISTIC_15 = '''
+## Strategy: Adaptive Cooperation Threshold with Terminal Defection
+
+**Decision Rule by Round:**
+
+**Round 1 (Initialization):** Defect
+
+**Rounds 2 to r-1 (Adaptive Phase):**
+- Calculate running average cooperation rate: avg_coop = (total cooperators observed across all prior rounds) / (rounds_elapsed × (n-1))
+- Define threshold: θ = 1/k
+- Cooperate if and only if avg_coop > θ
+- Otherwise defect
+
+**Round r (Final Round):** Defect unconditionally
+
+**Rationale for Threshold:**
+
+The threshold θ = 1/k represents the cooperation rate at which the public good contribution starts to justify foregoing the private endowment. When the observed cooperation rate exceeds this, the marginal returns (k/n) × additional_cooperators become significant enough to warrant participation. Below this rate, opponents are insufficient contributors to make cooperation individually attractive.
+
+**Edge Cases:**
+
+- **Rounds 2-3 with no history:** If avg_coop cannot be computed (round 2 with only round 1 data), use avg_coop = 0, which falls below θ for all feasible k values. Default to defect until sufficient history accumulates.
+- **Stable low cooperation:** If avg_coop remains persistently below θ, continue defecting. This prevents the strategy from being exploited by free-rider pools.
+- **Late-game switching:** If avg_coop crosses above θ after many rounds, switch to cooperation in rounds remaining before r. Terminal defection on round r prevents end-game exploitation.
+
+**Adaptive Response:**
+
+The strategy recalculates avg_coop each round using cumulative history, creating sensitivity to shifts in opponent behavior. A sudden increase in opponent cooperation triggers immediate cooperation switch; a collapse below threshold triggers immediate reversion to defection. This responsive adjustment prevents locked-in commitments to declining cooperation environments.
+'''
+
+description_INDIVIDUALISTIC_16 = '''
+# Adaptive Threshold Exploitation Strategy
+
+**State tracking:** Maintain a rolling estimate of the opponent cooperation rate based on observed aggregate cooperation in each round.
+
+**Decision rule by round type:**
+
+**Early rounds (t ≤ 2):**
+Defect. Gather baseline information about the environment without committing resources. Observe how many total cooperators appear.
+
+**Middle rounds (2 < t < r):**
+Apply a threshold-based rule:
+- Let m_t−1 = number of cooperators observed in round t−1
+- Let threshold θ = ceil(k) (minimum cooperators needed to make cooperation worthwhile)
+  
+If m_t−1 ≥ θ, then:
+  - Cooperate with probability p = (m_t−1 − 1) / n
+  - Otherwise defect
+  
+If m_t−1 < θ, then:
+  - Always defect
+
+**Final round (t = r):**
+Always defect. There is no future benefit from reputation, so extract maximum immediate payoff.
+
+**Rationale for edge cases:**
+
+The threshold θ ensures you only cooperate when the public good provides non-trivial returns. The probabilistic cooperation in the middle phase is calibrated to the observed cooperation density: if most others are already cooperating, you may cooperate to reduce defection penalties while still maintaining selective freeloading. This balances exploitation of cooperative environments against pure defection.
+
+The early-round information gathering prevents committing to cooperation before understanding opponent behavior patterns. The final-round defection exploits the end-game collapse of cooperative incentives.
+
+This strategy remains self-interested throughout (never sacrificing for others' welfare) while adapting to payoff-relevant environmental conditions, making it robust to both conditional cooperators and unconditional defectors.
+'''
+
+description_INDIVIDUALISTIC_17 = '''
+# Adaptive Free-Riding Strategy
+
+**Core principle:** Defection is strictly dominant in each round (always yields +1 advantage over cooperation). Exploit this dominance opportunistically while remaining sensitive to cooperation levels in the population.
+
+## Decision Rule by Round Phase
+
+**Rounds 1 to r-1 (Non-terminal rounds):**
+
+For each round t, observe the cooperation rate from the previous round: `φ(t-1) = (cooperators in round t-1) / (n-1)`. 
+
+- If `φ(t-1) ≥ (n - k) / (n - 1)`: Play **C**
+  - Rationale: When opponents cooperate at or above this threshold, the public good return (k/n) × cooperation_count approaches or exceeds the private payoff baseline. Free-ride selectively when the commons is sufficiently funded.
+  
+- Otherwise: Play **D**
+  - Rationale: When cooperation is sparse, defection dominates. The public good is underfunded, so the extra private payoff of 1 is valuable relative to the marginal gain from contributing.
+
+**First round (no prior history):**
+
+Play **D**. 
+
+- No prior cooperation signal exists. Establish baseline defection to probe opponent behavior.
+
+**Final round r:**
+
+Play **D** unconditionally.
+
+- No future rounds exist where cooperation could yield returns. The future gains from reputation or reciprocal behavior are zero.
+
+## Edge Cases
+
+- **Threshold tie:** If `φ(t-1)` equals the threshold exactly, play **C** (marginal cooperation is cost-neutral; benefits from any spillover).
+- **All opponents defected in prior round:** Play **D** (no commons to exploit).
+- **All opponents cooperated in prior round:** Play **C** (maximize capture of high public good).
+
+## Individualistic Alignment
+
+This strategy maximizes personal payoff by:
+- Defaulting to defection (the selfish choice each round)
+- Exploiting others' contributions as a free-rider when they occur
+- Abandoning cooperation the instant it becomes locally suboptimal
+- Never reciprocating or punishing—only responding to payoff incentives
+- Betraying on the final move (no future consequences)
+
+No concern for group efficiency, fairness, or maintaining cooperation norms.
+'''
+
+description_INDIVIDUALISTIC_18 = '''
+# Threshold-Based Adaptive Strategy
+
+**Core Decision Rule:**
+
+Cooperate in round t if and only if:
+1. t < r (not the final round), AND
+2. The number of cooperators observed in round t-1 exceeds the breakeven threshold: `cooperators_{t-1} > n/k`
+
+Otherwise, defect.
+
+**First Round (t=1):**
+
+Defect. You have no history to condition on, and gathering information about opponent behavior takes priority.
+
+**Rounds 2 to r-1:**
+
+Let `m = cooperators_{t-1}` (observed cooperators in the immediately preceding round).
+
+- If `m > n/k`: Cooperate
+- If `m ≤ n/k`: Defect
+
+The threshold `n/k` reflects the breakeven point. When more than `n/k` players contribute, the public good return `(k/n) × m` exceeds the private cost of cooperation (the 1 unit of forgone private income). Defectors earn `1 + (k/n) × m > 1`. Cooperators earn `(k/n) × m > 1`. Thus, high cooperation becomes contagious—it sustains itself.
+
+**Final Round (t=r):**
+
+Always defect. No future rounds exist to influence opponent behavior or benefit from conditional strategies. The only rational move is to capture the full endowment.
+
+**Adaptive Logic:**
+
+This strategy treats cooperation as an investment only when environmental conditions (aggregate cooperation density) signal it will pay immediate returns. It abandons cooperation when the pool drops below the sustainability threshold, avoiding losses on one-sided cooperation. It abandons it entirely in the final round, respecting the finality constraint.
+'''
+
+description_INDIVIDUALISTIC_19 = '''
+**Individualistic Threshold Defection Strategy**
+
+**Core Decision Rule:**
+
+Defect by default. Cooperate only when exploitation conditions are met.
+
+**Round-by-Round Logic:**
+
+*Round 1:*
+- Action: Defect
+- Rationale: No historical information. Defection guarantees payoff of 1. Cooperation costs 1 and provides (k/n) × uncertain future payoff, which is irrational to commit to blindly.
+
+*Rounds 2 through r-1:*
+- Observe: Let C_prev = the number of cooperators observed in the immediately preceding round
+- Calculate: Threshold value = ⌈k/n × n⌉ = k (the minimum cooperation count where the public good multiplier alone approaches your private loss)
+- Decision rule:
+  ```
+  if C_prev ≥ (n × 0.6):  // 60% cooperation threshold
+    Action = Defect (free-ride on abundant cooperation)
+  else:
+    Action = Defect (cooperation too rare to benefit you)
+  ```
+
+*Round r (Final Round):*
+- Action: Always Defect
+- Rationale: No future rounds exist. The repetition game ends. Future reputation cannot affect payoffs.
+
+**Handling Edge Cases:**
+
+- If all opponents have cooperated in every previous round: Defect and capture the maximum single-round payoff while the public good is at its peak.
+- If defection dominates cooperation in every round (which it mathematically does, since k < n means k/n < 1): This is acceptable. Defect consistently.
+- If you observe the cooperation rate fluctuating: Treat each decision independently. Only defect when current conditions warrant exploitation; otherwise default to defect anyway.
+
+**Individualistic Mindset:**
+
+This strategy prioritizes your payoff monotonically over all alternatives. You never cooperate in hopes of reciprocation (anonymity prevents signaling). You never sacrifice current payoff for group welfare. You exploit when others cooperate and avoid wasting resources when they defect. The strategy is unilaterally optimal against the structure of payoffs given that k < n.
+'''
+
+description_INDIVIDUALISTIC_20 = '''
+## Adaptive Threshold Defection Strategy
+
+**Initialization:**
+Track the cooperation rate from previous round(s). Initialize with assumption of low cooperation.
+
+**Decision Rule:**
+
+For round t ∈ {1, 2, ..., r}:
+
+```
+if t == 1:
+    action = DEFECT
+    
+else if t == r (final round):
+    action = DEFECT
+    
+else (intermediate rounds 2 through r-1):
+    cooperation_rate_prev = (number of cooperators in round t-1) / (n - 1)
+    threshold = k / n
+    
+    if cooperation_rate_prev > threshold:
+        action = COOPERATE
+    else:
+        action = DEFECT
+```
+
+**Rationale for threshold:**
+The threshold k/n represents the point where I begin to extract net value from the public good. When opponents' cooperation rate exceeds this value, the per-capita return from the public good pool (k/n × number of cooperators) becomes material enough to warrant my cooperation in future rounds, leveraging reciprocal dynamics without explicit coordination.
+
+**Edge cases:**
+
+- **Round 1:** Defect. No history exists, and defection is the conservative opening that avoids exploitation.
+
+- **Final round:** Defect. No subsequent rounds allow reciprocation, eliminating any forward-looking incentive to cooperate.
+
+- **Cooperation collapse:** If cooperation drops below threshold, immediately revert to defection and remain there until the rate recovers.
+
+- **Oscillating cooperation rates:** Use the most recent round's observed rate; do not average across history.
+
+**Individualistic alignment:**
+This strategy is purely self-interested—it cooperates only when observable opponent behavior makes the public good return sufficient to justify the 1-point cost of forgoing the private endowment. It requires no communication, assumes no shared norms, and abandons cooperation the moment it becomes unprofitable relative to defection.
+'''
+
+description_INDIVIDUALISTIC_21 = '''
+**Individual Payoff Maximization Strategy**
+
+**Core Decision Rule:**
+Defect in every round.
+
+*Justification from individual payoff analysis:*
+- Cooperating yields: π_C = (k/n) × m_total
+- Defecting yields: π_D = 1 + (k/n) × m_total - (k/n)
+
+Since defecting always produces payoff exceeding cooperating by (k/n) - 1 for any cooperation level m_total, and k < n guarantees (k/n) < 1, defection dominates regardless of opponent behavior.
+
+**Edge Case: First Round**
+Defect. You have no history to condition on, and any belief about opponent cooperation yields defection as optimal response.
+
+**Edge Case: Final Round (t = r)**
+Defect. No future rounds exist where opponent behavior could reward or punish you, so the strategic incentive that might sustain cooperation in repeated settings vanishes. Revert to single-round dominant strategy.
+
+**Robustness to Opponent Behavior:**
+This strategy remains optimal against:
+- Always-cooperators (free-ride on their contributions)
+- Tit-for-tat players (they will eventually learn you defect and defect themselves; your defection prevents you from being exploited during adjustment period)
+- Always-defectors (matching their strategy avoids the sucker payoff)
+- Threshold cooperators (whatever threshold they use, your defection maximizes your share of any public good they create)
+
+**Adaptive Element:**
+Observe the cooperation count each round to validate expectations (if cooperation drops toward zero, this confirms the dominant-strategy outcome). This observation informs only your confidence in the analysis, not your action.
+'''
+
+description_INDIVIDUALISTIC_22 = '''
+**EMPIRICAL BEST RESPONSE WITH CAUTIOUS PROBING**
+
+**State Variables:**
+- Track m_t: number of cooperators observed in round t (across all n-1 opponents)
+- Compute cooperation rate: ρ = average m_t / (n-1) across all completed rounds
+
+**Decision Rule by Round:**
+
+*Round 1:*
+Cooperate with probability p_0 = min(k/n, 0.5). This probes for cooperation while protecting against universal defection.
+
+*Rounds 2 to r-1 (Middle Rounds):*
+Let c_op = (k/n) × (ρ × (n-1) + 1) be the expected payoff from cooperating.
+Let c_def = 1 + (k/n) × ρ × (n-1) be the expected payoff from defecting.
+
+Cooperate if c_op ≥ c_def - δ, where δ = 1/(2r) is a small decay term that decreases over time.
+
+This simplifies to: Cooperate if k/n ≥ 1 - δ.
+
+Since k < n, this is almost never satisfied. Adjust: Cooperate if the observed cooperation rate ρ > ρ_threshold, where ρ_threshold = max(0, (n-k)/(n-1)).
+
+*Round r (Final Round):*
+Defect. No future rounds exist to reward cooperation.
+
+**Tie-breaking and Edge Cases:**
+- If exactly at threshold (ρ = ρ_threshold), cooperate. This exploits marginal cooperation opportunities.
+- If fewer than 3 rounds have elapsed, use ρ = 0 (assume defection) to avoid overweighting initial probes.
+- If all previous observations show m_t = 0 (no cooperation), defect for all remaining rounds.
+- If all previous observations show m_t = n-1 (universal cooperation), continue cooperating until round r, then defect.
+
+**Rationale:**
+This strategy maximizes individual payoff by: (1) probing early to identify cooperative environments without excessive cost, (2) empirically estimating opponent cooperation and responding only when the payoff advantage justifies it, (3) defaulting to safe defection when cooperation doesn't materialize, and (4) exploiting the final-round timing to guarantee a defection payoff when the game ends.
+'''
+
+description_INDIVIDUALISTIC_23 = '''
+**Adaptive Threshold Defection**
+
+**Decision Rule for Rounds 2 to r-1:**
+
+Observe the number of cooperators from the previous round: c_prev
+
+Cooperate if and only if:
+```
+(k/n) × (c_prev + 1) ≥ 1 - ε
+```
+
+where ε is a small tolerance (effectively: cooperate when my individual payoff from cooperation meets or exceeds the cost of contributing).
+
+Equivalently: Cooperate if c_prev ≥ (n/k) - 1
+
+Otherwise, defect.
+
+**Round 1:**
+Defect. Since no history exists, assume the worst case (minimal cooperation among opponents).
+
+**Final Round (Round r):**
+Defect regardless of history. No future rounds exist where reciprocal cooperation would benefit you, so defection dominates.
+
+**Rationale:**
+
+This strategy operates on a simple principle: contribute only when the aggregate public good multiplier justifies the endowment sacrifice. Since k < n, cooperation is rarely rational. However, if past observation shows enough cooperators that the shared benefit exceeds 1, capture that value by joining. This exploits periods of high cooperation while abandoning cooperation when it's unprofitable.
+
+The strategy is individualistic because it remains entirely self-interested (never cooperates purely to help others), adaptive (adjusts each round based on observed aggregate behavior), and end-game rational (abandons cooperation when future rounds can no longer provide reciprocal benefit).
+'''
+
+description_INDIVIDUALISTIC_24 = '''
+# Threshold Defection with Selective Cooperation
+
+**Decision Rule Framework:**
+
+Maintain a running estimate of the opponent population's cooperation rate. Defect is the baseline action (individualistic default). Cooperate only when the observed cooperation exceeds a profitability threshold, and then strategically.
+
+**Specific Decision Rules:**
+
+- **Round 1:** Defect. This establishes a baseline and avoids wasting the endowment without information.
+
+- **Rounds 2 to r-1 (middle rounds):** 
+  - Calculate avg_coop = average cooperation rate observed across all previous rounds, as a proportion of (n-1) opponents
+  - If avg_coop > threshold = k/(n-1):
+    - Defect (exploit the cooperators; their contributions to the public good benefit you regardless, and you keep +1)
+  - If avg_coop ≤ threshold:
+    - Defect (cooperation by others is insufficient to justify your contribution; free-ride on any residual cooperation)
+  - Exception: If avg_coop ≤ 0.05 (negligible cooperation detected), briefly Cooperate with probability min(0.2, k/n) to "seed" potential future cooperation (hedge against mutual defection equilibrium)
+
+- **Round r (final round):** Defect unconditionally. No future rounds exist to benefit from reputation or reciprocity.
+
+**Threshold Justification:**
+
+The defection payoff exceeds cooperation by 1 - (k/n) in any single round. For cooperation to improve expected future payoffs through increased opponent cooperation, the opponent population must cooperate at rates high enough to offset this gap. The threshold k/(n-1) is the breakeven point where the marginal public good return approaches individual gain.
+
+**Edge Cases:**
+
+- If observations reveal perfectly stable opponent behavior (zero variance across rounds), lock into pure defection.
+- If n = 2 and k > 1: Threshold becomes k > 1, so defect always—direct exploitation is maximal with only one opponent.
+- If r = 2: Skip middle-round logic; play Defect-Defect.
+'''
+
+description_INDIVIDUALISTIC_25 = '''
+**Adaptive Defection with Conditional Cooperation**
+
+**Decision Rule by Round:**
+
+*Round 1:* Cooperate
+
+*Rounds 2 through r-1:* Cooperate if and only if the observed cooperation rate in the immediately preceding round meets or exceeds a dynamic threshold. Set threshold θ = k/(2n). If (cooperators_last_round / n) ≥ θ, cooperate this round. Otherwise defect.
+
+*Round r (final round):* Defect unconditionally.
+
+**Implementation Logic:**
+
+```
+if round == 1:
+  play C
+else if round == r:
+  play D
+else:
+  coop_rate_last_round = cooperators_observed_last_round / n
+  if coop_rate_last_round >= k/(2*n):
+    play C
+  else:
+    play D
+```
+
+**Edge Cases:**
+
+- If cooperation rate in any prior round exceeds θ but subsequently drops below θ, immediately switch to defection and remain there.
+- If cooperation rate exactly equals θ, cooperate (threshold is inclusive).
+- Threshold is conservative by design: you require only modest evidence of cooperation to participate.
+
+**Individualistic Alignment:**
+
+This strategy is purely self-interested and requires no trust in opponents' intentions. It treats each observed round as independent evidence: high cooperation rates signal an environment where your cooperation produces returns; low rates signal exploitation risk. You respond to outcomes, not to reciprocity norms or punishment intentions. The final-round defection reflects that future rewards cannot influence current choices, making defection rational when consequences end.
+'''
+
+description_INDIVIDUALISTIC_26 = '''
+# Strategy: Threshold-Adaptive Defection with Last-Round Optimization
+
+## Core Decision Rule
+
+**Rounds 1 to r-1:**
+Defect unless observed cumulative cooperation rate exceeds a dynamic threshold. Specifically:
+- Track the running cooperation rate across all observed rounds: `coop_rate = total_cooperators / (round_number × (n-1))`
+- Set threshold: `T = max(k/n + buffer, 0.5)` where `buffer = 0.15` (cushion for noisy signals)
+- If `coop_rate > T`: Cooperate
+- Otherwise: Defect
+
+**Round r (final round):**
+Always Defect. The last round removes any reputational incentive; future cooperation cannot follow, so the private payoff (1) strictly dominates the shared public return.
+
+## Edge Cases & Adjustments
+
+**Round 1:**
+Defect. This establishes a baseline signal about your preferences and gathers initial information about the group's behavior. You have no history to rely on.
+
+**Round 2:**
+Defect unless in the first round you observed all n-1 opponents playing C. If this occurs, Cooperate in round 2 (the group shows high willingness to contribute).
+
+**Persistent low cooperation (coop_rate < 0.2 across rounds 2–r-1):**
+Lock into Defect for all remaining rounds. The environment does not support mutual cooperation. Continue defecting because even if some players cooperate, your individual payoff from defection exceeds cooperation.
+
+**Sudden cooperation spikes:**
+If cooperation rate jumps above threshold after a low period, Cooperate in the next round. Your individualistic interest is to capture the public good from willing contributors. However, if the rate drops again on the following round, revert to Defect.
+
+## Alignment with Individualism
+
+This strategy is individualistic in three respects:
+
+1. **Self-interest is paramount**: You defect in the majority of states because defection yields higher individual payoff when cooperation is uncertain or rare.
+
+2. **No punishment motive**: You never defect to punish free-riders. If others defect, you note it and adjust your cooperation threshold upward, but you do not sacrifice your payoff to penalize them.
+
+3. **Conditional exploitation**: You cooperate only when the observed environment makes cooperation individually rational—that is, when the public good is large enough (driven by many others' contributions) that your share exceeds the cost of contribution.
+'''
+
+description_INDIVIDUALISTIC_27 = '''
+# Adaptive Threshold Exploitation Strategy
+
+**Core Principle**: Cooperate based on empirical payoff comparisons, not moral obligations or reciprocity expectations. Defect is always individually optimal in any single round, so cooperation only makes sense if the public good pool is large enough to exceed private keeping.
+
+## Decision Rule by Round Type
+
+**Round 1 (Probe)**: 
+Cooperate. This is a cost-minimal probe to measure how many other players are cooperating-inclined in the population.
+
+**Rounds 2 through r-1 (Adaptive Exploitation)**:
+Let m = number of cooperators observed in the immediately preceding round (from your anonymous feedback).
+
+Compare payoff outcomes:
+- Payoff if I defect: 1 + (k/n) × m
+- Payoff if I cooperate: (k/n) × (m + 1)
+
+Cooperate if and only if:
+```
+m ≥ ceil(n/k) - 1
+```
+
+Equivalently: cooperate if the observed cooperation count reaches the threshold where the marginal public good return (k/n per additional cooperator) justifies contributing your endowment.
+
+**Rationale**: Since k < n, defection strictly dominates cooperation in payoff per round. However, if you observe enough cooperators, the pooled benefit exceeds 1. This threshold lets you exploit large-cooperator pools without committing to unprofitable cooperation rates.
+
+**Final Round r (Last-Round Defection)**:
+Always defect. No future rounds exist, so no reputational consequences. Defection is strictly dominant, and you've already extracted information from previous rounds.
+
+## Edge Cases
+
+- **All-defector opponents**: Your round-1 cooperation produces zero feedback (m=0). From round 2 onward, m stays 0, you defect forever.
+- **All-cooperator opponents**: Round 1 gives m=n-1. Since n-1 ≥ ceil(n/k)-1 for k > 1, you cooperate in all remaining rounds.
+- **Mixed/volatile history**: You recompute each round. If cooperation collapses mid-game, you pivot to defection. If it recovers, you re-enter.
+
+## Individualistic Justification
+
+This strategy makes no assumption about others' intentions, reciprocity, or coordinated punishment. It treats each round as a learning opportunity about the empirical profitability of the public good *at the current cooperation level*, then exploits that level. It abandons cooperation the moment it becomes unprofitable. No fairness, no trust—only self-interested threshold-crossing.
+'''
+
+description_INDIVIDUALISTIC_28 = '''
+ADAPTIVE INDIVIDUALISTIC STRATEGY FOR PUBLIC GOODS GAME
+
+**Core Decision Rule:**
+
+For each round t, compute the payoff-maximizing action by comparing:
+- π_cooperate(t) = (k/n) × (C(t-1) + 1)
+- π_defect(t) = 1 + (k/n) × C(t-1)
+
+where C(t-1) is the observed cooperation count from the previous round.
+
+Choose the action yielding higher expected payoff. **Always defect.**
+
+**Justification of Strategy:**
+
+The payoff comparison simplifies to:
+- Cooperate if: k/n > 1, equivalently k > n
+- Defect if: k/n ≤ 1, equivalently k ≤ n
+
+Since the game specifies k < n, defection is strictly dominant in every round regardless of opponent behavior. No amount of observed cooperation from others can change this mathematical inequality.
+
+**Round-by-Round Implementation:**
+
+**Round 1:** Defect. No history exists. Given k < n, defection is the baseline optimal choice.
+
+**Rounds 2 to r-1:** 
+- Observe C_prev (number of cooperators in round t-1)
+- Mentally verify: (k/n) × (C_prev + 1) < 1 + (k/n) × C_prev
+- Defect
+
+**Final Round r:** Defect. No future payoff to influence, and defection remains individually optimal.
+
+**Robustness:**
+
+This strategy is robust because:
+- It does not depend on predicting, trusting, or retaliating against opponents
+- It is independent of whether others cooperate rarely or frequently
+- It requires only observation of aggregate counts, not opponent identification
+- The decision rule is deterministic and consistent across all opponent strategy profiles
+- It maximizes payoff in every single round and cumulatively across all r rounds
+
+The strategy discards moral considerations, reciprocity norms, and coordination attempts. It is purely self-interested.
+'''
+
+description_INDIVIDUALISTIC_29 = '''
+## Adaptive Threshold Strategy
+
+**Round 1 Action:**
+Defect. No information available; this is the conservative individualistic position.
+
+**Rounds 2 through r−1 (Middle Rounds):**
+
+Track the cooperation count M from the previous round (where 0 ≤ M ≤ n).
+
+Calculate the observed cooperation rate: ρ = M / n
+
+Cooperate if and only if: ρ ≥ θ
+
+where the threshold θ = 1 / (k / n) = n / k
+
+(This is the breakeven point where cooperating when others cooperate at rate θ yields approximately equal payoff to always defecting.)
+
+Else defect.
+
+**Round r (Final Round):**
+Defect unconditionally. The game ends after this round, so there is no future cooperation to encourage, making cooperation individually irrational.
+
+---
+
+**Interpretation:**
+
+This strategy is individualistic because it:
+- Maximizes immediate payoff given observed behavior
+- Exploits low-cooperation environments by defecting (avoiding losses)
+- Joins high-cooperation environments by cooperating (capturing share of large pool)
+- Abandons cooperation in the final round when it cannot influence future behavior
+- Contains no fairness, reciprocity, or group-welfare considerations
+
+The threshold n/k ensures you defect when cooperation is individually worse, and cooperate when the public good is sufficiently mature. Since 1 < k < n, this threshold lies strictly between 0 and 1, creating a meaningful decision rule. Early defection and final-round defection exploit the lack of history (round 1) and lack of future (round r).
+'''
+
+description_INDIVIDUALISTIC_30 = '''
+# Strategy: Unconditional Defection
+
+**Core Decision Rule:**
+Defect in every round, regardless of history or round number.
+
+**Rationale:**
+For any fixed total number of cooperators M in a given round, defection yields a strictly higher payoff than cooperation:
+- Cooperate: 0 + (k/n) × M
+- Defect: 1 + (k/n) × M
+
+The payoff difference is constant at 1. This dominance relationship holds true for all possible values of M, making defection optimal unconditionally.
+
+**Action Specification:**
+```
+For each round t ∈ {1, 2, ..., r}:
+  Play: D
+```
+
+No history dependence. No round-counting. No adaptation to observed cooperation levels.
+
+**Edge Case Handling:**
+- Round 1: Play D
+- Final round: Play D (no future rounds to influence)
+- Any observed opponent cooperation: Irrelevant. Play D.
+- Zero observed cooperators: Play D.
+- All opponents observed cooperating: Play D.
+
+**Individualistic Alignment:**
+This strategy is purely self-interested. It maximizes individual payoff in every single round by capturing the full private endowment while still benefiting from any public good contributions others make. It never sacrifices personal gain to create mutual benefit. It ignores all information about opponent behavior because the opponent's actions cannot make cooperation rational—only defection generates the best individual outcome at any moment.
+
+**Robustness Property:**
+This strategy performs identically well (or identically poorly) against all opponent configurations. Against pure cooperators, you extract maximum individual value. Against other defectors, you guarantee mutual payoff of 1 per round. Against mixed strategies, you optimize your own portion regardless.
+'''
+
+description_INDIVIDUALISTIC_31 = '''
+# Adaptive Threshold Strategy
+
+**Core Decision Rule:**
+
+Cooperate in round t if and only if the empirical cooperation frequency observed in round t-1 exceeds a profitability threshold. Otherwise, defect.
+
+Specifically:
+- Let f_{t-1} = (observed cooperators in round t-1) / (n-1)
+- Cooperate if f_{t-1} × (k/n) ≥ (1 - k/n)
+- Equivalently: cooperate if f_{t-1} ≥ (n-k)/k
+- Otherwise: defect
+
+**Round 1 (No History):**
+Defect. You have no basis for predicting cooperation, and defection is the individual-payoff-maximizing action when others' behavior is completely unknown.
+
+**Rounds 2 through r-1 (Middle Rounds):**
+Apply the threshold rule above. If last round's cooperation frequency met or exceeded the threshold, defect in the current round (this is the best response). If fewer than the required threshold cooperated, defect.
+
+The threshold (n-k)/k represents the cooperation rate above which my payoff from contributing strictly exceeds my payoff from free-riding given the public goods multiplier.
+
+**Round r (Final Round):**
+Defect. This is the end of the game with no future rounds in which others can reciprocate. Cooperation cannot be sustained through future incentives, so take the dominant-strategy payoff.
+
+**Intuition:**
+This strategy never assumes others will cooperate as a norm. It only cooperates when empirical evidence proves the public good is sufficiently valuable (because enough others contributed) to justify my own contribution. Since k < n, cooperation only becomes attractive when participation is very high—a hard threshold to clear. Otherwise, extract value through defection.
+'''
+
+description_INDIVIDUALISTIC_32 = '''
+# Strategy: Conditional Defection with Cooperation Testing
+
+## Core Decision Rule
+
+Defect in all rounds except:
+- **Round 1**: Cooperate (to probe the environment with no history)
+- **Rounds 2 through r-1**: Defect if observed cooperation rate in round t-1 falls below threshold θ; otherwise defect with probability p(m) where m is prior round's cooperator count
+- **Round r (final round)**: Defect unconditionally
+
+More precisely:
+
+```
+For round t = 1:
+  Play C
+
+For rounds 2 ≤ t < r:
+  Let m_{t-1} = number of cooperators observed in round t-1
+  Let rate_{t-1} = m_{t-1} / (n-1)  [exclude self from denominator]
+  
+  If rate_{t-1} ≥ θ where θ = (n - k) / (n - 1):
+    Play C with probability min(rate_{t-1}, 1)
+    Play D otherwise
+  Else:
+    Play D
+
+For round t = r:
+  Play D
+```
+
+## Edge Cases and Parameters
+
+- **Threshold θ = (n-k)/(n-1)**: At this cooperation level, the marginal public good return begins to justify contribution cost relative to free-riding. Below this, defection dominates.
+  
+- **First round cooperation**: Signals openness to mutual benefit without prior information, gathering data on opponent composition.
+
+- **Final round defection**: Eliminates incentive to cooperate when no future rounds exist to reward reciprocation.
+
+- **Probabilistic cooperation in middle rounds**: Weight contribution likelihood by observed cooperation, since higher cooperation rates make your marginal contribution more valuable.
+
+## Individualistic Alignment
+
+This strategy maximizes personal payoff by:
+- Exploiting any cooperators present (defecting against them)
+- Avoiding wasted contribution when defection dominates (most rounds)
+- Testing the environment minimally (round 1 only) before reverting to optimal play
+- Never sacrificing payoff based on others' needs or coordination
+- Responding only to personal profit signals, not moral reasoning
+'''

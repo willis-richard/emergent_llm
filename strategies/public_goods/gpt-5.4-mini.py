@@ -12428,3 +12428,307 @@ class Strategy_INDIVIDUALISTIC_27(BaseStrategy):
             return Action.C
         self._last_seen_round = history.round_number
         return Action.D
+
+class Strategy_INDIVIDUALISTIC_28(BaseStrategy):
+    """
+    Conditional-majority strategy:
+    - Defect initially.
+    - Require two consecutive rounds with at least half of opponents cooperating
+      before switching to cooperation.
+    - Reset immediately on any sub-threshold round.
+    - Defect near the end of the game.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.trust = 0
+        self.stable = False
+        self._processed_rounds = 0
+
+    def _update_state_from_history(self, history: PlayerHistory) -> None:
+        total_rounds_seen = history.round_number
+        if total_rounds_seen <= self._processed_rounds:
+            return
+        n_players = self.game_description.n_players
+        n_opponents = max(0, n_players - 1)
+        threshold = 0.5
+        for r in range(self._processed_rounds, total_rounds_seen):
+            if r >= len(history.opponent_cooperators):
+                break
+            opp_coops = int(history.opponent_cooperators[r])
+            if n_opponents <= 0:
+                q_t = 0.0
+            else:
+                q_t = opp_coops / n_opponents
+            if q_t >= threshold:
+                self.trust += 1
+                if self.trust >= 2:
+                    self.stable = True
+            else:
+                self.trust = 0
+                self.stable = False
+        self._processed_rounds = total_rounds_seen
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        self._update_state_from_history(history)
+        current_round = history.round_number
+        total_rounds = self.game_description.n_rounds
+        if current_round == 0:
+            return Action.D
+        if current_round >= total_rounds - 2:
+            return Action.D
+        if self.stable:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_29(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Defect in round 1.
+    - Cooperate only after recent and sustained opponent cooperation.
+    - Immediately defect after two consecutive zero-cooperation rounds.
+    - Become stricter in the final two rounds.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.last_p = None
+        self.prev_had_half = False
+        self.zero_streak = 0
+        self.nondecreasing_streak = 0
+        self.defect_until_half = False
+        self.last_seen_round = -1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if self.n_opponents <= 0 or round_number == 0:
+            self.last_seen_round = round_number
+            self.last_p = 0.0 if self.n_opponents <= 0 else None
+            self.prev_had_half = False
+            self.zero_streak = 0
+            self.nondecreasing_streak = 0
+            self.defect_until_half = True
+            return Action.D
+        if len(history.opponent_cooperators) > 0:
+            last_s = int(history.opponent_cooperators[-1])
+            last_p = last_s / self.n_opponents if self.n_opponents > 0 else 0.0
+        else:
+            last_p = 0.0
+        prev_p = None
+        if len(history.opponent_cooperators) >= 2:
+            prev_s = int(history.opponent_cooperators[-2])
+            prev_p = prev_s / self.n_opponents if self.n_opponents > 0 else 0.0
+        self.last_p = float(last_p)
+        self.prev_had_half = bool(last_p >= 0.5)
+        if last_p == 0.0:
+            self.zero_streak += 1
+        else:
+            self.zero_streak = 0
+        if prev_p is not None and last_p >= prev_p:
+            self.nondecreasing_streak += 1
+        else:
+            self.nondecreasing_streak = 0
+        if last_p < 0.5:
+            self.defect_until_half = True
+        elif last_p >= 0.5:
+            self.defect_until_half = False
+        rounds_left = self.n_rounds - round_number
+        if rounds_left <= 2:
+            return Action.C if last_p == 1.0 else Action.D
+        if self.n_opponents == 1:
+            return Action.C if last_p == 1.0 else Action.D
+        if self.zero_streak >= 2:
+            return Action.D
+        recent_half = False
+        if len(history.opponent_cooperators) >= 2:
+            prev_rate = prev_p if prev_p is not None else 0.0
+            recent_half = last_p >= 0.5 or prev_rate >= 0.5
+        else:
+            recent_half = last_p >= 0.5
+        if round_number > 0 and last_p >= 0.5 and recent_half and (self.zero_streak < 2) and (not self.defect_until_half):
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_30(BaseStrategy):
+    """
+    Cooperate only after sustained full cooperation, then defect permanently after any observed drop.
+    Defaults to defection in the first round, the last two rounds, or whenever information is incomplete/mixed.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.permanent_defect = False
+        self._eps = 1e-12
+
+    def _cooperation_rate(self, cooperators: int) -> float:
+        denom = self.game_description.n_players - 1
+        if denom <= 0:
+            return 0.0
+        return cooperators / denom
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        t = history.round_number + 1
+        if self.permanent_defect:
+            return Action.D
+        if t == 1 or t == r or t > r - 2:
+            if history.round_number >= 2:
+                for i in range(history.round_number - 1):
+                    if bool(history.my_actions[i]) and history.opponent_cooperators[i + 1] < n - 1:
+                        self.permanent_defect = True
+                        break
+                if self.permanent_defect:
+                    return Action.D
+            return Action.D
+        if history.round_number >= 2:
+            for i in range(history.round_number - 1):
+                if bool(history.my_actions[i]) and history.opponent_cooperators[i + 1] < n - 1:
+                    self.permanent_defect = True
+                    return Action.D
+        if history.round_number == 0:
+            return Action.D
+        last_q = self._cooperation_rate(int(history.opponent_cooperators[-1]))
+        observed = history.opponent_cooperators
+        m = len(observed)
+        if m == 0:
+            return Action.D
+        last_up_to_3 = observed[max(0, m - 3):m]
+        rates = [self._cooperation_rate(int(x)) for x in last_up_to_3]
+        avg3 = float(np.mean(rates)) if len(rates) > 0 else 0.0
+        stable = 0
+        if m >= 2:
+            prev_q = self._cooperation_rate(int(observed[-2]))
+            if abs(last_q - prev_q) <= (1.0 / (n - 1) if n > 1 else 0.0) + self._eps:
+                stable = 1
+        full_cooperation = 1.0 - self._eps
+        if last_q >= full_cooperation and avg3 >= full_cooperation and (stable == 1) and (t <= r - 2):
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_31(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Probes with defection early
+    - Cooperates only after sustained, stable cooperation
+    - Immediately retreats after sharp drops
+    - Defects at the end unless cooperation has remained strong
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.mode = 'probe'
+        self.s = 0.0
+        self.streak = 0
+        self.cooldown = 0
+        self._last_processed_round = 0
+        self._q_history = []
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_players = max(2, int(self.game_description.n_players))
+        n_opponents = max(1, n_players - 1)
+        r = max(1, int(self.game_description.n_rounds))
+        while self._last_processed_round < history.round_number:
+            idx = self._last_processed_round
+            opp_count = int(history.opponent_cooperators[idx]) if idx < len(history.opponent_cooperators) else 0
+            q = opp_count / n_opponents
+            self._q_history.append(q)
+            if idx == 0:
+                self.s = q
+            else:
+                self.s = 0.7 * self.s + 0.3 * q
+            if q >= 0.6:
+                self.streak += 1
+            else:
+                self.streak = 0
+            if q < 0.4:
+                self.cooldown = 2
+            if len(self._q_history) >= 2 and self._q_history[-1] >= 0.7 and (self._q_history[-2] >= 0.7):
+                self.cooldown = 0
+                self.mode = 'cooperate' if self.s >= 0.75 else 'probe'
+            self._last_processed_round += 1
+        current_round = history.round_number + 1
+        if current_round == 1:
+            self.mode = 'probe'
+            return Action.D
+        if self.cooldown > 0:
+            self.cooldown -= 1
+            return Action.D
+        if current_round == r:
+            if self.s >= 0.75 and self.streak >= 3:
+                self.mode = 'cooperate'
+                return Action.C
+            self.mode = 'probe'
+            return Action.D
+        if current_round <= min(3, r):
+            if current_round == 2:
+                q1 = self._q_history[0] if len(self._q_history) >= 1 else 0.0
+                if q1 >= 0.8:
+                    self.mode = 'probe'
+                    return Action.C
+                return Action.D
+            if current_round == 3:
+                q1 = self._q_history[0] if len(self._q_history) >= 1 else 0.0
+                q2 = self._q_history[1] if len(self._q_history) >= 2 else 0.0
+                if q1 >= 0.8 and q2 >= 0.8:
+                    self.mode = 'cooperate'
+                    return Action.C
+                return Action.D
+        latest_q = self._q_history[-1] if self._q_history else 0.0
+        if self.s >= 0.75 and self.streak >= 2 and (latest_q >= 0.6):
+            self.mode = 'cooperate'
+            return Action.C
+        self.mode = 'probe'
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_32(BaseStrategy):
+    """
+    Adaptive public-goods strategy:
+    - Start with defection.
+    - Only cooperate after very strong evidence of near-universal cooperation.
+    - Enter a short forced-defection cooldown after a visible decline.
+    - Always defect in the final round.
+    """
+
+    def __init__(self, game_description: PublicGoodsDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.t_high = 0.8
+        self.t_low = 0.4
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        n = self.n
+        if round_number >= self.r - 1:
+            return Action.D
+        if round_number == 0:
+            return Action.D
+        opp = history.opponent_cooperators
+        prev_m = int(opp[-1])
+        cutoff_low = math.floor((n - 1) * self.t_low)
+        forced_defect = False
+        if prev_m <= cutoff_low:
+            forced_defect = True
+        elif round_number >= 2 and int(opp[-2]) <= cutoff_low:
+            forced_defect = True
+        if forced_defect:
+            return Action.D
+        if round_number == 1:
+            return Action.C if prev_m == n - 1 else Action.D
+        denom = n - 1
+        if denom <= 0:
+            return Action.D
+        rhos = [float(x) / denom for x in opp]
+        h = rhos[0] if rhos else 0.0
+        for idx in range(1, len(rhos)):
+            h = 0.5 * h + 0.5 * rhos[idx - 1]
+        if n == 2:
+            return Action.C if prev_m == 1 and h > 1.0 else Action.D
+        if h > self.t_high and prev_m >= n - 2:
+            return Action.C
+        return Action.D

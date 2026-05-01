@@ -1225,3 +1225,8606 @@ class Strategy_INDIVIDUALISTIC_4(BaseStrategy):
         if total_cooperators_last_round >= n_threshold:
             return Action.C
         return Action.D
+
+class Strategy_COLLECTIVE_5(BaseStrategy):
+    """
+    A strategy that maintains a state machine between "Cooperative" and "Punishing".
+    It monitors defectors from previous rounds and stock levels to decide its 
+    action, attempting to punish defection while preserving the pool's sustainability.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.desc = game_description
+        self.state = 'COOPERATIVE'
+        self.warning_count = 0
+
+    def _calculate_defectors(self, s_prev: float, s_curr: float, n: int) -> int:
+        """
+        Infers the number of defectors from the previous round (t-1).
+        
+        Logic derivation:
+        Stock dynamics: 
+        S_t = min(S_rem + Growth(S_rem), capacity)
+        Growth(S_rem) = 2 * S_rem * (1 - S_rem / capacity)
+        
+        This makes inversion complex due to the min() function and the quadratic growth.
+        However, the problem statement provides the mechanism to calculate defectors 
+        based on total consumption.
+        
+        Given the constraints and the provided pseudocode logic requirements:
+        The strategy tracks state based on 'd_prev'. Since the game history provides 
+        'opponent_cooperators' (an array of count of cooperators), we can derive 
+        defectors directly without reversing the stock dynamics formula, which is safer.
+        
+        Total players = n.
+        Cooperating opponents = opponent_cooperators[-1].
+        My action in previous round (t-1) = self_action_prev.
+        Total cooperators = opponent_cooperators[-1] + (1 if self_action_prev == C else 0).
+        Defectors = n - Total Cooperators.
+        """
+        return 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.desc.n_players
+        r = self.desc.n_rounds
+        cap = self.desc.capacity
+        t = history.round_number
+        if t == 0:
+            self.state = 'COOPERATIVE'
+            self.warning_count = 0
+            return Action.C
+        my_prev_action = history.my_actions[-1]
+        opp_cooperators_prev = history.opponent_cooperators[-1]
+        my_prev_coop = 1 if my_prev_action else 0
+        total_coops = opp_cooperators_prev + my_prev_coop
+        d_prev = n - total_coops
+        if t == r - 1:
+            return Action.D
+        if self.state == 'COOPERATIVE':
+            if d_prev > n / 2 or current_stock < cap / 2:
+                self.state = 'PUNISHING'
+            elif d_prev > 0:
+                self.warning_count += 1
+                if self.warning_count >= 2:
+                    self.state = 'PUNISHING'
+            else:
+                self.warning_count = 0
+        elif self.state == 'PUNISHING':
+            if current_stock >= 0.8 * cap:
+                self.state = 'COOPERATIVE'
+                self.warning_count = 0
+        if self.state == 'PUNISHING':
+            return Action.D
+        if current_stock < cap / 4:
+            return Action.D
+        return Action.C
+
+class Strategy_COLLECTIVE_6(BaseStrategy):
+    """
+    Trigger-Modified Tit-for-Tat:
+    - Maintains cooperation while the stock is healthy.
+    - If defection occurs, it checks for stock stability to decide whether to punish (Defect) or maintain (Cooperate).
+    - Includes a 'Grim Trigger' switch if opponents persist in defecting (for 3 rounds).
+    - Includes an 'Emergency Defection' threshold if stock is nearing collapse.
+    - Always Defects on the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.grim_trigger_active = False
+        self.consecutive_defections = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        capacity = self.game_description.capacity
+        total_rounds = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_stock < capacity / (10 * n):
+            return Action.D
+        if current_round == total_rounds - 1:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        n_opponents = n - 1
+        opponents_cooperated = history.opponent_cooperators[-1]
+        opponents_defected = n_opponents - opponents_cooperated
+        if opponents_defected > 0:
+            self.consecutive_defections += 1
+        else:
+            self.consecutive_defections = 0
+        if self.consecutive_defections >= 3:
+            self.grim_trigger_active = True
+        if self.grim_trigger_active:
+            return Action.D
+        if current_stock >= capacity * 0.99:
+            return Action.C
+        if opponents_defected == 0:
+            return Action.C
+        elif current_stock >= capacity / 2:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_7(BaseStrategy):
+    """
+    Implements a Conditional Stock-Stabilizing Reciprocity strategy.
+    
+    Logic:
+    - Starts with Cooperate (C).
+    - In final round, always Defect (D).
+    - If pool is critically low (< 10% capacity), forces Cooperation (C) to prevent permanent collapse.
+    - If not in critical state, compares previous round's cooperation levels against a 25% defection threshold.
+    - If defectors > 25% of n, retaliates with Defect (D).
+    - Otherwise, maintains Cooperation (C) to foster sustainable growth.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_idx = history.round_number
+        if current_round_idx == 0:
+            return Action.C
+        if current_round_idx == self.r - 1:
+            return Action.D
+        if current_stock < 0.1 * self.capacity:
+            return Action.C
+        my_prev_action = history.my_actions[-1]
+        my_val = 1 if my_prev_action else 0
+        total_cooperators = my_val + history.opponent_cooperators[-1]
+        total_defectors = self.n - total_cooperators
+        if total_defectors > self.n * 0.25:
+            return Action.D
+        return Action.C
+
+class Strategy_COLLECTIVE_8(BaseStrategy):
+    """
+    Trigger-Based Conditional Cooperation with Threshold Recovery.
+    
+    Prioritizes sustainability via dynamic modes:
+    1. Recovery Mode: Activated when stock <= 10% capacity. Punishes cooperators if 
+       they are numerous, otherwise cooperates to build stock.
+    2. Normal Mode: Cooperates if cooperation ratio >= 0.75, otherwise defects.
+    3. Global Triggers: Permanent defection if stock is 0 or if the moving average 
+       of cooperation over the last 3 rounds is < 0.3.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.n_rounds = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if current_stock <= 0:
+            return Action.D
+        round_idx = history.round_number
+        if round_idx == 0:
+            return Action.C
+        if round_idx == self.n_rounds - 1:
+            return Action.D
+        if round_idx >= 3:
+            last_3_coop_counts = history.opponent_cooperators[-3:]
+            my_actions = history.my_actions.astype(int)[-3:]
+            total_coop_counts = history.opponent_cooperators[-3:] + my_actions
+            avg_cr = np.mean(total_coop_counts / self.n)
+            if avg_cr < 0.3:
+                return Action.D
+        if self.n < 4:
+            last_my_action = int(history.my_actions[-1])
+            last_opponent_coops = history.opponent_cooperators[-1]
+            if last_my_action + last_opponent_coops < self.n:
+                return Action.D
+            return Action.C
+        prev_my_action = int(history.my_actions[-1])
+        prev_opp_coop = history.opponent_cooperators[-1]
+        previous_CR = (prev_opp_coop + prev_my_action) / self.n
+        if not hasattr(self, 'stock_history'):
+            self.stock_history = [self.capacity]
+        prev_stock = self.stock_history[-1]
+        if prev_stock <= 0.1 * self.capacity:
+            action = Action.D if previous_CR >= 0.5 else Action.C
+        else:
+            action = Action.C if previous_CR >= 0.75 else Action.D
+        if len(self.stock_history) <= round_idx:
+            n_coop = prev_opp_coop + prev_my_action
+            n_def = self.n - n_coop
+            total_cons = n_coop * (prev_stock / (2 * self.n)) + n_def * (prev_stock / self.n)
+            s_rem = prev_stock - total_cons
+            growth = 2 * s_rem * (1 - s_rem / self.capacity)
+            next_stock = min(s_rem + growth, self.capacity)
+            self.stock_history.append(next_stock)
+        return action
+
+class Strategy_COLLECTIVE_9(BaseStrategy):
+    """
+    A conditional 'Tit-for-Tat' strategy for the Common Pool Resource game.
+    
+    Logic:
+    - Round 1: Always Cooperate (C).
+    - Termination (Final Round): Always Defect (D) to maximize terminal payoff.
+    - Crisis Management: If stock < 0.5 * capacity, switch to Defect (D) to extract value.
+    - Reciprocity: If previous round had any defectors (cooperators < total_opponents), punish by Defecting (D).
+    - Otherwise: Cooperate (C).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        total_rounds = self.game_description.n_rounds
+        n_opponents = self.game_description.n_players - 1
+        if current_round == total_rounds - 1:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        if current_stock < 0.5 * self.game_description.capacity:
+            return Action.D
+        prev_coop_count = history.opponent_cooperators[-1]
+        if prev_coop_count < n_opponents:
+            return Action.D
+        return Action.C
+
+class Strategy_COLLECTIVE_10(BaseStrategy):
+    """
+    A conditionally cooperative strategy that prioritizes system survival (stock preservation)
+    when the resource is critically low, and follows a majority-rule reciprocity norm
+    (Tit-for-Tat against majority) when the resource is sustainable. Always cooperates 
+    in the first round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        last_self_cooperated = int(history.my_actions[-1])
+        total_cooperators_prev = history.opponent_cooperators[-1] + last_self_cooperated
+        n = self.game_description.n_players
+        capacity = self.game_description.capacity
+        if current_stock < capacity / n:
+            return Action.C
+        majority_threshold = math.ceil(n / 2)
+        if total_cooperators_prev >= majority_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_11(BaseStrategy):
+    """
+    A conditional cooperation strategy based on a trigger-threshold mechanism.
+    - Round 1: Always Cooperate.
+    - Final Round: Defect if stock > 1, else Cooperate.
+    - General rounds:
+        - If stock is at capacity: Cooperate.
+        - If current stock < 20% of capacity AND others defected in prev round: Defect for one round.
+        - Perfect cooperation (everyone cooperated prev round): Cooperate.
+        - Otherwise (stock recovering or stable): Cooperate, else Defect.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.initial_capacity = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == r - 1:
+            return Action.D if current_stock >= 1.0 else Action.C
+        if current_round == 0:
+            return Action.C
+        prev_k = history.opponent_cooperators[-1]
+        if current_stock >= self.initial_capacity:
+            return Action.C
+        if current_stock < self.initial_capacity * 0.2 and prev_k < n - 1:
+            return Action.D
+        is_stock_stable = current_stock / self.initial_capacity > 0.5
+        if prev_k == n - 1 or is_stock_stable:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_12(BaseStrategy):
+    """
+    A Tit-For-Tat variant strategy for the Common Pool Resource game.
+    It cooperates in the first round, and subsequently mimics the aggregate
+    cooperation level of opponents, with specific thresholds and edge-case behaviors
+    to maximize sustainability and payoff.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.epsilon = 0.05 * self.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.r - 1:
+            return Action.D
+        s_crit = self.capacity / (2 * self.n)
+        if current_stock <= self.epsilon or current_stock < s_crit:
+            return Action.D
+        num_opponents = self.n - 1
+        if num_opponents <= 0:
+            return Action.C
+        k = history.opponent_cooperators[-1]
+        cl = k / num_opponents
+        if current_stock >= self.capacity:
+            if cl > 0.3:
+                return Action.C
+            else:
+                return Action.D
+        if cl >= 0.5:
+            return Action.C
+        elif random.random() < cl:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_13(BaseStrategy):
+    """
+    A conditional cooperation strategy that maintains stock sustainability.
+    
+    Logic:
+    1. First round: Cooperate (C).
+    2. Last round: Defect (D).
+    3. Low Stock Check: If stock < 0.25 * capacity, immediately Defect (D).
+    4. Otherwise:
+       - If everyone cooperated in the previous round (c == n-1 opponents + 1 self), Cooperate (C).
+       - If some defected (c < n-1):
+         - If stock < 0.5 * capacity, Defect (D).
+         - Else, Cooperate (C).
+    
+    Note: The input 'opponent_cooperators' counts only the opponents.
+    Since total n = n_players, the total cooperators = opponent_cooperators[-1] + (1 if last_action_was_C else 0).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if current_stock < 0.25 * self.game_description.capacity:
+            return Action.D
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        last_action_was_c = bool(history.my_actions[-1])
+        opp_coop_count = int(history.opponent_cooperators[-1])
+        total_cooperators = opp_coop_count + (1 if last_action_was_c else 0)
+        if total_cooperators == self.game_description.n_players:
+            return Action.C
+        if current_stock < 0.5 * self.game_description.capacity:
+            return Action.D
+        return Action.C
+
+class Strategy_COLLECTIVE_14(BaseStrategy):
+    """
+    Implements a reputation-based strategy for the Common Pool Resource Game.
+    Maintains a reputation score derived from the history of cooperation.
+    Defects if stock is low, reputation drops below a threshold, or in the final round.
+    Includes a fallback 'give-up' condition for large groups with declining cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.reputation = 1.0
+        self.punishment_threshold = 0.5
+        self.alpha = 0.8
+        self.defecting_penalty_round = False
+        self.gave_up = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            return Action.D
+        if self.gave_up:
+            return Action.D
+        prev_round = current_round - 1
+        prev_c_count = history.opponent_cooperators[prev_round]
+        my_prev_action = history.my_actions[prev_round]
+        total_c_count = prev_c_count + (1 if my_prev_action else 0)
+        self.reputation = self.alpha * self.reputation + (1 - self.alpha) * (total_c_count / n)
+        if n > 10 and current_round >= 2:
+            prev_reputation = self.alpha * 1.0
+            if current_round >= 3:
+                prev_prev_c_count = history.opponent_cooperators[prev_round - 1]
+                if total_c_count / n < 0.3 and prev_c_count / n < 0.4:
+                    self.gave_up = True
+                    return Action.D
+        if current_stock < self.game_description.capacity / 2.0:
+            return Action.D
+        if self.defecting_penalty_round:
+            self.defecting_penalty_round = False
+            return Action.C
+        if self.reputation < self.punishment_threshold:
+            self.defecting_penalty_round = True
+            return Action.D
+        return Action.C
+
+class Strategy_COLLECTIVE_15(BaseStrategy):
+    """
+    Tit-for-Tat with Forgiving Resilience strategy.
+    
+    Logic:
+    1. Always C in the first round.
+    2. Crisis management: If stock < 0.2 * capacity (and > 0), force C.
+    3. Last round: If stock > 0, force D to capture value.
+    4. General logic: Cooperate if most opponents cooperated in the previous round
+       (threshold: k >= n - 1), otherwise Defect.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_opponents = self.game_description.n_players - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            if current_stock > 0:
+                return Action.D
+            return Action.C
+        if current_stock < 0.2 * self.game_description.capacity and current_stock > 1e-09:
+            return Action.C
+        last_k = history.opponent_cooperators[-1]
+        if last_k >= self.n_opponents:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_16(BaseStrategy):
+    """
+    Trigger-Based Sustainable Harvest Strategy.
+    Prioritizes resource regeneration and punishes mass defection or stock depletion,
+    while optimizing for terminal round gains.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.capacity = float(game_description.capacity)
+        self.n = float(game_description.n_players)
+        self.s_threshold = self.capacity / 2.0
+        self.punishment_mode = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.n
+        capacity = self.capacity
+        r = self.game_description.n_rounds
+        t = history.round_number + 1
+        if t == 1:
+            self.punishment_mode = False
+            return Action.C
+        prev_idx = history.round_number - 1
+        k = float(history.opponent_cooperators[prev_idx])
+        my_prev_action = history.my_actions[prev_idx]
+        num_cooperators = k + (1.0 if my_prev_action else 0.0)
+        num_defectors = n - num_cooperators
+        if not hasattr(self, '_prev_stock'):
+            self._prev_stock = capacity
+        s_prev = self._prev_stock
+        self._prev_stock = current_stock
+        if t == r:
+            if self.punishment_mode:
+                return Action.D
+            else:
+                return Action.D
+        if current_stock < capacity / (2.0 * n):
+            return Action.C
+        if self.punishment_mode:
+            if current_stock > self.s_threshold:
+                self.punishment_mode = False
+                return Action.C
+            else:
+                return Action.D
+        total_cooperators = k + (1.0 if my_prev_action else 0.0)
+        total_defectors = n - total_cooperators
+        if total_defectors > n / 2.0:
+            self.punishment_mode = True
+            return Action.D
+        if current_stock < capacity / n:
+            return Action.C
+        if s_prev > current_stock:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_COLLECTIVE_17(BaseStrategy):
+    """
+    A strategy that maintains a moving average of collective cooperation (trust_level)
+    to decide between Cooperating (C) and Defecting (D) in a common pool resource game.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.trust_level = 1.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        r_idx = history.round_number
+        n = self.game_description.n_players
+        total_rounds = self.game_description.n_rounds
+        if r_idx == 0:
+            return Action.C
+        if r_idx == total_rounds - 1:
+            return Action.D
+        if current_stock <= 0:
+            return Action.D
+        last_my_action = history.my_actions[-1]
+        c_prev = history.opponent_cooperators[-1] + (1 if last_my_action else 0)
+        self.trust_level = 0.7 * self.trust_level + 0.3 * (c_prev / n)
+        coop_threshold = 0.8 if n > 10 else 0.6
+        if self.trust_level > coop_threshold:
+            if current_stock > 0.4 * self.game_description.capacity:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_18(BaseStrategy):
+    """
+    A strategy for the Common Pool Resource game that implements conditional cooperation.
+    
+    Logic:
+    - Always cooperates in the first round.
+    - Monitors the cooperation rate of opponents in previous rounds.
+    - If the cooperation rate is < 0.75, it defects in the next round to punish.
+    - If the current stock is dangerously low (< 20% of capacity), it defects to maximize immediate yield.
+    - Always defects in the final round to maximize final payoff.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.cooperation_threshold = 0.75
+        pass
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if current_stock < 0.2 * self.game_description.capacity:
+            return Action.D
+        n_opponents = self.game_description.n_players - 1
+        if n_opponents > 0:
+            observed_cooperation_rate = history.opponent_cooperators[-1] / n_opponents
+        else:
+            observed_cooperation_rate = 1.0
+        if observed_cooperation_rate >= self.cooperation_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_19(BaseStrategy):
+    """
+    Tit-for-Tat with Forgiveness and Stock-Dependent Thresholds.
+    
+    Implements a decision logic that balances resource sustainability with
+    responsiveness to opponent behavior. Prioritizes cooperation when the
+    stock is healthy, tightens criteria when vulnerable, and utilizes
+    a punishment/recovery mechanism for total defection scenarios.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.punishment_counter = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        n = self.game_description.n_players
+        n_opponents = n - 1
+        r = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        t = history.round_number + 1
+        n_coop_prev = history.opponent_cooperators[-1]
+        if t == r:
+            return Action.C if current_stock >= 0.5 * capacity else Action.D
+        if current_stock < 0.1 * capacity:
+            return Action.D
+        if n_coop_prev == 0:
+            self.punishment_counter = 2
+        if self.punishment_counter > 0:
+            self.punishment_counter -= 1
+            if self.punishment_counter == 0:
+                return Action.C
+            return Action.D
+        if current_stock > 0.5 * capacity:
+            if n_coop_prev >= n_opponents - 1:
+                return Action.C
+            return Action.D
+        else:
+            if n_coop_prev >= n_opponents:
+                return Action.C
+            return Action.D
+
+class Strategy_COLLECTIVE_20(BaseStrategy):
+    """
+    Implements a Conditional Tit-for-Tat strategy with threshold-based defection.
+    Focuses on sustainability by punishing defectors when stock is low, while
+    remaining cooperative under stable conditions.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.punishment_counter = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        n = self.game_description.n_players
+        n_opponents = n - 1
+        capacity = self.game_description.capacity
+        prev_C_obs = history.opponent_cooperators[-1]
+        prev_D_obs = n_opponents - prev_C_obs
+        if self.punishment_counter > 0:
+            forgiveness_triggered = False
+            if history.round_number >= 2:
+                last_round_full_coop = history.opponent_cooperators[-1] == n_opponents
+                prev_round_full_coop = history.opponent_cooperators[-2] == n_opponents
+                if last_round_full_coop and prev_round_full_coop:
+                    forgiveness_triggered = True
+            if forgiveness_triggered:
+                self.punishment_counter = 0
+            else:
+                self.punishment_counter = max(0, self.punishment_counter - 1)
+                return Action.D
+        if prev_C_obs == n_opponents:
+            return Action.C
+        if current_stock < 0.25 * capacity:
+            return Action.D
+        if prev_C_obs < n_opponents:
+            if current_stock < 0.5 * capacity:
+                self.punishment_counter = max(1, int(prev_D_obs / (n / 2)))
+                return Action.D
+        return Action.C
+
+class Strategy_COLLECTIVE_21(BaseStrategy):
+    """
+    Implements the Tit-for-Tat Adjusted Stock Thresholding strategy.
+    Maintains stock via dynamic thresholds, punishes defectors, and switches to D in final round.
+    Includes special handling for stock collapse and sudden defection spikes.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.collapse_counter = 0
+        self.last_observed_coop_rate = None
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        round_idx = history.round_number
+        if round_idx == r - 1:
+            return Action.D
+        if round_idx == 0:
+            self.last_observed_coop_rate = 1.0
+            return Action.C
+        prev_my_action = bool(history.my_actions[-1])
+        prev_coop_count = history.opponent_cooperators[-1]
+        n_c = prev_coop_count + (1 if prev_my_action else 0)
+        if current_stock < capacity / (2 * n) or self.collapse_counter > 0:
+            if self.collapse_counter < 2:
+                self.collapse_counter += 1
+                return Action.D
+            else:
+                self.collapse_counter = 0
+        current_observed_rate = n_c / n
+        if self.last_observed_coop_rate is not None:
+            if self.last_observed_coop_rate - current_observed_rate > 0.5:
+                self.last_observed_coop_rate = current_observed_rate
+                return Action.D
+        self.last_observed_coop_rate = current_observed_rate
+        if current_stock > 0 and current_stock < capacity / n and (current_observed_rate == 1.0):
+            return Action.C
+        if current_stock == 0:
+            return Action.D
+        threshold = 1.0 - current_stock / capacity
+        num_others = n - 1
+        if prev_my_action:
+            observed_cooperation_rate = (n_c - 1) / num_others if num_others > 0 else 0
+        else:
+            observed_cooperation_rate = n_c / num_others if num_others > 0 else 0
+        if observed_cooperation_rate >= threshold and current_stock >= capacity / n:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_22(BaseStrategy):
+    """
+    A strategy for the Common Pool Resource Game that balances sustainability with
+    reputation-based retaliation.
+    
+    Strategy Overview:
+    1. Initialize: Always cooperate (C) on the first round. Initialize Reputation (R) at 0.
+    2. Reputation Management: Track collective behavior. R updates based on the 
+       proportion of cooperators vs. a threshold (0.5).
+    3. State Survival:
+       - If stock < 0.05 * capacity, force Defect (D) until recovery to 0.2 * capacity.
+       - If stock <= 0.1 * capacity, Defect (D).
+    4. Decision Logic:
+       - If R < -2, Defect (D) to punish the collective.
+       - Otherwise, Cooperate (C), provided the stock is sufficient.
+    5. Terminal Phase:
+       - If round is final (r), Defect (D) if stock >= 0.5 * capacity, otherwise Cooperate (C).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.reputation = 0.0
+        self.recovering = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        capacity = self.game_description.capacity
+        r_total = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_stock < 0.05 * capacity:
+            self.recovering = True
+        if self.recovering and current_stock > 0.2 * capacity:
+            self.recovering = False
+        if self.recovering:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        prev_cooperators = history.opponent_cooperators[-1]
+        n_opponents = n - 1
+        if n == 2:
+            if prev_cooperators == 0:
+                self.reputation -= 1.0
+            else:
+                self.reputation += 0.5
+        else:
+            coop_ratio = prev_cooperators / n_opponents
+            self.reputation += coop_ratio - 0.5
+        if current_round == r_total - 1:
+            if current_stock >= 0.5 * capacity:
+                return Action.D
+            return Action.C
+        if current_stock <= 0.1 * capacity:
+            return Action.D
+        if self.reputation < -2:
+            if n == 2:
+                self.reputation = 0.0
+            return Action.D
+        return Action.C
+
+class Strategy_COLLECTIVE_23(BaseStrategy):
+    """
+    Implements a Tit-for-Tat with Forgiveness strategy.
+    
+    Logic:
+    1. First round: Always cooperate.
+    2. Final round: Always defect.
+    3. Critical stock (< 0.2 capacity): Always cooperate (recovery mode).
+    4. General case: Cooperate if previous round defectors < 0.5 * n_players, else defect.
+    5. Automatic forgiveness/recovery: If stock recovers/stabilizes, logic shifts back to 
+       conditional cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.capacity = self.game_description.capacity
+        self.n = self.game_description.n_players
+        self.recovery_counter = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        n_opponents = self.n - 1
+        prev_cooperators = int(history.opponent_cooperators[-1])
+        prev_defectors = n_opponents - prev_cooperators
+        threshold = 0.2 * self.capacity
+        if current_stock < threshold:
+            self.recovery_counter = 2
+            return Action.C
+        if self.recovery_counter > 0:
+            self.recovery_counter -= 1
+            return Action.C
+        tolerance = 0.5 * self.n
+        if prev_defectors >= tolerance:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_COLLECTIVE_24(BaseStrategy):
+    """
+    Implements a conditional cooperation strategy for the Common Pool Resource Game.
+    The strategy aims to maintain the stock level at capacity through Tit-For-Tat-like
+    behavior, with specific responses to depletion and terminal rounds.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.capacity = game_description.capacity
+        self.n = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_index = history.round_number
+        total_rounds = self.n_rounds
+        if current_round_index == 0:
+            return Action.C
+        if current_round_index == total_rounds - 1:
+            return Action.D
+        prev_cooperators = history.opponent_cooperators[-1]
+        if current_stock < 0.25 * self.capacity:
+            return Action.D
+        if current_stock <= 0:
+            return Action.D
+        if abs(current_stock - self.capacity) < 1e-06 or current_stock >= 0.95 * self.capacity:
+            return Action.C
+        my_last_action = history.my_actions[-1]
+        total_cooperators_last_round = prev_cooperators + (1 if my_last_action else 0)
+        threshold = self.n // 2
+        if total_cooperators_last_round >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_25(BaseStrategy):
+    """
+    A Trigger-Tit-for-Tat strategy that incorporates sustainability thresholds based on 
+    current resource stock. It attempts to cooperate when conditions are favorable, 
+    punishes defectors based on recent history, and aggressively exploits the pool in 
+    the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.in_defect_state = False
+        self.resumption_threshold = 0.8
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.r - 1:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        my_prev_action = 1 if history.my_actions[-1] else 0
+        prev_cooperators_total = history.opponent_cooperators[-1] + my_prev_action
+        if current_stock < self.capacity / (10 * self.n):
+            self.in_defect_state = True
+            return Action.D
+        if self.in_defect_state:
+            if current_stock > self.resumption_threshold * self.capacity:
+                self.in_defect_state = False
+                return Action.C
+            else:
+                return Action.D
+        if prev_cooperators_total >= self.n - 1:
+            return Action.C
+        elif prev_cooperators_total >= self.n / 2 and current_stock > self.capacity / 2:
+            return Action.C
+        else:
+            self.in_defect_state = True
+            return Action.D
+
+class Strategy_COLLECTIVE_26(BaseStrategy):
+    """
+    A strategy for the Common Pool Resource Game that balances reciprocity,
+    stock preservation, and retaliation, while transitioning to defection 
+    near the end of the game.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.retaliation_counter = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if self.game_description.n_rounds - history.round_number <= 2:
+            return Action.D
+        n = self.game_description.n_players
+        opponents_count = n - 1
+        num_cooperators_prev = history.opponent_cooperators[-1]
+        d_prev = opponents_count - num_cooperators_prev
+        if self.retaliation_counter > 0:
+            self.retaliation_counter -= 1
+            return Action.D
+        my_prev_action = history.my_actions[-1]
+        total_defectors = d_prev + (0 if my_prev_action else 1)
+        if total_defectors > n / 2:
+            self.retaliation_counter = 1
+            return Action.D
+        s_index = current_stock / self.game_description.capacity
+        if s_index < 0.25:
+            return Action.C
+        if d_prev == 0:
+            return Action.C
+        else:
+            prob = d_prev / n
+            if random.random() < prob:
+                return Action.D
+            else:
+                return Action.C
+
+class Strategy_COLLECTIVE_27(BaseStrategy):
+    """
+    Implements a 'Tit-for-Tat with Forgiveness and Stock-Awareness' strategy.
+    
+    Logic summary:
+    1. First round: Cooperate (C).
+    2. Endgame: Defect (D) on the final round.
+    3. Critical Stock: Defect (D) if stock <= capacity / 4.
+    4. Reciprocity: Defect (D) if fewer than 50% of opponents cooperated previously, 
+       unless forgiveness threshold (80% cooperation) is met.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t_index = history.round_number
+        if t_index == self.r - 1:
+            return Action.D
+        if current_stock <= self.capacity / 4:
+            return Action.D
+        if t_index == 0:
+            return Action.C
+        n_opponents = self.n - 1
+        prev_opp_cooperators = history.opponent_cooperators[-1]
+        threshold = n_opponents * 0.5
+        forgiveness_threshold = n_opponents * 0.8
+        if prev_opp_cooperators >= threshold:
+            return Action.C
+        else:
+            if prev_opp_cooperators >= forgiveness_threshold:
+                return Action.C
+            return Action.D
+
+class Strategy_COLLECTIVE_28(BaseStrategy):
+    """
+    Implements a conditional Tit-for-Tat strategy with resilience thresholds.
+    
+    Logic:
+    - Round 0: Always C.
+    - Resilience Override: If stock < 0.1 * capacity, C only if everyone else (or n-1 players) cooperated.
+    - End-Game (Final round): If stock < 0.25 * capacity, play D.
+    - Standard Rounds: Play based on CR = (num_cooperators / n).
+      - CR >= 0.75: C
+      - 0.5 <= CR < 0.75: C if stock >= 0.5 * capacity, else D
+      - CR < 0.5: D
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = self.game_description.n_players
+        self.capacity = self.game_description.capacity
+        self.r = self.game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        prev_round_idx = history.round_number - 1
+        my_prev_action = history.my_actions[prev_round_idx]
+        my_prev_coop = 1 if my_prev_action else 0
+        total_cooperators = history.opponent_cooperators[prev_round_idx] + my_prev_coop
+        cr = total_cooperators / self.n
+        if current_stock < self.capacity * 0.1:
+            if total_cooperators >= self.n - 1:
+                return Action.C
+            else:
+                return Action.D
+        if history.round_number == self.r - 1:
+            if current_stock < self.capacity * 0.25:
+                return Action.D
+        if cr >= 0.75:
+            return Action.C
+        elif cr >= 0.5:
+            if current_stock >= self.capacity * 0.5:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_29(BaseStrategy):
+    """
+    Tit-for-Tat with a sustainable threshold strategy. 
+    Prioritizes resource maintenance (C) when stock is low or when cooperation 
+    is observed, but punishes defectors (D) when stock allows. In the final 3 rounds, 
+    it aggressively extracts value (D) if the stock is sufficiently high.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number >= self.game_description.n_rounds - 3:
+            if current_stock > self.game_description.capacity / 4:
+                return Action.D
+            else:
+                return Action.C
+        my_last_action = history.my_actions[-1]
+        opponents_who_cooperated = history.opponent_cooperators[-1]
+        n_opponents = self.game_description.n_players - 1
+        if opponents_who_cooperated < n_opponents:
+            return Action.D
+        if current_stock < self.game_description.capacity / 2:
+            return Action.C
+        return Action.C
+
+class Strategy_COLLECTIVE_30(BaseStrategy):
+    """
+    Implements a Tit-for-Tat variant with a threshold-based forgiveness mechanism 
+    designed for the Common Pool Resource Game.
+    
+    Logic Summary:
+    1. Initial round: Cooperate.
+    2. End-game (final round): Defect.
+    3. Crisis management: If stock < 2*n, maintain cooperation for recovery unless 
+       stock is critically low (< 0.1 * capacity), in which case Defect to capture remaining value.
+    4. Steady state: If round < r and stock >= 2*n:
+       - Cooperative if previous round cooperation rate >= ceil(n/2).
+       - Otherwise, Defect with a 20% probability of forgiveness (testing the waters).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_idx = history.round_number
+        if current_round_idx == self.r - 1:
+            return Action.D
+        if current_stock < 2 * self.n:
+            if current_stock < 0.1 * self.capacity:
+                return Action.D
+            else:
+                return Action.C
+        if current_round_idx == 0:
+            return Action.C
+        last_round_cooperators = history.opponent_cooperators[-1]
+        my_prev_action = int(history.my_actions[-1])
+        total_cooperators = last_round_cooperators + my_prev_action
+        threshold = math.ceil(self.n / 2)
+        if total_cooperators >= threshold:
+            return Action.C
+        elif random.random() < 0.2:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_31(BaseStrategy):
+    """
+    A conditional cooperative strategy for the Common Pool Resource Game.
+    
+    Strategy Logic:
+    1. Phase 1 (Round 1): Plays Cooperate (C).
+    2. Phase 2 (Rounds 2 to r-1):
+       - If stock < 0.25 * capacity: Defect (D) to maximize extraction.
+       - Else: If all other players cooperated in the previous round, Cooperate (C). 
+         Otherwise, Defect (D) for one round as retaliation.
+    3. Phase 3 (Final Round r): Always Defect (D).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        total_rounds = self.game_description.n_rounds
+        n_total = self.game_description.n_players
+        if current_round == total_rounds - 1:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        if current_stock < self.game_description.capacity * 0.25:
+            return Action.D
+        prev_my_cooperated = bool(history.my_actions[-1])
+        total_cooperators = (1 if prev_my_cooperated else 0) + history.opponent_cooperators[-1]
+        if total_cooperators == n_total:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_COLLECTIVE_32(BaseStrategy):
+    """
+    A conditional cooperation strategy based on a Tit-for-Tat variant.
+    
+    Logic:
+    - Round 1: Always Cooperate (C).
+    - Terminal Round: Always Defect (D).
+    - Other Rounds:
+        - If all other players cooperated last round, Cooperate (C).
+        - If others defected:
+            - If stock is critical (< 50% capacity), Defect (D).
+            - Otherwise, Cooperate (C) to attempt signal recovery.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number + 1
+        if current_round == self.n_rounds:
+            return Action.D
+        if current_round == 1:
+            return Action.C
+        c_obs = history.opponent_cooperators[-1]
+        if c_obs == self.n_players - 1:
+            return Action.C
+        if current_stock < 0.5 * self.capacity:
+            return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_5(BaseStrategy):
+    """
+    A Prosocial Compliance strategy for Common Pool Resource games.
+    
+    Logic:
+    1. Round 1: Always Cooperate (C).
+    2. Stock Floor Check: If stock < capacity/(4n), always Defect (D).
+    3. Terminal Round (r): If stock >= capacity/(2n), C; else D.
+    4. Phase 2 (Intermediate Rounds):
+        a. If stock < capacity/(2n), Defect (D).
+        b. If currently in 'Defect' mode due to low PCR:
+           Check if stock recovered to >= capacity/2.
+           If yes, try Cooperating (C) to test opponents.
+           If k_t (total cooperators) == n, permanently switch to Cooperation mode.
+           Else, Defect (D).
+        c. If in 'Cooperate' mode or normal play:
+           Calculate Prosocial Compliance Ratio (PCR).
+           If PCR >= 0.5, Cooperate (C).
+           Else, Defect (D).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.in_defect_mode = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        capacity = self.game_description.capacity
+        r_total = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_stock < capacity / (4 * n):
+            self.in_defect_mode = True
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        if current_round == r_total - 1:
+            if current_stock >= capacity / (2 * n):
+                return Action.C
+            return Action.D
+        if current_stock < capacity / (2 * n):
+            self.in_defect_mode = True
+            return Action.D
+        if self.in_defect_mode:
+            if current_stock >= capacity / 2.0:
+                return Action.C
+            else:
+                return Action.D
+        my_actions_int = history.my_actions.astype(int)
+        total_cooperators_history = history.opponent_cooperators + my_actions_int
+        numerator = np.sum(history.opponent_cooperators)
+        denominator = n * current_round
+        pcr = numerator / denominator if denominator > 0 else 1.0
+        if pcr >= 0.5:
+            self.in_defect_mode = False
+            return Action.C
+        else:
+            self.in_defect_mode = True
+            return Action.D
+
+class Strategy_PROSOCIAL_6(BaseStrategy):
+    """
+    A strategy that maintains common pool sustainability by targeting a specific number of cooperators.
+    It cooperates when the stock is healthy or when the group trend is sufficient to support
+    the target, and defects when the stock is critically low or the group is depleting the resource.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = float(game_description.capacity)
+        self.total_rounds = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.total_rounds - 1:
+            if current_stock < self.capacity / 2.0:
+                return Action.D
+            return Action.C
+        if current_stock < 1e-06:
+            return Action.D
+        raw_target = self.n * self.capacity / current_stock
+        target_cooperators = min(float(self.n), raw_target)
+        if current_stock >= 0.9 * self.capacity:
+            return Action.C
+        if history.round_number > 0:
+            my_prev_action = 1 if history.my_actions[-1] else 0
+            prev_cooperators_total = history.opponent_cooperators[-1] + my_prev_action
+            if prev_cooperators_total >= target_cooperators:
+                return Action.C
+            else:
+                return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_7(BaseStrategy):
+    """
+    Implements a reputation-based reciprocal strategy that prioritizes 
+    long-term stock sustainability by mimicking observed cooperation levels,
+    punishing defection, and collapsing to defect in the final round or 
+    during resource depletion.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.n_opponents = self.n - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_index = history.round_number
+        if current_stock < 0.1 * self.capacity:
+            return Action.D
+        if current_round_index == self.r - 1:
+            return Action.D
+        if current_round_index == 0:
+            return Action.C
+        c_prev = history.opponent_cooperators[-1]
+        if current_stock <= 0.25 * self.capacity:
+            return Action.D
+        if c_prev == self.n_opponents:
+            return Action.C
+        if self.n_opponents > 0:
+            threshold = 0.5 * self.n_opponents
+            if c_prev > threshold:
+                return Action.C
+            else:
+                return Action.D
+        return Action.D
+
+class Strategy_PROSOCIAL_8(BaseStrategy):
+    """
+    Tit-for-Tat with Forgiveness:
+    - Always cooperates in the first round.
+    - Always defects in the final round (optimal payoff strategy).
+    - In intermediate rounds:
+        - Rewards full cooperation (0 defectors) with cooperation.
+        - If previous round had defectors:
+            - If stock is critical (< 25% capacity), defects to salvage resources.
+            - If stock is low (< 50% capacity) and defectors exist, defects to protect utility.
+            - Otherwise, cooperates.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.total_rounds = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.total_rounds - 1:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        last_round_idx = history.round_number - 1
+        num_opponents = self.n - 1
+        i_cooperated = history.my_actions[last_round_idx]
+        opponents_who_cooperated = history.opponent_cooperators[last_round_idx]
+        opponents_who_defected = num_opponents - opponents_who_cooperated
+        k_prev = opponents_who_defected + (0 if i_cooperated else 1)
+        if k_prev == 0:
+            return Action.C
+        if current_stock < self.capacity * 0.25:
+            return Action.D
+        if current_stock < self.capacity * 0.5:
+            return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_9(BaseStrategy):
+    """
+    Target-Stock Triggered Reciprocity Strategy.
+    Maintains capacity by targeting a steady-state stock. Prioritizes sustainability
+    over retaliation during recovery phases and critical shortages, but enforces
+    cooperation otherwise.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        current_round = history.round_number + 1
+        if current_round == r:
+            return Action.D
+        if current_stock < 0.1 * capacity:
+            return Action.C
+        if current_stock < 0.5 * capacity:
+            return Action.C
+        if current_round == 1:
+            return Action.C
+        k_prev = history.opponent_cooperators[-1]
+        if history.round_number > 1:
+            k_prev_prev = history.opponent_cooperators[-2]
+            if k_prev_prev < n - 1 and history.my_actions[-1] == False:
+                return Action.C
+        if k_prev >= n - 1:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_10(BaseStrategy):
+    """
+    A conditional cooperation strategy that maintains resource sustainability 
+    through reciprocal cooperation while dynamically reacting to stock depletion 
+    and end-game incentives.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = self.game_description.n_players
+        self.r = self.game_description.n_rounds
+        self.capacity = self.game_description.capacity
+        self.threshold_cooperators = (self.n - 1) / 2
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        is_final_round = current_round == self.r - 1
+        if is_final_round:
+            if current_stock > self.capacity / 2:
+                return Action.C
+            else:
+                return Action.D
+        if current_round == 0:
+            return Action.C
+        c_obs = history.opponent_cooperators[-1]
+        if current_stock < self.capacity / 2:
+            if c_obs < self.threshold_cooperators:
+                return Action.D
+            else:
+                return Action.C
+        if c_obs >= self.threshold_cooperators:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_11(BaseStrategy):
+    """
+    A strategy that implements conditional cooperation (Tit-for-Tat) 
+    with a strict sustainability override. It cooperates when stock is 
+    low (conservation), cooperates in the first round, and employs 
+    probabilistic defection based on opponent behavior in later rounds, 
+    while always defecting in the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number + 1
+        if current_round == self.r:
+            return Action.D
+        if current_stock < self.capacity / 2.0:
+            return Action.C
+        if current_round == 1:
+            return Action.C
+        last_round_cooperators = int(history.opponent_cooperators[-1])
+        target_threshold = self.n - 1
+        if last_round_cooperators >= target_threshold:
+            return Action.C
+        else:
+            prob_defect = 1.0 - last_round_cooperators / self.n
+            if random.random() < prob_defect:
+                return Action.D
+            else:
+                return Action.C
+
+class Strategy_PROSOCIAL_12(BaseStrategy):
+    """
+    Adaptive Tit-for-Tat with Sustainability Buffer.
+    
+    This strategy balances resource maintenance with responsive punishment.
+    It prioritizes stock regeneration when the pool is low (< 50% capacity)
+    or critically low (< 10% capacity). It uses a "Tit-for-Tat" approach
+    regarding opponent cooperation in standard conditions, while always
+    defecting in the final round to capture remaining resources.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self._previous_stock = -1.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        n_opponents = n - 1
+        round_idx = history.round_number
+        is_last_round = round_idx == self.game_description.n_rounds - 1
+        if is_last_round:
+            self._previous_stock = current_stock
+            return Action.D
+        if round_idx == 0:
+            self._previous_stock = current_stock
+            return Action.C
+        prev_coop_count = history.opponent_cooperators[-1]
+        prev_defector_count = n_opponents - prev_coop_count
+        is_recovering = current_stock > self._previous_stock * 1.2
+        self._previous_stock = current_stock
+        if current_stock < 0.1 * self.game_description.capacity:
+            return Action.C
+        if current_stock < 0.5 * self.game_description.capacity:
+            if is_recovering:
+                return Action.C
+            if prev_coop_count < n / 2:
+                return Action.D
+            else:
+                return Action.C
+        if is_recovering:
+            return Action.C
+        if prev_defector_count > n / 2:
+            return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_13(BaseStrategy):
+    """
+    Implements Proportional Tit-for-Tat with Threshold Sensitivity.
+    
+    Strategy:
+    1. Initial Round: Always Cooperate (C).
+    2. Terminal Round (last round): Always Defect (D).
+    3. Desperation Threshold: If current_stock < (capacity / n), Defect (D).
+    4. Tit-for-Tat Logic: If current_stock >= (capacity / n), cooperate if the 
+       number of opponents who cooperated in the previous round >= ceil((n-1)/2).
+       Otherwise, defect to punish non-cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.n_rounds - 1:
+            return Action.D
+        if current_stock < self.capacity / self.n_players:
+            return Action.D
+        n_opponents = self.n_players - 1
+        threshold = math.ceil(n_opponents / 2)
+        last_round_cooperators = history.opponent_cooperators[-1]
+        if last_round_cooperators >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_14(BaseStrategy):
+    """
+    Tit-for-Tat with Forgiveness and Depletion Awareness:
+    A strategy that balances resource sustainability with cooperative reciprocity.
+    It utilizes a survival threshold (20% capacity), a final round defection trigger,
+    and a cooperation threshold (based on 75% of players) to decide actions, 
+    with a conditional forgiveness mechanism based on stock health.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.theta = 0.25
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if current_stock < self.game_description.capacity * 0.2:
+            return Action.D
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        n = self.game_description.n_players
+        prev_k_others = history.opponent_cooperators[-1]
+        my_prev_action = history.my_actions[-1]
+        prev_k_total = prev_k_others + (1 if my_prev_action else 0)
+        if prev_k_total >= n - self.theta * n:
+            return Action.C
+        if current_stock >= self.game_description.capacity * 0.5:
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_15(BaseStrategy):
+    """
+    A sustainability-focused strategy that balances resource replenishment with 
+    tit-for-tat retaliation. It prioritizes the common pool stock level, 
+    switching to cooperation if the stock is below a target threshold, 
+    and uses the opponent cooperation rate to decide actions when the 
+    stock is healthy.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.target_stock = game_description.capacity * 0.5
+        self.n_opponents = game_description.n_players - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_idx = history.round_number
+        total_rounds = self.game_description.n_rounds
+        if round_idx == 0:
+            return Action.C
+        prev_opp_coops = history.opponent_cooperators[-1]
+        if round_idx == total_rounds - 1:
+            all_prev_opp_coops = history.opponent_cooperators
+            avg_opp_coop_rate = np.mean(all_prev_opp_coops) / self.n_opponents
+            if avg_opp_coop_rate < 0.5:
+                return Action.D
+            return Action.C
+        if current_stock < self.target_stock:
+            return Action.C
+        threshold = (self.game_description.n_players - 1) / 2
+        if prev_opp_coops >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_16(BaseStrategy):
+    """
+    Implements a Target-Stock Tit-for-Tat strategy.
+    
+    This strategy attempts to maintain the common pool at capacity.
+    1. If stock is critical (< 25% of capacity), prioritize replenishment via C.
+    2. If stock is low (< 50% of capacity), prioritize C to ensure survival.
+    3. In the final round, act greedily if the pool is healthy (>= 50% capacity).
+    4. Otherwise, use reciprocity: if cooperation in the previous round was < 50%,
+       defect for one round to signal intolerance, then return to C.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.last_action_was_defect = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_t = history.round_number + 1
+        if history.round_number == 0:
+            self.last_action_was_defect = False
+            return Action.C
+        if current_stock < self.capacity / 4:
+            self.last_action_was_defect = False
+            return Action.C
+        if current_stock < self.capacity / 2:
+            self.last_action_was_defect = False
+            return Action.C
+        if round_t == self.r:
+            if current_stock >= 0.5 * self.capacity:
+                self.last_action_was_defect = True
+                return Action.D
+            else:
+                self.last_action_was_defect = False
+                return Action.C
+        last_round_cooperators = history.opponent_cooperators[-1]
+        my_last_action = history.my_actions[-1]
+        total_cooperators = last_round_cooperators + (1 if my_last_action else 0)
+        cooperation_rate = total_cooperators / self.n
+        if cooperation_rate >= 0.5:
+            self.last_action_was_defect = False
+            return Action.C
+        elif self.last_action_was_defect:
+            self.last_action_was_defect = False
+            return Action.C
+        else:
+            self.last_action_was_defect = True
+            return Action.D
+
+class Strategy_PROSOCIAL_17(BaseStrategy):
+    """
+    A conditional cooperation strategy for the Common Pool Resource game.
+    Implements sustainability-focused thresholds (Critical Buffer, Target Stock) 
+    and reciprocation logic to manage resource growth.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        s_star = self.capacity * 0.5
+        s_critical = self.capacity * 0.2
+        prev_my_action = history.my_actions[-1]
+        k_prev = history.opponent_cooperators[-1] + (1 if prev_my_action else 0)
+        if t == self.r - 1:
+            start_idx = max(0, t - 3)
+            recent_coop = history.opponent_cooperators[start_idx:]
+            my_recent = history.my_actions[start_idx:]
+            total_recent_k = [opp + (1 if my else 0) for opp, my in zip(recent_coop, my_recent)]
+            avg_cooperation = sum(total_recent_k) / (len(total_recent_k) * self.n)
+            if avg_cooperation > 0.8:
+                return Action.C
+            else:
+                return Action.D
+        if current_stock < s_critical:
+            return Action.C
+        if k_prev >= self.n - 1:
+            return Action.C
+        elif current_stock < s_star:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_PROSOCIAL_18(BaseStrategy):
+    """
+    A strategy that maintains common pool resources by monitoring stock levels and 
+    conditional reciprocity (Tit-for-Tat based on a prosocial threshold). 
+    It switches to aggressive extraction (Defect) if the resource approaches 
+    collapse or in the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.threshold_critical = 0.2 * game_description.capacity
+        self.threshold_recovery = 0.1 * game_description.capacity
+        self.prosocial_threshold = 0.5
+        self.stock_history = []
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        self.stock_history.append(current_stock)
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        n_opponents = self.game_description.n_players - 1
+        prev_opp_C_count = history.opponent_cooperators[-1]
+        opp_coop_rate = prev_opp_C_count / n_opponents if n_opponents > 0 else 1.0
+        if current_stock <= self.threshold_recovery:
+            return Action.D
+        if current_stock <= self.threshold_critical:
+            return Action.D
+        if len(self.stock_history) >= 3:
+            if self.stock_history[-1] < self.stock_history[-2] and self.stock_history[-2] < self.stock_history[-3]:
+                if opp_coop_rate < self.prosocial_threshold:
+                    return Action.D
+        if opp_coop_rate >= self.prosocial_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_19(BaseStrategy):
+    """
+    Prosocial Equilibrium Maintenance (PEM)
+    
+    A conditional cooperator strategy that balances resource sustainability with
+    retaliatory logic. It prioritizes cooperation but switches to defection if 
+    the common pool stock vitality drops below critical thresholds or if defection 
+    occurs, with specific end-game considerations.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number + 1
+        if current_round == 1:
+            return Action.C
+        if self.r - current_round < self.n:
+            if current_stock < 0.2 * self.capacity:
+                return Action.D
+            return Action.C
+        last_my_action = history.my_actions[-1]
+        last_opponents_cooperating = history.opponent_cooperators[-1]
+        total_cooperators = int(last_my_action) + last_opponents_cooperating
+        num_defectors = self.n - total_cooperators
+        if num_defectors == 0:
+            return Action.C
+        else:
+            vitality = current_stock / self.capacity if self.capacity > 0 else 0.0
+            if vitality > 0.4:
+                return Action.C if random.random() > 0.5 else Action.D
+            else:
+                return Action.D
+
+class Strategy_PROSOCIAL_20(BaseStrategy):
+    """
+    A conditional cooperation strategy for the Common Pool Resource Game.
+    Starts by cooperating, then adjusts based on the observed cooperation of opponents.
+    Features a punishment mechanism for defection and an emergency override for low stock.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        n = self.game_description.n_players
+        if n > 10:
+            self.cooperation_threshold = max(0.2, (n - 2) / (2 * n))
+        else:
+            self.cooperation_threshold = 0.5
+        self.is_punished = False
+        self.override_recovery = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        capacity = self.game_description.capacity
+        if current_stock < capacity / 4.0:
+            self.override_recovery = True
+            return Action.C
+        if self.override_recovery:
+            self.is_punished = False
+            self.override_recovery = False
+        if history.round_number == 0:
+            return Action.C
+        n_opponents = self.game_description.n_players - 1
+        prev_my_action = history.my_actions[-1]
+        prev_opponents_cooperated_count = history.opponent_cooperators[-1]
+        if n_opponents > 0:
+            opponents_cooperated_frac = prev_opponents_cooperated_count / n_opponents
+        else:
+            opponents_cooperated_frac = 1.0
+        current_round_idx = history.round_number
+        is_last_round = current_round_idx == self.game_description.n_rounds - 1
+        if not is_last_round:
+            if self.is_punished:
+                return Action.D
+            elif opponents_cooperated_frac >= self.cooperation_threshold:
+                return Action.C
+            else:
+                self.is_punished = True
+                return Action.D
+        elif self.is_punished or opponents_cooperated_frac < self.cooperation_threshold:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_PROSOCIAL_21(BaseStrategy):
+    """
+    Conditional Sustainability (CS) strategy:
+    - Maintains a target stock level to maximize sustainable yield.
+    - Uses adaptive thresholds for cooperation based on opponent history.
+    - Implements a recovery mode if stock drops below a critical point (capacity/4).
+    - Defects on the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.r = game_description.n_rounds
+        self.k_threshold = math.floor((self.n - 1) / 2)
+        self.alpha = 0.9
+        self.recovery_rounds_left = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round > 0:
+            k_prev = int(history.opponent_cooperators[-1])
+            self.k_threshold = self.alpha * self.k_threshold + (1 - self.alpha) * k_prev
+            self.k_threshold = max(0, min(self.k_threshold, self.n - 1))
+            if self.recovery_rounds_left > 0:
+                self.recovery_rounds_left -= 1
+        if current_stock < self.capacity / 4:
+            self.recovery_rounds_left = 2
+        if current_round == self.r - 1:
+            return Action.D
+        if self.recovery_rounds_left > 0:
+            return Action.C
+        if current_round == 0:
+            return Action.C
+        if current_stock < self.capacity / 2:
+            return Action.D
+        k_prev = int(history.opponent_cooperators[-1])
+        if k_prev >= self.k_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_22(BaseStrategy):
+    """
+    Implements a Conditional Cooperator strategy. 
+    Tracks reputation based on opponent history and adjusts cooperation based on 
+    pool stock levels, utilizing a Tit-for-Tat impulse for maintenance.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.reputation = 1.0
+        self.n_opponents = self.game_description.n_players - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if current_stock <= 1e-09:
+            return Action.C
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            total_observed_coop = 0.0
+            for coop_count in history.opponent_cooperators:
+                total_observed_coop += coop_count / max(1, self.n_opponents)
+            avg_coop = total_observed_coop / history.round_number
+            return Action.C if avg_coop >= 0.5 else Action.D
+        recent_coop_count = history.opponent_cooperators[-1]
+        observed_cooperation = recent_coop_count / max(1, self.n_opponents)
+        self.reputation = 0.9 * self.reputation + 0.1 * observed_cooperation
+        capacity = self.game_description.capacity
+        if current_stock < capacity / 4:
+            return Action.C if observed_cooperation >= 0.5 else Action.D
+        else:
+            return Action.C if self.reputation >= 0.7 else Action.D
+
+class Strategy_PROSOCIAL_23(BaseStrategy):
+    """
+    Conditional Sustainability strategy.
+    Prioritizes maintaining stock at capacity by calculating sustainable defector thresholds.
+    Punishes unsustainable consumption by defecting, while signaling cooperation recovery
+    after a correction phase.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.in_correction_phase = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        capacity = self.game_description.capacity
+        r_total = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_stock <= 1e-09:
+            return Action.D
+        if current_round == r_total - 1:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        if self.in_correction_phase:
+            self.in_correction_phase = False
+            return Action.C
+        my_prev_action = history.my_actions[-1]
+        c_prev = history.opponent_cooperators[-1] + (1 if my_prev_action else 0)
+        d_prev = n - c_prev
+        t_crit = n // 2
+        if current_stock < capacity * 0.25:
+            return Action.D
+        if d_prev > t_crit:
+            self.in_correction_phase = True
+            return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_24(BaseStrategy):
+    """
+    Implements a threshold-based conditional cooperation strategy.
+    
+    Logic:
+    1. First round: Always Cooperate (C).
+    2. Terminal round (last round): Always Defect (D).
+    3. Intermediate rounds:
+       - If all opponents cooperated in the previous round, Cooperate (C).
+       - If current stock is critical (stock < capacity/4), Cooperate (C).
+       - Otherwise (if opponents defected or stock is healthy), Defect (D).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.capacity = float(game_description.capacity)
+        self.num_opponents = game_description.n_players - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        k = int(history.opponent_cooperators[-1])
+        if current_stock < self.capacity / 4.0:
+            return Action.C
+        if k == self.num_opponents:
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_25(BaseStrategy):
+    """
+    Implements a Conditional Sustainability strategy for the Common Pool Resource Game.
+    
+    This strategy focuses on maintaining long-term cooperation while protecting against 
+    total resource collapse.
+    
+    Logic:
+    1. Round 1: Always Cooperate (C).
+    2. Last Round: Always Defect (D) to maximize final payoff.
+    3. Intermediate Rounds:
+       - If stock <= capacity / 4: Defect (D) due to critical resource scarcity.
+       - Else if previous round cooperators >= n - 1: Cooperate (C) to sustain pool.
+       - Otherwise: Defect (D) to punish/limit over-extraction.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = float(game_description.capacity)
+        self.stock_critical_level = self.capacity / 4.0
+        self.cooperation_threshold = self.n - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.r - 1:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        if current_stock <= self.stock_critical_level:
+            return Action.D
+        prev_round_cooperators = int(history.opponent_cooperators[-1])
+        if prev_round_cooperators >= self.cooperation_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_26(BaseStrategy):
+    """
+    Adaptive Tit-for-Tat with Resource-Contingent Forgiveness.
+    Prioritizes sustainability via thresholds while using reciprocal defection
+    penalties, with a mechanism to force forgiveness if the resource stock recovers.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.capacity = float(game_description.capacity)
+        self.n = game_description.n_players
+        self.HIGH_STOCK_THRESHOLD = 0.8 * self.capacity
+        self.CRITICAL_STOCK_THRESHOLD = 0.2 * self.capacity
+        self.TERMINATION_THRESHOLD = 0.5 * self.capacity
+        self.RECOVERY_THRESHOLD = 0.5 * self.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        total_rounds = self.game_description.n_rounds
+        current_round_index = history.round_number
+        if current_round_index == total_rounds - 1:
+            return Action.C if current_stock > self.TERMINATION_THRESHOLD else Action.D
+        my_last_action = history.my_actions[-1]
+        last_round_cooperators = (1 if my_last_action else 0) + history.opponent_cooperators[-1]
+        acr = last_round_cooperators / self.n
+        if not my_last_action and current_stock > self.RECOVERY_THRESHOLD:
+            return Action.C
+        if current_stock > self.HIGH_STOCK_THRESHOLD:
+            return Action.C
+        if current_stock < self.CRITICAL_STOCK_THRESHOLD:
+            return Action.C if acr >= 0.5 else Action.D
+        return Action.C if acr >= 0.5 else Action.D
+
+class Strategy_PROSOCIAL_27(BaseStrategy):
+    """
+    A 'Responsive Sustainability' strategy that prioritizes long-term resource stability.
+    It begins with cooperation to test the environment. In intermediate rounds, it monitors
+    the stock level and the cooperation rate of opponents. It forces depletion if the stock
+    is critically low (to reset growth) or if the majority of opponents are defecting (to
+    punish/extract). In the final round, it consumes based on whether the stock is sustainable.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.capacity = game_description.capacity
+        self.n_rounds = game_description.n_rounds
+        self.prev_stock_cache = float(self.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_t = history.round_number + 1
+        if round_t == 1:
+            self.prev_stock_cache = current_stock
+            return Action.C
+        n_opponents = self.n_players - 1
+        last_coop_count = history.opponent_cooperators[-1]
+        cooperation_rate = last_coop_count / n_opponents if n_opponents > 0 else 0.0
+        prev_stock = self.prev_stock_cache
+        self.prev_stock_cache = current_stock
+        if round_t == self.n_rounds:
+            if prev_stock > 0.5 * self.capacity:
+                return Action.C
+            else:
+                return Action.D
+        if prev_stock < 0.2 * self.capacity:
+            return Action.D
+        if cooperation_rate >= 0.5:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_28(BaseStrategy):
+    """
+    A conditional cooperator strategy that tracks population cooperation history,
+    utilizing a forgiving tit-for-tat mechanism with stock-dependent thresholding.
+    Prioritizes sustainability via depletion awareness.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.last_action_was_defect = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            self.last_action_was_defect = False
+            return Action.C
+        if current_stock < self.capacity * 0.25:
+            self.last_action_was_defect = True
+            return Action.D
+        if current_round == self.r - 1:
+            if current_stock >= self.capacity * 0.5:
+                self.last_action_was_defect = False
+                return Action.C
+            else:
+                self.last_action_was_defect = True
+                return Action.D
+        if self.last_action_was_defect:
+            if current_stock >= self.capacity * 0.5:
+                self.last_action_was_defect = False
+                return Action.C
+            return Action.D
+        total_coops = int(np.sum(history.opponent_cooperators))
+        total_possible = (self.n - 1) * current_round
+        opp_rate = total_coops / total_possible if total_possible > 0 else 1.0
+        if opp_rate >= 0.75:
+            action = Action.C
+        elif opp_rate >= 0.4:
+            action = Action.C if random.random() < opp_rate else Action.D
+        else:
+            action = Action.D
+        self.last_action_was_defect = action == Action.D
+        return action
+
+class Strategy_PROSOCIAL_29(BaseStrategy):
+    """
+    A strategy that balances sustainable cooperation, reciprocal punishment for 
+    defection, and reactive restoration phases based on stock health.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.prev_stock = float(game_description.capacity)
+        self.penalty_countdown = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n_opponents = self.game_description.n_players - 1
+        if current_stock <= 0.0:
+            self.prev_stock = 0.0
+            return Action.D
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if history.round_number == 0:
+            self.prev_stock = current_stock
+            return Action.C
+        if current_stock > self.prev_stock * 1.3:
+            self.prev_stock = current_stock
+            return Action.C
+        if history.round_number >= 2:
+            rho_last = history.opponent_cooperators[-1] / n_opponents
+            rho_prev = history.opponent_cooperators[-2] / n_opponents
+            if rho_last < 0.2 and rho_prev < 0.2:
+                self.penalty_countdown = 2
+        if self.penalty_countdown > 0:
+            self.penalty_countdown -= 1
+            self.prev_stock = current_stock
+            return Action.D
+        rho = history.opponent_cooperators[-1] / n_opponents
+        self.prev_stock = current_stock
+        if current_stock >= self.game_description.capacity * 0.5:
+            return Action.C if rho >= 0.5 else Action.D
+        else:
+            return Action.C if rho > 0.8 else Action.D
+
+class Strategy_PROSOCIAL_30(BaseStrategy):
+    """
+    A conditionally cooperative strategy for the Common Pool Resource Game.
+    Maintains cooperation while the stock is above a threshold (T=0.5*capacity).
+    If below threshold, adapts to opponent behavior.
+    Includes edge case handling for exhaustion and critical recovery.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.capacity = float(game_description.capacity)
+        self.n = game_description.n_players
+        self.T = 0.5 * self.capacity
+        self.critical_level = 0.2 * self.capacity
+        self.was_in_recovery = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            self.was_in_recovery = False
+            return Action.C
+        if current_stock < 1e-06:
+            return Action.D
+        if self.was_in_recovery:
+            self.was_in_recovery = False
+            return Action.C
+        if current_stock < self.critical_level:
+            self.was_in_recovery = True
+            return Action.D
+        if history.round_number == self.game_description.n_rounds - 1:
+            if current_stock >= self.T:
+                return Action.C
+            else:
+                return Action.D
+        prev_cooperators = history.opponent_cooperators[-1]
+        majority_threshold = self.n / 2
+        if current_stock > self.T:
+            return Action.C
+        elif prev_cooperators >= majority_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_31(BaseStrategy):
+    """
+    Implements a Tit-for-Tat variant for common pool resources.
+    - Round 1: Cooperate.
+    - Last round: Defect if stock > 0, else Cooperate.
+    - Rescue Mode: If stock < capacity/4, Defect to allow recovery.
+    - Cooperation Logic: If recent avg opponent cooperation >= 0.5, Cooperate; else Defect.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.n_opponents = self.n - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_idx = history.round_number
+        current_round_num = current_round_idx + 1
+        if current_round_idx == self.r - 1:
+            return Action.D if current_stock > 0 else Action.C
+        if current_stock < self.capacity / 4:
+            return Action.D
+        if current_round_idx == 0:
+            return Action.C
+        k = min(current_round_idx, 3)
+        start_idx = current_round_idx - k
+        recent_coop_counts = history.opponent_cooperators[start_idx:current_round_idx]
+        total_coops = np.sum(recent_coop_counts)
+        avg_opponents_cooperation = total_coops / (k * self.n_opponents)
+        if avg_opponents_cooperation >= 0.5:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_PROSOCIAL_32(BaseStrategy):
+    """
+    A strategy that maintains cooperation while resources are sustainable, 
+    punishes defectors when resources are critical, and maximizes yield 
+    in the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.capacity = game_description.capacity
+        self.n = game_description.n_players
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            if current_stock >= 0.5 * self.capacity:
+                return Action.C
+            else:
+                return Action.D
+        if current_stock < 0.05 * self.capacity:
+            return Action.D
+        i_cooperated = 1 if history.my_actions[-1] else 0
+        total_cooperators_prev = history.opponent_cooperators[-1] + i_cooperated
+        if total_cooperators_prev == self.n:
+            return Action.C
+        if current_stock < 0.5 * self.capacity:
+            return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_5(BaseStrategy):
+    """
+    A Conditional Tit-for-Tat strategy with Resource Preservation.
+    
+    Logic:
+    - Round 1: Always Cooperate (C).
+    - Round r (Final): Always Defect (D).
+    - Rounds 2 to r-1: 
+        - If all players cooperated last round (C_observed == n), continue to Cooperate (C).
+        - If defection occurred (C_observed < n):
+            - If stock < 0.5 * capacity, Defect (D) to secure remaining value.
+            - If stock >= 0.5 * capacity, Cooperate (C) to signal altruism/forgiveness.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_idx = history.round_number
+        total_rounds = self.game_description.n_rounds
+        if current_round_idx == total_rounds - 1:
+            return Action.D
+        if current_round_idx == 0:
+            return Action.C
+        last_opponents_c = history.opponent_cooperators[-1]
+        my_last_action = Action.C if history.my_actions[-1] else Action.D
+        total_cooperators = last_opponents_c + (1 if my_last_action == Action.C else 0)
+        if total_cooperators == self.game_description.n_players:
+            return Action.C
+        safety_threshold = 0.5 * self.game_description.capacity
+        if current_stock < safety_threshold:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_ALTRUISTIC_6(BaseStrategy):
+    """
+    Implements a Conditional Sustainable Stewardship strategy. 
+    Prioritizes resource survival using threshold-based consumption, 
+    reciprocal tit-for-tat logic, and adaptive correction for 
+    unsustainable resource extraction.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.max_rounds = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_stock <= self.capacity / 4.0:
+            return Action.C
+        if current_round == 0:
+            return Action.C
+        last_my_action = history.my_actions[-1]
+        last_opponents_c = history.opponent_cooperators[-1]
+        k = last_opponents_c + (1 if last_my_action else 0)
+        if current_round == self.max_rounds - 1:
+            if current_stock > self.capacity / 2.0:
+                return Action.D
+            return Action.C
+        if k == self.n:
+            return Action.C
+        if current_stock < self.capacity / 2.0:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_ALTRUISTIC_7(BaseStrategy):
+    """
+    Implements a reciprocal cooperation strategy for the Common Pool Resource game.
+    The strategy cooperates by default but switches to defect if the stock
+    reaches critical levels or if the observed aggregate cooperation rate
+    from opponents falls below a trust threshold (0.5) while the stock is declining.
+    It unconditionally defects in the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.trust_threshold = 0.5
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_idx = history.round_number
+        total_rounds = self.game_description.n_rounds
+        n_players = self.game_description.n_players
+        capacity = self.game_description.capacity
+        if current_round_idx == total_rounds - 1:
+            return Action.D
+        if current_stock < capacity * 0.2:
+            return Action.D
+        if current_round_idx > 0:
+            total_cooperators_observed = np.sum(history.opponent_cooperators)
+            total_slots_available = (n_players - 1) * current_round_idx
+            avg_cooperation = total_cooperators_observed / total_slots_available if total_slots_available > 0 else 1.0
+            if avg_cooperation < self.trust_threshold:
+                return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_8(BaseStrategy):
+    """
+    A strategy that prioritizes sustainability by cooperating by default,
+    employing a Tit-for-Tat retaliation mechanism to punish over-extraction,
+    incorporating a forgiveness mechanism, and utilizing a stock-dependent
+    threshold to ensure recovery during critical shortages.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_idx = history.round_number
+        if current_round_idx == 0:
+            return Action.C
+        if current_round_idx >= self.r - 2:
+            if current_stock < 0.25 * self.capacity:
+                return Action.C
+            cooperation_count = np.sum(history.my_actions)
+            cooperation_rate = cooperation_count / current_round_idx
+            if cooperation_rate >= 0.75:
+                return Action.D
+            else:
+                return Action.C
+        last_round_idx = current_round_idx - 1
+        last_my_action = history.my_actions[last_round_idx]
+        last_my_cooperation = 1 if last_my_action else 0
+        total_cooperators = last_my_cooperation + history.opponent_cooperators[last_round_idx]
+        cr = total_cooperators / self.n
+        if current_stock > 0.5 * self.capacity:
+            if cr >= 0.5:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.C
+
+class Strategy_ALTRUISTIC_9(BaseStrategy):
+    """
+    Threshold-Triggered Tit-for-Tat Strategy:
+    - Maintains a 'cooperation score' to track collective behavior.
+    - Starts with cooperation (Round 1).
+    - If the resource is critical (< 20% capacity) or it is the final round, always defect.
+    - Otherwise, updates the cooperation score based on how many opponents cooperated
+      in the previous round. If score >= 0, cooperates; else, defects.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.c_score = 0
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.n_rounds = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.n_rounds - 1:
+            return Action.D
+        if current_stock < 0.2 * self.capacity:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        last_round_idx = -1
+        prev_opp_coop = int(history.opponent_cooperators[last_round_idx])
+        my_prev_action = history.my_actions[last_round_idx]
+        if my_prev_action:
+            others_cooperated = prev_opp_coop
+        else:
+            others_cooperated = prev_opp_coop
+        if others_cooperated == self.n - 1:
+            self.c_score += 1
+        else:
+            self.c_score -= self.n - 1 - others_cooperated
+        if self.c_score >= 0:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_10(BaseStrategy):
+    """
+    Implements the 'Sustainable Stewardship' strategy.
+    
+    This strategy focuses on maintaining the common pool resource stock by prioritizing
+    sustainability. It uses a Tit-for-Tat variant with forgiveness, monitoring the 
+    previous round's cooperation rate (C_rate) and current stock level to decide 
+    whether to cooperate or defect. 
+    
+    It employs:
+    1. Initial cooperation.
+    2. Stock crisis management: If stock is below 20% capacity, it defaults to cooperation.
+    3. Adaptive behavior: 
+        - Cooperate if all cooperate.
+        - Defect if cooperation is low (<= n/2).
+        - Use stock thresholds for medium cooperation scenarios.
+    4. Terminal strategy: Defect in the final round only if the resource is healthy and 
+       the history indicates strong overall cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.n_rounds = game_description.n_rounds
+        self.threshold_stock = 0.5 * self.capacity
+        self.crisis_stock = 0.2 * self.capacity
+        self.last_round_coop_threshold = 0.75 * self.n
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        prev_C_rate = float(history.opponent_cooperators[-1])
+        r = history.round_number
+        if current_stock < self.crisis_stock:
+            return Action.C
+        if r == self.n_rounds - 1:
+            half_r = max(1, r // 2)
+            recent_history = history.opponent_cooperators[-half_r:]
+            avg_C_rate = np.mean(recent_history)
+            if current_stock > self.threshold_stock and avg_C_rate > self.last_round_coop_threshold:
+                return Action.D
+            else:
+                return Action.C
+        if prev_C_rate == self.n:
+            return Action.C
+        elif prev_C_rate <= self.n / 2:
+            return Action.D
+        elif current_stock < self.threshold_stock:
+            return Action.C
+        else:
+            return Action.C
+
+class Strategy_ALTRUISTIC_11(BaseStrategy):
+    """
+    Target State Maintenance (TSM) strategy.
+    
+    Aims to maintain common pool stock at capacity/2 to maximize growth
+    while adapting to opponent behavior and terminal game constraints.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        capacity = self.game_description.capacity
+        r = self.game_description.n_rounds
+        S = current_stock
+        round_num = history.round_number
+        if round_num == 0:
+            return Action.C
+        if round_num == r - 1:
+            return Action.D
+        my_prev_action = int(history.my_actions[-1])
+        k_prev = history.opponent_cooperators[-1] + my_prev_action
+        if S < capacity / n:
+            return Action.C
+        if S > 0.9 * capacity:
+            return Action.D
+        if k_prev < n / 4:
+            S_rem_actual = S - k_prev * (S / (2 * n)) - (n - k_prev) * (S / n)
+            S_next_actual = S_rem_actual + 2 * S_rem_actual * (1 - S_rem_actual / capacity)
+            if S_next_actual <= 0:
+                return Action.D
+            return Action.C
+        S_rem_ideal = S / 2
+        S_next_ideal = S_rem_ideal + 2 * S_rem_ideal * (1 - S_rem_ideal / capacity)
+        if S_next_ideal < capacity / 2 or S < capacity / 4:
+            return Action.C
+        if S_next_ideal > capacity / 2:
+            if k_prev > n / 2:
+                return Action.D
+            else:
+                return Action.C
+        return Action.C
+
+class Strategy_ALTRUISTIC_12(BaseStrategy):
+    """
+    Tit-for-Tat with Forgiveness and Stock Preservation.
+    
+    This strategy aims to maximize collective utility by keeping the resource stock
+    near the optimal capacity/2 level. It employs:
+    1. Initial cooperation.
+    2. Critical threshold checks (play D if stock < 25% capacity).
+    3. Tit-for-Tat punishment for defection.
+    4. Probabilistic forgiveness (based on current stock levels) to restore cooperation.
+    5. Final round defection to maximize terminal payoff.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.total_rounds = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round == self.total_rounds - 1:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        prev_coop_count = history.opponent_cooperators[-1]
+        my_prev_action = history.my_actions[-1]
+        my_prev_coop_int = 1 if my_prev_action else 0
+        total_prev_coop = prev_coop_count + my_prev_coop_int
+        d_count = self.n - total_prev_coop
+        critical_threshold = self.capacity * 0.25
+        if current_stock < critical_threshold:
+            return Action.D
+        if d_count == 0:
+            return Action.C
+        elif current_stock > self.capacity * 0.5:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_13(BaseStrategy):
+    """
+    Adaptive Sustainable Reciprocity:
+    Maintains cooperation as the default state. Monitors the common pool stock level 
+    and opponent defection history. If stock falls below 10% capacity, it switches to 
+    unconditional defection for loss mitigation. Otherwise, it employs a probabilistic 
+    punishment mechanism against defectors, where the risk of punishment scales 
+    inversely with stock health.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if current_stock < 0.1 * self.game_description.capacity:
+            return Action.D
+        n_opponents = self.game_description.n_players - 1
+        if n_opponents <= 0:
+            return Action.C
+        prev_cooperators = history.opponent_cooperators[-1]
+        prev_defectors = n_opponents - prev_cooperators
+        if prev_defectors == 0:
+            return Action.C
+        health = current_stock / self.game_description.capacity
+        risk_factor = 1.5 if health < 0.5 else 0.5
+        prob_punish = min(1.0, prev_defectors / n_opponents * risk_factor)
+        if random.random() < prob_punish:
+            return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_14(BaseStrategy):
+    """
+    Conditional Stewardship: A tit-for-tat strategy focused on sustainable 
+    resource management. It prioritizes the common pool stock level above 
+    punitive actions, forgiving defectors if the stock recovers, and 
+    enforcing a quorum-based cooperation rule.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.quorum = math.ceil((self.game_description.n_players - 1) * 0.75)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        n = self.game_description.n_players
+        capacity = self.game_description.capacity
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_stock < capacity / n:
+            return Action.C
+        if current_stock < 1e-06:
+            return Action.C
+        if current_round == r - 1:
+            if current_stock > capacity / 2:
+                return Action.D
+            return Action.C
+        if current_stock >= capacity / 2:
+            return Action.C
+        m_prev = history.opponent_cooperators[-1]
+        if m_prev >= self.quorum:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_15(BaseStrategy):
+    """
+    Adaptive Stewardship:
+    Balances sustainability with group cooperation levels. It defaults to cooperation in round 1,
+    responds to the aggregate cooperation of opponents in subsequent rounds using thresholds,
+    and enters an emergency conservation mode if the stock drops below the sustainability threshold.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.perfect_coop_streak = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        n_opponents = n - 1
+        r_total = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        round_idx = history.round_number
+        if round_idx == 0:
+            return Action.C
+        total_cooperation_events = np.sum(history.my_actions.astype(int)) + np.sum(history.opponent_cooperators)
+        total_potential_events = round_idx * n
+        history_cooperation_rate = total_cooperation_events / total_potential_events
+        last_round_cooperators = history.opponent_cooperators[-1]
+        my_last_action = int(history.my_actions[-1])
+        if last_round_cooperators + my_last_action == n:
+            self.perfect_coop_streak += 1
+        else:
+            self.perfect_coop_streak = 0
+        critical_threshold = capacity / (2 * n)
+        if current_stock < critical_threshold:
+            return Action.C
+        if self.perfect_coop_streak >= 3:
+            return Action.C
+        if round_idx == r_total - 1:
+            if history_cooperation_rate >= 0.5:
+                return Action.C
+            else:
+                return Action.D
+        last_round_coop_rate = last_round_cooperators / n_opponents if n_opponents > 0 else 0
+        if last_round_coop_rate >= 0.75:
+            return Action.C
+        elif 0.5 <= last_round_coop_rate < 0.75:
+            return Action.C if random.random() < last_round_coop_rate else Action.D
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_16(BaseStrategy):
+    """
+    A conditional cooperation strategy for the Common Pool Resource game.
+    The strategy prioritizes sustainability by cooperating initially and maintaining 
+    cooperation unless the resource stock reaches critical levels or the population 
+    at large turns towards defection. In the final round, it defects to maximize 
+    final utility.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_idx = history.round_number
+        total_rounds = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        n = self.game_description.n_players
+        if round_idx == total_rounds - 1:
+            return Action.D
+        if current_stock < 0.2 * capacity:
+            return Action.D
+        if round_idx == 0:
+            return Action.C
+        n_opponents = n - 1
+        prev_opp_coops = history.opponent_cooperators[-1]
+        my_prev_action = history.my_actions[-1]
+        prev_defectors = n_opponents - prev_opp_coops + (0 if my_prev_action else 1)
+        defector_ratio = prev_defectors / n
+        if defector_ratio > 0.5:
+            return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_17(BaseStrategy):
+    """
+    Implements a 'Conditional Altruism with Sustainability Constraints' strategy.
+    
+    This strategy prioritizes sustainability:
+    1.  Starts by cooperating.
+    2.  If stock is critically low (< 20% capacity), it always cooperates.
+    3.  In the final 2 rounds, it switches to defection to maximize yield before extinction.
+    4.  Otherwise, it calculates system integrity. If the system is resilient to the
+        previous round's defection pattern, it cooperates. If not, it probabilistically
+        cooperates based on the level of previous group cooperation, attempting to 
+        nudge the group back toward sustainability.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.threshold = 0.2 * game_description.capacity
+        self.n = game_description.n_players
+        self.total_rounds = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        remaining_rounds = self.total_rounds - current_round
+        if current_round == 0:
+            return Action.C
+        if current_stock < self.threshold:
+            return Action.C
+        if remaining_rounds <= 2:
+            return Action.D
+        my_prev_action = 1 if history.my_actions[-1] else 0
+        k_prev = history.opponent_cooperators[-1] + my_prev_action
+        if k_prev == self.n:
+            return Action.C
+        m_prev = self.n - k_prev
+        consumption = current_stock / (2 * self.n) * (k_prev + 2 * m_prev)
+        s_rem = max(0.0, current_stock - consumption)
+        growth = 2 * s_rem * (1 - s_rem / self.game_description.capacity)
+        s_next = min(self.game_description.capacity, s_rem + growth)
+        if s_next >= current_stock:
+            return Action.C
+        elif random.random() < k_prev / self.n:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_18(BaseStrategy):
+    """
+    Implements a Conditional Tit-for-Tat with Resource Preservation strategy.
+    
+    Strategy logic:
+    - Round 0: Always Cooperate.
+    - Final Round: Always Defect.
+    - Else if Stock < 20% of Capacity: Cooperate (recovery mode).
+    - Else (if Stock >= 20%): Cooperate if previous round cooperators >= ceil(n/2), else Defect.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.c_threshold = math.ceil(self.n / 2)
+        self.s_crit = 0.2 * self.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round == self.r - 1:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        if current_stock < self.s_crit:
+            return Action.C
+        prev_cooperators = history.opponent_cooperators[-1]
+        my_prev_action_is_coop = bool(history.my_actions[-1])
+        total_cooperators_prev_round = prev_cooperators + (1 if my_prev_action_is_coop else 0)
+        if total_cooperators_prev_round >= self.c_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_19(BaseStrategy):
+    """
+    A strategy that balances altruistic stock preservation with conditional reciprocity.
+    - Initial round: Always Cooperate.
+    - Subsequent rounds:
+        - Cooperate if:
+            - Stock is >= 80% capacity.
+            - Prev round coop rate > 0.5.
+            - Stock is growing.
+        - Defect if:
+            - Stock is < 20% capacity AND prev round coop rate <= 0.5 AND we are in the last 2 rounds.
+            - Stock is < 10% capacity.
+            - Stock dropped by > 50% from previous round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.capacity = float(game_description.capacity)
+        self.n = game_description.n_players
+        self.prev_stock = self.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            self.prev_stock = current_stock
+            return Action.C
+        t = history.round_number
+        r = self.game_description.n_rounds
+        n = self.n
+        my_prev_action = history.my_actions[-1]
+        c_prev_count = history.opponent_cooperators[-1] + (1 if my_prev_action else 0)
+        coop_rate = c_prev_count / n
+        if self.prev_stock > 1e-09:
+            depletion_ratio = current_stock / self.prev_stock
+            if depletion_ratio < 0.5:
+                self.prev_stock = current_stock
+                return Action.D
+        if t >= r - 1 and current_stock < 0.2 * self.capacity or current_stock < 0.1 * self.capacity:
+            self.prev_stock = current_stock
+            return Action.D
+        if current_stock >= 0.8 * self.capacity:
+            self.prev_stock = current_stock
+            return Action.C
+        if coop_rate > 0.5:
+            self.prev_stock = current_stock
+            return Action.C
+        if current_stock > self.prev_stock:
+            self.prev_stock = current_stock
+            return Action.C
+        self.prev_stock = current_stock
+        return Action.D
+
+class Strategy_ALTRUISTIC_20(BaseStrategy):
+    """
+    Tit-for-Tat with Logistic Sustainability Threshold.
+    
+    Maintains resource stock by cooperating at the start and in critical scarcity.
+    Uses Tit-for-Tat logic with a probability based on the observed defection rate
+    from opponents, unless the Expected Sustainability Index (ESI) suggests
+    the resource is at risk, in which case it prioritizes cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.r - 1:
+            if current_stock < self.capacity * 0.5:
+                return Action.C
+            return Action.D
+        num_opponents = self.n - 1
+        num_coop_opponents = history.opponent_cooperators[-1]
+        k = num_opponents - num_coop_opponents
+        if current_stock < self.capacity * 0.25:
+            return Action.C
+        if k == 0:
+            return Action.C
+        cons_coop = current_stock / (2 * self.n)
+        cons_defect = current_stock / self.n
+        my_prev_action = history.my_actions[-1]
+        my_consumption = cons_coop if my_prev_action else cons_defect
+        total_cons = my_consumption + num_coop_opponents * cons_coop + k * cons_defect
+        stock_remaining = max(0.0, current_stock - total_cons)
+        growth = 2 * stock_remaining * (1 - stock_remaining / self.capacity)
+        esi = min(stock_remaining + growth, self.capacity)
+        if esi > self.capacity * 0.5:
+            if random.random() < k / self.n:
+                return Action.D
+            return Action.C
+        else:
+            return Action.C
+
+class Strategy_ALTRUISTIC_21(BaseStrategy):
+    """
+    Tit-for-Tat with Forgiveness and Sustainability Thresholds.
+    
+    This strategy prioritizes long-term common pool sustainability. 
+    - If the current stock is below half capacity, it switches to defection (D) 
+      to buffer against resource collapse.
+    - If the stock is healthy (>= half capacity), it adopts a conditional 
+      cooperation approach based on the previous round's aggregate opponent behavior,
+      requiring at least (n-1)/2 cooperative opponents to maintain cooperation.
+    - It always starts with cooperation (C) in round 0 and defects (D) in the 
+      final round to maximize utility.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        t = history.round_number
+        if t == r - 1:
+            return Action.D
+        if t == 0:
+            return Action.C
+        threshold = capacity / 2.0
+        if current_stock < threshold:
+            return Action.D
+        else:
+            k = history.opponent_cooperators[-1]
+            if k >= (n - 1) / 2.0:
+                return Action.C
+            else:
+                return Action.D
+
+class Strategy_ALTRUISTIC_22(BaseStrategy):
+    """
+    Conditional Reciprocity strategy that prioritizes stock maintenance.
+    - Operates with a buffer (0.75 * capacity) to ensure sustainability.
+    - Defects on the last round.
+    - Cooperates in round 1 and when stock is below target/collapse thresholds.
+    - Uses a 3-round memory to analyze aggregate opponent cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.capacity = float(game_description.capacity)
+        self.n_opponents = game_description.n_players - 1
+        self.target_ratio = 0.75
+        self.collapse_ratio = 0.1
+        self.cooperation_threshold = 0.5
+        self.memory_depth = 3
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        if current_stock <= self.collapse_ratio * self.capacity:
+            return Action.D
+        if current_stock < self.target_ratio * self.capacity:
+            return Action.C
+        recent_history = history.opponent_cooperators[-self.memory_depth:]
+        total_coops = np.sum(recent_history)
+        max_possible_coops = len(recent_history) * self.n_opponents
+        if max_possible_coops == 0:
+            return Action.C
+        avg_cooperation = total_coops / max_possible_coops
+        if avg_cooperation >= self.cooperation_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_23(BaseStrategy):
+    """
+    A conditional cooperation strategy that balances sustainable yield with punishment mechanisms.
+    
+    The strategy prioritizes long-term resource stability:
+    1.  Always cooperates in the first round.
+    2.  Always defects in the final round (zero future value).
+    3.  Defects if current stock is below capacity/4 (Critical Scarcity).
+    4.  Defects if the resource failed to regenerate adequately (Regeneration Check).
+    5.  Defects if any opponent defected in the previous round (Tit-for-Tat Enforcement).
+    6.  Otherwise, defaults to cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def _simulate_stock_dynamics(self, history: PlayerHistory) -> list[float]:
+        """
+        Reconstructs the stock trajectory based on the history of actions.
+        Returns a list of stocks starting with initial capacity.
+        """
+        n = self.game_description.n_players
+        capacity = self.game_description.capacity
+        stocks = [float(capacity)]
+        for r in range(history.round_number):
+            current_s = stocks[-1]
+            my_action = history.my_actions[r]
+            my_cooperation = 1 if my_action == Action.C else 0
+            total_cooperators = history.opponent_cooperators[r] + my_cooperation
+            total_defectors = n - total_cooperators
+            cons_c = current_s / (2 * n)
+            cons_d = current_s / n
+            total_consumption = total_cooperators * cons_c + total_defectors * cons_d
+            s_rem = max(0.0, current_s - total_consumption)
+            if capacity == 0:
+                growth = 0.0
+            else:
+                growth = 2 * s_rem * (1 - s_rem / capacity)
+            next_stock = min(capacity, s_rem + growth)
+            stocks.append(next_stock)
+        return stocks
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if current_stock < self.game_description.capacity / 4:
+            return Action.D
+        stocks = self._simulate_stock_dynamics(history)
+        if len(stocks) >= 2:
+            prev_stock = stocks[-2]
+            if current_stock < prev_stock * 0.8:
+                return Action.D
+        if history.opponent_cooperators[-1] < self.game_description.n_players - 1:
+            return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_24(BaseStrategy):
+    """
+    A Conditional Tit-for-Tat strategy with a Sustainability Threshold.
+    Prioritizes maintaining stock levels above capacity/4 by defaulting to
+    cooperation when the resource is scarce. Uses a majority-rule trigger
+    (n // 2) for standard rounds and an end-game logic that prioritizes
+    resource survival unless full cooperation is already achieved.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n = game_description.n_players
+        self.total_rounds = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        prev_cooperators = int(history.opponent_cooperators[-1])
+        round_idx = history.round_number + 1
+        if round_idx > self.total_rounds - 3:
+            if current_stock < self.capacity / 4.0:
+                return Action.C
+            elif prev_cooperators == self.n - 1:
+                return Action.C
+            else:
+                return Action.D
+        if current_stock < self.capacity / 4.0:
+            return Action.C
+        threshold = self.n // 2
+        if prev_cooperators >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_25(BaseStrategy):
+    """
+    Tit-for-Tat with Forgiveness and Resource Stewardship:
+    Prioritizes sustainable long-term yields.
+    
+    Logic:
+    - Round 1: Cooperate.
+    - Rounds 2 to r-1:
+        - Critical State: If stock <= threshold, randomize C/D.
+        - Reciprocal: If majority of others cooperated in prev round, Cooperate.
+        - Recovery: If stock is growing, Cooperate (Forgiveness).
+        - Otherwise, Defect.
+    - Final Round: Cooperate if stock > threshold, else Defect.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.threshold = game_description.capacity * 0.25
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_idx = history.round_number
+        if current_round_idx == 0:
+            return Action.C
+        if not hasattr(self, '_last_stock'):
+            self._last_stock = self.capacity
+        s_prev = self._last_stock
+        s_curr = current_stock
+        self._last_stock = current_stock
+        if current_round_idx == self.r - 1:
+            return Action.C if s_curr > self.threshold else Action.D
+        if s_curr <= self.threshold:
+            return random.choice([Action.C, Action.D])
+        my_prev_action = 1 if history.my_actions[-1] else 0
+        c_prev = history.opponent_cooperators[-1] + my_prev_action
+        if c_prev >= self.n / 2.0:
+            return Action.C
+        if s_curr > s_prev:
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_26(BaseStrategy):
+    """
+    Implements a 'Conditional Sustainability' strategy.
+    
+    This strategy prioritizes long-term stock regeneration while punishing
+    exploitation. It cooperates if the stock is healthy (>= 75% capacity)
+    or if a majority of other players cooperate. It defects if the stock
+    is being depleted by a majority of defectors or if negative growth
+    trends are detected. In the final three rounds, it switches to a 
+    utility-maximizing approach based on a low-stock threshold.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        t = history.round_number
+        prev_stock = None
+        if not hasattr(self, '_last_stock'):
+            self._last_stock = self.capacity
+        prev_stock = self._last_stock
+        self._last_stock = current_stock
+        observed_cooperators = int(history.opponent_cooperators[-1])
+        if self.r - t < 3:
+            if current_stock < 0.1 * self.capacity:
+                return Action.D
+            return Action.C
+        growth_trend = current_stock < prev_stock
+        coop_threshold = self.n / 2.0
+        healthy_stock = 0.75 * self.capacity
+        if observed_cooperators > coop_threshold or current_stock >= healthy_stock:
+            return Action.C
+        if observed_cooperators < coop_threshold or (growth_trend and observed_cooperators <= coop_threshold):
+            return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_27(BaseStrategy):
+    """
+    Implements an Altruistic Sustainability strategy for the Common Pool Resource game.
+    Prioritizes maintaining stock near capacity/2 to maximize regrowth.
+    Utilizes Tit-for-Tat with Forgiveness logic during standard phases and
+    exploits terminal rounds for final value extraction.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.n_rounds = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_idx = history.round_number
+        if round_idx == 0:
+            return Action.C
+        if round_idx == self.n_rounds - 1:
+            return Action.D if current_stock > 0 else Action.C
+        rounds_remaining = self.n_rounds - round_idx
+        if rounds_remaining <= 2:
+            last_n_c = history.opponent_cooperators[-1]
+            if last_n_c >= self.n / 2:
+                return Action.D
+            return Action.C
+        optimal_stock = self.capacity / 2
+        threshold = self.n / 2
+        if current_stock < self.capacity / 4:
+            return Action.C
+        last_n_c = history.opponent_cooperators[-1]
+        if last_n_c >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_28(BaseStrategy):
+    """
+    A strategy that starts with Cooperation (C). In subsequent rounds, it adapts
+    using a tolerance threshold for cooperation, temporary punishment for
+    unsustainable stock depletion, and specific logic for the terminal phase
+    and high-stock recovery scenarios.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.tolerance = 0
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.max_rounds = game_description.n_rounds
+        self.max_tolerance = self.n // 2
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_stock > 0.9 * self.capacity:
+            return Action.C
+        if current_round == self.max_rounds - 1:
+            if current_stock < self.capacity * 0.1:
+                return Action.D
+            else:
+                return Action.C
+        last_my_action = history.my_actions[-1]
+        my_cooperation = 1 if last_my_action else 0
+        k_prev = history.opponent_cooperators[-1] + my_cooperation
+        if k_prev >= self.n - self.tolerance:
+            return Action.C
+        elif current_stock < self.capacity / 2:
+            self.tolerance = min(self.tolerance + 1, self.max_tolerance)
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_ALTRUISTIC_29(BaseStrategy):
+    """
+    A conditional cooperation strategy that utilizes Tit-for-Tat with probabilistic 
+    punishment and an emergency forgiveness mechanism for low-stock scenarios.
+    
+    Logic:
+    1. Round 1: Always Cooperate.
+    2. Final Round: Cooperate if cooperation threshold was met previously; 
+       otherwise Defect to avoid exploitation.
+    3. Intermediate Rounds: 
+       - If stock is < 25% of capacity, force Cooperate to prevent collapse.
+       - If previous round cooperators >= n/2, Cooperate.
+       - Otherwise, punish probabilistically based on the ratio of defectors 
+         to total players (P = (n - C_prev) / n).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.cooperation_threshold = self.n / 2
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.r - 1:
+            if history.opponent_cooperators[-1] >= self.cooperation_threshold:
+                return Action.C
+            return Action.D
+        if current_stock < 0.25 * self.capacity:
+            return Action.C
+        c_prev = history.opponent_cooperators[-1]
+        if c_prev >= self.cooperation_threshold:
+            return Action.C
+        else:
+            defection_count = self.n - c_prev
+            probability_of_d = defection_count / self.n
+            if random.random() < probability_of_d:
+                return Action.D
+            return Action.C
+
+class Strategy_ALTRUISTIC_30(BaseStrategy):
+    """
+    Adaptive Sustainability Tit-for-Tat:
+    Prioritizes maintaining common pool stock at capacity.
+    - Start: Cooperate.
+    - Last round: Defect.
+    - Critical crash (stock < 20% of previous): Defect.
+    - High Cooperation: If all cooperated last round, maintain cooperation.
+    - Adaptive: If not all cooperated, predict if cooperation sustains growth (S_{t+1} > S_t).
+      If yes, cooperate; otherwise, defect to match behavior/prevent exploitation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.last_stock = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            self.last_stock = float(self.game_description.capacity)
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if current_stock < self.last_stock * 0.2:
+            self.last_stock = current_stock
+            return Action.D
+        n = self.game_description.n_players
+        prev_my_action_val = 1 if history.my_actions[-1] else 0
+        prev_cooperators = history.opponent_cooperators[-1] + prev_my_action_val
+        if prev_cooperators == n:
+            self.last_stock = current_stock
+            return Action.C
+        my_cons_C = current_stock / (2 * n)
+        total_cons_if_I_cooperate = n * (current_stock / (2 * n))
+        remaining_stock = max(0.0, current_stock - total_cons_if_I_cooperate)
+        growth = 2.0 * remaining_stock * (1.0 - remaining_stock / self.game_description.capacity)
+        projected_next_stock = min(remaining_stock + growth, float(self.game_description.capacity))
+        self.last_stock = current_stock
+        if projected_next_stock > current_stock:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_ALTRUISTIC_31(BaseStrategy):
+    """
+    Altruistic Tit-for-Tat with Resource Preservation.
+    This strategy balances collective sustainability with individual utility protection.
+    It cooperates initially, maintains cooperation if the stock is healthy and 
+    others reciprocate, but defects to prevent total exhaustion or when 
+    the resource reaches critical, non-recoverable levels.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.r = game_description.n_rounds
+        self.reciprocity_threshold = math.ceil((self.n - 1) / 2)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_stock < 1.0:
+            return Action.D
+        if current_round == self.r - 1:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        prev_k = history.opponent_cooperators[-1]
+        my_prev_action = 1 if history.my_actions[-1] else 0
+        total_cooperators = my_prev_action + prev_k
+        total_defectors = self.n - total_cooperators
+        if current_stock < 0.2 * self.capacity:
+            return Action.D
+        if prev_k >= self.reciprocity_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_32(BaseStrategy):
+    """
+    Implements a Conditional Sustainable Tit-for-Tat strategy.
+    
+    Logic:
+    1. First round: Always Cooperate (C).
+    2. Terminal phase (final round): Cooperate if stock >= 0.5 * capacity, else Defect (D).
+    3. Resource constraint: If the stock at the end of the previous round was < 0.8 * capacity, Defect.
+    4. Tit-for-tat/Punishment logic: If defectors were present in the previous round, 
+       punish by playing D. If currently punishing (playing D), only resume cooperation if 
+       stock >= 0.5 * capacity. Otherwise, Cooperate.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            if current_stock >= 0.5 * self.game_description.capacity:
+                return Action.C
+            return Action.D
+        last_round_idx = history.round_number - 1
+        last_stock = current_stock
+        my_last_action_is_c = history.my_actions[-1]
+        opp_c_count = history.opponent_cooperators[-1]
+        n = self.game_description.n_players
+        total_cooperators = (1 if my_last_action_is_c else 0) + opp_c_count
+        total_defectors = n - total_cooperators
+        if last_stock < 0.8 * self.game_description.capacity:
+            return Action.D
+        if total_defectors > 0:
+            if not my_last_action_is_c and current_stock >= 0.5 * self.game_description.capacity:
+                return Action.C
+            else:
+                return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_5(BaseStrategy):
+    """
+    Implements a 'Conditional Sustainability' strategy.
+    
+    This strategy aims to maintain the common pool stock at capacity/2 (optimal regeneration).
+    It cooperates in the first round to signal intent and defects in the final round to
+    prevent exploitation. In intermediate rounds, it monitors the cooperation level of 
+    others and the state of the stock. It defects if the stock is critically low (below
+    capacity/4) or if the peer group is not providing sufficient cooperation 
+    (R < 0.5 where R = (cooperators_prev + 1) / n_players).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_idx = history.round_number
+        if round_idx == self.r - 1:
+            return Action.D
+        if round_idx == 0:
+            return Action.C
+        if current_stock < self.capacity / 4.0:
+            return Action.D
+        c_observed = int(history.opponent_cooperators[-1])
+        if c_observed >= self.n / 2.0 - 1:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_6(BaseStrategy):
+    """
+    Resilient Sustainability: A conditional cooperation strategy that maintains 
+    common pool levels by monitoring past cooperation, enforcing a stability 
+    threshold, and initiating recovery phases when stock levels are robust.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        round_idx = history.round_number
+        current_round = round_idx + 1
+        if current_stock < capacity / n:
+            return Action.C
+        if current_round == r:
+            if current_stock >= capacity * 0.25:
+                return Action.D
+            return Action.C
+        if current_round == 1:
+            return Action.C
+        last_opponent_coop_count = history.opponent_cooperators[-1]
+        last_my_action = 1 if history.my_actions[-1] else 0
+        k_prev = last_opponent_coop_count + last_my_action
+        threshold = n - 1
+        if k_prev >= threshold:
+            return Action.C
+        elif current_stock >= capacity * 0.5:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_7(BaseStrategy):
+    """
+    Adaptive Sustainable Tit-for-Tat (ASTFT): A strategy that balances stock 
+    sustainability with conditional cooperation. It monitors stock levels and 
+    opponent behavior to trigger either cooperative growth or measured punishment.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.r = game_description.n_rounds
+        self.two_consecutive_full_coop = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        my_last_move = history.my_actions[-1]
+        last_c = history.opponent_cooperators[-1]
+        if last_c == self.n:
+            self.two_consecutive_full_coop += 1
+        else:
+            self.two_consecutive_full_coop = 0
+        if t == self.r - 1:
+            if current_stock >= self.capacity / 2:
+                return Action.C
+            return Action.D
+        if current_stock <= self.capacity / (2 * self.n):
+            return Action.C
+        if current_stock < self.capacity / self.n:
+            return Action.C
+        opponents_cooperating = last_c - (1 if my_last_move else 0)
+        fraction_coop = opponents_cooperating / (self.n - 1)
+        if self.two_consecutive_full_coop >= 2:
+            fraction_coop = max(fraction_coop, 0.6)
+        if fraction_coop > 0.5:
+            return Action.C
+        else:
+            if random.random() < 1.0 - fraction_coop:
+                return Action.D
+            return Action.C
+
+class Strategy_BENEVOLENT_8(BaseStrategy):
+    """
+    Conditional Sustainability strategy:
+    Balances resource preservation with opportunistic defense. Cooperates primarily when
+    stock is high or when group cooperation is robust. Switches to defection if the 
+    resource becomes critically depleted or when opponents demonstrate uncooperative behavior.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.sustainability_threshold = 0.5 * self.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if current_stock <= 0:
+            return Action.D
+        round_idx = history.round_number
+        if round_idx == 0:
+            return Action.C
+        n_opponents = self.n - 1
+        last_round_idx = round_idx - 1
+        k = history.opponent_cooperators[last_round_idx]
+        I = k / n_opponents if n_opponents > 0 else 0.0
+        is_perfect_coop = False
+        if round_idx >= 3:
+            if history.opponent_cooperators[-1] == n_opponents and history.opponent_cooperators[-2] == n_opponents and (history.opponent_cooperators[-3] == n_opponents):
+                is_perfect_coop = True
+        if current_stock < 0.1 * self.capacity:
+            if I == 1.0:
+                return Action.C
+            return Action.D
+        if round_idx == self.r - 1:
+            if current_stock > self.capacity / self.n:
+                return Action.C
+            else:
+                return Action.D
+        if is_perfect_coop:
+            if current_stock >= 0.2 * self.capacity:
+                return Action.C
+        if current_stock > self.sustainability_threshold:
+            return Action.C
+        elif I >= 0.5:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_9(BaseStrategy):
+    """
+    Sustainable Tit-for-Tat with Resilience Buffer:
+    Maintains a reputation score based on opponent cooperation history.
+    - Cooperates in round 1.
+    - Defects in the final round to maximize payoff.
+    - Cooperates if stock is critically low (< capacity/n) to prevent total collapse.
+    - Otherwise, cooperates if reputation >= 0.6, else defects.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.reputation = 1.0
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number + 1
+        if current_round == self.r:
+            return Action.D
+        if current_stock < self.capacity / self.n:
+            return Action.C
+        if current_round == 1:
+            return Action.C
+        prev_round_observed_C = history.opponent_cooperators[-1]
+        n_opponents = self.n - 1
+        if n_opponents > 0:
+            current_coop_ratio = prev_round_observed_C / n_opponents
+            self.reputation = 0.7 * self.reputation + 0.3 * current_coop_ratio
+        if self.reputation >= 0.6:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_10(BaseStrategy):
+    """
+    Tit-for-Tat with Forgiveness and Resource Awareness strategy.
+    
+    Prioritizes sustainability:
+    1. Always cooperates in the first round.
+    2. If stock < capacity/2, forces cooperation to recover resources.
+    3. If stock >= capacity/2, matches previous group cooperation (Trigger threshold n/2).
+    4. If the game is in the final round, cooperates only if full cooperation was maintained
+       throughout history, otherwise defects to maximize final payoff.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.has_full_cooperation_been_maintained = True
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        capacity = self.game_description.capacity
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round > 0:
+            my_prev_action = int(history.my_actions[current_round - 1])
+            total_cooperators = history.opponent_cooperators[current_round - 1] + my_prev_action
+            if total_cooperators < n:
+                self.has_full_cooperation_been_maintained = False
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            if self.has_full_cooperation_been_maintained:
+                return Action.C
+            else:
+                return Action.D
+        if current_stock < 0.001 * capacity:
+            return Action.D
+        if current_stock < capacity / 2.0:
+            return Action.C
+        my_prev_action = int(history.my_actions[current_round - 1])
+        total_cooperators_prev = history.opponent_cooperators[current_round - 1] + my_prev_action
+        threshold = n / 2.0
+        if total_cooperators_prev >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_11(BaseStrategy):
+    """
+    Tit-for-Tat with Forgiveness and Resource Stewardship strategy.
+    Prioritizes sustainability by tracking pool stock trends, punishing defectors 
+    while employing a forgiveness mechanism to re-establish cooperation, 
+    and adopting a risk-averse stance when stock levels are critical.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.cooperation_threshold_offset = 0
+        self.my_last_action = None
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r_total = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            self.my_last_action = Action.C
+            return Action.C
+        if current_round == r_total - 1:
+            self.my_last_action = Action.D
+            return Action.D
+        if current_stock <= 2 * n or current_stock < 1.5 * n:
+            self.my_last_action = Action.D
+            return Action.D
+        if current_round >= 3:
+            self.cooperation_threshold_offset = 1
+        else:
+            self.cooperation_threshold_offset = 0
+        my_prev_C = 1 if self.my_last_action == Action.C else 0
+        total_C = history.opponent_cooperators[-1] + my_prev_C
+        threshold = max(0, n // 2 - self.cooperation_threshold_offset)
+        action = Action.D
+        if total_C >= threshold:
+            action = Action.C
+        elif self.my_last_action == Action.D:
+            action = Action.C
+        else:
+            action = Action.D
+        self.my_last_action = action
+        return action
+
+class Strategy_BENEVOLENT_12(BaseStrategy):
+    """
+    A sustainability-contingent reciprocity strategy for the Common Pool Resource Game.
+    
+    Logic overview:
+    1. First round (t=1): Always Cooperate (C).
+    2. Endgame phase (final two rounds):
+       - If stock > 50% capacity, Defect (D) to capture value.
+       - Otherwise, Cooperate (C) to ensure survival.
+    3. Sustainability check:
+       - Calculates theoretical stock S_theory if all players had cooperated in the previous round.
+       - If current stock < 90% of S_theory:
+         - If stock < 20% capacity, Cooperate (C) (Emergency mode).
+         - Else, Defect (D) (Assume depletion is inevitable or exploitation is required).
+    4. Reciprocity check:
+       - Uses the number of cooperators from the previous round (k).
+       - If everyone cooperated, cooperate.
+       - Otherwise, cooperate with probability p = k / (n - 1).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.last_known_stock = float(game_description.capacity)
+
+    def _calculate_s_theory(self, s_prev: float) -> float:
+        """
+        Calculates the theoretical stock for the next round assuming everyone cooperates.
+        Consumption_i = S / (2n)
+        Total Consumption = n * (S / (2n)) = S / 2
+        S_remaining = S - S/2 = S/2
+        Growth = 2 * S_remaining * (1 - S_remaining / capacity)
+        New Stock = min(S_remaining + Growth, capacity)
+        """
+        s_remaining = s_prev / 2.0
+        growth = 2.0 * s_remaining * (1.0 - s_remaining / self.game_description.capacity)
+        return min(s_remaining + growth, float(self.game_description.capacity))
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        n = self.game_description.n_players
+        capacity = float(self.game_description.capacity)
+        if t == 0:
+            self.last_known_stock = current_stock
+            return Action.C
+        if t >= self.game_description.n_rounds - 2:
+            self.last_known_stock = current_stock
+            if current_stock > 0.5 * capacity:
+                return Action.D
+            else:
+                return Action.C
+        s_theory = self._calculate_s_theory(self.last_known_stock)
+        if current_stock < 0.9 * s_theory:
+            self.last_known_stock = current_stock
+            if current_stock <= 0.2 * capacity:
+                return Action.C
+            else:
+                return Action.D
+        k = history.opponent_cooperators[-1] + (1 if history.my_actions[-1] else 0)
+        self.last_known_stock = current_stock
+        if k >= n - 1:
+            return Action.C
+        else:
+            if n - 1 == 0:
+                return Action.C
+            threshold = k / (n - 1)
+            if random.random() < threshold:
+                return Action.C
+            else:
+                return Action.D
+
+class Strategy_BENEVOLENT_13(BaseStrategy):
+    """
+    Conditional Stewardship Strategy (Tit-for-Tat with Resource Thresholds).
+    
+    This strategy prioritizes long-term sustainability by cooperating in the first round 
+    and in subsequent rounds where no defection is detected. If defection is detected 
+    (k > 0), the strategy responds adaptively:
+    - If the stock is critically low (< 25% of capacity), it defects for self-preservation.
+    - Otherwise, it defects with probability proportional to the observed defection, 
+      acting as a deterrent to exploiters while attempting to stabilize the pool.
+    - It always defects in the final round to capture remaining resource value.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.n_rounds - 1:
+            return Action.D
+        last_round_cooperators = history.opponent_cooperators[-1]
+        n_opponents = self.n - 1
+        previous_k = n_opponents - last_round_cooperators
+        if previous_k == 0:
+            return Action.C
+        if current_stock < self.capacity * 0.25:
+            return Action.D
+        p_defect = previous_k / n_opponents
+        if random.random() < p_defect:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_BENEVOLENT_14(BaseStrategy):
+    """
+    A conditional reciprocity strategy for the Common Pool Resource game.
+    It prioritizes stock preservation by cooperating initially, using Tit-for-Tat
+    with forgiveness, and employing defect-based punishment when necessary, 
+    while ultimately defecting in the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.consecutive_defector_rounds = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        round_idx = history.round_number
+        current_round = round_idx + 1
+        if current_round == r:
+            return Action.D
+        if round_idx == 0:
+            return Action.C
+        if current_stock <= 0:
+            return Action.D
+        if current_round > r // 2:
+            if round_idx >= 2:
+                recent_defect = history.opponent_cooperators[-1] < n - 1
+                prev_defect = history.opponent_cooperators[-2] < n - 1
+                if recent_defect and prev_defect:
+                    return Action.D
+        last_round_cooperators = history.opponent_cooperators[-1]
+        is_stock_critically_low = current_stock < capacity / n
+        if last_round_cooperators < n - 1:
+            self.consecutive_defector_rounds += 1
+        else:
+            self.consecutive_defector_rounds = 0
+        if last_round_cooperators == n - 1:
+            return Action.C
+        if self.consecutive_defector_rounds >= 2:
+            self.consecutive_defector_rounds = 0
+            return Action.D
+        if is_stock_critically_low:
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_15(BaseStrategy):
+    """
+    The Sustainable Tit-for-Tat Strategy (STFT).
+    
+    This strategy focuses on maintaining common pool resources at maximum sustainable yield
+    by cooperating when others cooperate, applying defensive defection if the pool 
+    dips below critical thresholds after others defect, and defecting on the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_idx = history.round_number
+        if round_idx == 0:
+            return Action.C
+        if round_idx == self.game_description.n_rounds - 1:
+            return Action.D
+        my_last_action = history.my_actions[-1]
+        my_last_was_c = 1 if my_last_action else 0
+        total_cooperators = my_last_was_c + history.opponent_cooperators[-1]
+        if total_cooperators == self.game_description.n_players:
+            return Action.C
+        if current_stock < 0.5 * self.game_description.capacity:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_BENEVOLENT_16(BaseStrategy):
+    """
+    A Trigger-Modified Tit-for-Tat strategy that prioritizes sustainability.
+    
+    Logic:
+    - First Round: Cooperate (C).
+    - Final Round: Defect (D).
+    - Rounds [2, r-1]:
+        - If stock < capacity/4: Emergency C (override all).
+        - If stock >= capacity/2:
+            - If cooperators k >= n-1: C.
+            - If cooperators k < n-1: D (retaliation).
+        - If capacity/4 <= stock < capacity/2: C (maintain sustainability).
+    - Reset Condition: If stock >= capacity, treat as sub-game (C).
+    - Rapid Depletion Check: If previous round caused loss > 50% of previous stock, C.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.desc = game_description
+        self.prev_stock = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            self.prev_stock = self.desc.capacity
+            return Action.C
+        if history.round_number == self.desc.n_rounds - 1:
+            return Action.D
+        my_prev_action = history.my_actions[-1]
+        my_prev_coop = 1 if my_prev_action else 0
+        k = history.opponent_cooperators[-1] + my_prev_coop
+        if current_stock < self.desc.capacity / 4.0 or current_stock < 1.0:
+            self.prev_stock = current_stock
+            return Action.C
+        if self.prev_stock - current_stock > 0.5 * self.prev_stock:
+            self.prev_stock = current_stock
+            return Action.C
+        if current_stock >= self.desc.capacity:
+            self.prev_stock = current_stock
+            return Action.C
+        if current_stock >= self.desc.capacity / 2.0:
+            if k >= self.desc.n_players - 1:
+                self.prev_stock = current_stock
+                return Action.C
+            else:
+                self.prev_stock = current_stock
+                return Action.D
+        else:
+            self.prev_stock = current_stock
+            return Action.C
+
+class Strategy_BENEVOLENT_17(BaseStrategy):
+    """
+    Implements a 'Conditional Sustainment' strategy for the Common Pool Resource game.
+    The strategy balances resource preservation with retaliatory defection.
+    - Round 1: Always Cooperate.
+    - Terminal Round: Always Defect.
+    - Steady State: Maintains Cooperation if stock >= 90% capacity or if 
+      aggregate opponent cooperation is >= 50%.
+    - Rescue: Prioritizes Cooperation if stock < 10% capacity.
+    - Forgiveness: Transitions from Defect to Cooperate if stock >= 50% capacity.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_opponents = self.game_description.n_players - 1
+        self.cooperation_threshold = self.n_opponents / 2.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        last_action_was_defect = history.my_actions[-1] == False
+        prev_opponents_cooperated = history.opponent_cooperators[-1]
+        if current_stock < 0.1 * self.game_description.capacity:
+            return Action.C
+        if last_action_was_defect and current_stock >= 0.5 * self.game_description.capacity:
+            return Action.C
+        if current_stock >= 0.9 * self.game_description.capacity:
+            return Action.C
+        if prev_opponents_cooperated >= self.cooperation_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_18(BaseStrategy):
+    """
+    Implements a Conditional Tit-for-Tat strategy for the Common Pool Resource Game.
+    
+    This strategy focuses on sustainability by:
+    1. Always cooperating in the first round.
+    2. Monitoring opponent cooperation in the previous round to decide on reciprocity.
+    3. Applying a regenerative constraint (cooperate if stock is critically low).
+    4. Utilizing an adaptive threshold based on current stock levels when cooperation is low.
+    5. Optimizing for utility in the final round without unnecessary depletion.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.total_rounds = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        current_round = history.round_number
+        if current_round == self.total_rounds - 1:
+            if current_stock >= self.capacity / self.n:
+                return Action.D
+            else:
+                return Action.C
+        last_opponent_coops = history.opponent_cooperators[-1]
+        i_cooperated = 1 if history.my_actions[-1] else 0
+        total_cooperators_prev = last_opponent_coops + i_cooperated
+        if total_cooperators_prev >= self.n - 1:
+            return Action.C
+        if current_stock < 0.2 * self.capacity:
+            return Action.C
+        if current_stock > 0.5 * self.capacity:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_19(BaseStrategy):
+    """
+    Tit-for-Tat with Forgiving Resilience.
+    Maintains the common pool stock near capacity by adjusting cooperation based on health factors,
+    population behavior, and targeted punishment/forgiveness logic.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.punishment_round_active = False
+        self.stagnation_counter = 0
+        self.previous_stock = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        total_rounds = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        n = self.game_description.n_players
+        if current_round == total_rounds - 1:
+            return Action.D
+        if current_round == 0:
+            self.previous_stock = current_stock
+            return Action.C
+        H = current_stock / capacity
+        my_last_action_int = 1 if history.my_actions[-1] else 0
+        total_cooperators = history.opponent_cooperators[-1] + my_last_action_int
+        C_rate = total_cooperators / n
+        if (self.previous_stock - current_stock) / self.previous_stock > 0.3:
+            self.punishment_round_active = True
+        else:
+            self.punishment_round_active = False
+        if H < 0.5:
+            self.stagnation_counter += 1
+        else:
+            self.stagnation_counter = 0
+        self.previous_stock = current_stock
+        if self.stagnation_counter >= 3:
+            self.stagnation_counter = 0
+            return Action.C
+        if self.punishment_round_active:
+            return Action.D
+        if H < 0.25:
+            return Action.C if H > 0.1 else Action.D
+        if H >= 0.9:
+            if total_cooperators < n:
+                return Action.D
+            return Action.C
+        if C_rate >= 0.5:
+            return Action.C
+        elif random.random() < 1.0 - C_rate:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_BENEVOLENT_20(BaseStrategy):
+    """
+    Implements a 'Conditional Sustainability' strategy.
+    
+    This strategy prioritizes long-term resource viability by aiming to maintain 
+    the stock at K/2. It uses a conditional cooperation approach:
+    1. Plays C initially.
+    2. In subsequent rounds, it cooperates if a majority (>= 50%) of the group 
+       cooperated in the previous round and the stock is above a critical floor (K/n).
+    3. If the stock is critically low (< 0.1 * K), it forces defection to recover stock.
+    4. Otherwise, it switches to 'Defensive Defection' to punish free-riders or 
+       recover stock, returning to C in the next round to allow cooperation to reform.
+    5. In the final round, it defects only if the stock is critically low (<= K/4),
+       otherwise it cooperates to maximize final welfare.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        capacity = self.game_description.capacity
+        r = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            if current_stock <= capacity / 4.0:
+                return Action.D
+            else:
+                return Action.C
+        my_last_action_was_c = history.my_actions[-1]
+        last_round_cooperators = history.opponent_cooperators[-1] + (1 if my_last_action_was_c else 0)
+        cooperation_fraction = last_round_cooperators / n
+        critical_depletion_floor = capacity / n
+        if current_stock < 0.1 * capacity:
+            return Action.D
+        if cooperation_fraction >= 0.5 and current_stock >= critical_depletion_floor:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_21(BaseStrategy):
+    """
+    Sustainable Tit-for-Tat (STFT):
+    A reciprocal strategy that maximizes long-term social welfare by maintaining 
+    the common pool stock. It cooperates in the first and final rounds, and uses 
+    a threshold-based mechanism for middle rounds: it cooperates if at least 
+    floor(n/2) players cooperated in the previous round, otherwise it defects 
+    briefly to punish, then reverts to cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.threshold = math.floor(self.game_description.n_players / 2)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.C
+        last_my_action = history.my_actions[-1]
+        last_opponent_coops = history.opponent_cooperators[-1]
+        total_cooperators = (1 if last_my_action else 0) + last_opponent_coops
+        if total_cooperators >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_22(BaseStrategy):
+    """
+    Implements a conditional Tit-for-Tat strategy optimized for Common Pool Resource dynamics.
+    It balances sustainable extraction with punishment mechanisms to maintain the resource stock.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        capacity = float(self.game_description.capacity)
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            if current_stock >= 0.5 * capacity:
+                return Action.D
+            return Action.C
+        if current_stock < 0.5 * capacity:
+            return Action.C
+        my_prev_action = history.my_actions[-1]
+        opp_prev_coop = history.opponent_cooperators[-1]
+        total_prev_coop = opp_prev_coop + (1 if my_prev_action else 0)
+        prev_defectors = self.game_description.n_players - total_prev_coop
+        if prev_defectors == 0 or math.isclose(current_stock, capacity, rel_tol=0.001):
+            return Action.C
+        if prev_defectors > 0 and current_stock >= 0.5 * capacity:
+            if current_stock < 0.8 * capacity:
+                return Action.D
+            else:
+                return Action.C
+        return Action.C
+
+class Strategy_BENEVOLENT_23(BaseStrategy):
+    """
+    Implements the Adaptive Sustainable Tit-for-Tat strategy.
+    
+    This strategy maintains the common pool stock by enforcing a cooperative equilibrium
+    using a tit-for-tat approach based on the cooperation ratio (CR). It includes 
+    mechanisms for resource recovery when stock levels are critical and switches to 
+    selfish exploitation in the terminal round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.threshold = 0.5
+        self.recovery_fraction = 0.25
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r_total = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == r_total - 1:
+            if current_stock > 0:
+                return Action.D
+            else:
+                return Action.C
+        if current_round == 0:
+            return Action.C
+        if current_stock <= self.game_description.capacity * self.recovery_fraction:
+            return Action.C
+        prev_my_action = history.my_actions[-1]
+        prev_opp_coop_count = history.opponent_cooperators[-1]
+        total_cooperators = int(prev_my_action) + prev_opp_coop_count
+        cr = total_cooperators / n
+        if cr >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_24(BaseStrategy):
+    """
+    Implements a reputation-based resource management strategy for the Common Pool Resource Game.
+    The agent dynamically tracks the 'reputation' of the collective, derived from the count of
+    cooperating players in the previous round, and modulates between Cooperation (C) and 
+    Defection (D) based on resource thresholds and reputation trust levels.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.reputation = 1.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number + 1
+        r = self.game_description.n_rounds
+        n = self.game_description.n_players
+        capacity = self.game_description.capacity
+        if t == 1:
+            self.reputation = 1.0
+        else:
+            my_last_action_val = 1 if history.my_actions[-1] else 0
+            k_prev = history.opponent_cooperators[-1] + my_last_action_val
+            self.reputation = self.reputation * 0.9 + k_prev / n * 0.1
+        if t == r:
+            return Action.C if self.reputation >= 0.5 else Action.D
+        if t < r:
+            if current_stock < capacity * 0.2:
+                return Action.D
+            if self.reputation >= 0.6:
+                return Action.C
+            else:
+                return Action.D
+        return Action.D
+
+class Strategy_BENEVOLENT_25(BaseStrategy):
+    """
+    A strategy that maximizes long-term collective welfare in a Common Pool Resource game.
+    
+    Logic:
+    1. Always initiates with C.
+    2. If the stock is critically low (< 0.5 * capacity), forces C to allow recovery.
+    3. In the final round, defects (D) unless stock is critically low (< 0.25 * capacity),
+       where it switches to C to minimize loss.
+    4. Otherwise, uses a Tit-for-Tat threshold approach: cooperates (C) if at least 50%
+       of opponents cooperated in the previous round, otherwise defects (D).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.capacity = game_description.capacity
+        self.n_opponents = game_description.n_players - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        is_final_round = history.round_number == self.game_description.n_rounds - 1
+        if not is_final_round and current_stock < 0.5 * self.capacity:
+            return Action.C
+        if is_final_round:
+            if current_stock < 0.25 * self.capacity:
+                return Action.C
+            else:
+                return Action.D
+        prev_opp_c_count = float(history.opponent_cooperators[-1])
+        if self.n_opponents > 0 and prev_opp_c_count / self.n_opponents >= 0.5:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_BENEVOLENT_26(BaseStrategy):
+    """
+    Trigger-Adaptive Cooperation:
+    Maintains resource health by balancing cooperative norms with conditional defection
+    to punish non-cooperation, while preserving the stock against extinction.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.consecutive_low_performance = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if current_stock < self.game_description.capacity / (2 * self.game_description.n_players):
+            return Action.C
+        threshold = math.ceil(self.game_description.n_players / 2)
+        k_prev = history.opponent_cooperators[-1]
+        if k_prev < threshold:
+            self.consecutive_low_performance += 1
+        else:
+            self.consecutive_low_performance = 0
+        if self.consecutive_low_performance > 3:
+            return Action.D
+        if history.round_number == self.game_description.n_rounds - 1:
+            if current_stock <= self.game_description.capacity / 2:
+                return Action.D
+            else:
+                return Action.C
+        if current_stock >= 0.95 * self.game_description.capacity:
+            if k_prev >= self.game_description.n_players - 2:
+                return Action.C
+        if k_prev >= threshold:
+            return Action.C
+        else:
+            last_action_was_C = history.my_actions[-1]
+            if not last_action_was_C:
+                return Action.C
+            else:
+                return Action.D
+
+class Strategy_BENEVOLENT_27(BaseStrategy):
+    """
+    Implements a resource-aware adaptive strategy:
+    - Round 0: Cooperate.
+    - Round r: Always Defect if stock > 0.
+    - Otherwise:
+        - If previous round cooperators k > n/2, Cooperate (Consensus).
+        - If current stock S <= S_crit (where S_crit decreases with time), Cooperate (Survival).
+        - Default: Defect (Punishment).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.r - 1:
+            if current_stock > 0:
+                return Action.D
+            return Action.D
+        s_crit = self.capacity / 2 * (1 - current_round / self.r)
+        if current_stock <= s_crit:
+            return Action.C
+        k_prev = history.opponent_cooperators[-1]
+        if history.my_actions[-1]:
+            total_cooperators = k_prev + 1
+        else:
+            total_cooperators = k_prev
+        if total_cooperators > self.n / 2:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_28(BaseStrategy):
+    """
+    Implements the Adaptive Sustainable Stewardship strategy.
+    
+    This strategy focuses on conditional cooperation. It attempts to maintain 
+    the resource stock when robust but switches to competitive behavior (Defection) 
+    when the resource becomes vulnerable or when the final round approaches 
+    without sufficient stock.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.total_rounds = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if current_stock < self.capacity / (2 * self.n):
+            return Action.D
+        if history.round_number == self.total_rounds - 1:
+            if current_stock > self.capacity / 4:
+                return Action.C
+            else:
+                return Action.D
+        prev_round_cooperators = int(history.opponent_cooperators[-1])
+        my_last_action_was_c = bool(history.my_actions[-1])
+        total_cooperators_last_round = prev_round_cooperators + (1 if my_last_action_was_c else 0)
+        is_vulnerable = current_stock <= self.capacity / 2
+        if total_cooperators_last_round == self.n:
+            return Action.C
+        if is_vulnerable and total_cooperators_last_round < self.n:
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_29(BaseStrategy):
+    """
+    Tit-for-Tat with Resource-Aware Forgiveness.
+    
+    Prioritizes sustainability via conditional cooperation.
+    - Round 1: Always Cooperate.
+    - End-game: If <= 3 rounds left, cooperate only if stock > 50% capacity.
+    - Threshold: Defect if stock < 5% capacity, or if < 50% of players cooperated last round,
+      or if stock < 20% capacity.
+    - Recovery: If stock increased for two consecutive rounds, switch to Cooperation
+      regardless of other conditions.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.prev_stock = None
+        self.stock_history = []
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            self.prev_stock = current_stock
+            return Action.C
+        if len(self.stock_history) >= 2:
+            s_t_minus_1 = self.stock_history[-1]
+            s_t_minus_2 = self.stock_history[-2]
+            if current_stock > s_t_minus_1 and s_t_minus_1 > s_t_minus_2:
+                self.stock_history.append(current_stock)
+                return Action.C
+        self.stock_history.append(current_stock)
+        rounds_remaining = self.r - current_round
+        if rounds_remaining <= 3:
+            if current_stock > 0.5 * self.capacity:
+                return Action.C
+            else:
+                return Action.D
+        if current_stock < 0.05 * self.capacity:
+            return Action.D
+        my_prev_c = 1 if history.my_actions[-1] else 0
+        total_cooperators_prev = history.opponent_cooperators[-1] + my_prev_c
+        threshold = self.n // 2
+        if total_cooperators_prev >= threshold and current_stock > 0.2 * self.capacity:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_30(BaseStrategy):
+    """
+    A Tit-for-Tat inspired strategy with Forgiveness and Resource Awareness.
+    
+    Logic:
+    1. Initial Round: Always cooperates.
+    2. Final Round: Cooperates if the current stock is sufficient to support a cooperative payout, 
+       otherwise defects to maximize final yield.
+    3. Intermediate Rounds: 
+       - Cooperates if all opponents cooperated in the previous round.
+       - If some opponents defected, it offers 'Forgiveness' (Cooperation) if the ecosystem is 
+         still healthy (stock > 50% capacity).
+       - Otherwise, it punishes defection with Defection.
+    4. Edge Cases:
+       - Near-Depletion: If stock is below growth threshold (simplified as stock <= 0), it forces cooperation.
+       - Persistent Defection: Switches to Defection if the ecosystem is collapsed.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.r = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if current_stock <= 1e-09:
+            return Action.C
+        if history.round_number == self.r - 1:
+            if current_stock <= self.capacity / self.n:
+                return Action.D
+            else:
+                return Action.C
+        k = history.opponent_cooperators[-1]
+        if k == self.n - 1:
+            return Action.C
+        if current_stock > 0.5 * self.capacity:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_31(BaseStrategy):
+    """
+    Implements a Trigger-Modified Tit-for-Tat strategy for the Common Pool Resource Game.
+    
+    Strategy Logic:
+    - Round 1 (index 0): Always Cooperate (C).
+    - Rounds 2 to r-1: 
+        - If current stock < capacity / 4: Cooperate (C) to prevent collapse.
+        - If stock >= capacity / 4: 
+            - If all opponents cooperated last round: Cooperate (C).
+            - If any opponents defected: Defect (D) with probability p = 1 - (c / (n-1)),
+              where c is the number of cooperating opponents.
+    - Final Round: Always Defect (D).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        total_rounds = self.game_description.n_rounds
+        if current_round == total_rounds - 1:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        if current_stock < self.game_description.capacity / 4:
+            return Action.C
+        num_opponents = self.game_description.n_players - 1
+        prev_round_opponents_cooperated = history.opponent_cooperators[-1]
+        if prev_round_opponents_cooperated == num_opponents:
+            return Action.C
+        coop_rate = prev_round_opponents_cooperated / num_opponents
+        if random.random() > coop_rate:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_BENEVOLENT_32(BaseStrategy):
+    """
+    Tit-for-Tat with Graduated Stock Sensitivity.
+    Maintains a reputation score for opponents.
+    Prioritizes C when ecosystem is healthy (> 0.5 capacity) or reputation is high.
+    Includes a preservation mechanism when stock is critically low (< 10% capacity).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.reputation_score = 1.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if current_stock < 0.1 * self.capacity and history.round_number < self.r - 1:
+            return Action.C
+        if history.round_number == 0:
+            return Action.C
+        num_opponents = self.n - 1
+        if num_opponents > 0:
+            cooperation_rate = history.opponent_cooperators[-1] / num_opponents
+            self.reputation_score = 0.9 * self.reputation_score + 0.1 * cooperation_rate
+        else:
+            self.reputation_score = 1.0
+        if history.round_number == self.r - 1:
+            if current_stock > 0.25 * self.capacity:
+                return Action.C
+            else:
+                return Action.D
+        if current_stock > 0.5 * self.capacity:
+            if self.reputation_score > 0.7:
+                return Action.C
+            elif random.random() < 1.0 - self.reputation_score:
+                return Action.D
+            else:
+                return Action.C
+        elif self.reputation_score >= 0.5:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_5(BaseStrategy):
+    """
+    A conditional tit-for-tat strategy with a threshold-based exit.
+    
+    Logic:
+    - Round 1: Always Cooperate.
+    - Rounds 2 to r-1: 
+        - Cooperate if the majority of opponents cooperated in the previous round AND 
+          stock is above 20% capacity.
+        - Defect if opponents defected (rate < 0.5) OR if stock drops below 20% capacity.
+        - Recovery: If previously defecting due to low stock, check if stock > 50% capacity 
+          and opponent cooperation has resumed to switch back to Cooperate.
+    - Final Round: Always Defect.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.is_in_defensive_mode = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_t = history.round_number
+        total_rounds = self.game_description.n_rounds
+        n = self.game_description.n_players
+        n_opponents = n - 1
+        if round_t == total_rounds - 1:
+            return Action.D
+        if round_t == 0:
+            return Action.C
+        k = history.opponent_cooperators[-1]
+        rate = k / n_opponents if n_opponents > 0 else 0.0
+        critical_threshold = self.game_description.capacity * 0.2
+        recovery_threshold = self.game_description.capacity * 0.5
+        if rate < 0.5 or current_stock < critical_threshold:
+            self.is_in_defensive_mode = True
+            return Action.D
+        if self.is_in_defensive_mode:
+            if current_stock > recovery_threshold and rate >= 0.5:
+                self.is_in_defensive_mode = False
+                return Action.C
+            else:
+                return Action.D
+        return Action.C
+
+class Strategy_SELFISH_6(BaseStrategy):
+    """
+    A tit-for-tat variant strategy that balances stock sustainability with opportunistic 
+    defection. It cooperates if the stock is healthy and opponents cooperate, but 
+    switches to defect if the stock is critically low (too low to recover) or if 
+    opponents are unreliable. It enforces a terminal-round extraction phase.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.r = game_description.n_rounds
+        self.sustainable_threshold = 0.5 * self.capacity
+        self.critical_threshold = 0.1 * self.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        if self.r - t < 3:
+            return Action.D
+        if current_stock < self.critical_threshold:
+            return Action.D
+        if t >= 2:
+            defected_last = history.opponent_cooperators[-1] < self.n - 1
+            defected_prev = history.opponent_cooperators[-2] < self.n - 1
+            if defected_last and defected_prev:
+                return Action.D
+        if current_stock < self.sustainable_threshold:
+            return Action.C
+        last_opps = history.opponent_cooperators[-1]
+        if last_opps == self.n - 1:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_7(BaseStrategy):
+    """
+    Implements a Threshold-Based Tit-for-Tat strategy.
+    
+    Logic:
+    - Round 1: Cooperate.
+    - Intermediate Rounds: 
+        - Cooperate if the number of cooperating opponents (k) >= ceil(n/2).
+        - Defect otherwise.
+    - Final Round: Always Defect.
+    - Resilience: If stock < capacity / (2 * n), force Defect, regardless of strategy.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.threshold = (self.game_description.n_players - 1) / 2
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_index = history.round_number
+        total_rounds = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        n = self.game_description.n_players
+        if current_round_index == total_rounds - 1:
+            return Action.D
+        if current_stock < capacity / (2 * n):
+            return Action.D
+        if current_round_index == 0:
+            return Action.C
+        k = history.opponent_cooperators[-1]
+        if k >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_8(BaseStrategy):
+    """
+    A strategy that maintains a moving average 'reputation' of the population's cooperation.
+    It cooperates in the initial round, defects in the final round, and uses the reputation
+    and current stock level to decide actions in intermediate rounds.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.reputation = 0.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_idx = history.round_number
+        if current_round_idx > 0:
+            last_coop_count = history.opponent_cooperators[-1]
+            my_last_action = 1 if history.my_actions[-1] else 0
+            total_cooperators = last_coop_count + my_last_action
+            proportion_coop = total_cooperators / self.n
+            self.reputation = self.reputation * 0.7 + proportion_coop * 0.3
+        if current_round_idx == self.r - 1:
+            return Action.D
+        if current_round_idx == 0:
+            return Action.C
+        if current_stock <= 0:
+            return Action.D
+        if current_stock < self.capacity * 0.25:
+            return Action.D
+        if current_stock > self.capacity * 0.9:
+            if self.reputation < 0.3:
+                return Action.D
+            return Action.C
+        if self.reputation > 0.6:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_9(BaseStrategy):
+    """
+    A conditional trigger strategy for the Common Pool Resource Game.
+    
+    Logic:
+    1. First Round: Always Cooperate (C).
+    2. Terminal Round (last round): Always Defect (D).
+    3. Intermediate Rounds:
+        - If stock is critical (calculated threshold), switch to Defect (D).
+        - Otherwise, prioritize cooperation if stock is low (recovery mode) or if full cooperation was achieved in the previous round.
+        - Retaliate with Defect (D) if defection occurred in the previous round and the stock is sufficient.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.r - 1:
+            return Action.D
+        prev_n_c = int(history.opponent_cooperators[-1])
+        i_cooperated = 1 if history.my_actions[-1] else 0
+        total_n_c = prev_n_c + i_cooperated
+        if self.capacity > 0:
+            growth_potential = 2.0 * current_stock * (1.0 - current_stock / self.capacity)
+            rounds_remaining = self.r - history.round_number
+            projected_future = current_stock + growth_potential * rounds_remaining
+            if projected_future < self.capacity / self.n:
+                return Action.D
+        if current_stock < self.capacity / self.n:
+            return Action.D
+        if total_n_c == self.n or current_stock < self.capacity / 2.0:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_10(BaseStrategy):
+    """
+    Conditional Sustainability (CS) Strategy:
+    Prioritizes resource preservation when conditions are favorable, but defaults 
+    to defecting if the resource is critically depleted, if it is the final round, 
+    or if the majority of opponents are defecting.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = self.game_description.n_players
+        self.capacity = self.game_description.capacity
+        self.threshold = math.ceil(self.n / 2)
+        self.safety_buffer = self.capacity / 4
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round == self.game_description.n_rounds - 1:
+            return Action.D
+        if current_stock < self.safety_buffer:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        prev_opponents_cooperated = history.opponent_cooperators[-1]
+        if prev_opponents_cooperated >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_11(BaseStrategy):
+    """
+    Implements a cooperative-adaptive strategy for the Common Pool Resource Game.
+    Maintains a running average of opponent cooperation (H_c) and adjusts behavior
+    based on resource thresholds and estimated opponent trust.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.H_c = 0.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        n = self.game_description.n_players
+        n_opponents = n - 1
+        k_coop = history.opponent_cooperators[-1]
+        if n_opponents > 0:
+            self.H_c = (self.H_c * t + k_coop / n_opponents) / (t + 1)
+        else:
+            pass
+        if not hasattr(self, 'last_known_stock'):
+            self.last_known_stock = float(self.game_description.capacity)
+        stock_new = current_stock
+        stock_old = self.last_known_stock
+        self.last_known_stock = stock_new
+        r = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        if t + 1 == r:
+            action = Action.D
+        elif stock_new < capacity / 2.0:
+            action = Action.D
+        elif self.H_c > 0.75:
+            action = Action.C
+        elif self.H_c >= 0.25:
+            if stock_new < stock_old:
+                action = Action.D
+            else:
+                action = Action.C
+        else:
+            action = Action.D
+        return action
+
+class Strategy_SELFISH_12(BaseStrategy):
+    """
+    Tit-for-Tat with Resource Thresholds:
+    - Round 1: Cooperate.
+    - Final Round: Always Defect.
+    - Intermediate Rounds:
+        - If stock < capacity/4: Cooperate (to prevent collapse).
+        - If stock >= capacity/4: 
+            - If previous cooperation rate > 0.5: Cooperate.
+            - If previous cooperation rate <= 0.5: Defect.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        total_rounds = self.game_description.n_rounds
+        if current_round == total_rounds - 1:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        last_my_action = history.my_actions[-1]
+        last_opponents_coop = history.opponent_cooperators[-1]
+        total_cooperators = (1 if last_my_action else 0) + last_opponents_coop
+        cooperation_rate = total_cooperators / self.game_description.n_players
+        threshold = self.game_description.capacity / 4
+        if current_stock < threshold:
+            return Action.C
+        if cooperation_rate > 0.5:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_13(BaseStrategy):
+    """
+    A strategy that maintains a common pool resource by cooperating (C)
+    when stock levels are critical (S < S_crit) or when recent cooperation
+    suggests replenishment is necessary. Otherwise, it defects (D) to
+    maximize extraction, except in the final round where it always defects.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.r = game_description.n_rounds
+        self.s_crit = 0.4 * self.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round == self.r - 1:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        if current_stock < self.s_crit:
+            return Action.C
+        if current_stock > 0.7 * self.capacity:
+            return Action.D
+        last_my_action = 1 if history.my_actions[-1] else 0
+        last_opponent_cooperators = history.opponent_cooperators[-1]
+        total_cooperators = last_opponent_cooperators + last_my_action
+        if total_cooperators >= self.n / 2:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_14(BaseStrategy):
+    """
+    A conditional tit-for-tat strategy with threshold-based depletion avoidance.
+    - Endgame: Always defects in the final round.
+    - Emergency: Defects if stock < 25% capacity.
+    - Opening: Cooperates in round 1.
+    - Tit-for-Tat: Cooperates if n-1 or more players cooperated in the previous round; otherwise defects.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_1_based = history.round_number + 1
+        if current_round_1_based == self.game_description.n_rounds:
+            return Action.D
+        critical_threshold = self.game_description.capacity * 0.25
+        if current_stock < critical_threshold:
+            return Action.D
+        if current_round_1_based == 1:
+            return Action.C
+        my_prev_action = 1 if history.my_actions[-1] else 0
+        total_cooperators_prev = history.opponent_cooperators[-1] + my_prev_action
+        if total_cooperators_prev >= self.game_description.n_players - 1:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_15(BaseStrategy):
+    """
+    SelfishOptimizer strategy for the Common Pool Resource Game.
+    
+    Logic:
+    - Round 1: Cooperate (C) to preserve stock.
+    - Final Round: Defect (D) to exhaust resources.
+    - Middle Rounds:
+        - If stock < threshold (50% of capacity): Cooperate (C) to prevent resource collapse.
+        - If stock >= threshold:
+            - If opponent cooperation rate > 0.5: Defect (D) to exploit healthy resource and others' contribution.
+            - If opponent cooperation rate <= 0.5: Cooperate (C) to rebuild resource.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.threshold_stock = self.capacity * 0.5
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.n_rounds - 1:
+            return Action.D
+        if current_stock < self.threshold_stock:
+            return Action.C
+        num_opponents = self.n_players - 1
+        if num_opponents <= 0:
+            return Action.D
+        prev_opp_coop_count = history.opponent_cooperators[-1]
+        cooperation_rate = prev_opp_coop_count / num_opponents
+        if cooperation_rate > 0.5:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_SELFISH_16(BaseStrategy):
+    """
+    Implements the Sustainable Extraction Equilibrium strategy.
+    
+    This strategy attempts to maintain the common pool resource at a sustainable level 
+    (capacity / 2) by reciprocating cooperative behavior. It defaults to cooperation 
+    initially, but switches to defection if the stock falls below the threshold or 
+    if the collective cooperation rate of the group drops below 50%. It always defects 
+    in the final round to maximize remaining utility.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_index = history.round_number + 1
+        total_rounds = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        n = self.game_description.n_players
+        if current_round_index == total_rounds:
+            return Action.D
+        if current_round_index == 1:
+            return Action.C
+        my_prev_action = history.my_actions[-1]
+        n_cooperators_prev = history.opponent_cooperators[-1] + (1 if my_prev_action else 0)
+        if current_stock >= capacity / 2:
+            if n_cooperators_prev / n >= 0.5:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+class Strategy_SELFISH_17(BaseStrategy):
+    """
+    A Tit-for-Tat based strategy for the Common Pool Resource Game that incorporates
+    sustainability thresholds and opportunistic re-seeding of cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self._last_action = None
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_idx = history.round_number + 1
+        total_rounds = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        n_opponents = self.game_description.n_players - 1
+        if current_round_idx == total_rounds:
+            self._last_action = Action.D
+            return Action.D
+        if current_stock < capacity / 2:
+            self._last_action = Action.D
+            return Action.D
+        if current_round_idx == 1:
+            self._last_action = Action.C
+            return Action.C
+        opponents_cooperated = history.opponent_cooperators[-1]
+        if opponents_cooperated == n_opponents:
+            self._last_action = Action.C
+            return Action.C
+        if self._last_action == Action.D and current_stock > 0.9 * capacity:
+            self._last_action = Action.C
+            return Action.C
+        self._last_action = Action.D
+        return Action.D
+
+class Strategy_SELFISH_18(BaseStrategy):
+    """
+    Implements a Tit-for-Tat with Resource Constraints strategy.
+    
+    Logic:
+    - Phase 1: Always Cooperate in the first round.
+    - Phase 3: Always Defect in the final round.
+    - Phase 2: If stock is low (<20% capacity), Defect to maximize immediate utility.
+    - Otherwise, reciprocate based on majority cooperation (if >= N/2 players cooperated 
+      in the previous round, Cooperate, else Defect).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.game_description.n_rounds - 1:
+            return Action.D
+        if current_stock < self.game_description.capacity * 0.2:
+            return Action.D
+        prev_opp_coop = history.opponent_cooperators[-1]
+        my_prev_action = 1 if history.my_actions[-1] else 0
+        total_prev_coop = prev_opp_coop + my_prev_action
+        if total_prev_coop >= self.game_description.n_players / 2:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_19(BaseStrategy):
+    """
+    Implements a conditional strategy based on stock levels, trust dynamics,
+    and history of opponent behavior in a Common Pool Resource Game.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.trust_level = 0.5
+        self.reputation_threshold = 0.5
+        self.consecutive_zero_cooperation_rounds = 0
+        self.depleted_switch_triggered = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_idx = history.round_number
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        if not self.depleted_switch_triggered and current_round_idx < r - 1:
+            if current_stock < 0.1 * capacity:
+                self.depleted_switch_triggered = True
+        if self.depleted_switch_triggered:
+            return Action.D
+        if current_round_idx == 0:
+            return Action.C
+        if current_round_idx == r - 1:
+            return Action.D
+        if current_stock < capacity / n:
+            return Action.D
+        k = history.opponent_cooperators[-1]
+        if k == 0:
+            self.consecutive_zero_cooperation_rounds += 1
+        else:
+            self.consecutive_zero_cooperation_rounds = 0
+        if self.consecutive_zero_cooperation_rounds >= 2:
+            self.reputation_threshold = 1.0
+        n_opponents = n - 1
+        observed_cooperation_rate = k / n_opponents if n_opponents > 0 else 0.0
+        self.trust_level = 0.9 * self.trust_level + 0.1 * observed_cooperation_rate
+        if n > 10 and self.trust_level < 0.3:
+            if k < 1:
+                return Action.D
+        if self.trust_level >= self.reputation_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_20(BaseStrategy):
+    """
+    A conditional Tit-for-Tat variant.
+    
+    Strategy Logic:
+    1. Initial Round: Always Cooperate (C) to test mutual cooperation and stabilize.
+    2. Terminal Round: Always Defect (D) as it is the dominant strategy when no future rounds exist.
+    3. Steady State:
+       - If stock is low (<= capacity / 2), play Cooperate (C) to prevent resource collapse.
+       - If stock is high (> capacity / 2):
+         - Use the previous round's aggregate cooperation (k):
+           - If k >= (n - 1) / 2, play Cooperate (C).
+           - Otherwise, play Defect (D).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        n_rounds = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        n = self.game_description.n_players
+        if current_round == 0:
+            return Action.C
+        if current_round == n_rounds - 1:
+            return Action.D
+        if current_stock <= capacity / 2:
+            return Action.C
+        k = history.opponent_cooperators[-1]
+        threshold = (n - 1) / 2
+        if k >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_21(BaseStrategy):
+    """
+    Implements the Conditional Sustainability-Maximization strategy.
+    
+    This strategy treats the common pool as a finite asset, balancing long-term 
+    sustainable harvesting with aggressive retaliation against defectors.
+    
+    Logic priority:
+    1. Final Round: Always defect to maximize final utility.
+    2. Depletion Emergency: Defect if the stock is too low to sustain future growth.
+    3. Round 1: Cooperate to establish the resource base.
+    4. Intermediate Rounds: Use Tit-for-Tat (50% threshold) to decide between 
+       continued cooperation or defensive defection.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.n_opponents = self.n - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round == self.r - 1:
+            return Action.D
+        if current_stock < self.capacity / (2 * self.n):
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        previous_cooperators = history.opponent_cooperators[-1]
+        if previous_cooperators / self.n_opponents >= 0.5:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_22(BaseStrategy):
+    """
+    A responsive sustainability strategy for the Common Pool Resource game.
+    
+    The strategy maintains a dynamic sustainability threshold (S_target) based on 
+    population cooperation levels. It defaults to cooperation in the first round.
+    If the population cooperates (C_avg > 0.5), it aims to maintain a higher stock 
+    threshold (0.75 * capacity). If the population defects, it lowers the threshold 
+    to preserve remaining stock or abandons sustainability if the resource collapses 
+    below a critical level (0.1 * capacity) or in the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.capacity = float(game_description.capacity)
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.s_target = self.capacity * 0.75
+        self.s_target_base = self.capacity * 0.75
+        self.s_target_min = self.capacity * 0.25
+        self.s_collapse_threshold = self.capacity * 0.1
+        self.force_defect_mode = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.r - 1:
+            return Action.D
+        if self.force_defect_mode:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        if current_stock < self.s_collapse_threshold:
+            self.force_defect_mode = True
+            return Action.D
+        last_round_opponents_c = int(history.opponent_cooperators[-1])
+        my_prev_action = history.my_actions[-1]
+        total_cooperators = last_round_opponents_c + (1 if my_prev_action else 0)
+        c_avg = total_cooperators / self.n
+        if c_avg <= 0.5:
+            self.s_target = max(self.s_target_min, self.s_target - self.capacity * 0.1)
+        else:
+            self.s_target = self.s_target_base
+        if current_stock < self.s_target:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_23(BaseStrategy):
+    """
+    A sustainability-focused Tit-for-Tat strategy for the Common Pool Resource Game.
+    Prioritizes maintaining stock levels above critical thresholds while using
+    tit-for-tat retaliation to manage cooperation. It features a recovery mode
+    to resume cooperation only after stocks have stabilized, and an unconditional
+    defection in the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_idx = history.round_number
+        last_round_idx = self.game_description.n_rounds - 1
+        if round_idx == last_round_idx:
+            return Action.D
+        if current_stock < 0.2 * self.game_description.capacity:
+            return Action.D
+        if round_idx == 0:
+            return Action.C
+        last_my_action = history.my_actions[-1]
+        c_obs = history.opponent_cooperators[-1] + (1 if last_my_action else 0)
+        if current_stock < 0.5 * self.game_description.capacity:
+            if c_obs < self.game_description.n_players - 1:
+                return Action.D
+        if c_obs >= self.game_description.n_players - 1:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_24(BaseStrategy):
+    """
+    Implements an adaptive extraction strategy that balances resource preservation
+    against exploitation based on current stock levels and observed opponent behavior.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        rounds_remaining = self.game_description.n_rounds - history.round_number
+        if rounds_remaining <= 2:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        if current_stock <= 0.001:
+            return Action.C
+        threshold = self.game_description.capacity * 0.5
+        if current_stock <= threshold:
+            return Action.C
+        k = float(history.opponent_cooperators[-1])
+        n = float(self.game_description.n_players)
+        if k > n / 2.0:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_SELFISH_25(BaseStrategy):
+    """
+    A strategy that balances resource preservation and exploitation using a Target Sustainability 
+    Level (TSL) and adaptive response to opponent defection and resource health.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.tsl = 0.5 * self.capacity
+        self.in_recovery_mode = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.r - 1:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        prev_cooperators = history.opponent_cooperators[-1]
+        k_prev = self.n - 1 - prev_cooperators
+        prev_stock = 0.0
+        if not hasattr(self, 'last_stock'):
+            self.last_stock = self.capacity
+        if self.in_recovery_mode:
+            if current_stock >= 0.3 * self.capacity:
+                self.in_recovery_mode = False
+        elif current_stock < self.last_stock * 0.2:
+            self.in_recovery_mode = True
+        current_last_stock = self.last_stock
+        self.last_stock = current_stock
+        if self.in_recovery_mode:
+            return Action.C
+        if history.round_number >= 2:
+            k_prev_prev = self.n - 1 - history.opponent_cooperators[-2]
+            if k_prev == self.n - 1 and k_prev_prev == self.n - 1:
+                return Action.D
+        if current_stock <= self.tsl:
+            return Action.C
+        threshold = math.floor((self.n - 1) / 2)
+        if k_prev <= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_26(BaseStrategy):
+    """
+    Implements a conditionally cooperative strategy based on current stock levels
+    and the previous round's group cooperation, defecting on the final round
+    or if stock/cooperation thresholds are not met.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = self.game_description.n_players
+        self.capacity = self.game_description.capacity
+        self.total_rounds = self.game_description.n_rounds
+        self.defection_threshold = (self.n - 1) / self.n
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round == self.total_rounds - 1:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        if current_stock < 0.25 * self.capacity:
+            return Action.D
+        my_last_action = history.my_actions[-1]
+        if my_last_action:
+            total_cooperators = history.opponent_cooperators[-1] + 1
+        else:
+            total_cooperators = history.opponent_cooperators[-1]
+        cooperation_ratio = total_cooperators / self.n
+        if cooperation_ratio < self.defection_threshold:
+            return Action.D
+        return Action.C
+
+class Strategy_SELFISH_27(BaseStrategy):
+    """
+    Common Pool Resource strategy implementing growth-neutral stock awareness,
+    reciprocity, and final-round defection.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        k = self.game_description.capacity
+        t = history.round_number + 1
+        if t == r:
+            return Action.D
+        if t == 1:
+            return Action.C
+        if current_stock <= k / n ** 2:
+            return Action.D
+        prev_my_action_val = 1 if history.my_actions[-1] else 0
+        c_prev = history.opponent_cooperators[-1] + prev_my_action_val
+        if c_prev >= n / 2:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_28(BaseStrategy):
+    """
+    A Tit-for-Tat inspired strategy that maintains resource sustainability.
+    
+    The strategy cooperates (C) in the first round. In subsequent rounds (until the last),
+    it calculates if the resource stock is projected to remain above 50% of capacity 
+    based on the previous round's cooperation levels. If the projection is poor, or if 
+    defectors were present in the last round, it switches to Defect (D) to maximize
+    returns before depletion or to retaliate. In the final round, it always defects.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.target_stock = self.capacity * 0.5
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        if t == self.r - 1:
+            return Action.D
+        my_last_action = history.my_actions[-1]
+        my_k = 1 if my_last_action else 0
+        k_prev = history.opponent_cooperators[-1] + my_k
+        s = current_stock
+        consumption = k_prev * (s / (2 * self.n)) + (self.n - k_prev) * (s / self.n)
+        s_rem = max(0.0, s - consumption)
+        growth = 2 * s_rem * (1 - s_rem / self.capacity) if self.capacity > 0 else 0
+        s_next = min(float(self.capacity), s_rem + growth)
+        if s_next < self.target_stock or s < self.capacity * 0.25:
+            return Action.D
+        elif k_prev < self.n:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_SELFISH_29(BaseStrategy):
+    """
+    A Tit-for-Tat variant strategy for the Common Pool Resource Game.
+    
+    Logic:
+    - First Round: Always Cooperate (C) to build stock.
+    - Last Round: Always Defect (D) to maximize terminal payoff.
+    - Stock Collapse: If stock is 0, always Defect (D).
+    - Mid-game:
+        - If rho (stock/capacity) < 0.25: Defect (D) immediately to maximize share before collapse.
+        - Otherwise: Cooperate (C) if previous round cooperators >= n - 1 (very high group cooperation),
+          else Defect (D) to punish non-cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if current_stock <= 0:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        rho = current_stock / self.capacity
+        if rho < 0.25:
+            return Action.D
+        my_prev_action = Action.C if history.my_actions[-1] else Action.D
+        my_prev_coop = 1 if my_prev_action == Action.C else 0
+        total_cooperators_prev = history.opponent_cooperators[-1] + my_prev_coop
+        if total_cooperators_prev >= self.n - 1:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_30(BaseStrategy):
+    """
+    Threshold-Based Sustainable Exploitation (TBSE) strategy.
+    Maintains resource stability using growth thresholds while adaptively 
+    exploiting based on the cooperation environment.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.r - 1:
+            return Action.D
+        if current_stock < 0.25 * self.capacity:
+            return Action.C
+        my_actions_int = history.my_actions.astype(int)
+        total_cooperators_per_round = my_actions_int + history.opponent_cooperators
+        avg_cooperation_rate = np.mean(total_cooperators_per_round / self.n)
+        if avg_cooperation_rate <= 0.5:
+            return Action.D
+        if history.round_number % 2 == 1:
+            avg_opp_coops = np.mean(history.opponent_cooperators)
+            projected_consumption = current_stock / self.n + avg_opp_coops * (current_stock / (2 * self.n))
+            remaining = current_stock - projected_consumption
+            growth = 2 * remaining * (1 - remaining / self.capacity)
+            next_S = min(remaining + growth, self.capacity)
+            if next_S > 0.5 * self.capacity:
+                return Action.D
+            else:
+                return Action.C
+        return Action.C
+
+class Strategy_SELFISH_31(BaseStrategy):
+    """
+    Implements the 'Conditional Sustainability' strategy:
+    - Round 1: Cooperate.
+    - Final Round: Defect.
+    - Intermediate Rounds:
+        - If current stock < capacity / 2: Defect.
+        - Else: Cooperate if previous round cooperation rate >= 0.75, else Defect.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number + 1
+        if current_round == 1:
+            return Action.C
+        if current_round == self.r:
+            return Action.D
+        s_threshold = self.capacity / 2.0
+        if current_stock < s_threshold:
+            return Action.D
+        my_prev_action = history.my_actions[-1]
+        my_prev_k = 1 if my_prev_action else 0
+        opponents_prev_k = history.opponent_cooperators[-1]
+        total_k_prev = opponents_prev_k + my_prev_k
+        rho = total_k_prev / self.n
+        if rho >= 0.75:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFISH_32(BaseStrategy):
+    """
+    Tit-for-Tat with Threshold-Based Defection.
+    Maintains a trust_level based on opponent cooperation history.
+    Transitions between C and D based on trust thresholds and stock levels.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.trust_level = 1.0
+        self.n_opponents = game_description.n_players - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            self.trust_level = 1.0
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        prev_n_c = history.opponent_cooperators[-1]
+        capacity = self.game_description.capacity
+        if current_stock <= 0.1 * capacity:
+            return Action.D
+        r_c = prev_n_c / self.n_opponents if self.n_opponents > 0 else 0.0
+        self.trust_level = 0.9 * self.trust_level + 0.1 * r_c
+        if prev_n_c == 0:
+            self.trust_level = 0.0
+            return Action.D
+        if current_stock > 0.8 * capacity:
+            return Action.C
+        if current_stock < 0.4 * capacity or self.trust_level < 0.4:
+            return Action.D
+        if current_stock >= 0.4 * capacity and self.trust_level >= 0.5:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_5(BaseStrategy):
+    """
+    A strategy that combines sustainability constraints with Tit-for-Tat enforcement.
+    1. If the common pool stock is critically low, it defects to maximize extraction.
+    2. If it is the final round, it defects to maximize extraction.
+    3. Otherwise, it cooperates in the first round and subsequently mimics the 
+       cooperation status of the group (punishing if anyone defected).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number + 1
+        total_rounds = self.game_description.n_rounds
+        n = self.game_description.n_players
+        capacity = self.game_description.capacity
+        if current_round == total_rounds:
+            return Action.D
+        if current_stock < capacity / (2 * n):
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        previous_cooperators = history.opponent_cooperators[-1]
+        my_prev_action = history.my_actions[-1]
+        total_k = previous_cooperators + (1 if my_prev_action else 0)
+        if total_k < n:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_SELFINTERESTED_6(BaseStrategy):
+    """
+    Conditional Reciprocity with Stock Awareness:
+    - Plays Cooperate in the first round.
+    - In subsequent rounds, defects if the final round is reached, if the stock is critically low (emergency threshold),
+      or if the stock cannot sustain mutual cooperation (survival threshold).
+    - Otherwise, reciprocates cooperation based on the previous round's cooperation count from opponents.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.survival_threshold = self.game_description.capacity / (2 * self.game_description.n_players)
+        self.emergency_threshold = 0.1 * self.game_description.capacity
+        self.n_opponents = self.game_description.n_players - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.game_description.n_rounds - 1:
+            return Action.D
+        if current_stock < self.emergency_threshold:
+            return Action.D
+        if current_stock < self.survival_threshold:
+            return Action.D
+        prev_opp_cooperators = history.opponent_cooperators[-1]
+        if prev_opp_cooperators >= self.n_opponents / 2:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_7(BaseStrategy):
+    """
+    A recursive strategy for the Common Pool Resource Game. 
+    Cooperates initially, then adapts based on the observed aggregate opponent 
+    cooperation rate (alpha) and stock levels to balance sustainability 
+    against exploitation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        r = self.game_description.n_rounds
+        n = self.game_description.n_players
+        capacity = self.game_description.capacity
+        if t == 0:
+            return Action.C
+        if t == r - 1:
+            return Action.D
+        if current_stock < capacity / n:
+            return Action.D
+        total_coop_obs = int(np.sum(history.opponent_cooperators))
+        total_opp_rounds = (n - 1) * t
+        alpha = total_coop_obs / total_opp_rounds if total_opp_rounds > 0 else 0.0
+        if alpha < 0.25 and current_stock < capacity / 2:
+            return Action.D
+        if current_stock < capacity / 2:
+            return Action.C
+        return Action.C if alpha >= 0.5 else Action.D
+
+class Strategy_SELFINTERESTED_8(BaseStrategy):
+    """
+    Dynamic Sustainable Tit-for-Tat (DSTFT):
+    A conditional cooperation strategy that cooperates if the stock is healthy
+    (>= capacity / 2) and all opponents cooperated in the previous round.
+    It defects in the final round and whenever the sustainability conditions are violated.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = self.game_description.n_players
+        self.capacity = self.game_description.capacity
+        self.n_rounds = self.game_description.n_rounds
+        self.c_opp_threshold = self.n - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.n_rounds - 1:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        prev_opp_c = history.opponent_cooperators[-1]
+        is_stock_healthy = current_stock >= self.capacity / 2
+        all_opponents_cooperated = prev_opp_c == self.c_opp_threshold
+        if is_stock_healthy and all_opponents_cooperated:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_9(BaseStrategy):
+    """
+    A strategy for the Common Pool Resource game that conditionally cooperates,
+    punishes defectors based on their count, protects against resource collapse,
+    and exploits the common pool in terminal rounds if sufficient stock exists.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.active_punishment_rounds = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number >= self.game_description.n_rounds - 2:
+            if current_stock > 0.5 * self.game_description.capacity:
+                return Action.D
+        if current_stock < 0.05 * self.game_description.capacity:
+            return Action.D
+        if self.active_punishment_rounds > 0:
+            self.active_punishment_rounds -= 1
+            return Action.D
+        prev_opp_cooperators = history.opponent_cooperators[-1]
+        prev_my_action = history.my_actions[-1]
+        total_cooperators = prev_opp_cooperators + (1 if prev_my_action else 0)
+        defectors_count = self.game_description.n_players - total_cooperators
+        if defectors_count > 0:
+            self.active_punishment_rounds = defectors_count - 1
+            return Action.D
+        return Action.C
+
+class Strategy_SELFINTERESTED_10(BaseStrategy):
+    """
+    Adaptive Tit-for-Tat with Depletion Thresholding:
+    - Round 1: Cooperate.
+    - Final Round: Always Defect.
+    - Threshold: If stock < capacity/2, Defect to maximize immediate utility as recovery is unreliable.
+    - Reciprocity: If stock >= capacity/2, Cooperate only if all opponents cooperated previously.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_t = history.round_number + 1
+        total_rounds = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        n_players = self.game_description.n_players
+        n_opponents = n_players - 1
+        if round_t == total_rounds:
+            return Action.D
+        if current_stock < capacity / 2.0:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        last_round_coop_count = int(history.opponent_cooperators[-1])
+        if last_round_coop_count == n_opponents:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_11(BaseStrategy):
+    """
+    A conditional Tit-for-Tat strategy for the Common Pool Resource Game.
+    
+    Logic:
+    1. First Round: Always Cooperate.
+    2. Last Round: Always Defect.
+    3. Intermediate Rounds:
+       - If stock is fragile (S < capacity/2): Cooperate only if everyone else cooperated (k = n-1).
+       - If stock is robust (S >= capacity/2): Cooperate if a majority cooperated (k >= (n-1)/2).
+       - If stock is effectively 0: Always Defect to capture final payoffs.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.n_opponents = self.n - 1
+        self.total_rounds = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_idx = history.round_number
+        if current_round_idx == 0:
+            return Action.C
+        if current_round_idx == self.total_rounds - 1:
+            return Action.D
+        k_prev = history.opponent_cooperators[-1]
+        if current_stock < 0.001:
+            return Action.D
+        is_fragile = current_stock < self.capacity / 2.0
+        if is_fragile:
+            if k_prev == self.n_opponents:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            majority_threshold = math.floor(self.n_opponents / 2.0)
+            if k_prev >= majority_threshold:
+                return Action.C
+            else:
+                return Action.D
+
+class Strategy_SELFINTERESTED_12(BaseStrategy):
+    """
+    A strategy that maximizes long-term yield by maintaining the resource stock near the
+    Optimal Sustainability Threshold (OST). It utilizes conditional, history-dependent logic:
+    Cooperating when the stock is robust and the group shows cooperation, but defecting
+    when the stock is critically low, the group is uncooperative, or it is the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if current_stock < 0.0001:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.r - 1:
+            return Action.D
+        if self.n == 2:
+            if history.opponent_cooperators[-1] == 1:
+                return Action.C
+            else:
+                return Action.D
+        if current_stock <= self.capacity * 0.25:
+            return Action.D
+        k_prev = history.opponent_cooperators[-1]
+        threshold = math.floor(self.n / 2)
+        if k_prev >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_13(BaseStrategy):
+    """
+    Tit-for-Tat with Sustainability Threshold (TFTS).
+    
+    Logic:
+    1. If it is the last round, Defect (D).
+    2. If stock is < capacity/2, Defect (D).
+    3. If round 1, Cooperate (C).
+    4. Otherwise, Cooperate (C) if (n-1) or more players cooperated in the last round, else Defect (D).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        total_rounds = self.game_description.n_rounds
+        if current_round == total_rounds - 1:
+            return Action.D
+        if current_stock < self.game_description.capacity / 2.0:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        my_prev_action = history.my_actions[-1]
+        my_contribution = 1 if my_prev_action else 0
+        k_prev = history.opponent_cooperators[-1] + my_contribution
+        if k_prev >= self.game_description.n_players - 1:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_14(BaseStrategy):
+    """
+    Trigger-Based Sustainable Yield (TBSY):
+    A strategy that maintains cooperation (C) as long as opponents cooperate.
+    It defects (D) if any opponent defects, unless the resource stock is 
+    sufficiently high to encourage recovery (re-establishing cooperation),
+    or if it is the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        total_rounds = self.game_description.n_rounds
+        current_round = history.round_number
+        n = self.game_description.n_players
+        capacity = self.game_description.capacity
+        consumption_c = current_stock / (2 * n)
+        if current_round == total_rounds - 1:
+            return Action.D
+        if current_stock <= 0 or current_stock < consumption_c:
+            return Action.D
+        if current_stock > 0.8 * capacity:
+            return Action.C
+        opponents_cooperated_prev_round = history.opponent_cooperators[-1]
+        if opponents_cooperated_prev_round == n - 1:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_15(BaseStrategy):
+    """
+    Threshold-Based Stewardship strategy:
+    - Plays C in round 0.
+    - Terminal rounds (r-2, r-1): Plays D.
+    - Conservation Phase (stock < 0.5 * capacity): Plays C.
+    - Healthy Phase (stock >= 0.5 * capacity):
+        - If any opponents defected in the previous round (opponent_cooperators < n-1), plays D.
+        - Otherwise, plays C.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        n_opponents = self.game_description.n_players - 1
+        if current_round >= self.game_description.n_rounds - 2:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        if current_stock < self.game_description.capacity * 0.5:
+            return Action.C
+        if history.opponent_cooperators[-1] < n_opponents:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_SELFINTERESTED_16(BaseStrategy):
+    """
+    Optimistic Trigger Strategy for Common Pool Resource Game:
+    - Rounds 1-2: Always Cooperate.
+    - Subsequent Rounds:
+        - Defect if stock < 0.25 * capacity.
+        - Defect if final round (r).
+        - Defect if second to last round (r-1) and stock < 0.5 * capacity.
+        - Otherwise, Cooperate if previous round cooperation count >= ceil(n/2).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = self.game_description.n_players
+        self.r = self.game_description.n_rounds
+        self.capacity = self.game_description.capacity
+        self.n_req = math.ceil(self.n / 2)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_idx = history.round_number
+        current_round_num = current_round_idx + 1
+        if current_round_idx == self.r - 1:
+            return Action.D
+        if current_round_idx == self.r - 2 and current_stock < 0.5 * self.capacity:
+            return Action.D
+        if current_stock < 0.25 * self.capacity:
+            return Action.D
+        if current_round_idx <= 1:
+            return Action.C
+        n_c_previous = int(history.opponent_cooperators[-1])
+        my_last_action = bool(history.my_actions[-1])
+        total_cooperators = n_c_previous + (1 if my_last_action else 0)
+        if total_cooperators >= self.n_req:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_17(BaseStrategy):
+    """
+    A Tit-for-Tat with Threshold Monitoring strategy.
+    
+    1. First Round: Cooperate (C).
+    2. Final Round: Defect (D) to maximize terminal payoff.
+    3. Intermediate Rounds:
+       - Safety Check: If current_stock < capacity / n_players, Defect (D).
+       - Reciprocity Check: If the observed external cooperation rate in the previous 
+         round is < 0.5, Defect (D).
+       - Sustainability/Default: Otherwise, Cooperate (C).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.threshold_stock = 0.7 * self.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.r - 1:
+            return Action.D
+        prev_my_action = history.my_actions[-1]
+        prev_opp_cooperators = history.opponent_cooperators[-1]
+        n_opponents = self.n - 1
+        if n_opponents > 0:
+            opp_cooperation_rate = prev_opp_cooperators / n_opponents
+        else:
+            opp_cooperation_rate = 1.0
+        if current_stock < self.capacity / self.n:
+            return Action.D
+        if opp_cooperation_rate < 0.5:
+            return Action.D
+        return Action.C
+
+class Strategy_SELFINTERESTED_18(BaseStrategy):
+    """
+    Conditional Sustainability Equilibrium (CSE) strategy.
+    Implements a threshold-based, trigger-tit-for-tat logic that prioritizes 
+    stock sustainability while scaling punishment to observed defection.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == r - 1:
+            if current_stock >= capacity / 2:
+                return Action.D
+            else:
+                return Action.C
+        if current_stock < capacity / 4:
+            return Action.C
+        n_opponents = n - 1
+        k = history.opponent_cooperators[-1]
+        threshold = math.ceil(n_opponents / 2)
+        if k >= threshold:
+            return Action.C
+        else:
+            d_opponents = n_opponents - k
+            prob_defect = d_opponents / n_opponents
+            if random.random() < prob_defect:
+                return Action.D
+            else:
+                return Action.C
+
+class Strategy_SELFINTERESTED_19(BaseStrategy):
+    """
+    Adaptive Sustainability Guard: A Tit-for-Tat inspired strategy that balances
+    resource maintenance with opportunistic extraction. Prioritizes stock levels above
+    0.75 capacity. Punishes non-cooperators probabilistically when stock is high,
+    and switches to hard defection when the resource is critical (below 75% capacity).
+    Always defects in the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.safe_stock_threshold = self.capacity * 0.75
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.r - 1:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        n_opponents = self.n - 1
+        last_opponents_c = history.opponent_cooperators[-1]
+        cooperation_rate = last_opponents_c / n_opponents if n_opponents > 0 else 1.0
+        if current_stock >= self.safe_stock_threshold:
+            if cooperation_rate >= 1.0:
+                return Action.C
+            elif random.random() > cooperation_rate:
+                return Action.D
+            else:
+                return Action.C
+        elif cooperation_rate >= 0.8:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_20(BaseStrategy):
+    """
+    Sustainable Tit-for-Tat with Resource Thresholding.
+
+    This strategy enforces long-term sustainability by combining Tit-for-Tat 
+    reciprocity with a hard constraint based on the remaining resource stock.
+    - If the final round is reached, it defects to maximize short-term payoff.
+    - If the stock falls below a critical safety threshold (capacity / 2n), it defects 
+      to extract remaining value before depletion.
+    - Otherwise, it initiates with Cooperation and subsequently matches the 
+      collective cooperation of all opponents (requiring full cooperation from 
+      everyone to sustain trust).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        safety_threshold = self.game_description.capacity / (2 * self.game_description.n_players)
+        if current_stock < safety_threshold:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        opponents_count = self.game_description.n_players - 1
+        if history.opponent_cooperators[-1] >= opponents_count:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_21(BaseStrategy):
+    """
+    Implements a resource-conscious Tit-for-Tat strategy with conditional forgiveness.
+    Prioritizes sustainability, defects only when necessary or in the final round,
+    and attempts to maintain coordination through forgiveness after punishment cycles.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.epsilon = 1e-09
+        self.punishing = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_idx = history.round_number
+        n_opponents = self.n - 1
+        if current_stock / self.n < self.epsilon:
+            return Action.D
+        if round_idx == self.game_description.n_rounds - 1:
+            return Action.D
+        s_threshold = self.capacity * (0.5 / self.n)
+        if current_stock < s_threshold:
+            return Action.D
+        if round_idx == 0:
+            return Action.C
+        prev_k = history.opponent_cooperators[-1]
+        if n_opponents > 0:
+            opp_coop_rate = prev_k / n_opponents
+        else:
+            opp_coop_rate = 1.0
+        if self.punishing:
+            self.punishing = False
+            return Action.C
+        if opp_coop_rate >= 0.5:
+            return Action.C
+        else:
+            self.punishing = True
+            return Action.D
+
+class Strategy_SELFINTERESTED_22(BaseStrategy):
+    """
+    Tit-for-Tat with Conditional Forgiveness and Terminal Defection.
+    
+    This strategy cooperates based on a sustainability threshold and opponent
+    reputation history. It switches to defecting if the resource stock is critical
+    or if opponents consistently defect, while maintaining a mechanism to
+    forgive and return to cooperation if opponents behave sustainably for
+    two consecutive rounds.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.reputation = 0
+        self.last_stock = float(game_description.capacity)
+        self.consecutive_opp_c = 0
+        self.is_currently_defecting = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_idx = history.round_number
+        last_round_idx = self.game_description.n_rounds - 1
+        if current_round_idx == last_round_idx:
+            return Action.D
+        if current_round_idx == 0:
+            self.last_stock = current_stock
+            return Action.C
+        prev_opp_c = history.opponent_cooperators[-1]
+        n_opponents = self.game_description.n_players - 1
+        threshold = n_opponents * 0.5
+        if prev_opp_c >= threshold:
+            self.consecutive_opp_c += 1
+        else:
+            self.consecutive_opp_c = 0
+        if self.is_currently_defecting and self.consecutive_opp_c >= 2:
+            self.reputation = 0
+            self.is_currently_defecting = False
+            self.last_stock = current_stock
+            return Action.C
+        if self.last_stock < self.game_description.capacity / 4:
+            self.is_currently_defecting = True
+            self.last_stock = current_stock
+            return Action.D
+        if prev_opp_c >= threshold:
+            self.reputation = min(0, self.reputation + 1)
+            self.is_currently_defecting = False
+            self.last_stock = current_stock
+            return Action.C
+        else:
+            self.reputation = max(-2, self.reputation - 1)
+            self.is_currently_defecting = True
+            self.last_stock = current_stock
+            return Action.D
+
+class Strategy_SELFINTERESTED_23(BaseStrategy):
+    """
+    Threshold-Based Tit-for-Tat with Sustainability Correction.
+    
+    Logic:
+    1. Final Round: Always Defect.
+    2. Near-Zero Stock: If stock < capacity/(2n), Defect.
+    3. First Round: Always Cooperate.
+    4. Reciprocity Reset: If history average of opponent cooperation < 0.25, permanently Defect.
+    5. Adaptive Thresholding:
+       - If stock < capacity/2: Cooperate if F_prev >= 0.5, else Defect.
+       - If stock >= capacity/2: Cooperate if F_prev > 0.5; Stochastic probe if F_prev == 0.5; Defect if F_prev < 0.5.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.n_opponents = self.n - 1
+        self.capacity = game_description.capacity
+        self.permanent_defect = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if self.permanent_defect:
+            return Action.D
+        round_idx = history.round_number
+        total_rounds = self.game_description.n_rounds
+        if round_idx == total_rounds - 1:
+            return Action.D
+        if current_stock < self.capacity / (2 * self.n):
+            return Action.D
+        if round_idx == 0:
+            return Action.C
+        total_opp_coop = np.sum(history.opponent_cooperators)
+        total_possible_coop = round_idx * self.n_opponents
+        if total_possible_coop > 0:
+            avg_history_coop = total_opp_coop / total_possible_coop
+            if avg_history_coop < 0.25:
+                self.permanent_defect = True
+                return Action.D
+        f_prev = history.opponent_cooperators[-1] / self.n_opponents
+        if current_stock < self.capacity / 2:
+            if f_prev >= 0.5:
+                return Action.C
+            else:
+                return Action.D
+        elif f_prev > 0.5:
+            return Action.C
+        elif f_prev == 0.5:
+            return Action.C if random.random() > 0.5 else Action.D
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_24(BaseStrategy):
+    """
+    A Tit-for-Tat variant strategy for the Common Pool Resource Game.
+    
+    This strategy implements:
+    1.  Initial Round: Always Cooperate (C).
+    2.  Subsequent Rounds: Cooperate (C) if all other players cooperated in the previous 
+        round, else Defect (D).
+    3.  Restoration Rule: If stock drops below 50% of capacity, force Cooperate (C) 
+        regardless of previous history.
+    4.  Final Round: Always Defect (D).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.n_opponents = self.n_players - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.n_rounds - 1:
+            return Action.D
+        if current_stock < self.capacity / 2.0:
+            return Action.C
+        if history.round_number == 0:
+            return Action.C
+        if history.opponent_cooperators[-1] == self.n_opponents:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_25(BaseStrategy):
+    """
+    Implements a Tit-for-Tat with Forgiveness strategy in a Common Pool Resource game.
+    Prioritizes sustainability, exploits surplus when possible, but reverts to 
+    cooperation when the resource is threatened or recovery is needed.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number + 1
+        r = self.game_description.n_rounds
+        n = self.n
+        if t == r:
+            return Action.D
+        if t == 1:
+            return Action.C
+        if current_stock <= self.capacity / (2 * n):
+            return Action.C
+        if current_stock >= 0.9 * self.capacity:
+            return Action.D
+        was_cooperating = history.my_actions[-1]
+        c_prev_val = int(was_cooperating) + history.opponent_cooperators[-1]
+        if t >= 3:
+            c_prev_minus_1 = int(history.my_actions[-2]) + history.opponent_cooperators[-2]
+            if c_prev_val < n / 2 and c_prev_minus_1 < n / 2:
+                return Action.D
+        if c_prev_val == n:
+            return Action.C
+        if current_stock > self.capacity / 2:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_SELFINTERESTED_26(BaseStrategy):
+    """
+    Implements Adaptive Tit-for-Tat with Sustainable Thresholds.
+    
+    Strategy:
+    - Initial Round: Cooperate (C).
+    - Final Round: Always Defect (D).
+    - Logic (intermediate rounds):
+        - Define Sustainable Stock Threshold (T) = 0.5 * capacity.
+        - If current stock is critically low (<= 0.1 * capacity) or population 
+          shows persistent defection (if cumulative defection is high), play D.
+        - Otherwise, if stock >= T, cooperate if almost everyone else cooperated.
+        - If stock < T, cooperate only if almost everyone else cooperated (restorative).
+        - If majority consistently defects across history, switch to permanent D.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.T = 0.5 * self.game_description.capacity
+        self.critical_stock_threshold = 0.1 * self.game_description.capacity
+        self.permanent_defection = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if current_stock <= 0:
+            self.permanent_defection = True
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if not self.permanent_defection and history.round_number >= 3:
+            num_opponents = self.game_description.n_players - 1
+            recent_coop = np.mean(history.opponent_cooperators[-3:])
+            if recent_coop < num_opponents * 0.25:
+                self.permanent_defection = True
+        if self.permanent_defection:
+            return Action.D
+        if current_stock <= self.critical_stock_threshold:
+            return Action.D
+        k = history.opponent_cooperators[-1]
+        num_opponents = self.game_description.n_players - 1
+        required_coop = max(0, num_opponents - 1)
+        if current_stock >= self.T:
+            if k >= required_coop:
+                return Action.C
+            else:
+                return Action.D
+        elif k >= required_coop:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_27(BaseStrategy):
+    """
+    Implements a Tit-for-Tat with Sustainability Threshold strategy for the Common Pool Resource game.
+    
+    Logic:
+    1. Always plays C in the first round.
+    2. Always plays D in the final round.
+    3. In intermediate rounds:
+       - If stock < capacity / n_players: Prioritize extraction (Defect/D).
+       - Otherwise: Reciprocate based on the previous round's cooperation rate (>= 50% leads to Cooperate/C, else Defect/D).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_index = history.round_number
+        if current_round_index == 0:
+            return Action.C
+        if current_round_index == self.game_description.n_rounds - 1:
+            return Action.D
+        threshold = self.game_description.capacity / self.game_description.n_players
+        if current_stock < threshold:
+            return Action.D
+        prev_coop_count = history.opponent_cooperators[-1]
+        my_prev_action = history.my_actions[-1]
+        my_prev_coop = 1 if my_prev_action == Action.C else 0
+        total_cooperators = prev_coop_count + my_prev_coop
+        cooperation_rate = total_cooperators / self.game_description.n_players
+        if cooperation_rate >= 0.5:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_28(BaseStrategy):
+    """
+    A state-dependent conditional cooperation strategy for the Common Pool Resource Game.
+    
+    Implements a hierarchy of logic:
+    1. Terminal Defection: If on the last round, always defect.
+    2. Recovery Failure: If the stock has been critically low for too long, defect.
+    3. Restoration Phase: If stock is low, cooperate to restore it.
+    4. Normal Operations: Use tit-for-tat like thresholds to maintain cooperation,
+       with a deterrent mechanism for persistent defectors.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.low_stock_consecutive_count = 0
+        self.failed_cooperation_consecutive_count = 0
+        self.n = self.game_description.n_players
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        r = history.round_number
+        if r == 0:
+            return Action.C
+        if r == self.game_description.n_rounds - 1:
+            return Action.D
+        capacity = self.game_description.capacity
+        prev_k = history.opponent_cooperators[-1]
+        if current_stock < 0.1 * capacity:
+            self.low_stock_consecutive_count += 1
+        else:
+            self.low_stock_consecutive_count = 0
+        if self.n > 0:
+            threshold = (2 * self.n - 2) / (2 * self.n)
+            if prev_k / self.n < threshold:
+                self.failed_cooperation_consecutive_count += 1
+            else:
+                self.failed_cooperation_consecutive_count = 0
+        if self.low_stock_consecutive_count > 3:
+            return Action.D
+        if self.failed_cooperation_consecutive_count >= 2:
+            return Action.D
+        if current_stock < 0.5 * capacity:
+            return Action.C
+        threshold = (2 * self.n - 2) / (2 * self.n)
+        if prev_k / self.n >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_SELFINTERESTED_29(BaseStrategy):
+    """
+    Tit-for-Tat with Resilience strategy:
+    Prioritizes sustainability by monitoring stock levels and punishing mass defection
+    while attempting to maintain a cooperative equilibrium.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.prev_stock = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        round_idx = history.round_number
+        current_prev_stock = self.prev_stock
+        self.prev_stock = current_stock
+        if round_idx == r - 1:
+            if current_stock <= 0:
+                return Action.C
+            return Action.D
+        if current_stock <= 0:
+            return Action.C
+        if current_stock < capacity / 4.0:
+            return Action.C
+        if round_idx > 0 and current_stock < current_prev_stock * 0.5:
+            return Action.C
+        if round_idx > 0:
+            prev_opponents_cooperated = history.opponent_cooperators[-1]
+            threshold = math.ceil(n / 2.0)
+            if prev_opponents_cooperated >= threshold:
+                return Action.C
+            else:
+                return Action.D
+        return Action.C
+
+class Strategy_SELFINTERESTED_30(BaseStrategy):
+    """
+    A Trigger-Based Tit-for-Tat variant strategy.
+    
+    Logic:
+    1. Always cooperate in the first round.
+    2. Always defect in the final round (endgame optimization).
+    3. Defect if the stock level is critically low (< capacity/n).
+    4. If previous round was fully cooperative, continue to cooperate.
+    5. If previous round saw defection, enter a punishment phase proportional 
+       to the severity of defection, where we defect.
+    6. If punishment ends and stock is healthy, resume cooperation.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.punishment_counter = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_idx = history.round_number
+        total_rounds = self.game_description.n_rounds
+        n = self.game_description.n_players
+        capacity = self.game_description.capacity
+        if current_round_idx == total_rounds - 1:
+            return Action.D
+        if current_stock < capacity / n:
+            return Action.D
+        if current_round_idx == 0:
+            return Action.C
+        prev_cooperators = history.opponent_cooperators[-1]
+        if self.punishment_counter > 0:
+            self.punishment_counter -= 1
+            return Action.D
+        if prev_cooperators == n:
+            return Action.C
+        severity = (n - prev_cooperators) / n
+        remaining_rounds = total_rounds - (current_round_idx + 1)
+        punishment_rounds = math.ceil(severity * remaining_rounds)
+        if punishment_rounds > 0:
+            self.punishment_counter = punishment_rounds - 1
+            return Action.D
+        return Action.C
+
+class Strategy_SELFINTERESTED_31(BaseStrategy):
+    """
+    A strategy that prioritizes sustainability by cooperating when the stock 
+    is healthy or regenerating and the group cooperates, while defecting 
+    when the stock is critical or when the group fails to cooperate.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.prev_stock = game_description.capacity
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.r = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            self.prev_stock = current_stock
+            return Action.C
+        if history.round_number == self.r - 1:
+            return Action.D
+        prev_opp_coop = history.opponent_cooperators[-1]
+        my_prev_action = history.my_actions[-1]
+        prev_total_coop = prev_opp_coop + (1 if my_prev_action else 0)
+        prev_defectors = self.n - prev_total_coop
+        if current_stock < 0.25 * self.capacity or prev_defectors > 1:
+            self.prev_stock = current_stock
+            return Action.D
+        if (current_stock >= self.prev_stock or current_stock >= 0.5 * self.capacity) and prev_total_coop >= self.n - 1:
+            self.prev_stock = current_stock
+            return Action.C
+        self.prev_stock = current_stock
+        return Action.D
+
+class Strategy_SELFINTERESTED_32(BaseStrategy):
+    """
+    A Tit-for-Tat with Forgiveness strategy for the Common Pool Resource Game.
+    
+    Logic:
+    - Round 1: Always Cooperate (C).
+    - Round r: Always Defect (D) to harvest remaining resources.
+    - Rounds 2 to r-1:
+        - If current stock < capacity/4, Cooperate (C) to prevent collapse.
+        - Otherwise, evaluate group behavior:
+            - If opponents cooperating (k >= n-1), Cooperate (C).
+            - If opponents defecting (k < n-1), Defect (D), 
+              unless we previously defected and they have returned to cooperation 
+              (Forgiveness).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.threshold = self.n - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_index = history.round_number
+        if current_round_index == self.r - 1:
+            return Action.D
+        if current_round_index == 0:
+            return Action.C
+        if current_stock < self.capacity / 4:
+            return Action.C
+        k = history.opponent_cooperators[-1]
+        if k >= self.threshold:
+            return Action.C
+        if not history.my_actions[-1]:
+            if k >= self.threshold:
+                return Action.C
+            else:
+                return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_5(BaseStrategy):
+    """
+    A conditional strategy that tracks cooperation history (H) to manage resource depletion.
+    It cooperates to sustain the pool when the environment is stable, but switches to
+    opportunistic defection if the stock hits critical lows or if the collective
+    cooperation history decays. It includes a terminal-phase defection trigger.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.H = 0.0
+        self._consecutive_recovery_count = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        t = history.round_number
+        if t == r - 1:
+            return Action.D
+        if t > 0.75 * r:
+            return Action.D
+        if t == 0:
+            return Action.C
+        prev_k = history.opponent_cooperators[t - 1]
+        if n > 1:
+            self.H += prev_k / (n - 1) - 0.5
+        if prev_k == n - 1:
+            self._consecutive_recovery_count += 1
+        else:
+            self._consecutive_recovery_count = 0
+        if self._consecutive_recovery_count >= 2:
+            self.H = 0.0
+        consumption_per_c = current_stock / (2 * n)
+        if current_stock < consumption_per_c:
+            return Action.D
+        is_stable = prev_k == n - 1
+        if current_stock < 0.25 * capacity or self.H < -2.0:
+            return Action.D
+        elif is_stable and current_stock >= 0.5 * capacity:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_6(BaseStrategy):
+    """
+    Opportunistic-Trigger Strategy:
+    - Round 1: Always Cooperate (C).
+    - Final Round: Always Defect (D).
+    - Emergency (S < 0.2*capacity): Always Cooperate (C).
+    - High Yield (S > 0.8*capacity): Always Defect (D).
+    - Retaliation: If current punishment mode active, Defect (D).
+    - Trigger Mechanism: Tracks reputation; punishes if stock drops below expected cooperative levels.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.desc = game_description
+        self.is_punishing = False
+        self.reputation = 0.0
+        self.punishment_streak = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        n = self.desc.n_players
+        capacity = self.desc.capacity
+        if t == 0:
+            return Action.C
+        if t == self.desc.n_rounds - 1:
+            return Action.D
+        if t > 0:
+            prev_round = t - 1
+            prev_S = current_stock
+            coop_count = history.opponent_cooperators[prev_round]
+            expected_coop_count = n - 1
+            if coop_count < expected_coop_count:
+                self.reputation -= 1.0
+            else:
+                self.reputation += 0.5
+            if self.reputation < -0.5 * n:
+                self.is_punishing = True
+            if self.is_punishing:
+                if current_stock > 0.5 * capacity and coop_count >= n - 1:
+                    self.punishment_streak += 1
+                else:
+                    self.punishment_streak = 0
+                if self.punishment_streak >= 2:
+                    self.is_punishing = False
+                    self.punishment_streak = 0
+        if self.is_punishing:
+            return Action.D
+        if current_stock < 0.2 * capacity:
+            return Action.C
+        if current_stock > 0.8 * capacity:
+            return Action.D
+        opp_ratio = history.opponent_cooperators[-1] / (n - 1)
+        if opp_ratio > 0.5:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_7(BaseStrategy):
+    """
+    Opportunistic Tit-for-Tat Strategy:
+    Balances resource sustainability with exploitation.
+    - Operates on a Target Cooperation Level mechanism.
+    - End-game: Always defects.
+    - Sustainability Threshold: If stock is dangerously low, defects to extract value.
+    - Tit-for-Tat: Cooperates if opponents cooperated, otherwise defects.
+    - Rapid Depletion Check: Emergency defect if stock < 10% capacity.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        capacity = self.game_description.capacity
+        r = self.game_description.n_rounds
+        current_round_idx = history.round_number + 1
+        if current_round_idx == r:
+            return Action.D
+        s_min = capacity / (n + 1)
+        if current_stock < s_min:
+            return Action.D
+        if current_stock < 0.1 * capacity:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        n_c = int(history.opponent_cooperators[-1])
+        if current_stock >= 0.9 * capacity:
+            if n_c >= n - 1:
+                return Action.C
+            else:
+                return Action.D
+        if n_c >= n - 1:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_8(BaseStrategy):
+    """
+    Implements Dynamic Threshold Reciprocity:
+    - Round 1: Cooperate to establish baseline.
+    - Steady State: Cooperate if opponents were cooperative enough (>=(n-1)/2).
+    - Defect if opponents were uncooperative and stock is high (opportunism).
+    - Cooperate if opponents were uncooperative and stock is low (sustainability).
+    - Final Round: Always defect.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.total_rounds = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_idx = history.round_number
+        if current_round_idx == self.total_rounds - 1:
+            return Action.D
+        if current_round_idx == 0:
+            return Action.C
+        prev_opponents_cooperated = int(history.opponent_cooperators[-1])
+        sustainability_threshold = (self.n - 1) / 2.0
+        if prev_opponents_cooperated >= sustainability_threshold:
+            return Action.C
+        elif current_stock > self.capacity / 4.0:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_OPPORTUNISTIC_9(BaseStrategy):
+    """
+    A strategy that cooperates if the current stock level is sufficient to sustain growth, 
+    but defects in the final round or if the stock falls below the defined sustainability threshold.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.threshold = self.game_description.capacity / self.game_description.n_players
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        total_rounds = self.game_description.n_rounds
+        if current_round == total_rounds - 1:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        if current_stock < self.threshold or current_stock <= 0:
+            return Action.D
+        return Action.C
+
+class Strategy_OPPORTUNISTIC_10(BaseStrategy):
+    """
+    Implements a Conditional Tit-for-Tat strategy with terminal defection.
+    - Round 1: Always Cooperate.
+    - Last Round (t=r): Always Defect.
+    - Intermediate Rounds:
+        - Cooperate if all other players cooperated in the previous round.
+        - If previous cooperation was not universal:
+            - Defect if stock is > 80% capacity (opportunistic).
+            - Cooperate if stock <= 80% capacity (resource preservation).
+    - Emergency Rule: Always Cooperate if stock is 0 to avoid wasted defection.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if current_stock <= 0:
+            return Action.C
+        current_round_idx = history.round_number
+        total_rounds = self.game_description.n_rounds
+        if current_round_idx == total_rounds - 1:
+            return Action.D
+        if current_round_idx == 0:
+            return Action.C
+        my_prev_action = history.my_actions[-1]
+        my_prev_coop = 1 if my_prev_action == Action.C else 0
+        total_c_count_prev = history.opponent_cooperators[-1] + my_prev_coop
+        if total_c_count_prev == self.game_description.n_players:
+            return Action.C
+        threshold = 0.8 * self.game_description.capacity
+        if current_stock > threshold:
+            return Action.D
+        return Action.C
+
+class Strategy_OPPORTUNISTIC_11(BaseStrategy):
+    """
+    A strategy for the Common Pool Resource Game that adjusts cooperativeness based on
+    current stock levels and recent group behavior. It utilizes a forgiveness mechanic
+    that decays based on group cooperation and resets upon successful punishment.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.forgiveness_level = 0
+        self.consecutive_coop_rounds = 0
+        self.prev_stock = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number + 1
+        r = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        n = self.game_description.n_players
+        if history.round_number > 0:
+            my_prev_action = history.my_actions[-1]
+            coop_count = history.opponent_cooperators[-1] + (1 if my_prev_action else 0)
+            defect_count = n - coop_count
+            if not my_prev_action and current_stock > self.prev_stock:
+                self.forgiveness_level = 0
+                self.consecutive_coop_rounds = 0
+            if coop_count == n:
+                self.consecutive_coop_rounds += 1
+                if self.consecutive_coop_rounds >= 3:
+                    self.forgiveness_level = min(5, self.forgiveness_level + 1)
+                    self.consecutive_coop_rounds = 0
+            else:
+                self.consecutive_coop_rounds = 0
+            self.prev_stock = current_stock
+        if t == r:
+            return Action.D
+        if t == 1:
+            return Action.C
+        my_prev_action = history.my_actions[-1]
+        coop_count_prev = history.opponent_cooperators[-1] + (1 if my_prev_action else 0)
+        d_count_prev = n - coop_count_prev
+        if current_stock < 0.2 * capacity:
+            return Action.C
+        if d_count_prev > n / 2 + self.forgiveness_level:
+            return Action.D
+        if current_stock > 0.8 * capacity and d_count_prev < n / 2:
+            return Action.D
+        return Action.C
+
+class Strategy_OPPORTUNISTIC_12(BaseStrategy):
+    """
+    Tit-for-Tat Resource Harvesting: A conditional cooperation strategy that
+    manages reputation based on past cooperators, monitors stock health for
+    crisis management, and incorporates opportunistic defection in final rounds.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.reputation = 0.5
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        round_t = history.round_number + 1
+        if round_t == 1:
+            return Action.C
+        if round_t == r:
+            return Action.D
+        prev_opp_coops = int(history.opponent_cooperators[-1])
+        last_action = Action.C if history.my_actions[-1] else Action.D
+        k = prev_opp_coops + (1 if last_action == Action.C else 0)
+        self.reputation = self.reputation * 0.7 + k / n * 0.3
+        if current_stock < capacity / n:
+            return Action.D
+        if round_t == r - 1:
+            if current_stock < capacity / 2:
+                return Action.D
+        if self.reputation >= 0.6:
+            return Action.C
+        elif self.reputation < 0.4:
+            return Action.D
+        else:
+            threshold = n / 2
+            return Action.C if k >= threshold else Action.D
+
+class Strategy_OPPORTUNISTIC_13(BaseStrategy):
+    """
+    Tit-for-Tat with Resource-Aware Thresholding:
+    Combines reciprocal behavior with stock-dependent thresholds to balance 
+    sustainability, exploitation, and recovery.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_opponents = game_description.n_players - 1
+        self.threshold = 0.5
+        self.depletion_recovery_timer = 0
+        self.last_stock = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t = history.round_number
+        n = self.game_description.n_players
+        capacity = self.game_description.capacity
+        if t == 0:
+            self.last_stock = current_stock
+            return Action.C
+        stock_drop = self.last_stock - current_stock
+        if self.last_stock > 0 and stock_drop / self.last_stock > 0.5:
+            self.depletion_recovery_timer = 2
+        if current_stock < capacity / 2:
+            self.threshold = 0.9
+        prev_cooperators = history.opponent_cooperators[-1]
+        prev_action = history.my_actions[-1]
+        ocr = prev_cooperators / self.n_opponents if self.n_opponents > 0 else 1.0
+        if t == self.game_description.n_rounds - 1:
+            return Action.D
+        if self.depletion_recovery_timer > 0:
+            self.depletion_recovery_timer -= 1
+            self.last_stock = current_stock
+            return Action.C
+        if current_stock < capacity / (2 * n):
+            self.last_stock = current_stock
+            return Action.C
+        if current_stock > 0.9 * capacity and ocr < 0.5:
+            self.last_stock = current_stock
+            return Action.D
+        decision = Action.C
+        if ocr >= self.threshold:
+            decision = Action.C
+        else:
+            decision = Action.D
+        if abs(ocr - self.threshold) < 1e-09:
+            decision = Action.C if prev_action else Action.D
+        if ocr > self.threshold:
+            self.threshold = max(0.2, self.threshold - 0.05)
+        elif ocr < self.threshold:
+            self.threshold = min(0.8, self.threshold + 0.1)
+        self.last_stock = current_stock
+        return decision
+
+class Strategy_OPPORTUNISTIC_14(BaseStrategy):
+    """
+    A reactive strategy for the Common Pool Resource Game.
+    Starts by cooperating. In subsequent rounds:
+    - Defects if it's the last round.
+    - Continues to defect if already in 'exploiting' mode.
+    - Cooperates if stock is critically low (< capacity / n).
+    - Transitions to 'exploiting' mode if any opponent defected in the previous round.
+    - Otherwise, cooperates and ensures 'exploiting' mode is off.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.is_exploiting = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if self.is_exploiting:
+            return Action.D
+        if current_stock < self.game_description.capacity / self.game_description.n_players:
+            return Action.C
+        n_opponents = self.game_description.n_players - 1
+        prev_cooperators = history.opponent_cooperators[-1]
+        k = n_opponents - prev_cooperators
+        if k > 0:
+            self.is_exploiting = True
+            return Action.D
+        self.is_exploiting = False
+        return Action.C
+
+class Strategy_OPPORTUNISTIC_15(BaseStrategy):
+    """
+    Conditional Tit-for-Tat with Yield Thresholds.
+    
+    Strategy Logic:
+    1. Terminal Opportunism: Always defect on the final round.
+    2. Preservation Mode: If the current stock is below half capacity, switch to 
+       Defect (D) to extract remaining value before depletion.
+    3. Tit-for-Tat Reciprocity: 
+       - Round 1: Always Cooperate (C).
+       - Subsequent rounds: If the stock is healthy (>= capacity/2), cooperate 
+         only if nearly everyone else (n-1 players) cooperated in the last round.
+         Otherwise, Defect (D).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.total_rounds = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_idx = history.round_number
+        if current_round_idx == self.total_rounds - 1:
+            return Action.D
+        if current_stock < self.capacity / 2:
+            return Action.D
+        if current_round_idx == 0:
+            return Action.C
+        last_cooperators = history.opponent_cooperators[-1]
+        we_cooperated_last = history.my_actions[-1]
+        total_cooperators_last = last_cooperators + (1 if we_cooperated_last else 0)
+        if total_cooperators_last >= self.n - 1:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_16(BaseStrategy):
+    """
+    A state-aware strategy for the Common Pool Resource Game.
+    
+    It alternates between a Cooperative Phase (rounds 0 to r-3) and a Terminal Phase (rounds r-2 and r-1).
+    - In the Cooperative Phase: Prioritizes sustainability if stock > capacity/2, but switches to Defect 
+      if the stock is critically low or if the opponent aggregate cooperation rate was low (< 0.5) 
+      in the previous round.
+    - In the Terminal Phase: Always defects to maximize immediate extraction.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.threshold = self.capacity / 2.0
+        self.n_opponents = max(1, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round >= self.n_rounds - 2:
+            return Action.D
+        if current_round > 0:
+            coop_count = history.opponent_cooperators[-1]
+            coop_rate = coop_count / self.n_opponents
+            if coop_rate < 0.5:
+                return Action.D
+        if current_stock <= self.threshold:
+            return Action.D
+        return Action.C
+
+class Strategy_OPPORTUNISTIC_17(BaseStrategy):
+    """
+    Implements a Tit-for-Tat strategy that incorporates resource-aware thresholding.
+    Prioritizes cooperation when stock is healthy and cooperation is reciprocated,
+    but defaults to defection in the end game or when resource collapse is imminent.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r_total = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        round_idx = history.round_number
+        if r_total - round_idx <= 2:
+            return Action.D
+        if round_idx == 0:
+            return Action.C
+        if current_stock < capacity / 2:
+            return Action.D
+        last_my_action = 1 if history.my_actions[-1] else 0
+        total_cooperators_prev = last_my_action + history.opponent_cooperators[-1]
+        threshold = math.floor(0.75 * n)
+        if total_cooperators_prev >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_18(BaseStrategy):
+    """
+    Implements a 'Conditional Sustainability' strategy.
+    Prioritizes resource maintenance (stock >= 0.5 * capacity) while exploiting
+    cooperative environments, but switches to survival mode or total defection
+    based on the state of the common pool.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = float(game_description.capacity)
+        self.threshold = 0.5 * self.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.r - 1:
+            return Action.D
+        if current_stock < 0.1 * self.capacity:
+            return Action.C
+        if current_round >= 2:
+            last_two_rounds_cooperation = history.opponent_cooperators[-2:]
+            if np.all(last_two_rounds_cooperation == 0):
+                return Action.D
+        start_idx = max(0, current_round - 3)
+        recent_cooperators = history.opponent_cooperators[start_idx:current_round]
+        n_cooperators_avg = np.mean(recent_cooperators)
+        if current_stock < self.threshold * 0.8:
+            return Action.C
+        if n_cooperators_avg > self.n / 2:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_OPPORTUNISTIC_19(BaseStrategy):
+    """
+    A conditional, history-dependent strategy for the Common Pool Resource Game.
+    It cooperates when the pool is at risk of depletion or when the population 
+    is behaving sustainably. It defects when the pool is robust or when 
+    the population is overly aggressive.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.threshold_l = 0.25 * game_description.capacity
+        self.threshold_h = 0.75 * game_description.capacity
+        self.n = game_description.n_players
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        if current_stock < self.threshold_l:
+            return Action.C
+        if current_stock > self.threshold_h:
+            return Action.D
+
+        def calculate_defectors_in_round(r_idx):
+            opp_c = history.opponent_cooperators[r_idx]
+            my_c = 1 if history.my_actions[r_idx] else 0
+            total_c = opp_c + my_c
+            return self.n - total_c
+        num_history = history.round_number
+        lookback = min(num_history, 2)
+        recent_defect_counts = [calculate_defectors_in_round(num_history - i - 1) for i in range(lookback)]
+        avg_defect = sum(recent_defect_counts) / len(recent_defect_counts)
+        if avg_defect < self.n / 2:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_20(BaseStrategy):
+    """
+    Implements a conditional Tit-for-Tat strategy for the Common Pool Resource game.
+    - Round 1: Always Cooperates.
+    - Ongoing: Adapts cooperation threshold based on previous round's stock and opponent cooperation.
+    - Crisis: Switches to Cooperation if stock is critically low.
+    - Terminal Phase: Greedily defects in the final two rounds (with an exception for the penultimate round based on stock).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_idx = history.round_number
+        total_rounds = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        n = self.game_description.n_players
+        n_opponents = n - 1
+        if current_round_idx == total_rounds - 1:
+            return Action.D
+        if current_round_idx == total_rounds - 2:
+            if current_stock > capacity * 0.5:
+                return Action.D
+        if current_stock < capacity * 0.1:
+            return Action.C
+        if current_round_idx == 0:
+            return Action.C
+        last_round_cooperators = int(history.opponent_cooperators[-1])
+        if current_stock >= capacity * 0.75:
+            threshold = n_opponents / 2.0
+        else:
+            threshold = float(n_opponents)
+        if last_round_cooperators >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_21(BaseStrategy):
+    """
+    Implements Adaptive Threshold Tit-for-Tat (AT-TFT).
+    Balances resource sustainability with opportunistic defection based on stock levels
+    and historical cooperation rates.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.last_stock = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round == self.game_description.n_rounds - 1:
+            self.last_stock = current_stock
+            return Action.D
+        if current_stock <= self.capacity / 4:
+            self.last_stock = current_stock
+            return Action.D
+        if current_round == 0:
+            self.last_stock = current_stock
+            return Action.C
+        if self.last_stock > 0 and current_stock / self.last_stock < 0.6:
+            self.last_stock = current_stock
+            return Action.D
+        prev_coops = history.opponent_cooperators[-1]
+        my_prev_action = history.my_actions[-1]
+        my_prev_int = 1 if my_prev_action else 0
+        total_cooperators = prev_coops + my_prev_int
+        cooperation_rate = total_cooperators / self.n
+        threshold = 0.4 if current_stock > 0.9 * self.capacity else 0.6
+        action = Action.C if cooperation_rate > threshold else Action.D
+        self.last_stock = current_stock
+        return action
+
+class Strategy_OPPORTUNISTIC_22(BaseStrategy):
+    """
+    Conditional Reciprocity Strategy:
+    Tracks a 'Trust Index' (T) of the population. Cooperates if the resource
+    is sustainable and the Trust Index is high. Defects if the resource
+    is near collapse, if the last round is reached, or if trust is low.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.total_rounds = game_description.n_rounds
+        self.trust_index = 0.5
+
+    def _update_trust(self, my_last_action: Action, opponents_cooperated_count: int) -> None:
+        """
+        Updates the Trust Index based on previous round behavior.
+        my_action: Action.C or Action.D
+        opponents_cooperated_count: integer count of opponents who cooperated.
+        """
+        my_contribution = 1 if my_last_action == Action.C else 0
+        total_cooperators = opponents_cooperated_count + my_contribution
+        k_others = total_cooperators - my_contribution
+        denominator = self.n - 1
+        if denominator == 0:
+            cooperation_rate = 0.0
+        else:
+            cooperation_rate = k_others / denominator
+        self.trust_index = 0.7 * self.trust_index + 0.3 * cooperation_rate
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round > 0:
+            last_action = Action.C if history.my_actions[-1] else Action.D
+            self._update_trust(last_action, history.opponent_cooperators[-1])
+        if current_round == self.total_rounds - 1:
+            return Action.D
+        if current_stock < self.capacity / self.n:
+            return Action.D
+        s_crit = self.capacity / 2.0
+        if self.trust_index >= 0.5 and current_stock >= s_crit:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_23(BaseStrategy):
+    """
+    A strategy that enforces collective sustainability while stock is high and 
+    cooperation is prevalent, switching to defect as the stock depletes, 
+    cooperation wanes, or the game reaches its final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.threshold = game_description.capacity / 2
+        self.majority_threshold = game_description.n_players / 2
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        if current_stock > self.threshold:
+            last_round_idx = history.round_number - 1
+            last_opp_coop = int(history.opponent_cooperators[last_round_idx])
+            my_last_action = int(history.my_actions[last_round_idx])
+            total_cooperators = last_opp_coop + my_last_action
+            if total_cooperators >= self.majority_threshold:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_24(BaseStrategy):
+    """
+    A strategy that maintains a 'Trust Score' based on the collective cooperation of opponents.
+    It initiates with cooperation, adjusts based on the history of others, and incorporates
+    endgame dynamics (defecting near the end) and depletion safety (cooperating if stock is critical).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.trust_score = 0
+        self.n_opponents = self.game_description.n_players - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        prev_opp_coop_count = history.opponent_cooperators[-1]
+        if prev_opp_coop_count == self.n_opponents:
+            self.trust_score += 1
+        elif prev_opp_coop_count == 0:
+            self.trust_score -= 1
+        if self.trust_score < 0:
+            self.trust_score = 0
+        remaining_rounds = self.game_description.n_rounds - history.round_number
+        if remaining_rounds < 3:
+            return Action.D
+        cooperation_threshold = 2
+        if current_stock < self.game_description.capacity / self.game_description.n_players:
+            return Action.C
+        if current_stock <= 0:
+            return Action.C
+        if self.trust_score >= cooperation_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_25(BaseStrategy):
+    """
+    A conditional cooperation strategy for the Common Pool Resource Game.
+    
+    It employs a trigger-based mechanism:
+    1. Starts with cooperation (Round 0).
+    2. Continues cooperation if the number of cooperating opponents is high (>= n-1).
+    3. If opponents deviate, evaluates if the pool can sustain the cooperative equilibrium 
+       based on the 25% capacity threshold.
+    4. Switches to defection in the final round (n-1) or if specific collapse conditions 
+       (rapid depletion or persistent defection) are met.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.consecutive_full_defections = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round == self.r - 1:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        n_opponents = self.n - 1
+        prev_opp_C = history.opponent_cooperators[-1]
+        if prev_opp_C == 0:
+            self.consecutive_full_defections += 1
+        else:
+            self.consecutive_full_defections = 0
+        if current_stock < 0.1 * self.capacity:
+            return Action.D
+        if self.consecutive_full_defections >= 2:
+            return Action.D
+        if prev_opp_C >= n_opponents - 1 if n_opponents > 0 else True:
+            return Action.C
+        if current_stock < 0.25 * self.capacity:
+            return Action.D
+        return Action.C
+
+class Strategy_OPPORTUNISTIC_26(BaseStrategy):
+    """
+    Implements a strategy based on sustainability thresholds, trigger retaliation, 
+    and opportunistic exploitation. 
+    It tracks game state and adjusts actions based on stock health, history, and round progress.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.epsilon = self.capacity / (2 * self.n)
+        self.target_stock = self.capacity / 2 + self.epsilon
+        self.system_shock_active = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if current_stock < self.capacity / self.n:
+            self.system_shock_active = True
+        if self.system_shock_active:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.r - 1:
+            return Action.D
+        prev_round_idx = -1
+        prev_n_cooperators = history.opponent_cooperators[prev_round_idx]
+        prev_my_action = history.my_actions[prev_round_idx]
+        prev_n_defectors = self.n - 1 - prev_n_cooperators
+        if not prev_my_action:
+            prev_n_defectors += 1
+        if current_stock < self.capacity / (2 * self.n):
+            return Action.D
+        if history.round_number == 1:
+            effective_prev_defectors = 0
+        else:
+            effective_prev_defectors = prev_n_defectors
+        if effective_prev_defectors > self.n / 2:
+            return Action.D
+        if current_stock >= self.target_stock and effective_prev_defectors <= 1:
+            return Action.C
+        prev_n_cooperators_all = prev_n_cooperators + (1 if prev_my_action else 0)
+        prev_n_defectors_all = self.n - prev_n_cooperators_all
+        if prev_n_cooperators_all >= prev_n_defectors_all:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_27(BaseStrategy):
+    """
+    Implements a responsive, threshold-based Common Pool Resource strategy.
+    
+    The strategy balances resource sustainability with opportunistic exploitation.
+    - Operates on thresholds: prioritizes replenishment when stock is low,
+      opportunistic consumption when stock is high (over-saturation),
+      and Tit-for-Tat based reciprocity during intermediate phases.
+    - Tracks consecutive defection to identify permanent defection cycles.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.capacity = float(game_description.capacity)
+        self.n_players = game_description.n_players
+        self.n_opponents = self.n_players - 1
+        self.consecutive_zero_cooperation_rounds = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_idx = history.round_number
+        if round_idx == self.game_description.n_rounds - 1:
+            return Action.D
+        if round_idx == 0:
+            return Action.C
+        last_c_obs = history.opponent_cooperators[-1]
+        if last_c_obs == 0:
+            self.consecutive_zero_cooperation_rounds += 1
+        else:
+            self.consecutive_zero_cooperation_rounds = 0
+        if self.consecutive_zero_cooperation_rounds >= 2:
+            return Action.D
+        threshold = 0.5 * self.capacity
+        critical_threshold = 0.2 * self.capacity
+        oversaturation_threshold = 0.8 * self.capacity
+        if current_stock < critical_threshold:
+            return Action.C
+        if current_stock > oversaturation_threshold:
+            return Action.D
+        if current_stock < threshold:
+            return Action.C
+        if last_c_obs == self.n_opponents:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_28(BaseStrategy):
+    """
+    Implements a Tit-for-Tat foundation with conditional expansion.
+    Prioritizes resource stock conservation through explicit triggers:
+    1. Conservation Phase: If stock < 0.25 * capacity or < 0.1 * capacity (override), plays C.
+    2. Steady State Phase: If full cooperation observed, plays C.
+    3. Opportunistic Phase: If high stock and decent cooperation, plays C.
+    4. Default: Plays D, unless final round (always D).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.recovering_from_collapse = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        capacity = self.game_description.capacity
+        total_rounds = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == total_rounds - 1:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        if current_stock < 0.1 * capacity:
+            self.recovering_from_collapse = True
+        if self.recovering_from_collapse:
+            if current_stock >= 0.5 * capacity:
+                self.recovering_from_collapse = False
+            else:
+                return Action.C
+        if current_stock < 0.25 * capacity:
+            return Action.C
+        last_action_val = 1 if history.my_actions[-1] else 0
+        last_total_cooperators = history.opponent_cooperators[-1] + last_action_val
+        cooperation_rate = last_total_cooperators / n
+        if cooperation_rate == 1.0:
+            return Action.C
+        if current_stock >= 0.75 * capacity and cooperation_rate > 0.5:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_29(BaseStrategy):
+    """
+    Implements a responsive Common Pool Resource strategy.
+    
+    Strategy Summary:
+    1. First round: Always Cooperate (C).
+    2. Terminal round: Always Defect (D).
+    3. Emergency: If stock < capacity/2, Defect (D).
+    4. Performance check: If stock dropped > 20% in the last round, transition to permanent Defection.
+    5. Adaptive: Otherwise, cooperate with probability proportional to the observed cooperation rate of the previous round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.s_crit = game_description.capacity / 2.0
+        self.permanent_defection = False
+        self.last_stock = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_idx = history.round_number
+        if round_idx == 0:
+            self.last_stock = current_stock
+            return Action.C
+        if round_idx == self.game_description.n_rounds - 1:
+            return Action.D
+        if not self.permanent_defection and self.last_stock > 0:
+            drop_percentage = (self.last_stock - current_stock) / self.last_stock
+            if drop_percentage > 0.2:
+                self.permanent_defection = True
+        self.last_stock = current_stock
+        if self.permanent_defection:
+            return Action.D
+        if current_stock < self.s_crit or current_stock < 0.1:
+            return Action.D
+        cooperators_last_round = history.opponent_cooperators[-1]
+        my_prev_action = history.my_actions[-1]
+        my_cooperation_val = 1 if my_prev_action else 0
+        total_cooperators = cooperators_last_round + my_cooperation_val
+        n = self.game_description.n_players
+        if total_cooperators == n:
+            return Action.C
+        cooperation_probability = total_cooperators / n
+        if random.random() < cooperation_probability:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_OPPORTUNISTIC_30(BaseStrategy):
+    """
+    A strategy that balances sustainability and opportunistic exploitation in a Common Pool Resource game.
+    It uses a moving average of recent cooperation to determine whether to cooperate or defect,
+    while adjusting for current stock levels to avoid collapse or maximize utility.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = self.game_description.n_players
+        self.r = self.game_description.n_rounds
+        self.capacity = self.game_description.capacity
+        self.num_opponents = self.n - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round == self.r - 1:
+            if current_stock > self.capacity / self.n:
+                return Action.D
+            else:
+                return Action.C
+        if current_round == 0:
+            return Action.C
+        t = current_round
+        k = min(t, 3)
+        recent_cooperators = history.opponent_cooperators[-k:]
+        if self.num_opponents == 0:
+            coop_rate = 0.0
+        else:
+            coop_rate = np.mean(recent_cooperators) / self.num_opponents
+        last_round_cooperators = history.opponent_cooperators[-1]
+        if current_stock < self.capacity / 2:
+            if last_round_cooperators == 0 and current_stock < self.capacity / 4:
+                return Action.D
+            return Action.C
+        if coop_rate < 0.25:
+            return Action.D
+        threshold_opponents = (self.n - 1) / 2
+        if last_round_cooperators > threshold_opponents and current_stock > 0.5 * self.capacity:
+            return Action.C
+        if last_round_cooperators < threshold_opponents:
+            return Action.D
+        return Action.C
+
+class Strategy_OPPORTUNISTIC_31(BaseStrategy):
+    """
+    Adaptive Sustainability with Defection Trigger.
+    Maintains the common pool at sustainable levels by conditionally cooperating 
+    based on previous opponent behavior, while aggressively exploiting in the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        t_round = history.round_number + 1
+        r = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        if t_round == 1:
+            return Action.C
+        if t_round == r:
+            return Action.D
+        if current_stock < 0.2 * capacity:
+            return Action.C
+        c_prev = history.opponent_cooperators[-1]
+        if c_prev == 0:
+            return Action.D
+        return Action.C
+
+class Strategy_OPPORTUNISTIC_32(BaseStrategy):
+    """
+    A strategy that maintains cooperation while resources are abundant,
+    but defaults to defecting (D) if the stock drops below a critical threshold (capacity/4)
+    or if opponents fail to sustain a cooperative equilibrium (where all n-1 opponents cooperate).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n_players = self.game_description.n_players
+        n_rounds = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        current_round = history.round_number
+        if current_round == n_rounds - 1:
+            return Action.D
+        if current_stock < capacity / 4:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        cooperation_threshold = n_players - 1
+        observed_cooperators = history.opponent_cooperators[-1]
+        if observed_cooperators == cooperation_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_5(BaseStrategy):
+    """
+    Implements a reputation-based strategy with a recovery mechanism for Common Pool Resource games.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.reputation_score = 1.0
+        self.permanently_defecting = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        r = self.game_description.n_rounds
+        t = history.round_number
+        n = self.game_description.n_players
+        capacity = self.game_description.capacity
+        if t > 0:
+            k = history.opponent_cooperators[-1]
+            n_opponents = n - 1
+            f = k / n_opponents if n_opponents > 0 else 1.0
+            self.reputation_score = 0.2 * f + 0.8 * self.reputation_score
+            if current_stock < 0.2 * capacity and k == 0:
+                self.permanently_defecting = True
+        if t == r - 1:
+            return Action.D
+        if current_stock == 0:
+            return Action.D
+        if self.permanently_defecting:
+            return Action.D
+        if current_stock < 0.2 * capacity:
+            return Action.C
+        if current_stock < capacity / n:
+            return Action.D
+        p_c = max(0.0, min(1.0, self.reputation_score))
+        if random.random() < p_c:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_6(BaseStrategy):
+    """
+    Implements a trigger-based, threshold-dependent strategy for the Common Pool Resource Game.
+    Prioritizes resource sustainability using critical thresholds while employing conditional
+    reciprocity based on previous cooperative actions.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        current_round = history.round_number
+        if current_round == r - 1:
+            return Action.D if current_stock > 0 else Action.C
+        critical_threshold = capacity / 2 * 0.2
+        if current_stock < critical_threshold:
+            return Action.C
+        if current_round > 0:
+            opp_coop = history.opponent_cooperators[-1]
+            my_prev_action = history.my_actions[-1]
+            k_prev = opp_coop + (1 if my_prev_action else 0)
+            if k_prev >= n - 1:
+                return Action.C
+            else:
+                return Action.D
+        return Action.C
+
+class Strategy_INDIVIDUALISTIC_7(BaseStrategy):
+    """
+    Implements a conditional cooperation strategy (Tit-for-Tat variant) 
+    incorporating a sustainability threshold to adjust behavior based on 
+    pool health and opponent history.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.r - 1:
+            if current_stock > self.capacity / self.n:
+                return Action.D
+            else:
+                return Action.C
+        if current_stock < self.capacity / 2.0:
+            return Action.C
+        n_opponents = self.n - 1
+        phi = history.opponent_cooperators[-1] / n_opponents
+        if phi >= 0.75:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_8(BaseStrategy):
+    """
+    Implements a resource-preservation strategy (the "Golden Equilibrium").
+    
+    The strategy prioritizes long-term resource maintenance to maximize yield 
+    over multiple rounds, but proactively switches to extraction (Defect) 
+    if the environment becomes unsustainable (high defection or low stock) 
+    or when the game concludes.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number + 1
+        if current_round == self.r:
+            return Action.D
+        if history.round_number > 0:
+            num_opponents = self.n - 1
+            num_coop_opponents = history.opponent_cooperators[-1]
+            num_defect_opponents = num_opponents - num_coop_opponents
+            my_prev_action = history.my_actions[-1]
+            num_defect_me = 0 if my_prev_action else 1
+            total_defectors = num_defect_opponents + num_defect_me
+            if total_defectors > self.n / 2:
+                return Action.D
+        if current_stock < self.capacity * 0.25:
+            return Action.D
+        return Action.C
+
+class Strategy_INDIVIDUALISTIC_9(BaseStrategy):
+    """
+    Tit-for-Tat with Sustainability Threshold (TFTS).
+    Prioritizes resource longevity via sustainability checks while using 
+    a Tit-for-Tat mechanism to punish mass defection.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r_max = self.game_description.n_rounds
+        cap = self.game_description.capacity
+        round_idx = history.round_number
+        if round_idx == 0:
+            return Action.C
+        if round_idx == r_max - 1:
+            if current_stock > cap / n:
+                return Action.D
+            else:
+                return Action.C
+        if current_stock < cap / 4:
+            return Action.D
+        if current_stock >= 0.9 * cap:
+            return Action.C
+        my_prev_action = history.my_actions[-1]
+        my_prev_coop = 1 if my_prev_action else 0
+        total_cooperators_prev = history.opponent_cooperators[-1] + my_prev_coop
+        if total_cooperators_prev >= n - 1:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_10(BaseStrategy):
+    """
+    Adaptive strategy for Common Pool Resource Game:
+    - Maintains a 'trust_score' based on history.
+    - Switches to 'Grim Trigger' if trust is too low.
+    - Uses threshold-based cooperation, with dynamic adjustments based on stock levels.
+    - Maximizes gain when stock is critically low or in the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.trust_score = 0.5
+        self.grim_trigger_active = False
+        self.target_sustain_stock = self.capacity / 2.0
+        self.cooperation_threshold_base = math.ceil(self.n * 0.75)
+        self.low_stock_critical_threshold = self.capacity / (2.0 * self.n)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        i_cooperated = int(history.my_actions[-1])
+        count_cooperators = history.opponent_cooperators[-1] + i_cooperated
+        self.trust_score = self.trust_score * 0.7 + count_cooperators / self.n * 0.3
+        if self.trust_score < 0.25:
+            self.grim_trigger_active = True
+        if self.grim_trigger_active:
+            return Action.D
+        if current_stock < self.low_stock_critical_threshold:
+            return Action.D
+        if current_stock >= 0.9 * self.capacity:
+            threshold = math.ceil(self.n * 0.9)
+        else:
+            threshold = self.cooperation_threshold_base
+        if current_stock < self.target_sustain_stock * 0.5:
+            return Action.D
+        if count_cooperators >= threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_11(BaseStrategy):
+    """
+    Tit-for-Tat Sustainability (TFTS):
+    A conditional sustainability strategy that prioritizes maintaining the stock at 
+    capacity/2. It cooperates if the resource base is stable/growing, defects if
+    it's declining, and always defects on the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.r - 1:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        prev_my_action = bool(history.my_actions[-1])
+        prev_opp_coop_count = history.opponent_cooperators[-1]
+        total_cooperators = prev_opp_coop_count + (1 if prev_my_action else 0)
+        total_defectors = self.n - total_cooperators
+        target_stock = self.capacity / 2
+        s_remaining = current_stock
+        growth = 2 * s_remaining * (1 - s_remaining / self.capacity)
+        projected_stock = min(float(self.capacity), s_remaining + growth)
+        if s_remaining < self.capacity / 4:
+            return Action.D
+        if projected_stock > target_stock:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_12(BaseStrategy):
+    """
+    Tit-for-tat with depletion adjustment: 
+    - Round 1: Cooperate.
+    - Final Round: Defect.
+    - Low Stock (< 10% capacity): Defect.
+    - Safety threshold check (> 50% capacity) and Opponent cooperation check (>= 75%): Cooperate.
+    - Otherwise: Defect.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_opponents = self.game_description.n_players - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_idx = history.round_number
+        total_rounds = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        if current_round_idx == total_rounds - 1:
+            return Action.D
+        if current_stock < 0.1 * capacity:
+            return Action.D
+        if current_round_idx == 0:
+            return Action.C
+        is_stock_safe = current_stock > 0.5 * capacity
+        prev_opponents_cooperated = history.opponent_cooperators[-1]
+        if self.n_opponents > 0:
+            opponents_cooperation_rate = prev_opponents_cooperated / self.n_opponents
+        else:
+            opponents_cooperation_rate = 1.0
+        if is_stock_safe and opponents_cooperation_rate >= 0.75:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_13(BaseStrategy):
+    """
+    Implements the Adaptive Threshold Strategy.
+    This strategy maintains a cooperation threshold (tau) that adjusts dynamically
+    based on resource fluctuation, balancing sustainability with punishment of defectors.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.capacity = float(game_description.capacity)
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.tau = 0.5
+        self.last_stock = float(game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_idx = history.round_number
+        if round_idx == 0:
+            return Action.C
+        if current_stock < self.last_stock:
+            self.tau = min(0.9, self.tau + 0.1)
+        elif current_stock > self.last_stock:
+            self.tau = max(0.3, self.tau - 0.05)
+        self.last_stock = current_stock
+        if round_idx == self.r - 1:
+            if current_stock > self.capacity / 2:
+                return Action.D
+        if current_stock < self.capacity / 4:
+            return Action.D
+        k = history.opponent_cooperators[-1]
+        CR = k / (self.n - 1)
+        if CR >= self.tau:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_14(BaseStrategy):
+    """
+    Tit-for-Tat with Sustainability Threshold strategy.
+    
+    Cooperates in the first round. In subsequent rounds, it adapts based on the
+    previous round's defection count and the current stock's resilience (sustainability index).
+    - If the resource is healthy (SI > 0.5), it absorbs minor defections to maintain long-term stability.
+    - If the resource is compromised (SI <= 0.5), it switches to selfish extraction (Defect).
+    - In the terminal round, it maximizes extraction if the stock is low.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.capacity = game_description.capacity
+        self.total_rounds = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_idx = history.round_number
+        if current_round_idx == 0:
+            return Action.C
+        if current_round_idx == self.total_rounds - 1:
+            if current_stock < self.capacity / 2:
+                return Action.D
+            else:
+                return Action.C
+        previous_cooperators = history.opponent_cooperators[-1]
+        previous_defectors = self.n_players - 1 - previous_cooperators
+        if previous_defectors == 0:
+            return Action.C
+        else:
+            if self.capacity == 0:
+                return Action.D
+            sustainability_index = current_stock / self.capacity
+            if sustainability_index > 0.5:
+                return Action.C
+            else:
+                return Action.D
+
+class Strategy_INDIVIDUALISTIC_15(BaseStrategy):
+    """
+    Implements a 'Conditional Sustainability' strategy.
+    
+    Logic:
+    1. Round 1: Cooperate (C).
+    2. Rounds 2 to r-1: 
+       - If all opponents cooperated in the previous round, Cooperate (C).
+       - If at least one opponent defected:
+         - If stock < 50% capacity, Defect (D) to extract before collapse.
+         - If stock >= 50% capacity, Cooperate (C) but track persistent defection. 
+           If defection persists for two consecutive rounds, switch to Defect (D) permanently.
+    3. Terminal Round r: Defect (D).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.persistent_defection_mode = False
+        self.consecutive_defection_count = 0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number + 1
+        if current_round == self.game_description.n_rounds:
+            return Action.D
+        if current_round == 1:
+            return Action.C
+        if self.persistent_defection_mode:
+            return Action.D
+        prev_idx = -1
+        n_opponents = self.game_description.n_players - 1
+        obs_coop = history.opponent_cooperators[prev_idx]
+        if obs_coop == n_opponents:
+            self.consecutive_defection_count = 0
+            return Action.C
+        else:
+            self.consecutive_defection_count += 1
+            if self.consecutive_defection_count >= 2:
+                self.persistent_defection_mode = True
+                return Action.D
+            threshold = 0.5 * self.game_description.capacity
+            if current_stock < threshold:
+                return Action.D
+            else:
+                return Action.C
+
+class Strategy_INDIVIDUALISTIC_16(BaseStrategy):
+    """
+    A Tit-for-Tat based strategy with threshold adjustment for Common Pool Resource games.
+    
+    This strategy aims to maximize cumulative payoff by maintaining resource stock near capacity.
+    It cooperates (C) if a sufficient proportion of opponents cooperated in the previous round,
+    defects (D) if they failed to meet the cooperation threshold (T=0.5), and prioritizes 
+    self-preservation when the stock is critically low. It strictly defects in the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.cooperation_threshold = 0.5
+        self.n_opponents = self.game_description.n_players - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        critical_stock = self.game_description.capacity / (2 * self.game_description.n_players)
+        if current_stock < critical_stock - 1e-09:
+            return Action.D
+        last_round_idx = history.round_number - 1
+        last_c_obs = history.opponent_cooperators[last_round_idx]
+        if self.n_opponents > 0:
+            coop_rate = last_c_obs / self.n_opponents
+        else:
+            coop_rate = 1.0
+        if coop_rate >= self.cooperation_threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_17(BaseStrategy):
+    """
+    A conditionally cooperative strategy that aims to maximize long-term stock levels.
+    It cooperates in the first round and when universal cooperation is achieved.
+    It punishes non-cooperative behavior unless the stock is critical, 
+    in which case it extracts remaining value. It always defects in the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = game_description.capacity
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.r - 1:
+            return Action.D
+        if current_stock < self.capacity / self.n:
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        my_prev_action = history.my_actions[-1]
+        total_cooperators = history.opponent_cooperators[-1] + (1 if my_prev_action else 0)
+        if total_cooperators == self.n:
+            return Action.C
+        elif current_stock >= 0.5 * self.capacity:
+            return Action.D
+        else:
+            return Action.C
+
+class Strategy_INDIVIDUALISTIC_18(BaseStrategy):
+    """
+    Implements a Conditional Sustainability strategy using Dynamic Tit-for-Tat 
+    and Capacity Thresholding. Balances immediate consumption with long-term 
+    stock maintenance.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        capacity = self.game_description.capacity
+        total_rounds = self.game_description.n_rounds
+        current_round = history.round_number
+        if current_round == total_rounds - 1:
+            return Action.D
+        if current_round == 0:
+            return Action.C
+        if current_stock < 0.1 * capacity:
+            return Action.D
+        prev_idx = current_round - 1
+        my_prev_action = history.my_actions[prev_idx]
+        opp_prev_coop_count = history.opponent_cooperators[prev_idx]
+        my_prev_coop_val = 1 if my_prev_action else 0
+        total_cooperators = opp_prev_coop_count + my_prev_coop_val
+        num_defectors = n - total_cooperators
+        if num_defectors > n / 2:
+            return Action.D
+        if not my_prev_action and current_stock > 0.8 * capacity:
+            return Action.C
+        return Action.C
+
+class Strategy_INDIVIDUALISTIC_19(BaseStrategy):
+    """
+    Adaptive Sustainable Tit-for-Tat (ASTFT):
+    A strategy that balances cooperation and defection based on stock levels, 
+    trust in opponents, and game progression. It prioritizes system health 
+    when stock is low and uses a trust-score mechanism to determine 
+    cooperation when stock is healthy.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.target_stock = 0.5 * self.game_description.capacity
+        self.trust_score = 0.5
+        self.n_opponents = self.game_description.n_players - 1
+        self.last_stock = float(self.game_description.capacity)
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            self.last_stock = current_stock
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if current_stock < self.target_stock:
+            self.last_stock = current_stock
+            return Action.C
+        prev_idx = history.round_number - 1
+        opp_c_count = int(history.opponent_cooperators[prev_idx])
+        opp_d_count = self.n_opponents - opp_c_count
+        my_prev_action = history.my_actions[prev_idx]
+        my_c_count = 1 if my_prev_action else 0
+        my_d_count = 0 if my_prev_action else 1
+        total_c = opp_c_count + my_c_count
+        total_d = opp_d_count + my_d_count
+        n = self.game_description.n_players
+        cons_c = total_c * (self.last_stock / (2 * n))
+        cons_d = total_d * (self.last_stock / n)
+        previous_consumption = cons_c + cons_d
+        if previous_consumption >= self.game_description.capacity / 2.0:
+            self.trust_score = max(0.0, self.trust_score - 0.2)
+            self.last_stock = current_stock
+            return Action.D
+        if opp_c_count > opp_d_count:
+            self.trust_score = min(1.0, self.trust_score + 0.1)
+        else:
+            self.trust_score = max(0.0, self.trust_score - 0.1)
+        self.last_stock = current_stock
+        if self.trust_score > 0.4:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_20(BaseStrategy):
+    """
+    State-Aware Trigger Tit-for-Tat (SATT).
+    
+    A strategy that balances long-term resource sustainability with opportunistic 
+    exploitation. It cooperates to maintain stock levels above capacity/2, 
+    but defects if:
+    1. The stock level is critically low (below capacity/2).
+    2. Opponents demonstrate defecting behavior (based on a majority threshold).
+    3. The game reaches the terminal round (greed).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.total_rounds = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.total_rounds - 1:
+            return Action.D
+        if current_stock < self.capacity / 2.0:
+            return Action.D
+        if history.round_number > 0:
+            n_opponents = self.n - 1
+            num_cooperators_last_round = history.opponent_cooperators[-1]
+            num_defectors_last_round = n_opponents - num_cooperators_last_round
+            if n_opponents > 0:
+                defector_index = num_defectors_last_round / n_opponents
+                if defector_index > 0.5:
+                    return Action.D
+        return Action.C
+
+class Strategy_INDIVIDUALISTIC_21(BaseStrategy):
+    """
+    Implements the 'Tit-for-Tat Stock Sustainer' strategy.
+    
+    Logic:
+    - Round 1: Always Cooperate (C).
+    - Terminal Round: Always Defect (D).
+    - Sustainability Threshold: If current stock S < capacity / n_players, Defect (D).
+    - Monitoring: If stock is healthy, Cooperate (C) if all opponents cooperated in the 
+      previous round, otherwise Defect (D).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_idx = history.round_number
+        total_rounds = self.game_description.n_rounds
+        if current_round_idx == total_rounds - 1:
+            return Action.D
+        critical_threshold = self.game_description.capacity / self.game_description.n_players
+        if current_stock < critical_threshold:
+            return Action.D
+        if current_round_idx == 0:
+            return Action.C
+        n_opponents = self.game_description.n_players - 1
+        opponents_cooperated = history.opponent_cooperators[-1]
+        if opponents_cooperated == n_opponents:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_22(BaseStrategy):
+    """
+    Implements a conditional Tit-for-Tat strategy with a sustainability override.
+    
+    Strategy Logic:
+    1. First round: Always Cooperate (C).
+    2. Terminal phase: Always Defect (D) on the last round.
+    3. Sustainability: If current_stock < 40% of capacity, Defect (D).
+    4. Tit-for-Tat: If at least half the players cooperated in the previous round, 
+       Cooperate (C). Otherwise, Defect (D).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.capacity = game_description.capacity
+        self.threshold_stock = self.capacity * 0.4
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_number = history.round_number + 1
+        if round_number == self.n_rounds:
+            return Action.D
+        if current_stock < self.threshold_stock:
+            return Action.D
+        if round_number == 1:
+            return Action.C
+        my_prev_action = history.my_actions[-1]
+        my_prev_coop = 1 if my_prev_action else 0
+        total_cooperators = history.opponent_cooperators[-1] + my_prev_coop
+        if total_cooperators >= self.n_players / 2:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_23(BaseStrategy):
+    """
+    A sustainable, belief-based strategy for the Common Pool Resource game.
+    Maintains a cooperative outlook until critical stock thresholds or defection-dominated 
+    trends suggest otherwise. Uses a moving average of opponent cooperation to inform 
+    future resource projections and determine current actions.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.target_stock = self.capacity / 2.0
+        self.b = 1.0
+        self.alpha = 0.2
+        self.n_opponents = self.n - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if current_stock < self.capacity / (2 * self.n):
+            return Action.D
+        if history.round_number == 0:
+            return Action.C
+        k_opp = history.opponent_cooperators[-1]
+        if self.n_opponents > 0:
+            coop_rate = k_opp / self.n_opponents
+            self.b = self.b * (1 - self.alpha) + coop_rate * self.alpha
+        else:
+            self.b = 1.0
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        c_count_assume_c = self.b * self.n_opponents + 1
+        d_count_assume_c = (1 - self.b) * self.n_opponents
+        e_cons_c = current_stock / (2 * self.n) * c_count_assume_c + current_stock / self.n * d_count_assume_c
+        s_rem = max(0.0, current_stock - e_cons_c)
+        s_next = min(self.capacity, s_rem + 2 * s_rem * (1 - s_rem / self.capacity))
+        if s_next < self.capacity / 4.0:
+            return Action.D
+        if s_next >= self.target_stock:
+            return Action.C
+        if self.b > 0.5:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_24(BaseStrategy):
+    """
+    Implements a 'Sustainable Reciprocity' strategy.
+    
+    Logic:
+    - Round 1: Always Cooperate (C).
+    - Terminal Round: Always Defect (D).
+    - Critical State (S < 25% of Capacity): Always Defect (D).
+    - Otherwise: Tit-for-Tat style; Cooperate only if all n-1 opponents 
+      cooperated in the previous round, otherwise Defect.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.threshold = self.game_description.n_players - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if current_stock < self.game_description.capacity * 0.25:
+            return Action.D
+        prev_opponents_cooperated = history.opponent_cooperators[-1]
+        if prev_opponents_cooperated >= self.threshold:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_25(BaseStrategy):
+    """
+    Implements a Conditional Sustainability strategy for the Common Pool Resource Game.
+    
+    This strategy monitors the resource stock level and the cooperation history of 
+    opponents to decide between Cooperation (C) and Defection (D). It aims to 
+    maximize long-term returns by cooperating when the stock is sufficient and 
+    peer cooperation is high, while aggressively defecting when the stock is 
+    low or the game is nearing its end.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n_opponents = self.game_description.n_players - 1
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        round_idx = history.round_number + 1
+        total_rounds = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        n = self.game_description.n_players
+        if round_idx == 1:
+            return Action.C
+        if round_idx == total_rounds:
+            return Action.D
+        if round_idx > total_rounds - 3:
+            if round_idx == total_rounds - 1:
+                return Action.D
+            if round_idx == total_rounds - 2:
+                if current_stock < 0.75 * capacity:
+                    return Action.D
+                else:
+                    pass
+        if current_stock <= 0:
+            return Action.D
+        threshold = capacity / 2
+        required_cooperation = math.ceil(self.n_opponents * 0.75)
+        opponents_cooperated_last_round = history.opponent_cooperators[-1]
+        if current_stock >= threshold:
+            if opponents_cooperated_last_round >= required_cooperation:
+                return Action.C
+            else:
+                return Action.D
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_26(BaseStrategy):
+    """
+    Implements a reciprocal sustainability strategy:
+    - Round 1: Always Cooperate.
+    - Last Round: Always Defect (Terminal override).
+    - Resource Criticality: Force Cooperate if stock is critically low.
+    - Adaptive Response: Estimate opponent defection based on stock changes.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.capacity = float(game_description.capacity)
+
+    def _calculate_next_stock(self, current_stock: float, n_cooperators: int) -> float:
+        """
+        Helper to predict the stock at the end of the round based on coop count.
+        n_cooperators is the number of players playing C (1 to n).
+        """
+        n_defectors = self.n - n_cooperators
+        cons_c = current_stock / (2.0 * self.n)
+        cons_d = current_stock / self.n
+        total_consumption = n_cooperators * cons_c + n_defectors * cons_d
+        remaining = current_stock - total_consumption
+        if remaining < 0:
+            remaining = 0.0
+        growth = 2.0 * remaining * (1.0 - remaining / self.capacity)
+        return min(remaining + growth, self.capacity)
+
+    def _estimate_defectors(self, previous_stock: float, observed_stock: float) -> int:
+        """
+        Iterates through possible number of cooperators to find the one
+        that best explains the observed_stock transition.
+        """
+        best_k = 0
+        min_diff = float('inf')
+        for k in range(self.n + 1):
+            predicted = self._calculate_next_stock(previous_stock, k)
+            diff = abs(predicted - observed_stock)
+            if diff < min_diff:
+                min_diff = diff
+                best_k = k
+        return self.n - best_k
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == self.r - 1:
+            return Action.D
+        if current_stock < self.capacity / self.n:
+            return Action.C
+        if history.round_number == 0:
+            return Action.C
+        last_round_idx = history.round_number - 1
+        last_n_coop = history.opponent_cooperators[last_round_idx] + (1 if history.my_actions[last_round_idx] else 0)
+        expected_if_all_cooperate = self._calculate_next_stock(current_stock, self.n)
+        if current_stock < expected_if_all_cooperate:
+            k = self._estimate_defectors(self.capacity, current_stock)
+            if k > self.n / 2:
+                return Action.D
+        return Action.C
+
+class Strategy_INDIVIDUALISTIC_27(BaseStrategy):
+    """
+    Implements the Tit-for-Tat Sustainability Strategy.
+    Prioritizes resource preservation when stock is critically low, attempts to sustain 
+    equilibrium via growth checks, and uses reciprocity (CR > 0.5) to cooperate 
+    when stock is healthy.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.r = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.r - 1:
+            if current_stock < 0.5 * self.capacity:
+                return Action.C
+            return Action.D
+        if current_stock < 0.25 * self.capacity:
+            return Action.C
+        my_prev_action = 1 if history.my_actions[-1] else 0
+        total_cooperators = history.opponent_cooperators[-1] + my_prev_action
+        cooperation_ratio = total_cooperators / self.n
+        if cooperation_ratio > 0.5:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_28(BaseStrategy):
+    """
+    Implements a resource-conscious adaptive strategy based on stock levels, 
+    reputation tracking, and defector monitoring.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.capacity = game_description.capacity
+        self.r = game_description.n_rounds
+        self.reputation = 0.0
+        self.coop_threshold = (self.n - 2) / (2 * self.n - 2) if 2 * self.n - 2 != 0 else 0.0
+        self.defector_majority_trigger = False
+        self.reset_mode = False
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round = history.round_number
+        if current_round == 0:
+            return Action.C
+        if current_round == self.r - 1:
+            return Action.D
+        k_prev = history.opponent_cooperators[-1]
+        n_opponents = self.n - 1
+        if n_opponents > 0:
+            self.reputation += k_prev / n_opponents - self.coop_threshold
+        if current_stock < 1.0:
+            return Action.D
+        if current_stock > 0.75 * self.capacity:
+            self.defector_majority_trigger = False
+        if k_prev <= 1:
+            self.defector_majority_trigger = True
+        if self.defector_majority_trigger:
+            return Action.D
+        if self.reputation < -2.0:
+            self.reputation = 0.0
+            self.reset_mode = True
+            return Action.C
+        if self.reset_mode:
+            self.reset_mode = False
+            if k_prev <= 1:
+                return Action.D
+            return Action.C
+        if current_stock < self.capacity / 4:
+            return Action.C
+        if self.reputation >= 0:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_29(BaseStrategy):
+    """
+    Implements a tit-for-tat sustainability-constrained strategy.
+    
+    Logic:
+    1. Phase 1 (Round 0): Always Cooperate (C).
+    2. Phase 2 (Rounds 1 to n_rounds - 2): 
+       - Sustainability Check: If current_stock <= 10% of capacity, Defect (D).
+       - Conditional Reciprocation: If everyone else cooperated (count of cooperators >= n-1), Cooperate (C). Otherwise, Defect (D).
+    3. Phase 3 (Last Round): Always Defect (D).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if current_stock <= 0.1 * self.game_description.capacity:
+            return Action.D
+        num_others = self.game_description.n_players - 1
+        if history.opponent_cooperators[-1] >= num_others:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_30(BaseStrategy):
+    """
+    A strategy that maintains a 'trust_score' based on the population's cooperation rate.
+    
+    Logic:
+    - Round 0 (First round): Plays C.
+    - Final round: Plays D.
+    - Intermediate rounds:
+        - Calculates trust_score using an EWMA: 0.9 * prev_trust + 0.1 * cooperation_rate.
+        - Defects (D) if stock < capacity / n.
+        - Otherwise, Cooperates (C) if trust_score >= 0.7, else Defects (D).
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.trust_score = 1.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        capacity = self.game_description.capacity
+        round_idx = history.round_number
+        if round_idx == r - 1:
+            return Action.D
+        if current_stock < capacity / n:
+            return Action.D
+        if round_idx == 0:
+            return Action.C
+        last_my_action = history.my_actions[-1]
+        k = history.opponent_cooperators[-1] + (1 if last_my_action else 0)
+        cooperation_rate = k / n
+        self.trust_score = self.trust_score * 0.9 + cooperation_rate * 0.1
+        if self.trust_score >= 0.7:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_31(BaseStrategy):
+    """
+    Implements a reputation-based resource management strategy. 
+    Maintains a rolling average of opponent cooperation, switching between 
+    cooperative preservation when the pool is healthy and reputation is high, 
+    and aggressive extraction when the pool is at risk or opponents are uncooperative.
+    Always defects in the final round.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.reputation = 0.0
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        if current_stock <= 0:
+            return Action.C
+        if history.round_number == self.game_description.n_rounds - 1:
+            return Action.D
+        if history.round_number == 0:
+            self.reputation = 0.0
+            return Action.C
+        n_opponents = self.game_description.n_players - 1
+        if n_opponents > 0:
+            obs_rate = history.opponent_cooperators[-1] / n_opponents
+            self.reputation = 0.7 * self.reputation + 0.3 * obs_rate
+        else:
+            return Action.C
+        if current_stock / self.game_description.capacity < 0.25:
+            return Action.D
+        if self.reputation > 0.6:
+            return Action.C
+        else:
+            return Action.D
+
+class Strategy_INDIVIDUALISTIC_32(BaseStrategy):
+    """
+    Implements a 'Tit-for-Tat with Sustainability Threshold' strategy.
+    
+    Logic:
+    - Round 1: Cooperate (Action.C).
+    - Round r (Final): Defect (Action.D).
+    - Rounds 2 to r-1:
+        - Check sustainability (New Stock / Old Stock >= 0.95).
+        - Check opponent cooperation rate (Opponents_C / n-1).
+        - If current stock < 0.2 * capacity, defect.
+        - If sustainable AND cooperation rate > 0.5, cooperate.
+        - Otherwise, defect.
+    """
+
+    def __init__(self, game_description: CommonPoolDescription):
+        self.game_description = game_description
+        self.stock_history = [float(game_description.capacity)]
+
+    def __call__(self, history: PlayerHistory, current_stock: float) -> Action:
+        current_round_idx = history.round_number
+        total_rounds = self.game_description.n_rounds
+        n = self.game_description.n_players
+        capacity = self.game_description.capacity
+        if current_round_idx == 0:
+            self.stock_history = [current_stock]
+            return Action.C
+        if current_round_idx == total_rounds - 1:
+            return Action.D
+        prev_round_idx = current_round_idx - 1
+        s_prev = self.stock_history[-1]
+        s_curr = current_stock
+        is_sustainable = s_curr >= s_prev * 0.95
+        opponents_c = history.opponent_cooperators[-1]
+        n_opponents = n - 1
+        cooperation_rate = opponents_c / n_opponents if n_opponents > 0 else 0.0
+        decision = Action.D
+        if current_stock < 0.2 * capacity:
+            decision = Action.D
+        elif is_sustainable and cooperation_rate > 0.5:
+            decision = Action.C
+        else:
+            decision = Action.D
+        self.stock_history.append(current_stock)
+        return decision

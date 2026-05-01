@@ -1232,3 +1232,8789 @@ class Strategy_INDIVIDUALISTIC_4(BaseStrategy):
         if last_o == self.m - 1 and support_score >= 2 and non_falling:
             return Action.C
         return Action.D
+
+class Strategy_COLLECTIVE_5(BaseStrategy):
+    """
+    Collective discipline strategy:
+    - Start by cooperating.
+    - Stay committed to cooperation whenever the previous round was close
+      enough to the threshold.
+    - Fall back to defection only after clear evidence that the group is
+      below the required cooperation level.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.mode = 'committed'
+        m = getattr(game_description, 'm', 0)
+        n = getattr(game_description, 'n_players', 0)
+        self._opponent_threshold = max(0, min(n - 1, m - 1))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            self.mode = 'committed'
+            return Action.C
+        last_x = 0
+        if len(history.opponent_cooperators) > 0:
+            last_x = int(history.opponent_cooperators[-1])
+        if last_x >= self._opponent_threshold:
+            self.mode = 'committed'
+            return Action.C
+        self.mode = 'cautious'
+        return Action.D
+
+class Strategy_COLLECTIVE_6(BaseStrategy):
+    """
+    Two-state collective policy with a moving cooperation target.
+
+    - Starts in build mode and cooperates in round 0.
+    - Tracks recent observed cooperation among opponents.
+    - Switches to protect after a shortfall.
+    - Returns to build only after two consecutive observed rounds meet the threshold.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.threshold = max(0, game_description.m - 1)
+        self.window_size = 3
+        self.initial_mode = 'build'
+        self.initial_support_estimate = float(self.threshold)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        if len(opp) == 0:
+            return Action.C
+        w = min(self.window_size, t)
+        recent = opp[-w:] if w > 0 else []
+        support_estimate = float(np.mean(recent)) if w > 0 else float(self.threshold)
+        mode = self.initial_mode
+        if opp[-1] < self.threshold:
+            mode = 'protect'
+        elif t >= 2 and opp[-1] >= self.threshold and (opp[-2] >= self.threshold):
+            mode = 'build'
+        elif t >= 1 and opp[-1] >= self.threshold:
+            mode = self.initial_mode
+        if t == self.game_description.n_rounds - 1:
+            if t >= 2 and opp[-1] >= self.threshold and (opp[-2] >= self.threshold):
+                return Action.C
+            return Action.D
+        if mode == 'build':
+            return Action.C if support_estimate >= self.threshold else Action.D
+        if t >= 2 and opp[-1] >= self.threshold and (opp[-2] >= self.threshold):
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_7(BaseStrategy):
+    """
+    Cooperative default strategy for the Collective Risk Dilemma.
+
+    Rules:
+    - Cooperate in round 1.
+    - Keep cooperating after any successful threshold round.
+    - If the previous round missed the threshold by exactly one, mirror your own
+      previous cooperation; otherwise defect.
+    - If the previous round missed by two or more, cooperate once after the first
+      miss, then defect on repeated misses until the threshold is reached again.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        if history.round_number == 0:
+            return Action.C
+        last_round_index = history.round_number - 1
+        my_last_action = Action.C if bool(history.my_actions[last_round_index]) else Action.D
+        total_cooperators_last_round = int(history.opponent_cooperators[last_round_index]) + (1 if my_last_action == Action.C else 0)
+        if total_cooperators_last_round >= m:
+            return Action.C
+        if total_cooperators_last_round == m - 1:
+            if my_last_action == Action.C:
+                return Action.C
+            return Action.D
+        if last_round_index > 0:
+            prev_my_action = Action.C if bool(history.my_actions[last_round_index - 1]) else Action.D
+            prev_total_cooperators = int(history.opponent_cooperators[last_round_index - 1]) + (1 if prev_my_action == Action.C else 0)
+            if prev_total_cooperators >= m:
+                return Action.C
+            return Action.D
+        return Action.C
+
+class Strategy_COLLECTIVE_8(BaseStrategy):
+    """
+    Group-threshold controller for the Collective Risk Dilemma.
+
+    Policy:
+    - Cooperate in round 1.
+    - In later rounds, respond to the previous round's observed opponent cooperation
+      and whether the previous round met the threshold.
+    - Preserve borderline safety, but defect when cooperation is unnecessary and the
+      group is safely above threshold.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        my_actions = history.my_actions
+        x_prev = int(opp[-1])
+        my_prev = bool(my_actions[-1])
+        prev_total_cooperators = x_prev + (1 if my_prev else 0)
+        prev_safe = prev_total_cooperators >= self.m
+        if round_number >= self.n_rounds - 1:
+            return Action.C if x_prev >= self.m - 2 else Action.D
+        if x_prev < self.m - 2:
+            if round_number >= 2:
+                x_prev2 = int(opp[-2])
+                if x_prev2 < self.m - 2 and (not prev_safe):
+                    return Action.D
+            return Action.D
+        if x_prev == self.m - 2:
+            return Action.C if prev_safe else Action.D
+        if x_prev > self.m - 1 and prev_safe:
+            return Action.D
+        return Action.C
+
+class Strategy_COLLECTIVE_9(BaseStrategy):
+    """
+    Moving-quorum collective-risk strategy:
+    cooperate by default, maintain cooperation when the group is at or just
+    below the threshold, and defect only when recent history shows the coalition
+    is drifting too far below viability.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.mode = 'build'
+        self.last_good = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        round_number = history.round_number
+        if round_number == 0:
+            self.mode = 'build'
+            self.last_good = False
+            return Action.C
+        prev_s = int(history.opponent_cooperators[-1]) + int(bool(history.my_actions[-1]))
+        two_consecutive_low = False
+        if round_number >= 2:
+            prev2_s = int(history.opponent_cooperators[-2]) + int(bool(history.my_actions[-2]))
+            two_consecutive_low = prev_s < m - 1 and prev2_s < m - 1
+        else:
+            prev2_s = None
+        if two_consecutive_low:
+            if prev_s >= m - 1:
+                self.mode = 'build'
+                self.last_good = True
+                return Action.C
+            self.mode = 'repair'
+            self.last_good = False
+            return Action.D
+        if prev_s >= m:
+            self.mode = 'build'
+            self.last_good = True
+            return Action.C
+        if prev_s == m - 1:
+            if bool(history.my_actions[-1]):
+                self.mode = 'build'
+                self.last_good = True
+                return Action.C
+            self.mode = 'build'
+            self.last_good = False
+            return Action.D
+        if prev_s == m - 2:
+            if prev2_s is not None and prev2_s >= m - 1:
+                self.mode = 'build'
+                self.last_good = True
+                return Action.C
+            self.mode = 'repair'
+            self.last_good = False
+            return Action.D
+        self.mode = 'repair'
+        self.last_good = False
+        return Action.D
+
+class Strategy_COLLECTIVE_10(BaseStrategy):
+    """
+    Threshold-commitment strategy with hysteresis and escalation.
+
+    - Cooperates initially.
+    - Stays cooperative while the group appears capable of meeting the threshold.
+    - Defects only after repeated signs of failure.
+    - Returns to cooperation immediately once the group again looks viable.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.provisioning = True
+        self.pressure = 0
+        self._processed_rounds = 0
+
+    def _sync_state(self, history: PlayerHistory) -> None:
+        """
+        Update internal state to match all fully observed past rounds.
+        """
+        total_observed = history.round_number
+        start = min(self._processed_rounds, total_observed)
+        if start == 0 and self._processed_rounds > total_observed:
+            self.provisioning = True
+            self.pressure = 0
+            self._processed_rounds = 0
+        for t in range(self._processed_rounds, total_observed):
+            x_t = int(history.opponent_cooperators[t])
+            if x_t + 1 >= self.game_description.m:
+                self.provisioning = True
+                self.pressure = max(0, self.pressure - 1)
+            else:
+                self.provisioning = False
+                self.pressure += 1
+        self._processed_rounds = total_observed
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        self._sync_state(history)
+        t = history.round_number
+        r = self.game_description.n_rounds
+        m = self.game_description.m
+        prev_x = int(history.opponent_cooperators[-1]) if t > 0 else None
+        if t == 0:
+            return Action.C
+        if t == r - 1:
+            if prev_x is not None and prev_x >= m - 1 and self.provisioning:
+                return Action.C
+            return Action.D
+        if self.pressure >= 2:
+            return Action.D
+        if self.provisioning:
+            return Action.C
+        if prev_x is not None and prev_x >= m - 1:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_11(BaseStrategy):
+    """
+    Threshold-anchoring strategy with a moving cooperation target.
+
+    - Round 1: cooperate.
+    - Afterwards: cooperate if the previous round's opponent cooperation met the
+      current target; otherwise defect.
+    - The target is updated from the observed opponent cooperation history by
+      staying at m - 1 unless the group exceeded the threshold, in which case it
+      is raised to one below the observed level.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(getattr(game_description, 'n_players', 0))
+        self.n_rounds = int(getattr(game_description, 'n_rounds', 0))
+        self.m = int(getattr(game_description, 'm', 2))
+        self.k = float(getattr(game_description, 'k', 1.0))
+        self.base_target = max(1, self.m - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        if len(opp) == 0:
+            return Action.C
+        target = self.base_target
+        for x in opp[:-1]:
+            if int(x) >= self.base_target:
+                target = max(self.base_target, int(x) - 1)
+            else:
+                target = self.base_target
+        last_opp_coop = int(opp[-1])
+        if last_opp_coop >= target:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_12(BaseStrategy):
+    """
+    Threshold-based collective risk strategy with build/maintain/recover memory.
+
+    Core rule:
+    - Cooperate when the most recent round was close enough to threshold
+      (at least m - 1 cooperating opponents).
+    - Defect when the group fell clearly below threshold, and keep defecting
+      until the threshold signal returns.
+    - Track cooperation stability via H, L, T, and a consecutive-success streak.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.H = 0
+        self.L = max(0, game_description.n_players - 1)
+        self.T = game_description.m
+        self.sigma = 0
+        self.in_recover = False
+        self.stable_coop = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        m = self.game_description.m
+        rounds_played = history.round_number
+        if rounds_played == 0:
+            return Action.C if m <= n - 1 else Action.D
+        last_opp = int(history.opponent_cooperators[-1])
+        last_my_action = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else False
+        last_total_coop = last_opp + (1 if last_my_action else 0)
+        if last_opp > self.H:
+            self.H = last_opp
+        if last_opp < self.L:
+            self.L = last_opp
+        if last_total_coop >= m:
+            self.sigma += 1
+        else:
+            self.sigma = 0
+        if self.sigma >= 2:
+            self.T = max(self.T, m)
+        if last_total_coop < m:
+            self.in_recover = True
+        elif last_opp >= m - 1:
+            self.in_recover = False
+        if last_opp >= n - 1:
+            self.stable_coop = True
+        elif last_opp < m - 1:
+            self.stable_coop = False
+        if rounds_played == self.game_description.n_rounds - 1:
+            return Action.C if last_opp >= m - 1 else Action.D
+        if self.stable_coop:
+            return Action.C
+        if self.in_recover:
+            if last_opp >= m - 1:
+                self.in_recover = False
+                return Action.C
+            return Action.D
+        if last_opp >= m - 1:
+            return Action.C
+        self.in_recover = True
+        return Action.D
+
+class Strategy_COLLECTIVE_13(BaseStrategy):
+    """
+    Forgiving collective-risk strategy:
+    - Cooperate initially.
+    - Continue cooperating through a single failed round.
+    - After two consecutive failures, defect defensively.
+    - Return to cooperation immediately once opponent cooperation reaches m - 1 or more.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+        self.good = -1
+        self.fail = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            self.good = -1
+            self.fail = 0
+            return Action.C
+        o = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        self_last = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else True
+        if self_last:
+            met = o + 1 >= self.m
+        else:
+            met = o >= self.m
+        if met:
+            self.good = history.round_number - 1
+            self.fail = 0
+        else:
+            self.fail = self.fail + 1
+        if self.fail <= 1:
+            return Action.C
+        if o >= max(0, self.m - 1):
+            self.good = history.round_number - 1
+            self.fail = 0
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_14(BaseStrategy):
+    """
+    Forgiving threshold strategy for the Collective Risk Dilemma.
+
+    - Start by cooperating.
+    - Track consecutive rounds with insufficient opponent cooperation.
+    - Cooperate for up to one shortfall.
+    - Defect only after two consecutive shortfalls.
+    - Immediately return to cooperation after any recovery signal.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.q = max(0, game_description.m - 1)
+        self.failure_streak = 0
+        self._processed_rounds = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            self.failure_streak = 0
+            self._processed_rounds = 0
+            return Action.C
+        upper = min(history.round_number, len(history.opponent_cooperators))
+        for idx in range(self._processed_rounds, upper):
+            observed = int(history.opponent_cooperators[idx])
+            if observed >= self.q:
+                self.failure_streak = 0
+            else:
+                self.failure_streak += 1
+        self._processed_rounds = upper
+        if self.failure_streak < 2:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_15(BaseStrategy):
+    """
+    Threshold-plus-recovery strategy for the Collective Risk Dilemma.
+
+    - Cooperate in round 1.
+    - In later rounds, cooperate if the previous round had at least m - 2
+      cooperating opponents (i.e., threshold met or missed by only one opponent).
+    - Otherwise defect.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+        self._cooperate_threshold = max(0, self.m - 2)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        last_opponent_cooperators = int(history.opponent_cooperators[-1])
+        if last_opponent_cooperators >= self._cooperate_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_16(BaseStrategy):
+    """
+    Three-mode collective-risk strategy:
+    - Start by cooperating
+    - Preserve cooperation when the group meets or nearly meets the threshold
+    - In deep failure, defect most rounds but probe cooperatively every 3rd such round
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.fail_streak = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        gd = self.game_description
+        t = history.round_number
+        m = gd.m
+        r = gd.n_rounds
+        if t == 0:
+            self.fail_streak = 0
+            return Action.C
+        last_opp = int(history.opponent_cooperators[-1])
+        last_my = 1 if bool(history.my_actions[-1]) else 0
+        s_last = last_opp + last_my
+        if s_last >= m - 1:
+            self.fail_streak = 0
+            return Action.C
+        self.fail_streak += 1
+        if t >= r - 2:
+            return Action.C if self.fail_streak % 3 == 0 else Action.D
+        return Action.C if self.fail_streak % 3 == 0 else Action.D
+
+class Strategy_COLLECTIVE_17(BaseStrategy):
+    """
+    Conservative cooperative strategy for the Collective Risk Dilemma.
+
+    - Starts by cooperating.
+    - Uses a short rolling window of observed cooperation to decide whether the
+      group is plausibly meeting the threshold.
+    - Defects only after sustained evidence of insufficient cooperation.
+    - Immediately returns to cooperation when cooperation recovers.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+        self.window = min(3, self.r)
+        self.opponent_count = max(0, self.n - 1)
+        self.threshold_rate = (self.m - 1) / self.opponent_count if self.opponent_count > 0 else 1.0
+        self.required_opponents = max(0, self.m - 1)
+        self.last_consecutive_met = 0
+        self.last_consecutive_missed = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            self.last_consecutive_met = 0
+            self.last_consecutive_missed = 0
+            return Action.C
+        opp = history.opponent_cooperators
+        consecutive_met = 0
+        consecutive_missed = 0
+        for idx in range(t - 1, -1, -1):
+            if opp[idx] >= self.required_opponents:
+                if consecutive_missed == 0:
+                    consecutive_met += 1
+                else:
+                    break
+            elif consecutive_met == 0:
+                consecutive_missed += 1
+            else:
+                break
+        self.last_consecutive_met = consecutive_met
+        self.last_consecutive_missed = consecutive_missed
+        start = max(0, t - self.window)
+        recent = opp[start:t]
+        if recent.size > 0 and self.opponent_count > 0:
+            rho_t = float(np.mean(recent / self.opponent_count))
+        else:
+            rho_t = 1.0
+        q_prev = int(opp[-1])
+        near_threshold_support = q_prev >= self.required_opponents
+        rounds_left = self.r - t
+        if rounds_left <= 2 and near_threshold_support:
+            return Action.C
+        if t <= 2:
+            return Action.C
+        if rho_t >= self.threshold_rate:
+            return Action.C
+        if self.last_consecutive_missed <= 1 and near_threshold_support:
+            return Action.C
+        if self.last_consecutive_missed >= 2 and rho_t < self.threshold_rate:
+            return Action.D
+        return Action.D
+
+class Strategy_COLLECTIVE_18(BaseStrategy):
+    """
+    Threshold-feasible cooperative strategy for the Collective Risk Dilemma.
+
+    - Cooperate in round 1.
+    - In later rounds, cooperate iff the number of cooperating opponents in the
+      previous round was at least m - 1; otherwise defect.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.mode = 'cooperative'
+        m = getattr(game_description, 'm', None)
+        n = getattr(game_description, 'n_players', None)
+        try:
+            self.threshold_opponents = max(0, int(m) - 1) if m is not None else 0
+        except Exception:
+            self.threshold_opponents = 0
+        try:
+            self.n_players = int(n) if n is not None else 0
+        except Exception:
+            self.n_players = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = getattr(history, 'round_number', 0)
+        if round_number == 0:
+            self.mode = 'cooperative'
+            return Action.C
+        opponent_cooperators = getattr(history, 'opponent_cooperators', None)
+        last_opponent_cooperators = 0
+        if opponent_cooperators is not None and len(opponent_cooperators) > 0:
+            try:
+                last_opponent_cooperators = int(opponent_cooperators[-1])
+            except Exception:
+                last_opponent_cooperators = 0
+        if last_opponent_cooperators >= self.threshold_opponents:
+            self.mode = 'cooperative'
+            return Action.C
+        self.mode = 'defective'
+        return Action.D
+
+class Strategy_COLLECTIVE_19(BaseStrategy):
+    """
+    Collective-risk strategy:
+    - Start by cooperating.
+    - Stay in build mode after any successful round.
+    - After two consecutive failures, switch to repair mode.
+    - In repair mode, cooperate whenever the previous round was one cooperation short of success.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.mode = 'build'
+        self.fail_streak = 0
+        self.last_met = True
+        self.last_action = Action.C
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        if history.round_number == 0:
+            self.mode = 'build'
+            self.fail_streak = 0
+            self.last_met = True
+            self.last_action = Action.C
+            return Action.C
+        o = int(history.opponent_cooperators[-1])
+        prev_my_action = Action.C if bool(history.my_actions[-1]) else Action.D
+        if prev_my_action == Action.C:
+            met = o + 1 >= m
+        else:
+            met = o >= m
+        self.last_met = met
+        if met:
+            self.fail_streak = 0
+            self.mode = 'build'
+        else:
+            self.fail_streak += 1
+            if self.fail_streak >= 2:
+                self.mode = 'repair'
+        if self.mode == 'build':
+            action = Action.C
+        else:
+            action = Action.C if o >= m - 1 else Action.D
+        self.last_action = action
+        return action
+
+class Strategy_COLLECTIVE_20(BaseStrategy):
+    """
+    Collective-risk strategy with threshold alignment, exponential cooperation
+    averaging, fallback defection after sustained low cooperation, and a final-round
+    stricter cooperation rule.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.alpha = 0.5
+        n = max(2, int(game_description.n_players))
+        m = int(game_description.m)
+        denom = max(1, n - 1)
+        self.high = (m - 1) / denom
+        self.low = max(0.0, (m - 2) / denom)
+        self._initial_action = Action.C if m <= n / 2 else Action.D
+
+    def _compute_moving_cooperation(self, opponent_cooperators: NDArray[np.int_]) -> float:
+        n = max(2, int(self.game_description.n_players))
+        denom = max(1, n - 1)
+        if len(opponent_cooperators) == 0:
+            return 0.0
+        q0 = float(opponent_cooperators[0]) / denom
+        h = q0
+        for idx in range(1, len(opponent_cooperators)):
+            q = float(opponent_cooperators[idx]) / denom
+            h = self.alpha * q + (1.0 - self.alpha) * h
+        return h
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = int(self.game_description.n_rounds)
+        m = int(self.game_description.m)
+        n = max(2, int(self.game_description.n_players))
+        denom = max(1, n - 1)
+        if history.round_number == 0:
+            return self._initial_action
+        opp = history.opponent_cooperators
+        last_s = int(opp[-1]) if len(opp) > 0 else 0
+        last_q = float(last_s) / denom
+        last_h = self._compute_moving_cooperation(opp)
+        if history.round_number == n_rounds - 1:
+            if last_s >= m - 1 and last_h >= self.high:
+                return Action.C
+            return Action.D
+        if last_s >= m - 1:
+            return Action.C
+        if len(opp) >= 2:
+            prev_q = float(opp[-2]) / denom
+            if prev_q < self.low and last_q < self.low:
+                if last_q >= self.high:
+                    return Action.C
+                return Action.D
+        if last_s >= m - 1:
+            return Action.C
+        if last_h >= self.high and last_q >= self.low:
+            return Action.C
+        if last_q >= self.high:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_21(BaseStrategy):
+    """
+    Threshold-tracking contingent strategy for the Collective Risk Dilemma.
+
+    - Start with cooperation.
+    - Track recent cooperation levels among opponents.
+    - Favor cooperation when the group is near threshold or improving.
+    - Defect only when the group is clearly below threshold.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number + 1
+        if history.round_number == 0:
+            return Action.C
+        h_prev = int(history.opponent_cooperators[-1])
+        n_opponents = max(0, self.n - 1)
+        trend_cooperative = False
+        trend_fragile = False
+        if history.round_number >= 2:
+            h_last = int(history.opponent_cooperators[-1])
+            h_prev2 = int(history.opponent_cooperators[-2])
+            if h_last >= self.m - 1:
+                trend_cooperative = True
+            else:
+                trend_fragile = True
+            if h_last > h_prev2:
+                trend_cooperative = True
+            elif h_last < h_prev2:
+                trend_fragile = True
+            if history.round_number >= 3:
+                h_prev3 = int(history.opponent_cooperators[-3])
+                if h_last > h_prev2 > h_prev3:
+                    trend_cooperative = True
+                if h_last < h_prev2 < h_prev3:
+                    trend_fragile = True
+        elif h_prev >= self.m - 1:
+            trend_cooperative = True
+        else:
+            trend_fragile = True
+        first_half = t <= self.r / 2.0
+        late_game = t >= max(1, self.r - 1)
+        if late_game:
+            return Action.C if h_prev >= self.m - 2 else Action.D
+        if h_prev >= self.m - 1:
+            return Action.C
+        if h_prev == self.m - 2:
+            if trend_cooperative or first_half:
+                return Action.C
+            return Action.D
+        if h_prev < self.m - 2:
+            if h_prev >= self.m - 2:
+                return Action.C
+            return Action.D
+        return Action.D
+
+class Strategy_COLLECTIVE_22(BaseStrategy):
+    """
+    Collective-risk strategy:
+    - Start with cooperation.
+    - Cooperate when recent opponent cooperation suggests the group is near the threshold.
+    - After defecting, require stronger evidence to re-enter cooperation.
+    - In the final round, use a simpler threshold rule based on the last observed round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n = int(getattr(game_description, 'n_players', 0) or 0)
+        self.r = int(getattr(game_description, 'n_rounds', 0) or 0)
+        self.m = int(getattr(game_description, 'm', 0) or 0)
+        self.k = float(getattr(game_description, 'k', 0.0) or 0.0)
+        self.opponent_threshold = max(0, self.m - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        last_opp = int(opp[-1]) if len(opp) >= 1 else 0
+        prev_opp = int(opp[-2]) if len(opp) >= 2 else None
+        prev2_opp = int(opp[-3]) if len(opp) >= 3 else None
+        support = 0.0
+        if len(opp) >= 1:
+            support += float(opp[-1])
+        if len(opp) >= 2:
+            support += 0.5 * float(opp[-2])
+        if len(opp) >= 3:
+            support += 0.25 * float(opp[-3])
+        last_my_action = bool(history.my_actions[-1]) if len(history.my_actions) >= 1 else True
+        last_was_defection = not last_my_action
+        if t == self.r - 1:
+            return Action.C if last_opp >= self.opponent_threshold else Action.D
+        if last_was_defection:
+            if prev_opp is not None and last_opp >= self.opponent_threshold and (prev_opp >= self.opponent_threshold):
+                return Action.C
+            return Action.D
+        if len(opp) >= 3 and int(opp[-1]) < self.opponent_threshold and (int(opp[-2]) < self.opponent_threshold) and (int(opp[-3]) < self.opponent_threshold):
+            return Action.D
+        if last_opp >= self.opponent_threshold or support >= self.opponent_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_23(BaseStrategy):
+    """
+    Cooperative-first strategy with a two-failure escalation rule and a
+    two-round defensive block followed by a probe round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.mode = 'cooperate'
+        self.miss_streak = 0
+        self.defensive_timer = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds_played = history.round_number
+        m = self.game_description.m
+        mode = 'cooperate'
+        miss_streak = 0
+        defensive_timer = 0
+        for t in range(n_rounds_played):
+            my_action = bool(history.my_actions[t])
+            opp_coops = int(history.opponent_cooperators[t])
+            total_cooperators = opp_coops + (1 if my_action else 0)
+            success = total_cooperators >= m
+            if success:
+                miss_streak = 0
+            else:
+                miss_streak += 1
+            if mode == 'cooperate':
+                if miss_streak >= 2:
+                    mode = 'defensive'
+                    defensive_timer = 2
+            elif defensive_timer > 0:
+                defensive_timer -= 1
+            elif success:
+                mode = 'cooperate'
+                defensive_timer = 0
+            else:
+                defensive_timer = 2
+        self.mode = mode
+        self.miss_streak = miss_streak
+        self.defensive_timer = defensive_timer
+        if n_rounds_played == 0:
+            return Action.C
+        if self.mode == 'cooperate':
+            return Action.C
+        if self.defensive_timer > 0:
+            return Action.D
+        return Action.C
+
+class Strategy_COLLECTIVE_24(BaseStrategy):
+    """
+    Two-strike collective-risk strategy:
+    - Start in support mode and cooperate.
+    - Stay cooperative after any round with g >= m - 1.
+    - Only switch to guard mode after two consecutive rounds with g < m - 1.
+    - In guard mode, defect until a sufficiently cooperative round restores support.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.support_mode = True
+        self.consecutive_low_rounds = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        if history.round_number == 0:
+            self.support_mode = True
+            self.consecutive_low_rounds = 0
+            return Action.C
+        support_mode = True
+        consecutive_low_rounds = 0
+        for t in range(history.round_number):
+            my_action = 1 if bool(history.my_actions[t]) else 0
+            opp_coop = int(history.opponent_cooperators[t])
+            g_t = my_action + opp_coop
+            if g_t >= m - 1:
+                support_mode = True
+                consecutive_low_rounds = 0
+            else:
+                consecutive_low_rounds += 1
+                support_mode = consecutive_low_rounds < 2
+        self.support_mode = support_mode
+        self.consecutive_low_rounds = consecutive_low_rounds
+        return Action.C if self.support_mode else Action.D
+
+class Strategy_COLLECTIVE_25(BaseStrategy):
+    """
+    Threshold-responsive collective-risk strategy with three modes:
+    committed, watch, and retreat.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._target = max(0, game_description.m - 1)
+        self._mode = 'committed'
+        self._last_q = None
+        self._processed_rounds = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        if self._processed_rounds > current_round:
+            self._processed_rounds = current_round
+            self._mode = 'committed'
+            self._last_q = None
+        while self._processed_rounds < current_round:
+            q = int(history.opponent_cooperators[self._processed_rounds])
+            if self._processed_rounds == 0:
+                pass
+            elif self._mode == 'committed':
+                if q >= self._target:
+                    self._mode = 'committed'
+                elif q == self._target - 1:
+                    self._mode = 'watch'
+                else:
+                    self._mode = 'retreat'
+            elif self._mode == 'watch':
+                if q >= self._target:
+                    self._mode = 'committed'
+                else:
+                    self._mode = 'retreat'
+            else:
+                prev_q = self._last_q
+                if q >= self._target and prev_q is not None and (prev_q >= self._target):
+                    self._mode = 'committed'
+                elif q >= self._target:
+                    self._mode = 'watch'
+                else:
+                    self._mode = 'retreat'
+            self._last_q = q
+            self._processed_rounds += 1
+        if current_round == 0:
+            return Action.C
+        q_last = self._last_q if self._last_q is not None else 0
+        if self._mode == 'committed':
+            action = Action.C
+            if q_last >= self._target:
+                self._mode = 'committed'
+            elif q_last == self._target - 1:
+                self._mode = 'watch'
+            else:
+                self._mode = 'retreat'
+        elif self._mode == 'watch':
+            action = Action.C
+            if q_last >= self._target:
+                self._mode = 'committed'
+            else:
+                self._mode = 'retreat'
+        else:
+            action = Action.D
+            if q_last >= self._target and self._last_q is not None and (self._processed_rounds >= 2):
+                prev_q = int(history.opponent_cooperators[-2]) if current_round >= 2 else None
+                if prev_q is not None and prev_q >= self._target:
+                    self._mode = 'committed'
+                else:
+                    self._mode = 'watch'
+            elif q_last >= self._target:
+                self._mode = 'watch'
+            else:
+                self._mode = 'retreat'
+        if current_round > 0:
+            self._last_q = int(history.opponent_cooperators[-1])
+            self._processed_rounds = current_round
+        return action
+
+class Strategy_COLLECTIVE_26(BaseStrategy):
+    """
+    Conditional collective-risk strategy:
+    - Cooperate in the first round.
+    - Thereafter, cooperate after successful collective rounds.
+    - Defect after failed rounds, with a narrow exception when the group was
+      exactly one cooperator short and this player already cooperated.
+    - In the final round, commit based only on the previous round's success.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        last_h = int(history.opponent_cooperators[-1]) + int(bool(history.my_actions[-1]))
+        my_last_action = bool(history.my_actions[-1])
+        if round_number == self.n_rounds - 1:
+            return Action.C if last_h >= self.m else Action.D
+        if last_h >= self.m:
+            return Action.C
+        if last_h == self.m - 1:
+            if my_last_action:
+                return Action.C
+            return Action.D
+        return Action.D
+
+class Strategy_COLLECTIVE_27(BaseStrategy):
+    """
+    Contingent threshold strategy with establish, sustain, and protect modes.
+
+    - Round 0: cooperate only when the threshold is reachable without overcommitting.
+    - Midgame: cooperate after reliable evidence of threshold-capable play.
+    - Endgame: become more forgiving to secure collective success.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+        self.min_opponents_to_signal = max(0, self.m - 1)
+        self.initial_cooperate = self.m <= math.floor((self.n + 1) / 2)
+
+    def _round_threshold_met(self, history: PlayerHistory, idx: int) -> bool:
+        """Return True if the collective threshold was met in round idx."""
+        if idx < 0 or idx >= history.round_number:
+            return False
+        my_c = 1 if bool(history.my_actions[idx]) else 0
+        total_cooperators = int(history.opponent_cooperators[idx]) + my_c
+        return total_cooperators >= self.m
+
+    def _any_consecutive_signal_pair(self, history: PlayerHistory) -> bool:
+        """True if there exists any pair of consecutive rounds with enough cooperating opponents."""
+        if history.round_number < 2:
+            return False
+        required = self.min_opponents_to_signal
+        opp = history.opponent_cooperators
+        for i in range(history.round_number - 1):
+            if int(opp[i]) >= required and int(opp[i + 1]) >= required:
+                return True
+        return False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = int(history.round_number)
+        if t == 0:
+            return Action.C if self.initial_cooperate else Action.D
+        prev_opp = int(history.opponent_cooperators[-1])
+        prev_met = self._round_threshold_met(history, t - 1)
+        rounds_remaining_including_current = self.r - t
+        threshold_met_count = 0
+        for i in range(t):
+            if self._round_threshold_met(history, i):
+                threshold_met_count += 1
+        stable_support_seen = self._any_consecutive_signal_pair(history)
+        enough_opponents_now = prev_opp >= self.min_opponents_to_signal
+        if rounds_remaining_including_current <= 0:
+            return Action.D
+        if rounds_remaining_including_current == 1:
+            return Action.C if enough_opponents_now else Action.D
+        if rounds_remaining_including_current == 2:
+            if enough_opponents_now and threshold_met_count >= 1:
+                return Action.C
+            return Action.D
+        if rounds_remaining_including_current < self.m and threshold_met_count >= 1 and enough_opponents_now:
+            return Action.C
+        if rounds_remaining_including_current <= self.m and enough_opponents_now:
+            return Action.C
+        if stable_support_seen and enough_opponents_now:
+            return Action.C
+        if prev_met and enough_opponents_now:
+            return Action.C
+        if not prev_met and t >= 2:
+            prev2_opp = int(history.opponent_cooperators[-2])
+            if prev_opp >= self.min_opponents_to_signal and prev2_opp >= self.min_opponents_to_signal:
+                return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_28(BaseStrategy):
+    """
+    Cooperate initially, then keep cooperating if the opponents were close to
+    meeting the cooperation threshold in either of the last two rounds.
+    Defect only after two consecutive below-threshold rounds.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.threshold = max(0, game_description.m - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        if history.opponent_cooperators[-1] >= self.threshold:
+            return Action.C
+        if round_number > 1 and history.opponent_cooperators[-2] >= self.threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_29(BaseStrategy):
+    """
+    Start by cooperating.
+
+    Thereafter, cooperate if the previous round was safely supported
+    (at least m - 1 opposing cooperators), or if the previous round
+    was successful and exactly one more cooperating opponent would
+    keep the group in the support zone (x == m - 2 and success).
+    Otherwise defect until support recovers.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        x = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        last_payoff = float(history.my_payoffs[-1]) if len(history.my_payoffs) > 0 else 0.0
+        my_last_action = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else False
+        success = False
+        if my_last_action:
+            success = last_payoff > 0.5
+        else:
+            success = last_payoff > 1.5
+        if x >= self.m - 1:
+            return Action.C
+        if x == self.m - 2 and success:
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_30(BaseStrategy):
+    """
+    Cooperate initially, then track the previous round's total cooperation.
+
+    - Cooperate whenever the previous round was at or one short of threshold.
+    - After sustained low cooperation, defect for two rounds, then probe with
+      cooperation every third low round.
+    - If full cooperation was observed, keep cooperating until the group
+      falls below threshold again.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+        self.near = 0
+        self.short = 0
+        self.force_coop = False
+        self.last_observed_total = None
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        prev_my_action = bool(history.my_actions[-1])
+        prev_opponent_coops = int(history.opponent_cooperators[-1])
+        total_cooperators = prev_opponent_coops + (1 if prev_my_action else 0)
+        threshold_minus_one = self.m - 1
+        low_boundary = self.m - 2
+        if total_cooperators >= threshold_minus_one:
+            self.near = self.near + 1
+            self.short = 0
+        else:
+            self.short = self.short + 1
+            self.near = 0
+        if total_cooperators == self.n_players - 1:
+            self.force_coop = True
+        elif total_cooperators < threshold_minus_one:
+            self.force_coop = False
+        self.last_observed_total = total_cooperators
+        if total_cooperators >= threshold_minus_one:
+            return Action.C
+        if self.short in (1, 2):
+            return Action.D
+        if self.short >= 3:
+            if self.short % 3 == 0:
+                return Action.C
+            return Action.D
+        return Action.C
+
+class Strategy_COLLECTIVE_31(BaseStrategy):
+    """
+    Adaptive collective-risk strategy with three modes:
+    COOPERATIVE, PROBATION, and DEFENSIVE.
+
+    Behaviour:
+    - Start by cooperating.
+    - After one failed support round, try one cooperative probation round.
+    - After a second consecutive failure, defect until two consecutive supported
+      recovery rounds are observed.
+    - Return to full cooperation after recovery.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.mode = 'COOPERATIVE'
+        self.good1 = False
+        self.good2 = False
+        self._last_round_processed = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        m = self.game_description.m
+        if history.round_number == 0:
+            self.mode = 'COOPERATIVE'
+            self.good1 = False
+            self.good2 = False
+            self._last_round_processed = 0
+            return Action.C
+        start_idx = self._last_round_processed
+        end_idx = history.round_number
+        for t in range(start_idx, end_idx):
+            my_played_coop = bool(history.my_actions[t])
+            opp_coops = int(history.opponent_cooperators[t])
+            if my_played_coop:
+                support = opp_coops >= max(0, m - 1)
+            else:
+                support = opp_coops >= m
+            if support:
+                if self.mode == 'DEFENSIVE':
+                    if not self.good1:
+                        self.good1 = True
+                    elif not self.good2:
+                        self.good2 = True
+                    if self.good1 and self.good2:
+                        self.mode = 'COOPERATIVE'
+                        self.good1 = False
+                        self.good2 = False
+            else:
+                self.good1 = False
+                self.good2 = False
+                if self.mode == 'COOPERATIVE':
+                    self.mode = 'PROBATION'
+                elif self.mode == 'PROBATION':
+                    self.mode = 'DEFENSIVE'
+        self._last_round_processed = history.round_number
+        if self.mode == 'COOPERATIVE':
+            return Action.C
+        if self.mode == 'PROBATION':
+            return Action.C
+        return Action.D
+
+class Strategy_COLLECTIVE_32(BaseStrategy):
+    """
+    Threshold-sensitive cooperative strategy with a brief learning window,
+    defensive fallback after repeated failures, and immediate re-entry when
+    recent play suggests the group is again close to the threshold.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.mode = 'standard'
+        self.failureStreak = 0
+        self._last_processed_round = 0
+
+    def _total_cooperators(self, history: PlayerHistory, idx: int) -> int:
+        own = 1 if bool(history.my_actions[idx]) else 0
+        opp = int(history.opponent_cooperators[idx])
+        return own + opp
+
+    def _recent_stats(self, history: PlayerHistory, start_idx: int, end_idx: int):
+        count = max(0, end_idx - start_idx + 1)
+        if count <= 0:
+            return (0.0, 0.0, 0)
+        opp_sum = 0
+        success = 0
+        m = self.game_description.m
+        for j in range(start_idx, end_idx + 1):
+            h_j = int(history.opponent_cooperators[j])
+            s_j = self._total_cooperators(history, j)
+            opp_sum += h_j
+            if s_j >= m:
+                success += 1
+        return (opp_sum / count, success / count, count)
+
+    def _update_internal_state(self, history: PlayerHistory) -> None:
+        m = self.game_description.m
+        round_count = history.round_number
+        failure_streak = 0
+        mode = 'standard'
+        for j in range(round_count):
+            s_j = self._total_cooperators(history, j)
+            if s_j >= m:
+                failure_streak = 0
+                mode = 'cooperative'
+            else:
+                failure_streak += 1
+                if failure_streak >= 3:
+                    mode = 'defensive'
+        if mode == 'defensive' and round_count > 0:
+            h_ge = 0
+            last_three_start = max(0, round_count - 3)
+            for j in range(last_three_start, round_count):
+                if int(history.opponent_cooperators[j]) >= max(1, m - 1):
+                    h_ge += 1
+            recent_s_success = False
+            last_two_start = max(0, round_count - 2)
+            for j in range(last_two_start, round_count):
+                if self._total_cooperators(history, j) >= m:
+                    recent_s_success = True
+                    break
+            if h_ge >= 2 or recent_s_success:
+                mode = 'standard'
+                failure_streak = 0
+        self.mode = mode
+        self.failureStreak = failure_streak
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        r = self.game_description.n_rounds
+        m = self.game_description.m
+        self._update_internal_state(history)
+        t = history.round_number + 1
+        if r == 2:
+            if t == 1:
+                return Action.C
+            if t == 2:
+                return Action.C if self._total_cooperators(history, 0) >= m else Action.D
+            return Action.D
+        if t == 1:
+            return Action.C
+        if self.mode == 'defensive':
+            h_threshold = max(1, m - 1)
+            last_three_start = max(0, history.round_number - 3)
+            h_count = 0
+            for j in range(last_three_start, history.round_number):
+                if int(history.opponent_cooperators[j]) >= h_threshold:
+                    h_count += 1
+            last_two_start = max(0, history.round_number - 2)
+            s_recent_success = False
+            for j in range(last_two_start, history.round_number):
+                if self._total_cooperators(history, j) >= m:
+                    s_recent_success = True
+                    break
+            if h_count >= 2 or s_recent_success:
+                self.mode = 'standard'
+            else:
+                return Action.D
+        if t == r - 1:
+            if history.round_number < 2:
+                return Action.C
+            j1, j2 = (history.round_number - 2, history.round_number - 1)
+            cond1 = int(history.opponent_cooperators[j1]) >= max(1, m - 1) and int(history.opponent_cooperators[j2]) >= max(1, m - 1)
+            cond2 = self._total_cooperators(history, j1) >= m and self._total_cooperators(history, j2) >= m
+            return Action.C if cond1 or cond2 else Action.D
+        if t == r:
+            return Action.C if self._total_cooperators(history, history.round_number - 1) >= m else Action.D
+        L = min(3, t - 1)
+        start_idx = history.round_number - L
+        end_idx = history.round_number - 1
+        avgOpp, freqSuccess, _ = self._recent_stats(history, start_idx, end_idx)
+        h_threshold = max(1, m - 1)
+        if m == n - 1:
+            if history.round_number >= 2:
+                j1, j2 = (history.round_number - 2, history.round_number - 1)
+                if int(history.opponent_cooperators[j1]) >= h_threshold and int(history.opponent_cooperators[j2]) >= h_threshold:
+                    return Action.C
+                if self._total_cooperators(history, j2) >= m:
+                    return Action.C
+            return Action.D
+        if avgOpp >= m - 1 or freqSuccess >= 0.5:
+            return Action.C
+        if history.round_number >= 2:
+            recent_low = True
+            for j in range(max(0, history.round_number - 3), history.round_number):
+                if int(history.opponent_cooperators[j]) >= h_threshold or self._total_cooperators(history, j) >= m:
+                    recent_low = False
+                    break
+            if recent_low:
+                return Action.D
+        return Action.D
+
+class Strategy_PROSOCIAL_5(BaseStrategy):
+    """
+    Cooperative until two consecutive rounds fall below the cooperation threshold.
+    Begins with cooperation, absorbs isolated setbacks, and returns to cooperation
+    immediately once the threshold condition reappears.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.threshold = max(0, game_description.m - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number == 1:
+            return Action.C
+        prev1 = int(history.opponent_cooperators[-1])
+        prev2 = int(history.opponent_cooperators[-2])
+        if prev1 < self.threshold and prev2 < self.threshold:
+            return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_6(BaseStrategy):
+    """
+    Cautious supporter strategy for the Collective Risk Dilemma.
+
+    - Cooperate in the first round.
+    - Prefer cooperation whenever the recent opponent cooperation count is near
+      the threshold.
+    - Fall back to defection only after repeated evidence that cooperation is
+      far below the threshold, except when a recovery signal is observed.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.caution_mode = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        n_rounds = self.game_description.n_rounds
+        round_number = history.round_number
+        if round_number == 0:
+            self.caution_mode = False
+            return Action.C
+        if m == 2:
+            self.caution_mode = False
+            return Action.C
+        x_prev = int(history.opponent_cooperators[-1])
+        current_round_index = round_number
+        in_last_two_rounds = current_round_index >= max(0, n_rounds - 2)
+        if x_prev >= m - 2:
+            self.caution_mode = False
+            return Action.C
+        recovery_signal = False
+        if round_number >= 2:
+            x_prevprev = int(history.opponent_cooperators[-2])
+            recovery_signal = x_prev > x_prevprev
+        if round_number >= 2:
+            x_prevprev = int(history.opponent_cooperators[-2])
+            if x_prev <= m - 3 and x_prevprev <= m - 3:
+                self.caution_mode = True
+        elif x_prev <= m - 3:
+            self.caution_mode = True
+        if in_last_two_rounds:
+            if recovery_signal:
+                self.caution_mode = False
+                return Action.C
+            if self.caution_mode:
+                return Action.D
+            return Action.C
+        if recovery_signal:
+            self.caution_mode = False
+            return Action.C
+        if self.caution_mode:
+            return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_7(BaseStrategy):
+    """
+    Cooperative-first strategy for the Collective Risk Dilemma.
+
+    - Cooperate in round 1.
+    - If the previous round met the threshold, keep cooperating.
+    - If the previous round fell one cooperator short and we cooperated,
+      provide one additional round of support.
+    - Otherwise defect until cooperation recovers.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.full_cooperation_mode = True
+        self.near_threshold_support = False
+        self.last_seen_round = -1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        m = self.game_description.m
+        if round_number == 0:
+            self.full_cooperation_mode = True
+            self.near_threshold_support = False
+            self.last_seen_round = 0
+            return Action.C
+        prev_my_action = bool(history.my_actions[-1])
+        prev_opponents_coop = int(history.opponent_cooperators[-1])
+        prev_total_coop = prev_opponents_coop + (1 if prev_my_action else 0)
+        if prev_total_coop >= m:
+            self.full_cooperation_mode = True
+            self.near_threshold_support = False
+            self.last_seen_round = round_number
+            return Action.C
+        if prev_opponents_coop == m - 1 and prev_my_action:
+            self.full_cooperation_mode = False
+            self.near_threshold_support = True
+            self.last_seen_round = round_number
+            return Action.C
+        if self.near_threshold_support:
+            self.full_cooperation_mode = False
+            self.near_threshold_support = False
+            self.last_seen_round = round_number
+            return Action.C
+        self.full_cooperation_mode = False
+        self.near_threshold_support = False
+        self.last_seen_round = round_number
+        return Action.D
+
+class Strategy_PROSOCIAL_8(BaseStrategy):
+    """
+    Cooperative default strategy for the Collective Risk Dilemma:
+    - Open with cooperation.
+    - Cooperate on the last round.
+    - Defect only after sustained collapse below support with no improvement.
+    - Return to cooperation immediately when recovery is observed.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = self.game_description.n_rounds
+        m = self.game_description.m
+        threshold_low = max(0, m - 2)
+        t = history.round_number
+        if t == 0 or t == n_rounds - 1:
+            return Action.C
+        if t == 1:
+            return Action.C
+        o = int(history.opponent_cooperators[-1])
+        my_last_coop = bool(history.my_actions[-1])
+        s = o + (1 if my_last_coop else 0)
+        o_prev = int(history.opponent_cooperators[-2])
+        my_prev_coop = bool(history.my_actions[-2])
+        s_prev = o_prev + (1 if my_prev_coop else 0)
+        improving = o > o_prev
+        if s >= m:
+            return Action.C
+        if s <= threshold_low and s_prev <= threshold_low and (not improving):
+            return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_9(BaseStrategy):
+    """
+    Cooperative-first strategy with a two-state mode:
+    - Cooperative mode by default
+    - Defensive mode after repeated shortfalls
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.q = max(1, game_description.m - 1)
+        self.cooperative_mode = True
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            self.cooperative_mode = True
+            return Action.C
+        last_support = int(history.opponent_cooperators[-1])
+        if not self.cooperative_mode:
+            if last_support >= self.q:
+                self.cooperative_mode = True
+                return Action.C
+            return Action.D
+        if last_support >= self.q:
+            return Action.C
+        if self.q > 1 and last_support == self.q - 1:
+            return Action.C
+        if history.round_number > 1:
+            prev_support = int(history.opponent_cooperators[-2])
+            if self.q == 1:
+                if prev_support < self.q and last_support < self.q:
+                    self.cooperative_mode = False
+                    return Action.D
+            elif prev_support <= self.q - 2 and last_support <= self.q - 2:
+                self.cooperative_mode = False
+                return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_10(BaseStrategy):
+    """
+    Adaptive collective-risk strategy:
+    - Cooperate in round 1.
+    - Estimate observed cooperation rate from history.
+    - Cooperate when recent support is sufficient, with recovery after low-support streaks.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        need = self.m - 1
+        support_floor = need - 1
+        last_h = int(history.opponent_cooperators[-1])
+        last_action_coop = bool(history.my_actions[-1])
+        low_streak = 0
+        for h in reversed(history.opponent_cooperators):
+            if int(h) < support_floor:
+                low_streak += 1
+            else:
+                break
+        total_estimated_cooperators = 0
+        for idx in range(round_number):
+            h = int(history.opponent_cooperators[idx])
+            my_coop = 1 if bool(history.my_actions[idx]) else 0
+            total_estimated_cooperators += h + my_coop
+        denom = self.n * round_number
+        q = total_estimated_cooperators / denom if denom > 0 else 0.0
+        if round_number == 1:
+            target = need
+        else:
+            target = max(need, math.ceil(self.n * q) - 1)
+        if low_streak >= 2:
+            return Action.D
+        if not last_action_coop and last_h >= support_floor:
+            return Action.C
+        if last_h >= target and last_h >= support_floor:
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_11(BaseStrategy):
+    """
+    Start by cooperating. Continue cooperating unless there are persistent
+    shortfalls in opponent cooperation relative to the threshold m - 1.
+    After two consecutive shortfall rounds, switch to defensive play (D)
+    until cooperation recovers. Return to cooperation immediately once the
+    observed opponent cooperation count reaches the threshold again.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.mode = 'cooperative'
+        self.last_shortfall = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        threshold = m - 1
+        if history.round_number == 0:
+            self.mode = 'cooperative'
+            self.last_shortfall = False
+            return Action.C
+        x_last = int(history.opponent_cooperators[-1])
+        if x_last >= threshold:
+            self.mode = 'cooperative'
+            self.last_shortfall = False
+            return Action.C
+        if history.round_number >= 2:
+            x_prev = int(history.opponent_cooperators[-2])
+            if x_prev < threshold:
+                self.mode = 'defensive'
+                self.last_shortfall = True
+                return Action.D
+        self.mode = 'cooperative'
+        self.last_shortfall = True
+        return Action.C
+
+class Strategy_PROSOCIAL_12(BaseStrategy):
+    """
+    Cooperative default strategy with forgiveness:
+    - Start by cooperating.
+    - Continue cooperating when support is adequate.
+    - Forgive one temporary drop in opponent cooperation.
+    - Defect only after repeated failure to form a sufficient coalition.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        x_prev = int(history.opponent_cooperators[-1])
+        threshold = m - 1
+        if x_prev >= threshold:
+            return Action.C
+        if round_number == 1 and x_prev == m - 2:
+            return Action.C
+        if round_number >= 2:
+            x_prev2 = int(history.opponent_cooperators[-2])
+            if x_prev == m - 2 and x_prev2 >= threshold:
+                return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_13(BaseStrategy):
+    """
+    Cooperate initially, then condition cooperation on recent opponent support.
+    Defect only after sustained shortfall, and return to cooperation as soon as
+    cooperation recovers to the threshold or near-threshold level.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        m_threshold = self.game_description.m - 1
+        x_last = int(history.opponent_cooperators[-1])
+        window = history.opponent_cooperators[max(0, history.round_number - 3):history.round_number]
+        if len(window) > 0:
+            avg_recent = float(sum((int(x) for x in window))) / float(len(window))
+        else:
+            avg_recent = 0.0
+        if x_last >= m_threshold or avg_recent >= m_threshold - 1.0 / 3.0:
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_14(BaseStrategy):
+    """
+    Cooperative by default, with a single defensive defect after two consecutive
+    near-failures to meet the cooperation threshold. Always cooperates in the
+    first and last rounds, and resets to cooperation immediately after any
+    threshold-success round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.fail_streak = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        last_round_index = self.game_description.n_rounds - 1
+        threshold = self.game_description.m - 1
+        if round_number == 0 or round_number == last_round_index:
+            return Action.C
+        last_opponent_cooperators = int(history.opponent_cooperators[-1])
+        if last_opponent_cooperators >= threshold:
+            self.fail_streak = 0
+            return Action.C
+        self.fail_streak += 1
+        if self.fail_streak >= 2:
+            self.fail_streak = 0
+            return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_15(BaseStrategy):
+    """
+    Default-to-cooperation strategy for the Collective Risk Dilemma.
+
+    - Cooperate in round 1.
+    - Thereafter, cooperate when recent observed cooperation among opponents
+      is at or above the threshold-support level, or when it is just one short
+      and not declining.
+    - Defect after a clear drop, especially after complete opponent defection,
+      but return to cooperation as soon as support recovers.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.q = max(0, game_description.m - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        h_prev = int(history.opponent_cooperators[-1])
+        if h_prev == 0:
+            return Action.D
+        if h_prev >= self.q:
+            return Action.C
+        if h_prev == self.q - 1:
+            if round_number == 1:
+                return Action.C
+            h_prev2 = int(history.opponent_cooperators[-2])
+            if h_prev >= h_prev2:
+                return Action.C
+            return Action.D
+        return Action.D
+
+class Strategy_PROSOCIAL_16(BaseStrategy):
+    """
+    Cooperation-first strategy for the Collective Risk Dilemma.
+
+    - Cooperate in round 1.
+    - Continue cooperating as long as the previous round met the threshold.
+    - After a single miss, give the group one immediate chance to recover by cooperating once more.
+    - After two consecutive misses, defect until the threshold is met again.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.s = Action.C
+        self.h = 0
+        self.L = 0
+        self.F = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        if history.round_number == 0:
+            self.s = Action.C
+            self.h = 0
+            self.L = 0
+            self.F = 0
+            return Action.C
+        if history.round_number == 1:
+            prev_opp = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+            prev_my = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else True
+            self.h = prev_opp
+            self.s = Action.C if prev_my else Action.D
+            self.L = 1 if prev_opp + (1 if prev_my else 0) >= m else 0
+            self.F = 0 if self.L > 0 else 1
+            self.s = Action.C
+            return Action.C
+        prev_opp = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        prev_my = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else True
+        prev_total = prev_opp + (1 if prev_my else 0)
+        L = 0
+        F = 0
+        rounds = history.round_number
+        for idx in range(rounds - 1, -1, -1):
+            opp = int(history.opponent_cooperators[idx]) if idx < len(history.opponent_cooperators) else 0
+            my = bool(history.my_actions[idx]) if idx < len(history.my_actions) else True
+            total = opp + (1 if my else 0)
+            if total >= m:
+                if F > 0:
+                    break
+                L += 1
+            else:
+                if L > 0:
+                    break
+                F += 1
+        self.h = prev_opp
+        self.L = L if prev_total >= m else 0
+        self.F = F if prev_total < m else 0
+        if prev_total >= m:
+            self.s = Action.C
+            return Action.C
+        if self.F >= 2:
+            self.s = Action.D
+            return Action.D
+        self.s = Action.C
+        return Action.C
+
+class Strategy_PROSOCIAL_17(BaseStrategy):
+    """
+    Always cooperates in every round of the Collective Risk Dilemma.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.C
+
+class Strategy_PROSOCIAL_18(BaseStrategy):
+    """
+    Adaptive cooperation strategy for the Collective Risk Dilemma.
+
+    - Cooperate in round 1.
+    - Thereafter, cooperate if the previous round met the threshold,
+      if opponent cooperation was close to the threshold, or if
+      opponent cooperation is recovering.
+    - Otherwise defect.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        opp_last = int(history.opponent_cooperators[-1])
+        my_last_coop = bool(history.my_actions[-1])
+        total_last_coop = opp_last + (1 if my_last_coop else 0)
+        met_last = total_last_coop >= self.m
+        if met_last:
+            return Action.C
+        if opp_last >= self.m - 2:
+            return Action.C
+        if round_number >= 2:
+            opp_prev = int(history.opponent_cooperators[-2])
+            if opp_last > opp_prev:
+                return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_19(BaseStrategy):
+    """
+    Cooperative, threshold-supporting strategy for the Collective Risk Dilemma.
+    Opens with cooperation, supports near-threshold coalitions, and only backs
+    off after repeated stagnant failure far from the threshold.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        o_prev = int(history.opponent_cooperators[-1])
+        a_prev_is_c = bool(history.my_actions[-1])
+        has_prev2 = t >= 2
+        if has_prev2:
+            o_prev2 = int(history.opponent_cooperators[-2])
+        else:
+            o_prev2 = o_prev
+        if t == self.n_rounds - 1:
+            if o_prev >= self.m - 1:
+                return Action.C
+        if o_prev + (1 if a_prev_is_c else 0) >= self.m:
+            return Action.C
+        if o_prev >= self.m - 1 and (not a_prev_is_c):
+            return Action.C
+        if has_prev2 and o_prev >= self.m - 2 and (o_prev > o_prev2):
+            return Action.C
+        if has_prev2 and o_prev < self.m - 2 and (o_prev2 < self.m - 2) and (o_prev <= o_prev2):
+            return Action.D
+        return Action.D
+
+class Strategy_PROSOCIAL_20(BaseStrategy):
+    """
+    Cooperate initially, remain cooperative through one recent failure,
+    and after two or more consecutive threshold misses defect until the
+    observed opponent cooperation count recovers to at least m - 1.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._m = int(game_description.m)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        f = 0
+        n_hist = history.round_number
+        my_actions = history.my_actions
+        opp_counts = history.opponent_cooperators
+        for idx in range(n_hist - 1, -1, -1):
+            my_coop = 1 if bool(my_actions[idx]) else 0
+            total_coop = int(opp_counts[idx]) + my_coop
+            if total_coop >= self._m:
+                break
+            f += 1
+        if f <= 1:
+            return Action.C
+        if int(history.opponent_cooperators[-1]) >= self._m - 1:
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_21(BaseStrategy):
+    """
+    Threshold-support strategy for the Collective Risk Dilemma.
+
+    Cooperate in the first round. Thereafter:
+    - Cooperate if the previous round was one supporter away from success.
+    - Otherwise cooperate if two consecutive rounds were near-threshold.
+    - Otherwise defect.
+    - In the final round, only the immediate previous-round threshold rule applies.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.m = game_description.m
+        self.n_rounds = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        x_prev = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if round_number == self.n_rounds - 1:
+            return Action.C if x_prev >= self.m - 1 else Action.D
+        if x_prev >= self.m - 1:
+            return Action.C
+        if round_number >= 2 and len(history.opponent_cooperators) >= 2:
+            x_prevprev = int(history.opponent_cooperators[-2])
+            if x_prev >= self.m - 2 and x_prevprev >= self.m - 2:
+                return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_22(BaseStrategy):
+    """
+    Forgiving cooperative strategy with a cautious fallback mode.
+
+    - Cooperate in round 1.
+    - Stay cooperative after any successful round (opponents cooperating at least m-1 times).
+    - Give one forgiveness round after a single failed round.
+    - Defect only after two consecutive failed rounds.
+    - If no successful round has occurred yet, cooperate for the first two rounds,
+      then defect from round 3 onward until a successful round appears.
+    - If the last observed round had all opponents cooperating, cooperate next.
+    - On the final round, play according to the current mode:
+      cooperative mode -> C, cautious mode -> D.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+        self.success_threshold = max(0, self.m - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        last_x = int(opp[-1]) if len(opp) > 0 else 0
+        prev_x = int(opp[-2]) if len(opp) > 1 else None
+        has_success = False
+        if len(opp) > 0:
+            for x in opp:
+                if int(x) >= self.success_threshold:
+                    has_success = True
+                    break
+        if last_x >= max(0, self.n_players - 1):
+            return Action.C
+        if last_x >= self.success_threshold:
+            return Action.C
+        if prev_x is not None and int(prev_x) < self.success_threshold and (last_x < self.success_threshold):
+            return Action.D
+        if not has_success:
+            if round_number < 2:
+                return Action.C
+            return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_23(BaseStrategy):
+    """
+    Cooperative-first collective-risk strategy with supportive and recovery modes.
+
+    - Round 1: cooperate.
+    - Thereafter:
+      - Cooperate when the previous round was near-threshold or better.
+      - Defect after two consecutive clearly weak rounds.
+      - Otherwise default to cooperation.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = getattr(game_description, 'n_players', 0)
+        self.n_rounds = getattr(game_description, 'n_rounds', 0)
+        self.m = getattr(game_description, 'm', 0)
+        self.k = getattr(game_description, 'k', 0.0)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        last = int(opp[-1]) if len(opp) >= 1 else 0
+        near_threshold = self.m - 2
+        weak_threshold = self.m - 3
+        if self.m == 2:
+            if last >= 1:
+                return Action.C
+            if t > 1 and int(opp[-2]) == 0:
+                return Action.D
+            return Action.C
+        if last >= near_threshold:
+            return Action.C
+        if t > 1:
+            prev = int(opp[-2])
+            if last <= weak_threshold and prev <= weak_threshold:
+                return Action.D
+            if last >= weak_threshold and prev >= near_threshold or (last >= near_threshold and prev >= weak_threshold):
+                return Action.C
+        return Action.C
+
+class Strategy_PROSOCIAL_24(BaseStrategy):
+    """
+    Cooperative-by-default strategy for the Collective Risk Dilemma.
+
+    - Cooperate in the first two rounds.
+    - Thereafter, cooperate unless the immediately preceding rounds show a
+      sustained collapse: two consecutive rounds with fewer than m - 1
+      cooperating opponents.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.collapse_streak = 0
+        self.last_seen_round = -1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        m = self.game_description.m
+        threshold = max(0, m - 1)
+        if round_number == 0:
+            self.collapse_streak = 0
+            self.last_seen_round = 0
+            return Action.C
+        collapse_streak = 0
+        for x in history.opponent_cooperators[::-1]:
+            if x < threshold:
+                collapse_streak += 1
+            else:
+                break
+        self.collapse_streak = collapse_streak
+        self.last_seen_round = round_number
+        if round_number <= 1:
+            return Action.C
+        if round_number >= self.game_description.n_rounds - 1:
+            return Action.C
+        if self.collapse_streak >= 2:
+            return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_25(BaseStrategy):
+    """
+    Cooperative-first strategy with a grace period after near-misses.
+
+    - Round 1: cooperate.
+    - After successful coordination (>= m cooperators): cooperate.
+    - After a near miss (m - 1 cooperators): cooperate for up to two consecutive
+      near-miss rounds, then defect until recovery.
+    - After larger shortfalls: defect.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._processed_rounds = 0
+        self._patience = 0
+        self._last_total_cooperators = None
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds_seen = history.round_number
+        m = self.game_description.m
+        start = min(self._processed_rounds, n_rounds_seen)
+        if start == 0:
+            self._patience = 0
+            self._last_total_cooperators = None
+        for r in range(start, n_rounds_seen):
+            my_action = bool(history.my_actions[r])
+            opp_coop = int(history.opponent_cooperators[r])
+            total_coop = opp_coop + (1 if my_action else 0)
+            if total_coop >= m:
+                self._patience = 0
+            elif total_coop == m - 1:
+                self._patience += 1
+            else:
+                self._patience = 0
+            self._last_total_cooperators = total_coop
+        self._processed_rounds = n_rounds_seen
+        if n_rounds_seen == 0:
+            return Action.C
+        x = self._last_total_cooperators
+        if x is None:
+            return Action.C
+        if x >= m:
+            return Action.C
+        if x == m - 1:
+            return Action.C if self._patience < 2 else Action.D
+        return Action.D
+
+class Strategy_PROSOCIAL_26(BaseStrategy):
+    """
+    Supportive-first strategy for the Collective Risk Dilemma.
+
+    - Cooperates initially.
+    - Continues cooperating unless there are two consecutive rounds in which
+      the number of cooperating opponents was at least two below the threshold
+      (i.e. opponent cooperators <= m - 3).
+    - Defects while in guarded mode, and returns to cooperation immediately
+      after any round with opponent cooperators >= m - 1.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.guarded = False
+        self.low_streak = 0
+        self.last_seen_round = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        if history.round_number == 0:
+            self.guarded = False
+            self.low_streak = 0
+            self.last_seen_round = 0
+            return Action.C
+        low_streak = 0
+        for x in history.opponent_cooperators:
+            if x <= m - 3:
+                low_streak += 1
+            else:
+                low_streak = 0
+        self.low_streak = low_streak
+        self.guarded = low_streak >= 2
+        self.last_seen_round = history.round_number
+        return Action.D if self.guarded else Action.C
+
+class Strategy_PROSOCIAL_27(BaseStrategy):
+    """
+    Prosocial collective-risk strategy:
+    - Cooperate on the first two rounds.
+    - Continue cooperating when the previous round met or nearly met the threshold.
+    - Defect only after two consecutive failed rounds below threshold in which
+      this player cooperated both times.
+    - Immediately return to cooperation after any successful round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number <= 1:
+            return Action.C
+        prev_my_action = bool(history.my_actions[-1])
+        prev_total = int(history.opponent_cooperators[-1]) + (1 if prev_my_action else 0)
+        if prev_total >= self.m:
+            return Action.C
+        if prev_total == self.m - 1:
+            return Action.C
+        prev2_total = int(history.opponent_cooperators[-2]) + (1 if bool(history.my_actions[-2]) else 0)
+        last_two_below_threshold = prev2_total < self.m and prev_total < self.m
+        cooperated_both = bool(history.my_actions[-2]) and prev_my_action
+        if last_two_below_threshold and cooperated_both:
+            return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_28(BaseStrategy):
+    """
+    Start by cooperating, continue cooperating while the previous round showed
+    sufficient or near-sufficient support, tolerate up to two consecutive
+    weak rounds, and defect only after sustained failure. Immediately resume
+    cooperation when support reappears.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.fail_streak = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        support_threshold = max(0, m - 1)
+        if history.round_number == 0:
+            self.fail_streak = 0
+            return Action.C
+        last_support = int(history.opponent_cooperators[-1])
+        if last_support >= support_threshold:
+            self.fail_streak = 0
+            return Action.C
+        self.fail_streak += 1
+        if self.fail_streak <= 2:
+            return Action.C
+        return Action.D
+
+class Strategy_PROSOCIAL_29(BaseStrategy):
+    """
+    Forgiving collective-risk strategy:
+    - Cooperate in round 1.
+    - After each round, compute total cooperators x from the previous round.
+    - If x >= m - 1, cooperate and reset failures.
+    - If x < m - 1, tolerate one setback; defect only after two consecutive failures.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.failure_counter = 0
+        self.last_action = Action.C
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m_threshold = self.game_description.m - 1
+        if history.round_number == 0:
+            self.failure_counter = 0
+            self.last_action = Action.C
+            return Action.C
+        last_opponents = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        previous_total_cooperators = last_opponents + (1 if bool(history.my_actions[-1]) else 0)
+        if previous_total_cooperators >= m_threshold:
+            self.failure_counter = 0
+            self.last_action = Action.C
+            return Action.C
+        self.failure_counter += 1
+        if self.failure_counter <= 1:
+            self.last_action = Action.C
+            return Action.C
+        self.last_action = Action.D
+        return Action.D
+
+class Strategy_PROSOCIAL_30(BaseStrategy):
+    """
+    Cooperative, threshold-sensitive strategy for the Collective Risk Dilemma.
+
+    Behavior:
+    - Starts by cooperating when feasible.
+    - Cooperates whenever the group is close enough that this player's action can help
+      maintain or restore the collective reward.
+    - Forgives isolated shortfalls, but withdraws briefly after repeated failures.
+    - Becomes more cautious in the final round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.n_players
+        m = self.m
+        t = history.round_number
+        if t == 0:
+            return Action.C if m <= n - 1 else Action.D
+        opp = history.opponent_cooperators
+        prev_h = int(opp[-1]) if len(opp) > 0 else 0
+        prev_my_action = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else False
+        prev_s = prev_h + (1 if prev_my_action else 0)
+        action = Action.D
+        if prev_s >= m:
+            action = Action.C if prev_h >= m - 1 else Action.D
+        else:
+            deficit = m - prev_s
+            if deficit == 1:
+                action = Action.C
+            elif deficit == 2:
+                action = Action.C if prev_h >= m - 2 else Action.D
+            else:
+                action = Action.D
+        if len(history.my_actions) >= 2 and len(opp) >= 2:
+            prev2_h = int(opp[-2])
+            prev2_my_action = bool(history.my_actions[-2])
+            prev2_s = prev2_h + (1 if prev2_my_action else 0)
+            last_two_missed = prev_s < m and prev2_s < m
+            last_two_met = prev_s >= m and prev2_s >= m
+            if last_two_missed:
+                if prev_h < m - 1:
+                    action = Action.D
+            elif last_two_met:
+                if prev_h >= m - 2:
+                    action = Action.C
+        if prev_h >= m:
+            action = Action.C
+        elif prev_h == m - 1:
+            action = Action.C
+        elif prev_h <= m - 3:
+            action = Action.D
+        if t == self.n_rounds - 1:
+            if len(history.my_actions) >= 2 and len(opp) >= 2:
+                prev2_h = int(opp[-2])
+                prev2_my_action = bool(history.my_actions[-2])
+                prev2_s = prev2_h + (1 if prev2_my_action else 0)
+                prev2_met = prev2_s >= m
+                prev_met = prev_s >= m
+                if prev_met and prev2_met:
+                    return Action.C
+                if not prev_met and (not prev2_met):
+                    return Action.D
+            return Action.C if prev_h >= m - 1 else Action.D
+        return action
+
+class Strategy_PROSOCIAL_31(BaseStrategy):
+    """
+    Cooperation-first strategy for the Collective Risk Dilemma.
+
+    - Cooperate in the first round.
+    - Cooperate whenever the group is at or within one cooperator of the threshold.
+    - If the group is at least two cooperators short of the threshold for two
+      consecutive observed rounds, defect once.
+    - Always cooperate in the final round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.bad_streak = 0
+        self.last_processed_round = -1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = self.game_description.n_rounds
+        m = self.game_description.m
+        current_round = history.round_number
+        if current_round == 0:
+            self.bad_streak = 0
+            self.last_processed_round = 0
+            return Action.C
+        if current_round == n_rounds - 1:
+            self.last_processed_round = current_round
+            return Action.C
+        opponent_cooperators = history.opponent_cooperators[-1] if len(history.opponent_cooperators) > 0 else 0
+        my_last_action_is_coop = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else True
+        if my_last_action_is_coop:
+            s = opponent_cooperators + 1
+        else:
+            s = opponent_cooperators
+        g = m - s
+        if g <= 1:
+            self.bad_streak = 0
+            self.last_processed_round = current_round
+            return Action.C
+        self.bad_streak += 1
+        self.last_processed_round = current_round
+        if self.bad_streak >= 2:
+            return Action.D
+        return Action.C
+
+class Strategy_PROSOCIAL_32(BaseStrategy):
+    """
+    Cooperative-by-default strategy with brief, stateful retaliation after
+    two consecutive rounds of very low observed opponent cooperation.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.fail_streak = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            self.fail_streak = 0
+            return Action.C
+        m = self.game_description.m
+        x = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if x >= m - 1:
+            self.fail_streak = 0
+            return Action.C
+        if x == m - 2:
+            self.fail_streak = 1
+            return Action.C
+        self.fail_streak += 1
+        if self.fail_streak >= 2:
+            return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_5(BaseStrategy):
+    """
+    Cooperative, support-sensitive strategy for the Collective Risk Dilemma.
+
+    - Start by cooperating.
+    - Cooperate when the other players are meeting the threshold, close to it,
+      or showing sustained improvement.
+    - Defect only after repeated under-support.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        n = self.game_description.n_players
+        if history.round_number == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        H = int(opp[-1]) if len(opp) > 0 else 0
+        if m == 2:
+            return Action.C if H >= 1 else Action.D
+        prev_H = int(opp[-2]) if len(opp) >= 2 else None
+        L = min(3, len(opp))
+        if L > 0:
+            S = int(np.sum(opp[-L:]))
+            avg = S / L
+        else:
+            avg = 0.0
+        threshold_other = m - 1
+        if len(opp) >= 2 and int(opp[-1]) >= threshold_other and (int(opp[-2]) >= threshold_other):
+            return Action.C
+        if H >= threshold_other:
+            return Action.C
+        if H == m - 2 and avg >= threshold_other:
+            return Action.C
+        if prev_H is not None and H == m - 2 and (prev_H >= threshold_other):
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_6(BaseStrategy):
+    """
+    Start by cooperating, then continue cooperating whenever the previous round
+    showed a realistic chance of reaching the threshold, and always cooperate
+    in the final two rounds.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        if round_number >= max(0, self.n_rounds - 2):
+            return Action.C
+        prev_opponents_coop = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if prev_opponents_coop + 1 >= self.m:
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_7(BaseStrategy):
+    """
+    Pro-cooperation Collective Risk Dilemma strategy.
+
+    - Cooperates in the first round.
+    - Cooperates in the last round.
+    - Cooperates after near-success or credible collective effort.
+    - Uses at most a brief defensive defection after repeated far-below-threshold failure.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._trust = 0
+        self._last_processed_round = 0
+        self._defected_in_current_streak = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = getattr(self.game_description, 'n_rounds', 0)
+        m = getattr(self.game_description, 'm', 0)
+        round_number = history.round_number
+        if round_number == 0:
+            self._trust = 0
+            self._last_processed_round = 0
+            self._defected_in_current_streak = False
+            return Action.C
+        opponent_cooperators = history.opponent_cooperators
+        start_idx = self._last_processed_round
+        end_idx = round_number
+        threshold_minus_one = m - 1
+        near_success = m - 2
+        far_below = m - 3
+        for idx in range(start_idx, end_idx):
+            h_t = int(opponent_cooperators[idx])
+            if h_t >= threshold_minus_one:
+                delta = 1
+            elif h_t == near_success:
+                delta = 0
+            else:
+                delta = -1
+            self._trust += delta
+            if self._trust > 3:
+                self._trust = 3
+            elif self._trust < -3:
+                self._trust = -3
+        self._last_processed_round = round_number
+        if round_number >= n_rounds - 1:
+            self._defected_in_current_streak = False
+            return Action.C
+        prev_h = int(opponent_cooperators[-1])
+        if prev_h >= threshold_minus_one or prev_h == near_success:
+            self._defected_in_current_streak = False
+            return Action.C
+        if self._trust < 0 and prev_h <= far_below and (not self._defected_in_current_streak):
+            self._defected_in_current_streak = True
+            return Action.D
+        self._defected_in_current_streak = False
+        return Action.C
+
+class Strategy_ALTRUISTIC_8(BaseStrategy):
+    """
+    Threshold-support collective-risk strategy.
+
+    Default action is cooperate. Defect only after sustained low support,
+    and return to cooperation as soon as the recent support recovers.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+        self.threshold = self.m - 2
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        last_x = int(opp[-1]) if len(opp) > 0 else 0
+        if t == self.r - 1:
+            return Action.C if last_x >= self.threshold else Action.D
+        if len(opp) == 0:
+            return Action.C
+        if self.m == 2:
+            return Action.C
+        L = min(3, t)
+        if L <= 0:
+            return Action.C
+        recent = opp[-L:]
+        recent_mean = float(np.mean(recent)) if len(recent) > 0 else 0.0
+        if recent_mean >= self.threshold:
+            return Action.C
+        if last_x >= self.threshold:
+            return Action.C
+        if self.m == self.n - 1:
+            if np.max(recent) >= self.n - 3:
+                return Action.C
+            return Action.D
+        return Action.D
+
+class Strategy_ALTRUISTIC_9(BaseStrategy):
+    """
+    Default-to-cooperate strategy with recovery and periodic rescue attempts.
+
+    - Cooperates on the first round.
+    - Continues cooperating if the previous round was close enough to success.
+    - After one failed round, still cooperates immediately.
+    - After repeated failures, cooperates every third round to keep rescue chances alive.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._failure_streak = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        threshold = max(0, m - 1)
+        if history.round_number == 0:
+            self._failure_streak = 0
+            return Action.C
+        failure_streak = 0
+        opp = history.opponent_cooperators
+        idx = len(opp) - 1
+        while idx >= 0 and opp[idx] < threshold:
+            failure_streak += 1
+            idx -= 1
+        self._failure_streak = failure_streak
+        current_round = history.round_number + 1
+        if len(opp) > 0 and opp[-1] >= threshold:
+            return Action.C
+        if failure_streak == 1:
+            return Action.C
+        if current_round % 3 == 0:
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_10(BaseStrategy):
+    """
+    Cooperative-first strategy for the Collective Risk Dilemma.
+
+    - Cooperate in the first round.
+    - Cooperate in the final round.
+    - Cooperate whenever the previous round met or nearly met the threshold.
+    - After two consecutive clear failures, defect once, then immediately return to cooperation.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.failure_streak = 0
+        self.last_processed_round = 0
+        self.last_total_cooperators = None
+        self.force_cooperate_next = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        gd = self.game_description
+        current_round = history.round_number
+        while self.last_processed_round < current_round:
+            idx = self.last_processed_round
+            my_action = bool(history.my_actions[idx])
+            opp_coop = int(history.opponent_cooperators[idx])
+            total_coop = opp_coop + (1 if my_action else 0)
+            self.last_total_cooperators = total_coop
+            if total_coop < gd.m:
+                self.failure_streak += 1
+            else:
+                self.failure_streak = 0
+            self.last_processed_round += 1
+        if current_round == 0:
+            return Action.C
+        if current_round >= gd.n_rounds - 1:
+            self.force_cooperate_next = False
+            return Action.C
+        if self.force_cooperate_next:
+            self.force_cooperate_next = False
+            return Action.C
+        s_prev = self.last_total_cooperators
+        if s_prev is None:
+            return Action.C
+        if s_prev >= gd.m:
+            return Action.C
+        if s_prev == gd.m - 1:
+            return Action.C
+        if self.failure_streak >= 2:
+            self.failure_streak = 0
+            self.force_cooperate_next = True
+            return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_11(BaseStrategy):
+    """
+    Cooperate by default, but defect for one round after two consecutive
+    rounds in which the number of cooperating opponents stayed below
+    the threshold needed to reach the group target with our help.
+
+    Always cooperates in the first round and the final round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.m = game_description.m
+        self.n_rounds = game_description.n_rounds
+        self._threshold = max(0, self.m - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        if round_number >= self.n_rounds - 1:
+            return Action.C
+        if round_number < 2:
+            return Action.C
+        last = int(history.opponent_cooperators[-1])
+        prev = int(history.opponent_cooperators[-2])
+        if last < self._threshold and prev < self._threshold:
+            return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_12(BaseStrategy):
+    """
+    Support until clearly unnecessary:
+    - Cooperate on round 1.
+    - Defect only when the previous round already met the threshold without us,
+      or when we are clearly non-pivotal after at least two consecutive failed rounds.
+    - Always cooperate when our contribution would be pivotal.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._m = game_description.m
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        m = self._m
+        last_opponents = int(history.opponent_cooperators[-1])
+        last_my_action = bool(history.my_actions[-1])
+        last_total_cooperators = last_opponents + (1 if last_my_action else 0)
+        bad_streak = 0
+        for idx in range(history.round_number - 1, -1, -1):
+            total_cooperators = int(history.opponent_cooperators[idx]) + (1 if bool(history.my_actions[idx]) else 0)
+            if total_cooperators < m:
+                bad_streak += 1
+            else:
+                break
+        if last_opponents >= m:
+            return Action.D
+        if last_opponents == m - 1:
+            return Action.C
+        if last_opponents <= m - 2:
+            if bad_streak < 2:
+                return Action.C
+            return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_13(BaseStrategy):
+    """
+    Cooperative threshold-support strategy for the Collective Risk Dilemma.
+
+    - Start with cooperation.
+    - Keep cooperating through isolated or small shortfalls.
+    - Defect only after repeated substantial failures.
+    - Never defect just because the game is ending.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+
+    def _total_cooperators(self, history: PlayerHistory, round_index: int) -> int:
+        """Return total cooperators in a given round, including self."""
+        my_cooperated = 1 if bool(history.my_actions[round_index]) else 0
+        return int(history.opponent_cooperators[round_index]) + my_cooperated
+
+    def _consecutive_from_end(self, history: PlayerHistory, predicate) -> int:
+        """Count consecutive rounds from the end satisfying predicate."""
+        count = 0
+        for idx in range(history.round_number - 1, -1, -1):
+            if predicate(idx):
+                count += 1
+            else:
+                break
+        return count
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        last_round = history.round_number - 1
+        s_last = self._total_cooperators(history, last_round)
+        last_met = s_last >= self.m
+        s_prev = None
+        prev_met = False
+        if history.round_number >= 2:
+            prev_round = history.round_number - 2
+            s_prev = self._total_cooperators(history, prev_round)
+            prev_met = s_prev >= self.m
+        good_streak = self._consecutive_from_end(history, lambda idx: self._total_cooperators(history, idx) >= self.m)
+        bad_streak = self._consecutive_from_end(history, lambda idx: self._total_cooperators(history, idx) < self.m)
+        if history.round_number >= 2 and last_met and prev_met:
+            if history.round_number == self.n_rounds - 1:
+                return Action.C
+            return Action.C
+        if last_met:
+            return Action.C
+        if s_last == self.m - 1:
+            return Action.C
+        if history.round_number >= 2:
+            prev_shortfall = self.m - s_prev if s_prev is not None else 0
+            last_shortfall = self.m - s_last
+            if bad_streak >= 2 and prev_shortfall >= 2 and (last_shortfall >= 2):
+                return Action.D
+        if good_streak >= 1:
+            return Action.C
+        if bad_streak == 1:
+            return Action.C
+        if good_streak >= 2:
+            return Action.C
+        return Action.C
+
+class Strategy_ALTRUISTIC_14(BaseStrategy):
+    """
+    Hopeful opener with forgiveness after a shortfall and periodic recovery probes.
+    Cooperates initially, stays cooperative when the group is near threshold,
+    forgives one failed round, and probes every third round during prolonged failure.
+    Never defects in the final round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.mode = 'hopeful'
+        self.fail_streak = 0
+        self._last_round_processed = -1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = self.game_description.n_rounds
+        m = self.game_description.m
+        if history.round_number == 0:
+            self.mode = 'hopeful'
+            self.fail_streak = 0
+            self._last_round_processed = 0
+            return Action.C
+        current_round = history.round_number
+        if current_round != self._last_round_processed:
+            prev_opponents_coop = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+            if prev_opponents_coop >= max(0, m - 1):
+                self.fail_streak = 0
+                self.mode = 'hopeful'
+            else:
+                self.fail_streak += 1
+                self.mode = 'recovering'
+            self._last_round_processed = current_round
+        t = current_round + 1
+        if t == n_rounds:
+            return Action.C
+        prev_opponents_coop = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if prev_opponents_coop >= max(0, m - 1):
+            return Action.C
+        if self.fail_streak == 1:
+            return Action.C
+        if t % 3 == 0 and self.fail_streak >= 2:
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_15(BaseStrategy):
+    """
+    Start with cooperation, then continue cooperating whenever the previous round
+    was threshold-adjacent, majority-level, or otherwise showed enough collective
+    support to make cooperation plausible. Defect only after clear, repeated low
+    cooperation.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        n = int(game_description.n_players)
+        m = int(game_description.m)
+        self.n_players = n
+        self.n_opponents = max(0, n - 1)
+        self.m = m
+        self.threshold_adjacent = max(0, m - 1)
+        self.half_opponents = int(math.ceil(self.n_opponents / 2)) if self.n_opponents > 0 else 0
+        self.low_coop_cutoff = int(math.floor(self.n_opponents / 3)) if self.n_opponents > 0 else 0
+        self.stable_coop_cutoff = max(self.threshold_adjacent, self.half_opponents)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        last_opp = int(opp[-1]) if len(opp) > 0 else 0
+        prev_opp = int(opp[-2]) if len(opp) > 1 else last_opp
+        if last_opp >= self.threshold_adjacent:
+            return Action.C
+        if last_opp >= self.half_opponents:
+            return Action.C
+        if prev_opp >= self.threshold_adjacent:
+            return Action.C
+        if len(opp) >= 2:
+            if prev_opp >= self.stable_coop_cutoff and last_opp >= self.low_coop_cutoff:
+                return Action.C
+        if last_opp == max(0, self.threshold_adjacent - 1):
+            return Action.C
+        if len(opp) >= 3:
+            recent = opp[-3:]
+            low_count = 0
+            for v in recent:
+                if int(v) <= self.low_coop_cutoff:
+                    low_count += 1
+            if low_count >= 2 and last_opp < self.low_coop_cutoff:
+                return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_16(BaseStrategy):
+    """
+    Cooperative-first collective-risk strategy:
+    - Start with cooperation.
+    - Cooperate through brief setbacks and near-threshold rounds.
+    - Defect once after sustained complete collapse, then immediately return to cooperation.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.fail_streak = 0
+        self.support_streak = 0
+        self._last_processed_round = 0
+        self._retreat_cooldown = 0
+
+    def _update_state_from_history(self, history: PlayerHistory) -> None:
+        """Incrementally update streak counters from any newly observed completed rounds."""
+        current_rounds = history.round_number
+        if current_rounds <= self._last_processed_round:
+            return
+        n_players = self.game_description.n_players
+        m = self.game_description.m
+        for idx in range(self._last_processed_round, current_rounds):
+            opp_coop = int(history.opponent_cooperators[idx]) if idx < len(history.opponent_cooperators) else 0
+            my_action_is_c = bool(history.my_actions[idx]) if idx < len(history.my_actions) else False
+            total_coop = opp_coop + (1 if my_action_is_c else 0)
+            if total_coop >= m:
+                self.fail_streak = 0
+                self.support_streak += 1
+            else:
+                self.fail_streak += 1
+                self.support_streak = 0
+            if self._retreat_cooldown > 0 and (not my_action_is_c):
+                self._retreat_cooldown = 0
+            elif self._retreat_cooldown > 0 and my_action_is_c:
+                pass
+        self._last_processed_round = current_rounds
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        self._update_state_from_history(history)
+        n_rounds = self.game_description.n_rounds
+        m = self.game_description.m
+        current_round = history.round_number
+        if current_round >= max(0, n_rounds - 1):
+            return Action.C
+        if self._retreat_cooldown > 0:
+            self._retreat_cooldown -= 1
+            return Action.C
+        if current_round == 0:
+            return Action.C
+        prev_opp_coop = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if prev_opp_coop >= m - 1:
+            return Action.C
+        if self.fail_streak <= 2:
+            return Action.C
+        if prev_opp_coop >= m - 2:
+            return Action.C
+        if self.fail_streak >= 3 and prev_opp_coop == 0:
+            self._retreat_cooldown = 1
+            return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_17(BaseStrategy):
+    """
+    Cooperate by default, stay cooperative when the group is meeting or nearly meeting
+    the threshold, and use at most a single-round withdrawal after sustained stagnation.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+        self.threshold_minus_one = self.m - 1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        my_actions = history.my_actions
+        opp_counts = history.opponent_cooperators
+
+        def total_cooperators(idx: int) -> int:
+            return int(opp_counts[idx]) + (1 if bool(my_actions[idx]) else 0)
+        s_last = total_cooperators(round_number - 1)
+        my_last_cooperated = bool(my_actions[round_number - 1])
+        if s_last >= self.m:
+            return Action.C
+        if s_last == self.threshold_minus_one and my_last_cooperated:
+            return Action.C
+        s_prev2 = None
+        s_prev3 = None
+        if round_number >= 2:
+            s_prev2 = total_cooperators(round_number - 2)
+        if round_number >= 3:
+            s_prev3 = total_cooperators(round_number - 3)
+        forced_defect = False
+        if round_number >= 3:
+            if s_last < self.threshold_minus_one and s_prev2 is not None and (s_prev2 < self.threshold_minus_one) and (s_prev3 is not None) and (s_prev3 < self.threshold_minus_one) and (s_last <= s_prev2 <= s_prev3):
+                forced_defect = True
+        if round_number == self.n_rounds - 1:
+            if round_number >= 3 and s_prev2 is not None and (s_prev3 is not None):
+                if s_last < self.threshold_minus_one and s_prev2 < self.threshold_minus_one and (s_last <= s_prev2 <= s_prev3):
+                    return Action.D
+            return Action.C
+        if s_last < self.threshold_minus_one:
+            shortfall = self.threshold_minus_one - s_last
+            if shortfall <= 1:
+                return Action.C
+            if round_number >= 3 and s_prev2 is not None and (s_prev3 is not None):
+                if s_last > s_prev2 and s_prev2 > s_prev3:
+                    return Action.C
+        if forced_defect:
+            return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_18(BaseStrategy):
+    """
+    Cooperate by default, defect only when the previous round's cooperation
+    from opponents was clearly too far below the threshold to make your
+    contribution meaningful.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        opp_last = int(history.opponent_cooperators[-1])
+        threshold_near = self.m - 2
+        threshold_forgive = self.m - 3
+        threshold_far = self.m - 4
+        if opp_last >= threshold_near:
+            return Action.C
+        if opp_last == threshold_forgive:
+            if t == 1:
+                return Action.C
+            prev_opp = int(history.opponent_cooperators[-2])
+            if prev_opp >= threshold_near:
+                return Action.C
+            return Action.D
+        return Action.D
+
+class Strategy_ALTRUISTIC_19(BaseStrategy):
+    """
+    Cooperative-first strategy for the Collective Risk Dilemma.
+
+    - Cooperate in round 1.
+    - Cooperate after any threshold met or near-miss round.
+    - After sustained clear misses, allow one defensive defection, then return
+      to cooperation as soon as possible.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.m = int(game_description.m)
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.last_action = Action.C
+        self.defensive_defection_used = False
+        self.trailing_clear_misses = 0
+
+    def _total_cooperators_last_round(self, history: PlayerHistory) -> int:
+        if history.round_number == 0:
+            return 0
+        last_my_action = int(bool(history.my_actions[-1]))
+        last_opponents = int(history.opponent_cooperators[-1])
+        return last_my_action + last_opponents
+
+    def _count_trailing_clear_misses(self, history: PlayerHistory) -> int:
+        """
+        Count consecutive previous rounds with fewer than m cooperators.
+        """
+        count = 0
+        for idx in range(history.round_number - 1, -1, -1):
+            total_coop = int(bool(history.my_actions[idx])) + int(history.opponent_cooperators[idx])
+            if total_coop < self.m:
+                count += 1
+            else:
+                break
+        return count
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            self.last_action = Action.C
+            self.defensive_defection_used = False
+            self.trailing_clear_misses = 0
+            return Action.C
+        recent_total = self._total_cooperators_last_round(history)
+        trailing_misses = self._count_trailing_clear_misses(history)
+        self.trailing_clear_misses = trailing_misses
+        if recent_total >= self.m:
+            self.defensive_defection_used = False
+            self.last_action = Action.C
+            return Action.C
+        if recent_total == self.m - 1:
+            self.defensive_defection_used = False
+            self.last_action = Action.C
+            return Action.C
+        if trailing_misses < 3:
+            self.last_action = Action.C
+            return Action.C
+        if not self.defensive_defection_used:
+            self.defensive_defection_used = True
+            self.last_action = Action.D
+            return Action.D
+        self.defensive_defection_used = False
+        self.last_action = Action.C
+        return Action.C
+
+class Strategy_ALTRUISTIC_20(BaseStrategy):
+    """
+    Cooperate initially, then stay cooperative while opponents remain at or above
+    the threshold. If the group falls just below the threshold, give one rescue
+    round of cooperation before defecting after repeated failure.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.m = int(game_description.m)
+        self.n_rounds = int(game_description.n_rounds)
+        self.threshold_opponents = max(0, self.m - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        last_h = int(opp[-1])
+        t = self.threshold_opponents
+        if last_h >= t:
+            return Action.C
+        if last_h == t - 1:
+            if round_number >= 2 and int(opp[-2]) >= t:
+                return Action.C
+            return Action.D
+        if round_number == self.n_rounds - 1:
+            if round_number >= 2 and (int(opp[-2]) >= t or int(opp[-1]) >= t):
+                return Action.C
+            if round_number >= 2 and int(opp[-2]) == t - 1 and (int(opp[-3]) >= t):
+                return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_21(BaseStrategy):
+    """
+    Adaptive collective-risk strategy:
+    - Cooperate initially.
+    - Cooperate when recent opponent cooperation is near the threshold.
+    - Defect after sustained weak support.
+    - Use a stricter endgame rule.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+        self.threshold_minus_1 = self.m - 1
+        self.threshold_minus_2 = self.m - 2
+        self.threshold_minus_half = self.m - 0.5
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        last = int(opp[-1])
+        prev = int(opp[-2]) if t >= 2 else None
+        if t > 0:
+            T_t = float(np.mean(opp[:t]))
+        else:
+            T_t = 0.0
+        if t == self.n_rounds - 1:
+            if t >= 2 and prev is not None and (last >= self.threshold_minus_1) and (prev >= self.threshold_minus_1):
+                return Action.C
+            return Action.C if T_t >= self.threshold_minus_1 else Action.D
+        if last < self.threshold_minus_2:
+            return Action.D
+        if T_t < self.threshold_minus_2:
+            return Action.D
+        if t >= 2 and prev is not None and (last <= self.threshold_minus_2) and (prev <= self.threshold_minus_2):
+            return Action.D
+        if T_t >= self.threshold_minus_1:
+            return Action.C
+        if t >= 2 and prev is not None and (last >= self.threshold_minus_2) and (prev >= self.threshold_minus_2):
+            return Action.C
+        if last >= self.threshold_minus_1:
+            return Action.C
+        if last == self.threshold_minus_2 and T_t >= self.threshold_minus_half:
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_22(BaseStrategy):
+    """
+    Hopeful/cooperative strategy with a cautious fallback:
+    - Cooperate initially.
+    - Keep cooperating as long as the last observed round was not a weak failure.
+    - Defect only after two consecutive rounds with fewer than (m - 1) total cooperators.
+    - Recover immediately to cooperation once the group reaches (m - 1) or more cooperators.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.m = game_description.m
+        self._state = 'hopeful'
+
+    def _total_cooperators(self, history: PlayerHistory, round_index: int) -> int:
+        opponent_count = int(history.opponent_cooperators[round_index])
+        self_count = 1 if bool(history.my_actions[round_index]) else 0
+        return opponent_count + self_count
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            self._state = 'hopeful'
+            return Action.C
+        threshold = self.m - 1
+        last_total = self._total_cooperators(history, history.round_number - 1)
+        if last_total >= threshold:
+            self._state = 'hopeful'
+            return Action.C
+        if history.round_number == 1:
+            self._state = 'hopeful'
+            return Action.C
+        prev_total = self._total_cooperators(history, history.round_number - 2)
+        if last_total < threshold and prev_total < threshold:
+            self._state = 'cautious'
+            return Action.D
+        self._state = 'hopeful'
+        return Action.C
+
+class Strategy_ALTRUISTIC_23(BaseStrategy):
+    """
+    Threshold-based collective-risk strategy with short memory:
+    - Cooperate in the first round.
+    - After that, cooperate when opponents cooperated sufficiently in the
+      previous round, or when a near-threshold pattern appeared recently.
+    - Defect only in a narrow low-cooperation window, and only once in a row.
+    - Always cooperate in the final round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.last_two_opponent_counts = []
+        self.last_action_was_defect = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = self.game_description.n_rounds
+        m = self.game_description.m
+        round_idx = history.round_number
+        if round_idx >= max(0, n_rounds - 1):
+            self.last_action_was_defect = False
+            if round_idx > 0:
+                self.last_two_opponent_counts.append(int(history.opponent_cooperators[-1]))
+                if len(self.last_two_opponent_counts) > 2:
+                    self.last_two_opponent_counts = self.last_two_opponent_counts[-2:]
+            return Action.C
+        if round_idx == 0:
+            self.last_action_was_defect = False
+            return Action.C
+        if len(history.opponent_cooperators) > 0:
+            self.last_two_opponent_counts.append(int(history.opponent_cooperators[-1]))
+            if len(self.last_two_opponent_counts) > 2:
+                self.last_two_opponent_counts = self.last_two_opponent_counts[-2:]
+        x = int(history.opponent_cooperators[-1])
+        if self.last_action_was_defect:
+            self.last_action_was_defect = False
+            return Action.C
+        if x >= m - 1:
+            self.last_action_was_defect = False
+            return Action.C
+        if m - 2 >= 0 and x == m - 2:
+            if len(self.last_two_opponent_counts) >= 2:
+                prev1 = self.last_two_opponent_counts[-2]
+                prev2 = self.last_two_opponent_counts[-1]
+                if prev1 >= m - 2 or prev2 >= m - 2:
+                    self.last_action_was_defect = False
+                    return Action.C
+        if m - 3 >= 0 and x <= m - 3:
+            if len(self.last_two_opponent_counts) >= 2:
+                prev1 = self.last_two_opponent_counts[-2]
+                prev2 = self.last_two_opponent_counts[-1]
+                if prev1 <= m - 3 and prev2 <= m - 3:
+                    self.last_action_was_defect = True
+                    return Action.D
+        self.last_action_was_defect = False
+        return Action.C
+
+class Strategy_ALTRUISTIC_24(BaseStrategy):
+    """
+    Default to cooperation, defect only temporarily after clear collective failure,
+    and always cooperate in the opening and closing rounds.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._mode = 'cooperate'
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        gd = self.game_description
+        round_number = history.round_number
+        r = gd.n_rounds
+        m = gd.m
+        if round_number == 0:
+            self._mode = 'cooperate'
+            return Action.C
+        if r == 2:
+            self._mode = 'cooperate'
+            return Action.C
+        if r == 3 and round_number == 1:
+            pass
+        if round_number == r - 1:
+            self._mode = 'cooperate'
+            return Action.C
+        h_prev = int(history.opponent_cooperators[-1])
+        if h_prev >= m - 1:
+            self._mode = 'cooperate'
+            return Action.C
+        low_threshold = m - 2
+        if round_number >= 2 and len(history.opponent_cooperators) >= 2:
+            h_prev2 = int(history.opponent_cooperators[-2])
+            two_consecutive_lows = h_prev <= low_threshold and h_prev2 <= low_threshold
+        else:
+            two_consecutive_lows = False
+        if self._mode == 'trial':
+            self._mode = 'defect'
+            return Action.D
+        if self._mode == 'cooperate' and two_consecutive_lows:
+            self._mode = 'trial'
+            return Action.C
+        self._mode = 'defect'
+        return Action.D
+
+class Strategy_ALTRUISTIC_25(BaseStrategy):
+    """
+    Cooperative opening, then threshold-sensitive reciprocity:
+    - Cooperate in round 1.
+    - Cooperate whenever the previous round met the cooperation threshold.
+    - Cooperate on near-threshold outcomes unless there have been two
+      consecutive clear shortfalls.
+    - Defect only after repeated, wide misses of the threshold.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        threshold = self.m - 1
+        h_prev = int(history.opponent_cooperators[-1])
+        if history.round_number >= 2:
+            h_prev_prev = int(history.opponent_cooperators[-2])
+        else:
+            h_prev_prev = threshold
+        completed_rounds = history.round_number
+        if completed_rounds > 0:
+            successes = int(np.sum(history.opponent_cooperators >= threshold))
+            success_rate = successes / completed_rounds
+        else:
+            successes = 0
+            success_rate = 1.0
+        persistent_altruism = success_rate >= 0.5
+        clear_shortfall = h_prev < threshold - 1 and h_prev_prev < threshold - 1
+        near_threshold_recovery = h_prev == threshold - 1 and h_prev_prev >= threshold
+        if h_prev >= threshold:
+            return Action.C
+        if near_threshold_recovery:
+            return Action.C
+        if clear_shortfall:
+            return Action.D
+        if persistent_altruism:
+            return Action.C
+        return Action.C
+
+class Strategy_ALTRUISTIC_26(BaseStrategy):
+    """
+    Forgiving threshold-based strategy for the Collective Risk Dilemma.
+
+    - Cooperates initially.
+    - Cooperates when opponents are at or near the cooperation threshold.
+    - Allows one round of forgiveness for a shortfall.
+    - Defects only after persistent collapse, and returns to cooperation quickly
+      when credible recovery appears.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.trust_state = 'optimistic'
+        self.shortfall_streak = 0
+        self.last_decision = Action.C
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        r = self.game_description.n_rounds
+        round_number = history.round_number
+        opp = history.opponent_cooperators
+
+        def recent_value(idx_from_end: int):
+            if len(opp) >= idx_from_end:
+                return int(opp[-idx_from_end])
+            return None
+
+        def update_state(current_action: Action) -> Action:
+            self.last_decision = current_action
+            return current_action
+        if round_number == 0:
+            self.trust_state = 'optimistic'
+            self.shortfall_streak = 0
+            return update_state(Action.C)
+        last_h = recent_value(1)
+        prev_h = recent_value(2)
+        if round_number == r - 1:
+            if last_h is None:
+                self.trust_state = 'optimistic'
+                return update_state(Action.C)
+            if prev_h is not None and (last_h >= m - 2 or prev_h >= m - 2):
+                self.trust_state = 'optimistic'
+                return update_state(Action.C)
+            if prev_h is not None and last_h <= m - 3 and (prev_h <= m - 3):
+                self.trust_state = 'cautious'
+                return update_state(Action.D)
+            self.trust_state = 'forgiving'
+            return update_state(Action.C)
+        if last_h is None:
+            self.trust_state = 'optimistic'
+            return update_state(Action.C)
+        if last_h >= m - 1:
+            self.trust_state = 'optimistic'
+            self.shortfall_streak = 0
+            return update_state(Action.C)
+        if last_h >= m - 2:
+            self.trust_state = 'forgiving'
+            self.shortfall_streak = 0
+            return update_state(Action.C)
+        if prev_h is not None and prev_h >= m - 2:
+            self.trust_state = 'forgiving'
+            self.shortfall_streak = 1
+            return update_state(Action.C)
+        self.trust_state = 'cautious'
+        self.shortfall_streak = min(self.shortfall_streak + 1, 2)
+        return update_state(Action.D)
+
+class Strategy_ALTRUISTIC_27(BaseStrategy):
+    """
+    Default-cooperation strategy for the Collective Risk Dilemma.
+
+    - Cooperates in round 1.
+    - Cooperates whenever the opponents are meeting or nearly meeting the threshold.
+    - Defects only after sustained under-cooperation.
+    - After a defensive defection, forces cooperation for the next 2 rounds.
+    - Cooperates unconditionally in the final 2 rounds.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.recovery_remaining = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        r = history.round_number
+        n_rounds = getattr(self.game_description, 'n_rounds', 0) or 0
+        m = getattr(self.game_description, 'm', 0) or 0
+        if r == 0:
+            return Action.C
+        if n_rounds > 0 and r >= n_rounds - 2:
+            if self.recovery_remaining > 0:
+                self.recovery_remaining = max(0, self.recovery_remaining - 1)
+            return Action.C
+        q = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        s = 0
+        threshold = m - 1
+        if threshold > 0:
+            idx = len(history.opponent_cooperators) - 1
+            while idx >= 0 and int(history.opponent_cooperators[idx]) < threshold:
+                s += 1
+                idx -= 1
+        if self.recovery_remaining > 0:
+            self.recovery_remaining = max(0, self.recovery_remaining - 1)
+            return Action.C
+        if q >= threshold or s == 1:
+            return Action.C
+        if q <= m - 2 and s >= 2:
+            self.recovery_remaining = 2
+            return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_28(BaseStrategy):
+    """
+    Cooperative-first strategy with short-memory recovery:
+    - Cooperate in the first 3 rounds.
+    - Cooperate after any recent success.
+    - Defect only after two consecutive strongly under-threshold rounds.
+    - Special handling for m=2 and the final round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+        self.strong_shortfall_cutoff = self.m - 3
+        self.recovery_cutoff = self.m - 2
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t < min(3, self.r):
+            return Action.C
+        opp = history.opponent_cooperators
+        my_actions = history.my_actions
+        n_hist = len(opp)
+        if n_hist == 0:
+            return Action.C
+        last_x = int(opp[-1])
+        if self.m == 2:
+            if n_hist >= 2 and int(opp[-1]) == 0 and (int(opp[-2]) == 0):
+                return Action.D
+            return Action.C
+
+        def threshold_met_at(j: int) -> bool:
+            if j < 0 or j >= n_hist:
+                return False
+            return int(opp[j]) + (1 if bool(my_actions[j]) else 0) >= self.m
+        recent_threshold_met = threshold_met_at(n_hist - 1) or threshold_met_at(n_hist - 2) or threshold_met_at(n_hist - 3)
+        if recent_threshold_met:
+            return Action.C
+        if last_x >= self.recovery_cutoff:
+            return Action.C
+        if t == self.r - 1:
+            if n_hist >= 2 and int(opp[-1]) <= self.strong_shortfall_cutoff and (int(opp[-2]) <= self.strong_shortfall_cutoff):
+                return Action.D
+            return Action.C
+        if n_hist >= 2:
+            prev_x = int(opp[-2])
+            if prev_x <= self.strong_shortfall_cutoff and last_x <= self.strong_shortfall_cutoff:
+                return Action.D
+        return Action.C
+
+class Strategy_ALTRUISTIC_29(BaseStrategy):
+    """
+    Cooperative default strategy for the Collective Risk Dilemma.
+
+    - Round 1: cooperate.
+    - For later rounds: cooperate whenever the previous round met or nearly met
+      the threshold.
+    - In the final round only: defect if the previous two rounds both had zero
+      cooperating opponents; otherwise cooperate.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.last_opponent_cooperators = None
+        self.prev_opponent_cooperators = None
+        self.last_threshold_reached = False
+        self.in_success_streak = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = getattr(self.game_description, 'n_rounds', 0)
+        m = getattr(self.game_description, 'm', 0)
+        if history.round_number == 0:
+            self.last_opponent_cooperators = None
+            self.prev_opponent_cooperators = None
+            self.last_threshold_reached = False
+            self.in_success_streak = False
+            return Action.C
+        try:
+            s_last = int(history.opponent_cooperators[-1])
+        except Exception:
+            return Action.C
+        self.prev_opponent_cooperators = self.last_opponent_cooperators
+        self.last_opponent_cooperators = s_last
+        self.last_threshold_reached = s_last + 1 >= m
+        try:
+            recent = history.opponent_cooperators
+            if len(recent) >= 1 and int(recent[-1]) + 1 >= m:
+                self.in_success_streak = True
+            elif len(recent) >= 2 and int(recent[-2]) + 1 >= m:
+                self.in_success_streak = True
+            else:
+                self.in_success_streak = False
+        except Exception:
+            self.in_success_streak = False
+        if s_last + 1 >= m or s_last == m - 1:
+            return Action.C
+        is_final_round = history.round_number >= max(0, n_rounds - 1)
+        if not is_final_round:
+            return Action.C
+        try:
+            if len(history.opponent_cooperators) >= 2:
+                if int(history.opponent_cooperators[-1]) == 0 and int(history.opponent_cooperators[-2]) == 0:
+                    return Action.D
+        except Exception:
+            return Action.C
+        return Action.C
+
+class Strategy_ALTRUISTIC_30(BaseStrategy):
+    """
+    Cooperative opener with short-memory threshold response:
+    - Cooperate in round 1.
+    - Continue cooperating while opponents remain near or above the cooperation threshold.
+    - Use a 3-round average and a two-round low-cooperation trigger to avoid overreacting.
+    - Defect only after repeated weak cooperation, and return to cooperation once the group recovers.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+        self.n_opponents = max(0, self.n_players - 1)
+        self.t_c = max(0, self.m - 1)
+        self.t_d = max(0, self.m - 2)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        last_x = int(opp[-1]) if len(opp) > 0 else 0
+        window = opp[max(0, t - 3):t]
+        avg_x = float(np.mean(window)) if len(window) > 0 else 0.0
+        low_cutoff = self.m - 3
+        z = 0
+        for idx in range(len(opp) - 1, -1, -1):
+            if int(opp[idx]) <= low_cutoff:
+                z += 1
+            else:
+                break
+        if t == self.n_rounds - 1:
+            return Action.D if z >= 2 else Action.C
+        if z >= 2:
+            return Action.C if last_x >= self.t_d else Action.D
+        if last_x >= self.t_c:
+            return Action.C
+        if avg_x >= self.t_c - 0.5:
+            return Action.C
+        if last_x == self.t_c - 1:
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_31(BaseStrategy):
+    """
+    Cooperative first-mover strategy with trend-based responsiveness and
+    special handling for threshold edge cases.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+        denom = self.n - 1
+        self.alpha = (self.m - 1) / denom if denom > 0 else 0.0
+        self.trend = 0.0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C
+        x_last = int(history.opponent_cooperators[-1])
+        x_prev = int(history.opponent_cooperators[-2]) if round_number >= 2 else None
+        s_last = x_last - (self.n - 1) * self.alpha
+        if round_number == 1:
+            self.trend = s_last
+        else:
+            self.trend = 0.7 * self.trend + s_last
+        if round_number == self.r - 1:
+            if round_number >= 2 and x_prev is not None and (x_last < self.m - 2) and (x_prev < self.m - 2):
+                return Action.D
+            return Action.C
+        if self.m == 2:
+            if round_number >= 2 and x_last == 0 and (x_prev == 0):
+                return Action.D
+            return Action.C
+        if self.m == self.n - 1:
+            if round_number >= 2 and x_prev is not None:
+                if x_prev < self.n - 3 and x_last < self.n - 3:
+                    return Action.D
+            if x_last >= self.n - 2:
+                return Action.C
+            if round_number >= 2 and x_last < self.n - 3 and (self.trend < 0):
+                return Action.D
+            return Action.C
+        if round_number == 1:
+            if x_last >= self.m - 1:
+                return Action.C
+            if x_last < self.m - 2:
+                high_relative_threshold = self.m >= self.n - 1 or (self.m >= self.n - 2 and self.n >= 4)
+                if high_relative_threshold:
+                    return Action.D
+            return Action.C
+        if x_last >= self.m - 1:
+            return Action.C
+        if x_prev is not None and x_last == self.m - 2 and (x_last > x_prev):
+            return Action.C
+        if x_last >= self.m - 3 and self.trend >= 0:
+            return Action.C
+        return Action.D
+
+class Strategy_ALTRUISTIC_32(BaseStrategy):
+    """
+    Always cooperate in every round, regardless of history.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.C
+
+class Strategy_BENEVOLENT_5(BaseStrategy):
+    """
+    Trust-based collective-risk strategy:
+    - Cooperate in round 1.
+    - Keep cooperating while recent cooperation meets the threshold.
+    - Defect only after two consecutive weak rounds.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.trust = True
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        if history.round_number == 0:
+            self.trust = True
+            return Action.C
+
+        def total_cooperators(round_index: int) -> int:
+            my_coop = 1 if history.my_actions[round_index] else 0
+            return int(history.opponent_cooperators[round_index]) + my_coop
+        last_round = history.round_number - 1
+        h_last = total_cooperators(last_round)
+        if h_last >= m:
+            self.trust = True
+        elif history.round_number >= 2:
+            h_prev = total_cooperators(last_round - 1)
+            if h_prev < m - 1 and h_last < m - 1:
+                self.trust = False
+        return Action.C if self.trust else Action.D
+
+class Strategy_BENEVOLENT_6(BaseStrategy):
+    """
+    Forgiving collective-risk strategy:
+    - Cooperate initially.
+    - Continue cooperating if the previous round met the threshold or missed it by exactly one cooperator.
+    - Defect only after a previous round that fell short by at least two cooperators.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.m = int(game_description.m)
+        self.n_opponents = max(0, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        last_opponent_coop = int(history.opponent_cooperators[-1])
+        last_my_coop = bool(history.my_actions[-1])
+        last_total_coop = last_opponent_coop + (1 if last_my_coop else 0)
+        if last_total_coop >= self.m - 1:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_7(BaseStrategy):
+    """
+    Benevolent collective-risk strategy:
+    - Cooperate in the first round.
+    - Cooperate whenever the most recent round was repairable.
+    - Defect only as a one-round pause after two consecutive non-repairable rounds,
+      and immediately resume cooperation afterward.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._m_minus_1 = max(0, game_description.m - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        last_opponents = int(history.opponent_cooperators[-1])
+        last_was_repairable = last_opponents >= self._m_minus_1
+        if last_was_repairable:
+            return Action.C
+        if round_number == 1:
+            return Action.C
+        if bool(history.my_actions[-1]) is False:
+            return Action.C
+        previous_opponents = int(history.opponent_cooperators[-2])
+        previous_was_repairable = previous_opponents >= self._m_minus_1
+        if not previous_was_repairable:
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_8(BaseStrategy):
+    """
+    Adaptive conditional cooperator for the Collective Risk Dilemma.
+
+    Core behavior:
+    - Cooperate in round 1.
+    - Thereafter, cooperate only when recent cooperation is sufficiently strong
+      and stable over the last up to 3 rounds.
+    - If the previous action was a defection, require a stronger immediate
+      opponent-cooperation signal to resume cooperation.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number <= 0:
+            return Action.C
+        opponent_cooperators = history.opponent_cooperators
+        my_actions = history.my_actions
+        last_h = int(opponent_cooperators[-1])
+        last_action_was_cooperate = bool(my_actions[-1])
+        start_idx = 0 if round_number < 3 else round_number - 3
+        recent_window = opponent_cooperators[start_idx:round_number]
+        stable_rounds = 0
+        threshold_weak = self.m - 1
+        for h in recent_window:
+            if int(h) >= threshold_weak:
+                stable_rounds += 1
+        if last_action_was_cooperate:
+            if last_h >= threshold_weak and stable_rounds >= 2:
+                return Action.C
+            return Action.D
+        if last_h >= self.m and stable_rounds >= 2:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_9(BaseStrategy):
+    """
+    Conditional cooperator for the Collective Risk Dilemma.
+
+    Cooperates initially, then defects only after observing two consecutive
+    rounds with total cooperators at least m + 2, and never defects on the
+    final round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.m = game_description.m
+        self.n_rounds = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        if history.round_number >= self.n_rounds - 1:
+            return Action.C
+        last_idx = history.round_number - 1
+        last_total = int(history.opponent_cooperators[last_idx]) + int(bool(history.my_actions[last_idx]))
+        if history.round_number >= 2:
+            prev_idx = history.round_number - 2
+            prev_total = int(history.opponent_cooperators[prev_idx]) + int(bool(history.my_actions[prev_idx]))
+            if last_total >= self.m + 2 and prev_total >= self.m + 2:
+                return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_10(BaseStrategy):
+    """
+    Cooperative until the group clearly underperforms twice in a row, then
+    temporarily defects, but immediately returns to cooperation once the
+    group shows recovery or nears the cooperation threshold.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.m = int(game_description.m)
+        self.n_rounds = int(game_description.n_rounds)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        o_prev = int(history.opponent_cooperators[-1])
+        my_prev = bool(history.my_actions[-1])
+        t_prev_total = o_prev + (1 if my_prev else 0)
+        streak = 0
+        threshold_low = self.m - 2
+        for idx in range(round_number - 1, -1, -1):
+            if int(history.opponent_cooperators[idx]) <= threshold_low:
+                streak += 1
+            else:
+                break
+        is_final_round = round_number == self.n_rounds - 1
+        if is_final_round:
+            if t_prev_total >= self.m or o_prev >= self.m - 1:
+                return Action.C
+            return Action.D if streak >= 2 else Action.C
+        if t_prev_total >= self.m:
+            return Action.C
+        if o_prev >= self.m - 1:
+            return Action.C
+        if streak >= 2:
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_11(BaseStrategy):
+    """
+    Cooperate immediately when recent support is sufficient.
+    In low-support periods, defect except for periodic probe rounds
+    every P-th low-support round, where P = max(2, ceil(r/5)).
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+        self.support_threshold = max(0, self.m - 1)
+        self.probe_period = max(2, math.ceil(self.n_rounds / 5)) if self.n_rounds > 0 else 2
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        last_support = int(history.opponent_cooperators[-1])
+        if last_support >= self.support_threshold:
+            return Action.C
+        streak_len = 0
+        for idx in range(history.round_number - 1, -1, -1):
+            if int(history.opponent_cooperators[idx]) < self.support_threshold:
+                streak_len += 1
+            else:
+                break
+        if streak_len > 0 and streak_len % self.probe_period == 0:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_12(BaseStrategy):
+    """
+    Cooperative-by-default strategy with a brief defensive defection after
+    sustained collective failure and no upward trend.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._m = int(game_description.m)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        m = self._m
+        round_number = history.round_number
+        prev_total = int(history.opponent_cooperators[-1]) + int(bool(history.my_actions[-1]))
+        if prev_total >= m:
+            return Action.C
+        if round_number < 3:
+            return Action.C
+        prevprev_total = int(history.opponent_cooperators[-2]) + int(bool(history.my_actions[-2]))
+        if prev_total > prevprev_total:
+            return Action.C
+        if prev_total < m and prevprev_total < m and (prev_total <= prevprev_total):
+            if not bool(history.my_actions[-1]):
+                return Action.C
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_13(BaseStrategy):
+    """
+    Forgiving threshold strategy:
+    cooperate by default, forgive a failed threshold once, and defect for at most one
+    round after two consecutive sub-threshold observations.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.miss = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            self.miss = 0
+            return Action.C
+        if history.round_number >= self.game_description.n_rounds - 1:
+            self.miss = 0
+            return Action.C
+        last_my_action = bool(history.my_actions[-1])
+        s = int(history.opponent_cooperators[-1]) + (1 if last_my_action else 0)
+        m = self.game_description.m
+        if s >= m:
+            self.miss = 0
+            return Action.C
+        if s == m - 1:
+            self.miss += 1
+            return Action.C
+        if self.miss == 0:
+            self.miss = 1
+            return Action.C
+        self.miss = 0
+        return Action.D
+
+class Strategy_BENEVOLENT_14(BaseStrategy):
+    """
+    Benevolent threshold-sensitive strategy for the Collective Risk Dilemma.
+
+    - Cooperate in round 1.
+    - Cooperate after any successful collective round.
+    - Only switch to defection after a sustained streak of missed thresholds.
+    - Return to cooperation immediately when the threshold is met again.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.threshold = int(game_description.m)
+        self.total_rounds = int(game_description.n_rounds)
+        self.missed_limit = max(2, math.ceil(self.total_rounds / 4))
+        self.missed_streak = 0
+        self.success_rounds = 0
+        self.failure_rounds = 0
+        self._processed_rounds = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number
+        while self._processed_rounds < current_round:
+            idx = self._processed_rounds
+            my_coop = bool(history.my_actions[idx])
+            opp_coop = int(history.opponent_cooperators[idx])
+            total_cooperators = opp_coop + (1 if my_coop else 0)
+            if total_cooperators >= self.threshold:
+                self.success_rounds += 1
+                self.missed_streak = 0
+            else:
+                self.failure_rounds += 1
+                self.missed_streak += 1
+            self._processed_rounds += 1
+        if current_round == 0:
+            return Action.C
+        last_idx = current_round - 1
+        last_total_cooperators = int(history.opponent_cooperators[last_idx]) + (1 if bool(history.my_actions[last_idx]) else 0)
+        last_met_threshold = last_total_cooperators >= self.threshold
+        if last_met_threshold:
+            self.missed_streak = 0
+            return Action.C
+        if self.missed_streak >= self.missed_limit:
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_15(BaseStrategy):
+    """
+    Cooperate by default, forgive one missed threshold, and defect only after
+    two consecutive failures. Return to cooperation immediately once the
+    threshold is met again.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.fail_streak = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = getattr(self.game_description, 'm', 0)
+        n_rounds = getattr(self.game_description, 'n_rounds', 0)
+        if history.round_number == 0:
+            self.fail_streak = 0
+            return Action.C
+        fail_streak = 0
+        rounds_played = history.round_number
+        my_actions = history.my_actions
+        opp_coops = history.opponent_cooperators
+        for t in range(rounds_played):
+            total_cooperators = int(bool(my_actions[t])) + int(opp_coops[t])
+            if total_cooperators >= m:
+                fail_streak = 0
+            else:
+                fail_streak += 1
+        self.fail_streak = fail_streak
+        if self.fail_streak <= 1:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_16(BaseStrategy):
+    """
+    Default-cooperate collective-risk strategy with a short repair cycle:
+    - Cooperate in the first round and final round.
+    - Cooperate whenever the previous round met or nearly met the threshold.
+    - After three consecutive weak rounds, defect for two rounds and then probe with cooperation.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        gd = self.game_description
+        n_rounds = gd.n_rounds
+        m = gd.m
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        if round_number >= n_rounds - 1:
+            return Action.C
+        opp = history.opponent_cooperators
+        my_actions = history.my_actions
+        last_opp = int(opp[-1]) if len(opp) > 0 else 0
+
+        def in_weak_round(x: int) -> bool:
+            return x < m - 1
+
+        def consecutive_weak_streak_end() -> int:
+            streak = 0
+            for idx in range(len(opp) - 1, -1, -1):
+                if in_weak_round(int(opp[idx])):
+                    streak += 1
+                else:
+                    break
+            return streak
+        if round_number >= 3:
+            if not bool(my_actions[-3]) and (not bool(my_actions[-2])) and bool(my_actions[-1]):
+                if last_opp >= m - 1:
+                    return Action.C
+                return Action.D
+        if bool(my_actions[-1]) is False:
+            if round_number == 1 or bool(my_actions[-2]):
+                return Action.D
+        if round_number >= 2 and (not bool(my_actions[-1])) and (not bool(my_actions[-2])):
+            return Action.C
+        if last_opp >= m - 3:
+            return Action.C
+        if consecutive_weak_streak_end() >= 3:
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_17(BaseStrategy):
+    """
+    Benevolent, threshold-sensitive strategy for the Collective Risk Dilemma.
+
+    Core ideas:
+    - Cooperate by default.
+    - Reward sustained cooperation with unconditional cooperation.
+    - After a miss by exactly one cooperator, give the group one more chance.
+    - After deeper shortfalls, defect until signs of recovery appear.
+    - In the final two rounds, lean toward cooperation if the group is near success.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.streak = 0
+        self.shortfall = 0
+        self.persistent_alliance = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = self.game_description.n_rounds
+        m = self.game_description.m
+        round_number = history.round_number
+        if round_number == 0:
+            self.streak = 0
+            self.shortfall = 0
+            self.persistent_alliance = False
+            return Action.C
+        last_opp = int(history.opponent_cooperators[-1])
+        prev_opp = int(history.opponent_cooperators[-2]) if round_number >= 2 else None
+        rounds_left = n_rounds - round_number
+        near_threshold = last_opp >= m - 2
+        threshold_met = last_opp >= m - 1
+        deep_shortfall = last_opp <= m - 2
+        if rounds_left <= 2 and round_number >= 2:
+            last_two_near = prev_opp is not None and prev_opp >= m - 2 and (last_opp >= m - 2)
+            last_two_deep = prev_opp is not None and prev_opp <= m - 2 and (last_opp <= m - 2)
+            if last_two_near:
+                self.shortfall = 0 if threshold_met else self.shortfall + 1
+                if threshold_met:
+                    self.streak += 1
+                else:
+                    self.streak = 0
+                if self.streak >= 3:
+                    self.persistent_alliance = True
+                return Action.C
+            if last_two_deep:
+                self.streak = 0
+                self.shortfall += 1
+                self.persistent_alliance = False
+                return Action.D
+        if self.persistent_alliance:
+            if deep_shortfall:
+                self.persistent_alliance = False
+                self.streak = 0
+                self.shortfall = 1
+                return Action.D
+            if threshold_met:
+                self.streak += 1
+            else:
+                self.streak = 0
+            self.shortfall = 0 if threshold_met else self.shortfall + 1 if near_threshold else 0
+            return Action.C
+        if last_opp <= m - 2:
+            self.streak = 0
+            self.shortfall += 1
+            if self.shortfall >= 3:
+                return Action.D
+            return Action.D
+        if last_opp == m - 2:
+            if self.shortfall >= 2:
+                self.streak = 0
+                self.shortfall += 1
+                return Action.D
+            self.streak = 0
+            self.shortfall += 1
+            return Action.C
+        if last_opp >= m - 1:
+            self.streak += 1
+            self.shortfall = 0
+            if self.streak >= 3:
+                self.persistent_alliance = True
+            return Action.C
+        return Action.C
+
+class Strategy_BENEVOLENT_18(BaseStrategy):
+    """
+    Benevolent threshold-response strategy:
+    - Cooperate initially.
+    - Cooperate as long as the most recent observed round had enough cooperating opponents
+      to make the threshold reachable, or as long as there has been at most one consecutive
+      shortfall.
+    - Defect only after two consecutive shortfall rounds.
+    - Immediately return to cooperation after any satisfactory round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.threshold_opponents = max(0, game_description.m - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.C
+        shortfall_streak = 0
+        for idx in range(history.round_number - 1, -1, -1):
+            if history.opponent_cooperators[idx] <= self.threshold_opponents - 1:
+                shortfall_streak += 1
+            else:
+                break
+        if shortfall_streak >= 2:
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_19(BaseStrategy):
+    """
+    Benevolent threshold-following strategy for the Collective Risk Dilemma.
+
+    - Cooperate in round 1.
+    - Continue cooperating while recent evidence suggests the group is meeting
+      the cooperation threshold often enough.
+    - Forgive isolated failures.
+    - Defect only after repeated recent shortfalls.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.required_opponents = max(0, game_description.m - 1)
+        self.n_rounds = game_description.n_rounds
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        threshold = self.required_opponents
+        past = history.opponent_cooperators
+
+        def is_success(count: int) -> bool:
+            return count >= threshold
+        if t == 1:
+            return Action.C if is_success(int(past[-1])) else Action.D
+        L = min(3, t)
+        recent = past[-L:]
+        recent_successes = 0
+        recent_total = 0
+        for c in recent:
+            cc = int(c)
+            recent_total += cc
+            if is_success(cc):
+                recent_successes += 1
+        recent_average = recent_total / L if L > 0 else 0.0
+        last_two = past[-2:]
+        if len(last_two) > 0:
+            if any((is_success(int(c)) for c in last_two)):
+                return Action.C
+        if recent_average >= threshold:
+            return Action.C
+        if recent_successes >= (L + 1) // 2:
+            return Action.C
+        if len(past) > 0 and all((is_success(int(c)) for c in past)):
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_20(BaseStrategy):
+    """
+    Cooperative threshold strategy with a short-memory running score.
+
+    - Cooperate on round 1.
+    - Thereafter, cooperate if the most recent observed cooperation level is near
+      the threshold, or if the smoothed score still supports cooperation.
+    - Defect only after sustained shortfalls, with special handling for m = 2.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+        self.threshold = max(0, self.m - 1)
+        self.alpha = 0.5
+        self.initial_score = float(self.threshold)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        last_h = int(opp[-1])
+        if self.m == 2:
+            return Action.D if last_h == 0 else Action.C
+        score = self.initial_score
+        for h in opp:
+            score = self.alpha * float(int(h)) + (1.0 - self.alpha) * score
+        consecutive_shortfalls = 0
+        for h in reversed(opp):
+            if int(h) < self.threshold:
+                consecutive_shortfalls += 1
+            else:
+                break
+        if last_h >= self.threshold:
+            return Action.C
+        if round_number >= 2 and int(opp[-2]) >= self.threshold:
+            return Action.C
+        if consecutive_shortfalls >= 2 and score < float(self.threshold):
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_21(BaseStrategy):
+    """
+    Benevolent support strategy:
+    - Cooperate by default.
+    - Continue cooperating on threshold success or near-success.
+    - Use defect as a brief reset after repeated clear failure.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.mode = 'support'
+        self.defect_streak = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        if history.round_number == 0:
+            self.defect_streak = 0
+            return Action.C
+        if self.defect_streak >= 2:
+            self.defect_streak = 0
+            return Action.C
+        last_my_action = bool(history.my_actions[-1])
+        last_opp_coop = int(history.opponent_cooperators[-1])
+        s_prev = last_opp_coop + (1 if last_my_action else 0)
+        if s_prev >= m or s_prev == m - 1:
+            self.defect_streak = 0
+            return Action.C
+        if history.round_number >= 2:
+            prev2_my_action = bool(history.my_actions[-2])
+            prev2_opp_coop = int(history.opponent_cooperators[-2])
+            s_prev2 = prev2_opp_coop + (1 if prev2_my_action else 0)
+            if s_prev2 >= m - 1:
+                self.defect_streak = 0
+                return Action.C
+        self.defect_streak += 1
+        return Action.D
+
+class Strategy_BENEVOLENT_22(BaseStrategy):
+    """
+    Cooperative default strategy for the Collective Risk Dilemma.
+
+    - Plays C in the first round.
+    - Thereafter, cooperates if the most recent observed total cooperators
+      (including self) met or nearly met the threshold.
+    - Defects only after sustained shortfall below the relaxed threshold.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = getattr(game_description, 'n_players', 0)
+        self.n_rounds = getattr(game_description, 'n_rounds', 0)
+        self.m = getattr(game_description, 'm', 0)
+        self.k = getattr(game_description, 'k', 0.0)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C
+        m = self.m
+        opponent_cooperators = history.opponent_cooperators
+        my_actions = history.my_actions
+
+        def total_cooperators(idx: int) -> int:
+            if idx < 0 or idx >= len(opponent_cooperators):
+                return 0
+            return int(opponent_cooperators[idx]) + (1 if bool(my_actions[idx]) else 0)
+        q_last = total_cooperators(round_number - 1)
+        if q_last >= m - 1:
+            return Action.C
+        if round_number >= 2:
+            q_prev = total_cooperators(round_number - 2)
+            if q_prev >= m - 1:
+                return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_23(BaseStrategy):
+    """
+    Openly cooperative strategy with forgiveness after isolated failures and
+    a single retaliatory defection after two consecutive shortfall rounds.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._shortfall_streak = 0
+        self._last_seen_round = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        gd = self.game_description
+        n_rounds = getattr(gd, 'n_rounds', 0)
+        m = getattr(gd, 'm', 0)
+        current_round = history.round_number
+        if current_round < self._last_seen_round:
+            self._shortfall_streak = 0
+        if current_round == 0:
+            self._shortfall_streak = 0
+            self._last_seen_round = 0
+            return Action.C
+        if n_rounds > 0 and current_round == n_rounds - 1:
+            self._last_seen_round = current_round
+            return Action.C
+        if len(history.my_actions) > 0 and (not bool(history.my_actions[-1])):
+            self._shortfall_streak = 0
+            self._last_seen_round = current_round
+            return Action.C
+        prev_total_cooperators = int(history.opponent_cooperators[-1]) + (1 if bool(history.my_actions[-1]) else 0)
+        if prev_total_cooperators < m:
+            self._shortfall_streak += 1
+        else:
+            self._shortfall_streak = 0
+        if self._shortfall_streak >= 2:
+            self._shortfall_streak = 0
+            self._last_seen_round = current_round
+            return Action.D
+        self._last_seen_round = current_round
+        return Action.C
+
+class Strategy_BENEVOLENT_24(BaseStrategy):
+    """
+    Benevolent collective-risk strategy:
+    - Cooperate in the opening and closing phases.
+    - Defect only during a clearly stable surplus phase.
+    - Default to cooperation on ambiguity or instability.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        if t > self.n_rounds - 3:
+            return Action.C
+        prev_total = int(history.opponent_cooperators[-1]) + int(history.my_actions[-1])
+        if prev_total < self.m or prev_total == self.m or prev_total == self.m + 1:
+            return Action.C
+        if t == 1:
+            return Action.C
+        prev2_total = int(history.opponent_cooperators[-2]) + int(history.my_actions[-2])
+        if prev2_total < self.m:
+            return Action.C
+        if t > 1 and t <= self.n_rounds - 3 and (prev_total >= self.m + 2) and (prev2_total >= self.m + 2):
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_25(BaseStrategy):
+    """
+    Cooperative threshold strategy with forgiveness and late-game commitment.
+
+    - Starts by cooperating.
+    - Updates an internal belief score based on whether the previous round was
+      close to the cooperation threshold.
+    - Cooperates whenever the group was recently near the threshold, or while
+      the game is still in its early phase.
+    - Defects only after repeated weak cooperation, and returns to cooperation
+      immediately once the group comes back within one cooperator of threshold.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.belief_score = 0
+        self._last_processed_round = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = self.game_description.n_rounds
+        m = self.game_description.m
+        start = self._last_processed_round
+        end = history.round_number
+        if end > start:
+            for idx in range(start, end):
+                x_t = int(history.opponent_cooperators[idx])
+                if x_t >= m - 1:
+                    self.belief_score += 1
+                else:
+                    self.belief_score -= 1
+            self._last_processed_round = end
+        if history.round_number == 0:
+            return Action.C
+        current_round = history.round_number + 1
+        prev_x = int(history.opponent_cooperators[-1])
+        if current_round >= n_rounds:
+            if prev_x >= m - 1 or self.belief_score >= -2:
+                return Action.C
+            return Action.D
+        if current_round <= math.floor(n_rounds / 3):
+            return Action.C
+        if prev_x >= m - 1:
+            return Action.C
+        if self.belief_score >= -1:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_26(BaseStrategy):
+    """
+    Benevolent collective-risk strategy:
+    - Cooperate by default.
+    - Never defect when cooperation may still be needed to secure the threshold.
+    - Defect only after two consecutive surplus rounds, and only when both
+      recent rounds were safely above the threshold with at least one
+      strictly above it.
+    - Never defect in the final round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._last_observed_counts = []
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        n_rounds = self.game_description.n_rounds
+        m = self.game_description.m
+        if round_number == 0 or round_number >= n_rounds - 1:
+            return Action.C
+        last_o = int(history.opponent_cooperators[-1])
+        if last_o <= m - 1:
+            return Action.C
+        if round_number < 2:
+            return Action.C
+        prev_o = int(history.opponent_cooperators[-2])
+        if last_o >= m and prev_o >= m and (last_o >= m + 1 or prev_o >= m + 1):
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_27(BaseStrategy):
+    """
+    Threshold-support strategy for the Collective Risk Dilemma.
+
+    - Cooperate in round 1.
+    - Continue cooperating while the previous round met the threshold.
+    - Cooperate for one extra round after a near-miss if this player cooperated,
+      or if the group succeeded recently and is still near the threshold.
+    - Otherwise defect.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.m = int(game_description.m)
+        self.n_players = int(game_description.n_players)
+        self._mode = 'support'
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.m
+        rn = history.round_number
+        if rn == 0:
+            self._mode = 'support'
+            return Action.C
+        prev_total = int(history.opponent_cooperators[-1]) + int(bool(history.my_actions[-1]))
+        prev2_total = None
+        if rn >= 2:
+            prev2_total = int(history.opponent_cooperators[-2]) + int(bool(history.my_actions[-2]))
+        if prev_total >= m:
+            self._mode = 'support'
+        elif prev_total == m - 1:
+            self._mode = 'support'
+        elif prev2_total is not None and prev2_total >= m:
+            self._mode = 'support'
+        elif rn >= 2:
+            prev2_near = prev2_total == m - 1 if prev2_total is not None else False
+            if prev2_near and prev_total <= m - 2:
+                self._mode = 'defensive'
+            else:
+                self._mode = 'defensive'
+        else:
+            self._mode = 'defensive'
+        return Action.C if self._mode == 'support' else Action.D
+
+class Strategy_BENEVOLENT_28(BaseStrategy):
+    """
+    Start by cooperating. Thereafter:
+    - Cooperate whenever the last observed total cooperators was at least m-1.
+    - If the last observed total was below m-1, cooperate once more if the
+      previous observed total was at least m-1; otherwise defect.
+    This implements a simple two-step memory of recent group recovery/failure.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._last_total_cooperators = None
+        self._prev_total_cooperators = None
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        if history.round_number == 0:
+            return Action.C
+        last_my_action = bool(history.my_actions[-1])
+        last_opponent_coop = int(history.opponent_cooperators[-1])
+        last_total = last_opponent_coop + (1 if last_my_action else 0)
+        prev_total = None
+        if history.round_number >= 2:
+            prev_my_action = bool(history.my_actions[-2])
+            prev_opponent_coop = int(history.opponent_cooperators[-2])
+            prev_total = prev_opponent_coop + (1 if prev_my_action else 0)
+        self._prev_total_cooperators = prev_total
+        self._last_total_cooperators = last_total
+        if last_total >= m - 1:
+            return Action.C
+        if prev_total is not None and prev_total >= m - 1:
+            return Action.C
+        return Action.D
+
+class Strategy_BENEVOLENT_29(BaseStrategy):
+    """
+    Benevolent threshold-forgiving strategy:
+    - Cooperate on the first round.
+    - Continue cooperating after any successful round.
+    - After one missed threshold, forgive and still cooperate.
+    - After two consecutive missed thresholds, defect once as a reset,
+      then return to cooperation.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        if history.round_number == 0:
+            return Action.C
+        last_own_action = bool(history.my_actions[-1])
+        last_total_cooperators = int(history.opponent_cooperators[-1]) + (1 if last_own_action else 0)
+        last_round_met_threshold = last_total_cooperators >= m
+        fail_streak = 0
+        for idx in range(history.round_number - 1, -1, -1):
+            own_action = bool(history.my_actions[idx])
+            total_cooperators = int(history.opponent_cooperators[idx]) + (1 if own_action else 0)
+            if total_cooperators >= m:
+                break
+            fail_streak += 1
+        if last_round_met_threshold:
+            return Action.C
+        if fail_streak >= 2:
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_30(BaseStrategy):
+    """
+    Cooperative by default, but defects after two consecutive rounds of weak support.
+    Cooperation is restored immediately when sufficient support reappears.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.fail = 0
+        self.trust = True
+        self._processed_rounds = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        threshold = self.game_description.m - 1
+        if threshold < 0:
+            threshold = 0
+        while self._processed_rounds < history.round_number:
+            x_t = int(history.opponent_cooperators[self._processed_rounds])
+            if x_t >= threshold:
+                self.fail = 0
+                self.trust = True
+            else:
+                self.fail += 1
+                if self.fail >= 2:
+                    self.trust = False
+            self._processed_rounds += 1
+        if history.round_number == 0:
+            return Action.C
+        return Action.C if self.trust else Action.D
+
+class Strategy_BENEVOLENT_31(BaseStrategy):
+    """
+    Cooperative, threshold-sensitive strategy for the Collective Risk Dilemma.
+
+    - Starts by cooperating.
+    - Uses a short lookback window to detect sustained progress toward the threshold.
+    - Defaults to cooperation when the history is ambiguous.
+    - Defects only after repeated shortfall despite sustained personal cooperation.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+        self.L = min(3, max(1, self.r - 1))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number + 1
+        if history.round_number == 0:
+            return Action.C
+        past_rounds = history.round_number
+        start = max(0, past_rounds - self.L)
+        recent_totals = []
+        recent_my_actions = []
+        for j in range(start, past_rounds):
+            total_coop = int(history.opponent_cooperators[j]) + (1 if bool(history.my_actions[j]) else 0)
+            recent_totals.append(total_coop)
+            recent_my_actions.append(1 if bool(history.my_actions[j]) else 0)
+        if len(recent_totals) == 0:
+            return Action.C
+        avg_recent = float(np.mean(np.array(recent_totals, dtype=float)))
+        last_total = recent_totals[-1]
+        threshold_near = self.m - 1
+        threshold_low = self.m - 2
+        if t == self.r:
+            if last_total >= threshold_near:
+                return Action.C
+            if avg_recent >= threshold_near:
+                return Action.C
+            all_low = all((s <= threshold_near for s in recent_totals))
+            sustained_shortfall = avg_recent <= threshold_low and all_low
+            coop_count = sum(recent_my_actions)
+            if sustained_shortfall and coop_count >= max(0, self.L - 1):
+                return Action.D
+            return Action.C
+        if last_total >= self.m:
+            return Action.C
+        if avg_recent >= self.m:
+            return Action.C
+        if last_total == threshold_near and bool(history.my_actions[-1]):
+            return Action.C
+        if t <= math.ceil(self.r / 3):
+            last_two_start = max(0, past_rounds - 2)
+            last_two_totals = []
+            for j in range(last_two_start, past_rounds):
+                total_coop = int(history.opponent_cooperators[j]) + (1 if bool(history.my_actions[j]) else 0)
+                last_two_totals.append(total_coop)
+            if any((s >= threshold_near for s in last_two_totals)):
+                return Action.C
+        all_low = all((s <= threshold_near for s in recent_totals))
+        sustained_shortfall = avg_recent <= threshold_low and all_low
+        coop_count = sum(recent_my_actions)
+        if sustained_shortfall and coop_count >= max(0, self.L - 1):
+            return Action.D
+        return Action.C
+
+class Strategy_BENEVOLENT_32(BaseStrategy):
+    """
+    Benevolent collective-risk strategy:
+    - Start by cooperating.
+    - Cooperate immediately when the previous round met the threshold or was only one cooperator short.
+    - After two consecutive clearly failing rounds, defect until meaningful support returns.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.required = max(1, int(game_description.m) - 1)
+        self.failure_streak = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            self.failure_streak = 0
+            return Action.C
+        last_opponents = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if last_opponents >= self.required - 1:
+            self.failure_streak = 0
+            return Action.C
+        self.failure_streak += 1
+        if self.failure_streak <= 1:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_5(BaseStrategy):
+    """
+    Cooperate only when the previous round had exactly m - 1 cooperating opponents,
+    making this player's cooperation pivotal for reaching the threshold.
+    Otherwise defect.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.m = game_description.m
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        x = int(history.opponent_cooperators[-1])
+        if x == self.m - 1:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_6(BaseStrategy):
+    """
+    Always defects in every round, regardless of history.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.total_rounds = getattr(game_description, 'n_rounds', 0)
+        self.threshold = getattr(game_description, 'm', 0)
+        self.n_players = getattr(game_description, 'n_players', 0)
+        self.k = getattr(game_description, 'k', 0.0)
+        self.cooperation_observations = 0
+        self.observed_rounds = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        rn = getattr(history, 'round_number', 0)
+        if rn > 0:
+            last_cooperators = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+            self.cooperation_observations += last_cooperators
+            self.observed_rounds += 1
+        return Action.D
+
+class Strategy_SELFISH_7(BaseStrategy):
+    """
+    Always defects in every round, regardless of history or game state.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_8(BaseStrategy):
+    """
+    Always defect in every round of the Collective Risk Dilemma.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.always_defect = Action.D
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return self.always_defect
+
+class Strategy_SELFISH_9(BaseStrategy):
+    """
+    Always defect in every round, while recording observed opponent cooperation counts.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.observed_opponent_cooperators = []
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number > 0:
+            last_count = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+            self.observed_opponent_cooperators.append(last_count)
+        return Action.D
+
+class Strategy_SELFISH_10(BaseStrategy):
+    """
+    Always defects in every round of the Collective Risk Dilemma.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_11(BaseStrategy):
+    """
+    Always defect in every round, ignoring all history and game state.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_12(BaseStrategy):
+    """
+    Always defects in every round, regardless of history or observed cooperation.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_13(BaseStrategy):
+    """
+    Cooperate only when the previous round had exactly m - 1 cooperating opponents;
+    otherwise defect.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.target_opponent_cooperators = max(0, game_description.m - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history is None or history.round_number == 0:
+            return Action.D
+        prev_cooperators = history.opponent_cooperators[-1]
+        if prev_cooperators == self.target_opponent_cooperators:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_14(BaseStrategy):
+    """
+    Always defect in every round, regardless of history or observed cooperation.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_15(BaseStrategy):
+    """
+    Unconditional defection strategy for the Collective Risk Dilemma:
+    always choose D, regardless of round number or history.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_16(BaseStrategy):
+    """
+    Strict free-riding baseline with a narrow pivotal-cooperation exception.
+    Defect in the opening and closing rounds, and cooperate only when recent
+    observations strongly suggest that a single extra contribution is pivotal.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.D
+        if round_number >= self.n_rounds - 1:
+            return Action.D
+        opp = history.opponent_cooperators
+        if len(opp) == 0:
+            return Action.D
+        x = int(opp[-1])
+        recent_len = min(3, len(opp))
+        recent = opp[-recent_len:]
+        s = float(np.mean(recent)) if recent_len > 0 else 0.0
+        predicted = round(s)
+        threshold = self.m - 2
+        pivotal = self.m - 1
+        if len(opp) >= 2:
+            last_round = int(opp[-1])
+            round_before_last = int(opp[-2])
+            not_collapsing = not (last_round < threshold and round_before_last < threshold)
+        else:
+            not_collapsing = True
+        if predicted == pivotal and x >= threshold and not_collapsing:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_17(BaseStrategy):
+    """
+    Conditional-defection strategy for the Collective Risk Dilemma.
+
+    - Round 1: defect.
+    - Defect permanently after observing any round where opponents met the threshold.
+    - Only consider a limited cooperation "probe" in early rounds when the last two
+      observed rounds both fell short of the threshold and there are still at least
+      two rounds remaining after the current one.
+    - Default to defect on missing/inconsistent observations and in the late game.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.locked_defect = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = getattr(self.game_description, 'n_rounds', 0)
+        m = getattr(self.game_description, 'm', 0)
+        if not isinstance(n_rounds, int) or n_rounds <= 0:
+            return Action.D
+        if not isinstance(m, int) or m <= 1:
+            return Action.D
+        t = getattr(history, 'round_number', 0)
+        if not isinstance(t, int) or t <= 0:
+            return Action.D
+        if self.locked_defect:
+            return Action.D
+        opp = getattr(history, 'opponent_cooperators', None)
+        if opp is None:
+            return Action.D
+        if len(opp) < 1:
+            return Action.D
+        threshold_opponents = m - 1
+        last_h = int(opp[-1])
+        if last_h >= threshold_opponents:
+            self.locked_defect = True
+            return Action.D
+        if t >= n_rounds - 2:
+            return Action.D
+        if len(opp) < 2:
+            return Action.D
+        prev_h = int(opp[-2])
+        if last_h < threshold_opponents and prev_h < threshold_opponents and (t <= n_rounds - 3):
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_18(BaseStrategy):
+    """
+    Always defects in every round, while recording observed opponent cooperation counts.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.opponent_cooperators_history = []
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number > 0:
+            self.opponent_cooperators_history.append(int(history.opponent_cooperators[-1]))
+        return Action.D
+
+class Strategy_SELFISH_19(BaseStrategy):
+    """
+    Always defects in every round, ignoring all observed history and counts.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_20(BaseStrategy):
+    """
+    Cautious threshold-matching strategy for the Collective Risk Dilemma.
+
+    - Round 1: defect.
+    - Afterwards: cooperate only when the previous round had exactly m - 1
+      cooperating opponents, and only if this exact-match pattern has been
+      frequent in recent history.
+    - Otherwise: defect.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.target_opponents = max(0, game_description.m - 1)
+        self.history_window = min(5, max(1, game_description.n_rounds - 1))
+        self.exact_match_threshold = 2.0 / 3.0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        last_x = int(history.opponent_cooperators[-1])
+        if last_x != self.target_opponents:
+            return Action.D
+        window = min(self.history_window, history.round_number)
+        if window <= 0:
+            return Action.D
+        recent_counts = history.opponent_cooperators[-window:]
+        exact_matches = np.sum(recent_counts == self.target_opponents)
+        p_hat = float(exact_matches) / float(window) if window > 0 else 0.0
+        if p_hat >= self.exact_match_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_21(BaseStrategy):
+    """
+    Always defect in every round, while keeping a simple internal sanity record
+    of observed opponent cooperation counts.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._observed_opponent_cooperators = []
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history is not None and history.round_number > 0:
+            last_count = int(history.opponent_cooperators[-1])
+            self._observed_opponent_cooperators.append(last_count)
+        return Action.D
+
+class Strategy_SELFISH_22(BaseStrategy):
+    """
+    Defect by default, and cooperate only when the most recent observed number of
+    cooperating opponents was exactly one below the threshold needed to secure
+    the collective reward.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.m = int(game_description.m)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        x = int(history.opponent_cooperators[-1])
+        if x == self.m - 1:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_23(BaseStrategy):
+    """
+    Defect in the first round, then cooperate only when the previous round
+    and the recent 3-round average both show at least m - 1 cooperating opponents.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.threshold = max(0, game_description.m - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        x = int(history.opponent_cooperators[-1])
+        window = min(3, history.round_number)
+        recent = history.opponent_cooperators[-window:]
+        if len(recent) == 0:
+            s = 0.0
+        else:
+            s = float(np.mean(recent))
+        if x >= self.threshold and s >= self.threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_24(BaseStrategy):
+    """
+    Exponentially weighted pivotality strategy:
+    - Defect on the first round.
+    - Track how often exactly m - 1 opponents cooperated in the previous round.
+    - Cooperate only when the estimated probability exceeds 1 / k.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._lambda = 0.8
+        self._p_estimate = 0.0
+        self._last_seen_rounds = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = int(history.round_number)
+        m = int(self.game_description.m)
+        k = float(self.game_description.k)
+        if current_round == 0:
+            self._last_seen_rounds = 0
+            return Action.D
+        while self._last_seen_rounds < current_round:
+            idx = self._last_seen_rounds
+            x_t = int(history.opponent_cooperators[idx]) if idx < len(history.opponent_cooperators) else 0
+            indicator = 1.0 if x_t == m - 1 else 0.0
+            self._p_estimate = self._lambda * self._p_estimate + (1.0 - self._lambda) * indicator
+            self._last_seen_rounds += 1
+        threshold = math.inf if k <= 0.0 else 1.0 / k
+        if self._p_estimate > threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFISH_25(BaseStrategy):
+    """
+    Always defect in every round, regardless of history or game parameters.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.last_observed_cooperators = None
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number > 0:
+            self.last_observed_cooperators = int(history.opponent_cooperators[-1])
+        return Action.D
+
+class Strategy_SELFISH_26(BaseStrategy):
+    """
+    Always defect in every round, regardless of history.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.observed_cooperation_counts = []
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number > 0:
+            self.observed_cooperation_counts.append(int(history.opponent_cooperators[-1]))
+        return Action.D
+
+class Strategy_SELFISH_27(BaseStrategy):
+    """
+    Always defects in every round, regardless of history.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_28(BaseStrategy):
+    """
+    Always defect: play D in every round, regardless of history or outcomes.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_29(BaseStrategy):
+    """
+    Always defect in every round of the Collective Risk Dilemma.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_30(BaseStrategy):
+    """
+    Always defect in every round, regardless of history or observed behavior.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFISH_31(BaseStrategy):
+    """
+    Conservative threshold-seeking strategy:
+    - Defect by default.
+    - Cooperate for a single round only when the last up-to-3 rounds show
+      a stable, near-miss cooperative baseline.
+    - Always defect in the final round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = self.game_description.n_rounds
+        m = self.game_description.m
+        if history.round_number == 0:
+            return Action.D
+        if history.round_number >= n_rounds - 1:
+            return Action.D
+        if len(history.my_actions) > 0 and bool(history.my_actions[-1]):
+            return Action.D
+        opp = history.opponent_cooperators
+        n_obs = len(opp)
+        if n_obs < 3:
+            return Action.D
+        last3 = opp[-3:]
+        avg_last3 = float(np.mean(last3)) if len(last3) > 0 else 0.0
+        if avg_last3 < m - 1:
+            return Action.D
+        if n_obs >= 2 and int(opp[-1]) < int(opp[-2]):
+            return Action.D
+        near_miss = False
+        for x in last3:
+            if int(x) == m - 1 or int(x) == m - 2:
+                near_miss = True
+                break
+        if not near_miss:
+            return Action.D
+        return Action.C
+
+class Strategy_SELFISH_32(BaseStrategy):
+    """
+    Always defect in every round, ignoring all history.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.default_action = Action.D
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        try:
+            _ = history.round_number
+        except Exception:
+            return self.default_action
+        return self.default_action
+
+class Strategy_SELFINTERESTED_5(BaseStrategy):
+    """
+    Play D in the first and final rounds. In intermediate rounds, cooperate only
+    if the previous round had exactly m-1 cooperating opponents and this player
+    defected then.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._n_rounds = int(game_description.n_rounds)
+        self._m = int(game_description.m)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.D
+        if round_number >= self._n_rounds - 1:
+            return Action.D
+        last_opponents_coop = int(history.opponent_cooperators[-1])
+        last_my_action = bool(history.my_actions[-1])
+        if last_opponents_coop == self._m - 1 and (not last_my_action):
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_6(BaseStrategy):
+    """
+    Cooperative threshold-chasing strategy for the Collective Risk Dilemma.
+
+    - Round 1: defect.
+    - Thereafter, reconstruct previous-round total cooperation S from
+      opponents' cooperators plus own previous action.
+    - Cooperate only when the previous round was exactly one cooperator
+      short of the threshold (S == m - 1); otherwise defect.
+    - On the last round, the same rule applies because cooperation only
+      makes sense if it can help meet the threshold.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(getattr(game_description, 'n_players', 0))
+        self.n_rounds = int(getattr(game_description, 'n_rounds', 0))
+        self.m = int(getattr(game_description, 'm', 0))
+        self.k = float(getattr(game_description, 'k', 0.0))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        prev_opponent_cooperators = 0
+        if len(history.opponent_cooperators) > 0:
+            prev_opponent_cooperators = int(history.opponent_cooperators[-1])
+        prev_my_action = False
+        if len(history.my_actions) > 0:
+            prev_my_action = bool(history.my_actions[-1])
+        total_cooperators_last_round = prev_opponent_cooperators + (1 if prev_my_action else 0)
+        if total_cooperators_last_round == self.m - 1:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_7(BaseStrategy):
+    """
+    Short-memory threshold-sensitive strategy:
+    - Defect in the first and final rounds.
+    - Cooperate only when recent opponent cooperation is persistently near the threshold.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.D
+        if round_number >= self.n_rounds - 1:
+            return Action.D
+        opp = history.opponent_cooperators
+        if len(opp) == 0:
+            return Action.D
+        window_len = min(3, len(opp))
+        recent = opp[-window_len:]
+        threshold_near = self.m - 1
+        threshold_pivotal = self.m - 2
+        if len(opp) < 3:
+            if np.all(recent >= threshold_near) and recent[-1] >= threshold_pivotal:
+                return Action.C
+            return Action.D
+        near_threshold_count = int(np.sum(recent >= threshold_near))
+        support = float(np.mean(recent)) if len(recent) > 0 else 0.0
+        _ = support
+        if near_threshold_count >= 2 and recent[-1] >= threshold_pivotal:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_8(BaseStrategy):
+    """
+    Conservative threshold-preserving strategy for the Collective Risk Dilemma.
+
+    - Defect in the first round.
+    - Defect after any round below the threshold.
+    - Cooperate when the previous round is exactly at the threshold.
+    - When the previous round is above the threshold, cooperate only if success
+      has been stable for at least two rounds and cooperation is not weakening.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.need = max(0, game_description.m - 1)
+        self.streak = 0
+        self.last_observed_opponents = None
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            self.streak = 0
+            self.last_observed_opponents = None
+            return Action.D
+        x_prev = int(history.opponent_cooperators[-1])
+        if x_prev >= self.need:
+            self.streak = self.streak + 1
+        else:
+            self.streak = 0
+        action = Action.D
+        if x_prev < self.need:
+            action = Action.D
+        elif x_prev == self.need:
+            action = Action.C
+        elif round_number >= 2:
+            x_prev_prev = int(history.opponent_cooperators[-2])
+            if x_prev_prev >= self.need and x_prev <= x_prev_prev:
+                action = Action.C
+            else:
+                action = Action.D
+        else:
+            action = Action.D
+        self.last_observed_opponents = x_prev
+        return action
+
+class Strategy_SELFINTERESTED_9(BaseStrategy):
+    """
+    Cautious collective-risk strategy:
+    - Defect in the first round.
+    - Thereafter cooperate iff the previous round had at least m - 1 cooperating opponents.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.mode = 'cautious'
+        self.x_prev = None
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m_threshold = max(0, self.game_description.m - 1)
+        if history.round_number == 0:
+            self.x_prev = None
+            return Action.D
+        self.x_prev = int(history.opponent_cooperators[-1])
+        if self.x_prev >= m_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_10(BaseStrategy):
+    """
+    Tit-for-threshold style strategy for the Collective Risk Dilemma.
+
+    - Start with D.
+    - Use a short moving average of observed opponent cooperation counts.
+    - Cooperate only when the estimated probability of being pivotal
+      (exactly m-1 opponents cooperate) exceeds 1/k.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.h = []
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        m = self.game_description.m
+        k = self.game_description.k
+        self.h = list(history.opponent_cooperators.tolist()) if len(history.opponent_cooperators) else []
+        if history.round_number == 0:
+            return Action.D
+        if not self.h or n <= 1 or m <= 1 or (m >= n) or (k <= 0):
+            return Action.D
+        L = min(5, len(self.h))
+        if L == 0:
+            return Action.D
+        recent = self.h[-L:]
+        avg = float(sum(recent)) / float(L)
+        denom = float(n - 1)
+        if denom <= 0:
+            return Action.D
+        q = avg / denom
+        if q <= 0.0 or q >= 1.0:
+            return Action.D
+        try:
+            p = math.comb(n - 1, m - 1) * q ** (m - 1) * (1.0 - q) ** (n - m)
+        except Exception:
+            return Action.D
+        threshold = 1.0 / k
+        if p > threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_11(BaseStrategy):
+    """
+    Default-defect collective-risk strategy:
+    cooperate only when the estimated probability of being pivotal is high
+    and recent history suggests the threshold is close.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.lambda_discount = 0.7
+        self._p_hat = None
+
+    def _binomial_pmf(self, n: int, p: float, k: int) -> float:
+        if k < 0 or k > n:
+            return 0.0
+        if p <= 0.0:
+            return 1.0 if k == 0 else 0.0
+        if p >= 1.0:
+            return 1.0 if k == n else 0.0
+        return math.comb(n, k) * p ** k * (1.0 - p) ** (n - k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        m = self.game_description.m
+        k = self.game_description.k
+        if history.round_number == 0:
+            return Action.D
+        n_opponents = max(0, n - 1)
+        last_s = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        x_t = last_s / n_opponents if n_opponents > 0 else 0.0
+        if self._p_hat is None:
+            self._p_hat = x_t
+        else:
+            self._p_hat = self.lambda_discount * self._p_hat + (1.0 - self.lambda_discount) * x_t
+        q_t = self._binomial_pmf(n_opponents, self._p_hat, m - 1)
+        if q_t * k > 1.0 and last_s >= m - 1:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_12(BaseStrategy):
+    """
+    Two-state threshold-responsiveness strategy for the Collective Risk Dilemma.
+
+    - Start by cooperating.
+    - Cooperate whenever the previous round showed enough opponent cooperation
+      to make the threshold reachable without your own contribution.
+    - Otherwise defect and remain in defect mode until that condition reappears.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.support_mode = True
+        self.last_x = None
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        threshold = m - 1
+        if history.round_number == 0:
+            self.support_mode = True
+            self.last_x = None
+            return Action.C
+        x = int(history.opponent_cooperators[-1])
+        self.last_x = x
+        if x >= threshold:
+            self.support_mode = True
+            return Action.C
+        self.support_mode = False
+        return Action.D
+
+class Strategy_SELFINTERESTED_13(BaseStrategy):
+    """
+    Cooperate only when your contribution is exactly the unique missing action
+    needed to reach the cooperation threshold; otherwise defect.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history is None or history.round_number == 0:
+            return Action.D
+        try:
+            recent_opponent_cooperators = history.opponent_cooperators[-1]
+        except Exception:
+            return Action.D
+        try:
+            x_t_minus_1 = int(recent_opponent_cooperators)
+        except Exception:
+            return Action.D
+        if x_t_minus_1 == self.m - 1:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_14(BaseStrategy):
+    """
+    Threshold-support strategy for the Collective Risk Dilemma.
+
+    - Cooperate only after observing exactly m-1 cooperating opponents in the
+      previous round.
+    - Defect otherwise, including in the first round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.m = getattr(game_description, 'm', 0)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        prev_cooperators = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if prev_cooperators == self.m - 1:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_15(BaseStrategy):
+    """
+    Cooperate when the estimated probability of being pivotal is high enough:
+    estimate opponents' cooperation rate with mild smoothing, then cooperate
+    iff k * P(Bin(n-1, q_t) = m-1) > 1.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.alpha = 1.0
+        n = int(game_description.n_players)
+        m = int(game_description.m)
+        denom = max(n - 1, 1)
+        self.q0 = (m - 1) / denom if denom > 0 else 0.0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = int(self.game_description.n_players)
+        m = int(self.game_description.m)
+        k = float(self.game_description.k)
+        n_opponents = max(n - 1, 0)
+        target = max(m - 1, 0)
+        if n_opponents == 0:
+            return Action.D
+        t = int(history.round_number)
+        if t <= 0:
+            q_t = self.q0
+        else:
+            total_x = int(np.sum(history.opponent_cooperators[:t]))
+            numerator = self.alpha * (m - 1) + total_x
+            denominator = self.alpha * (n - 1) + t * (n - 1)
+            q_t = numerator / denominator if denominator > 0 else self.q0
+        q_t = min(1.0, max(0.0, float(q_t)))
+        if target > n_opponents:
+            lambda_t = 0.0
+        else:
+            try:
+                comb_val = math.comb(n_opponents, target)
+            except Exception:
+                comb_val = 0
+            lambda_t = comb_val * q_t ** target * (1.0 - q_t) ** (n_opponents - target)
+        return Action.C if k * lambda_t > 1.0 else Action.D
+
+class Strategy_SELFINTERESTED_16(BaseStrategy):
+    """
+    Strict free-riding strategy with brief rescue cooperation when recent
+    aggregate cooperation suggests the threshold may be close.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+        self.last_action = Action.D
+        self.last_total_cooperators = None
+        self.prev_total_cooperators = None
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            self.last_action = Action.D
+            self.last_total_cooperators = None
+            self.prev_total_cooperators = None
+            return Action.D
+        if round_number >= self.n_rounds - 1:
+            if round_number > 0:
+                self.prev_total_cooperators = self.last_total_cooperators
+                self.last_total_cooperators = int(history.opponent_cooperators[-1]) + int(bool(history.my_actions[-1]))
+                self.last_action = Action.D
+            return Action.D
+        prev_my_action = bool(history.my_actions[-1])
+        prev_total = int(history.opponent_cooperators[-1]) + int(prev_my_action)
+        prev_prev_total = None
+        if round_number >= 2:
+            prev_prev_my_action = bool(history.my_actions[-2])
+            prev_prev_total = int(history.opponent_cooperators[-2]) + int(prev_prev_my_action)
+        if prev_total >= self.m:
+            action = Action.D
+        elif prev_total == self.m - 1:
+            if not prev_my_action:
+                action = Action.C
+            elif prev_prev_total is not None and prev_prev_total >= self.m - 1:
+                action = Action.C
+            else:
+                action = Action.D
+        elif prev_prev_total is not None and prev_total >= self.m - 1 and (prev_prev_total >= self.m - 1):
+            action = Action.C
+        else:
+            action = Action.D
+        self.prev_total_cooperators = self.last_total_cooperators
+        self.last_total_cooperators = prev_total
+        self.last_action = action
+        return action
+
+class Strategy_SELFINTERESTED_17(BaseStrategy):
+    """
+    Always defect in every round, regardless of history or game parameters.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFINTERESTED_18(BaseStrategy):
+    """
+    Cooperate initially, then continue cooperating only after observing
+    two consecutive rounds with sufficient opponent support, and defect
+    in the final round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.support_threshold = max(0, self.m - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t >= self.n_rounds - 1:
+            return Action.D
+        if t == 0:
+            return Action.C
+        last_support = int(history.opponent_cooperators[-1]) if t >= 1 else 0
+        if t == 1:
+            return Action.C if last_support >= self.support_threshold else Action.D
+        prev_support = int(history.opponent_cooperators[-2]) if t >= 2 else 0
+        if last_support >= self.support_threshold and prev_support >= self.support_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_19(BaseStrategy):
+    """
+    Conservative risk-dilemma strategy:
+    - Defect in the first round.
+    - Cooperate only after observing a near-success state where the previous round
+      was exactly one cooperator short of the threshold.
+    - Prefer defection when cooperation trends downward, is unstable, or when
+      recent history shows repeated failure.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+        self._near_threshold = self.m - 1
+        self._full_threshold = self.m
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.D
+        opp = history.opponent_cooperators
+        x_prev = int(opp[-1])
+        if round_number == self.n_rounds - 1:
+            return Action.C if x_prev == self._near_threshold else Action.D
+        recent = opp[-3:] if len(opp) >= 3 else opp
+        recent_list = [int(x) for x in recent.tolist()] if hasattr(recent, 'tolist') else [int(x) for x in recent]
+        if recent_list:
+            s_t = float(sum(recent_list)) / float(len(recent_list))
+        else:
+            s_t = 0.0
+        if len(opp) >= 2:
+            g_t = int(opp[-1]) - int(opp[-2])
+        else:
+            g_t = 0
+        met_last_3 = sum((1 for x in recent_list if x >= self._full_threshold))
+        failed_last_3 = sum((1 for x in recent_list if x < self._full_threshold)) == len(recent_list)
+        failed_last_2_below_near = len(opp) >= 2 and int(opp[-1]) < self._near_threshold and (int(opp[-2]) < self._near_threshold)
+        unstable_or_downward = g_t < 0 or failed_last_2_below_near or failed_last_3
+        if x_prev == self._near_threshold:
+            if unstable_or_downward:
+                return Action.D
+            if s_t >= self._near_threshold and g_t >= 0:
+                return Action.C
+            if met_last_3 >= 2 and x_prev != self._near_threshold:
+                return Action.D
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_20(BaseStrategy):
+    """
+    Cooperate only near the threshold when a recent pattern of exact m-1 opponent cooperators
+    suggests a pivotal contribution is likely. Never cooperate in the first or last round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._window_size = max(0, min(3, game_description.n_rounds - 1))
+        self._target_opponents = game_description.m - 1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        total_rounds = self.game_description.n_rounds
+        if round_number == 0 or round_number >= total_rounds - 1:
+            return Action.D
+        if len(history.opponent_cooperators) == 0:
+            return Action.D
+        last_opponents = int(history.opponent_cooperators[-1])
+        if last_opponents != self._target_opponents:
+            return Action.D
+        if self._window_size <= 0:
+            return Action.D
+        window = history.opponent_cooperators[-self._window_size:]
+        exact_count = 0
+        for value in window:
+            if int(value) == self._target_opponents:
+                exact_count += 1
+        available = len(window)
+        if available < 2:
+            if available > 0 and exact_count == available:
+                return Action.C
+            return Action.D
+        if exact_count >= 2:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_21(BaseStrategy):
+    """
+    Cautious threshold-support strategy:
+    - Defect by default
+    - Cooperate only when recent evidence suggests cooperation is likely pivotal
+    - Punish failed cooperative attempts with a short defection cooldown
+    - Be especially conservative in the endgame
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.q = 0.5
+        self.trust = 0
+        self.cooldown = 0
+        self.processed_rounds = 0
+
+    def _clamp_trust(self) -> None:
+        if self.trust < 0:
+            self.trust = 0
+        elif self.trust > 3:
+            self.trust = 3
+
+    def _update_state_from_history(self, history: PlayerHistory) -> None:
+        total_rounds = history.round_number
+        start = self.processed_rounds
+        if start >= total_rounds:
+            return
+        n_opponents = self.n - 1
+        for idx in range(start, total_rounds):
+            x_t = int(history.opponent_cooperators[idx])
+            my_c = bool(history.my_actions[idx])
+            if n_opponents > 0:
+                observed_rate = x_t / n_opponents
+            else:
+                observed_rate = 0.0
+            t = idx + 1
+            self.q = (t * self.q + observed_rate) / (t + 1)
+            if my_c:
+                if x_t >= self.m - 1:
+                    self.trust += 1
+                else:
+                    self.trust -= 1
+                self._clamp_trust()
+                if x_t < self.m - 1:
+                    self.cooldown = 2
+            if self.cooldown > 0:
+                self.cooldown -= 1
+        self.processed_rounds = total_rounds
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        self._update_state_from_history(history)
+        t = history.round_number + 1
+        rem = self.r - history.round_number
+        n_opponents = self.n - 1
+        if history.round_number == 0:
+            return Action.C if self.m <= 2 else Action.D
+        x_prev = int(history.opponent_cooperators[-1])
+        my_prev = bool(history.my_actions[-1])
+        total_prev_coop = x_prev + (1 if my_prev else 0)
+        if self.cooldown > 0:
+            if rem > 1:
+                return Action.D
+        if rem <= 2:
+            if rem == 1 and total_prev_coop < self.m:
+                return Action.D
+            if n_opponents > 0:
+                q_threshold = (self.m - 1) / n_opponents
+            else:
+                q_threshold = 1.0
+            if x_prev >= self.m - 1 and self.q >= q_threshold and (self.trust >= 2):
+                return Action.C
+            return Action.D
+        if n_opponents > 0:
+            q_threshold = (self.m - 1) / n_opponents
+            recovery_threshold = (self.m - 2) / n_opponents
+        else:
+            q_threshold = 1.0
+            recovery_threshold = 1.0
+        if x_prev >= self.m - 1 and self.q >= q_threshold and (self.trust >= 1):
+            return Action.C
+        if x_prev == self.m - 2 and self.q > recovery_threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_22(BaseStrategy):
+    """
+    Conservative threshold-pivot strategy for the Collective Risk Dilemma.
+
+    - Defect by default.
+    - Cooperate only when the previous round suggests a pivotal move:
+      * exactly one short of the threshold, or
+      * two short of the threshold with a nondecreasing recent trend and
+        sufficiently high 3-round average when available.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        t = history.round_number
+        if t == 0:
+            return Action.D
+        x_prev = int(history.opponent_cooperators[-1])
+        if x_prev >= m:
+            return Action.D
+        if x_prev <= m - 3:
+            return Action.D
+        if x_prev == m - 1:
+            return Action.C
+        if t < 3:
+            return Action.D
+        x_two_back = int(history.opponent_cooperators[-2])
+        nondecreasing = x_two_back <= x_prev
+        if not nondecreasing:
+            return Action.D
+        if t < 4:
+            return Action.D
+        recent_three = history.opponent_cooperators[-3:]
+        recent_avg = float(np.mean(recent_three)) if len(recent_three) > 0 else 0.0
+        if recent_avg >= m - 1:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_23(BaseStrategy):
+    """
+    Always defect in every round, regardless of history or observed cooperation.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = getattr(game_description, 'n_players', None)
+        self.n_rounds = getattr(game_description, 'n_rounds', None)
+        self.m = getattr(game_description, 'm', None)
+        self.k = getattr(game_description, 'k', None)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_SELFINTERESTED_24(BaseStrategy):
+    """
+    Cooperate only when the recent coalition among opponents is already stable
+    and large enough to make cooperation likely to matter; otherwise defect.
+    Defect on the first round and always on the final round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._min_opponents_needed = max(0, game_description.m - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        n_rounds = self.game_description.n_rounds
+        if round_number == 0:
+            return Action.D
+        if round_number >= n_rounds - 1:
+            return Action.D
+        if len(history.opponent_cooperators) == 0:
+            return Action.D
+        x_t1 = int(history.opponent_cooperators[-1])
+        if x_t1 < self._min_opponents_needed:
+            return Action.D
+        if round_number == 1:
+            return Action.C
+        if len(history.opponent_cooperators) < 2:
+            return Action.D
+        x_t2 = int(history.opponent_cooperators[-2])
+        if x_t2 < self._min_opponents_needed:
+            return Action.D
+        if x_t1 < x_t2:
+            return Action.D
+        return Action.C
+
+class Strategy_SELFINTERESTED_25(BaseStrategy):
+    """
+    Always defect in every round of the Collective Risk Dilemma.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._always_defect = Action.D
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return self._always_defect
+
+class Strategy_SELFINTERESTED_26(BaseStrategy):
+    """
+    Threshold-learning strategy with optimistic start, mode tracking,
+    and a safety/recovery fallback for the Collective Risk Dilemma.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.best_mode = Action.D
+        self.support_C = 0
+        self.support_D = 0
+        self._processed_rounds = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        gd = self.game_description
+        round_number = history.round_number
+        n = gd.n_players
+        m = gd.m
+        k = gd.k
+        total_rounds = gd.n_rounds
+        if round_number == 0:
+            self.best_mode = Action.C if k >= 1 or m <= n / 2 else Action.D
+            self._processed_rounds = 0
+            return Action.C if k >= 1 or m <= n / 2 else Action.D
+        if round_number > self._processed_rounds:
+            last_idx = round_number - 1
+            last_opp = int(history.opponent_cooperators[last_idx])
+            last_my = bool(history.my_actions[last_idx])
+            last_total = last_opp + (1 if last_my else 0)
+            if last_total >= m:
+                self.support_C += 1
+            elif last_total < m - 1:
+                self.support_D += 1
+            if self.support_C > self.support_D:
+                self.best_mode = Action.C
+            elif self.support_D > self.support_C:
+                self.best_mode = Action.D
+            self._processed_rounds = round_number
+        last_idx = round_number - 1
+        last_opp = int(history.opponent_cooperators[last_idx])
+        last_my = bool(history.my_actions[last_idx])
+        last_total = last_opp + (1 if last_my else 0)
+        last_two_failed = False
+        if round_number >= 2:
+            prev2_idx = round_number - 2
+            prev2_opp = int(history.opponent_cooperators[prev2_idx])
+            prev2_my = bool(history.my_actions[prev2_idx])
+            prev2_total = prev2_opp + (1 if prev2_my else 0)
+            last_two_failed = prev2_total < m and last_total < m
+        is_final_round = round_number == total_rounds - 1
+        if is_final_round:
+            if last_total >= m and last_opp >= m - 1:
+                return Action.C
+            return Action.D
+        if last_two_failed:
+            return Action.D
+        if self.best_mode == Action.C and last_total >= m - 1 and (last_opp >= m - 1):
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_27(BaseStrategy):
+    """
+    Adaptive collective-risk strategy:
+    - Defaults to defect.
+    - Cooperates only after repeated evidence that cooperation is already
+      near the threshold.
+    - Immediately falls back to defect after a failed round.
+    - Always defects in the final round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._s_estimate = 0.0
+        self._q_streak = 0
+        self._processed_rounds = 0
+
+    def _update_from_history(self, history: PlayerHistory) -> None:
+        """Incrementally update internal state to match the provided history."""
+        n_obs = history.round_number
+        if n_obs <= self._processed_rounds:
+            return
+        for t in range(self._processed_rounds, n_obs):
+            x_t = int(history.opponent_cooperators[t])
+            my_played_C = bool(history.my_actions[t])
+            X_t = x_t + (1 if my_played_C else 0)
+            self._s_estimate = 0.7 * self._s_estimate + 0.3 * x_t
+            if X_t >= self.game_description.m:
+                self._q_streak = min(self._q_streak + 1, 3)
+            else:
+                self._q_streak = max(self._q_streak - 1, 0)
+        self._processed_rounds = n_obs
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        self._update_from_history(history)
+        t = history.round_number
+        n_rounds = self.game_description.n_rounds
+        n_players = self.game_description.n_players
+        m = self.game_description.m
+        if t >= max(n_rounds - 1, 0):
+            return Action.D
+        if t == 0:
+            if n_players == 2 and m == 2:
+                return Action.C
+            return Action.D
+        if t == n_rounds - 2:
+            if self._s_estimate >= m - 1 and self._q_streak >= 2:
+                return Action.C
+            return Action.D
+        need_C = m - 1
+        if n_players - 1 == m:
+            if self._q_streak >= 2 and self._s_estimate >= need_C:
+                return Action.C
+            return Action.D
+        if n_rounds - t >= 2 and self._s_estimate >= need_C and (self._q_streak >= 1):
+            if self._q_streak >= 2 and self._s_estimate >= need_C:
+                return Action.C
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_28(BaseStrategy):
+    """
+    Hysteretic threshold strategy for the Collective Risk Dilemma.
+
+    - Round 0: defect.
+    - Later rounds:
+      * If the last two observed opponent-cooperator counts are both exactly m-1, cooperate.
+      * If the last two observed counts are both at least m, defect.
+      * Otherwise, follow the most recent round's rule:
+          - x >= m     -> defect
+          - x == m - 1 -> cooperate
+          - x <= m - 2 -> defect
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.m = int(game_description.m)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        x_last = int(history.opponent_cooperators[-1])
+        if history.round_number >= 2:
+            x_prev = int(history.opponent_cooperators[-2])
+            if x_last == self.m - 1 and x_prev == self.m - 1:
+                return Action.C
+            if x_last >= self.m and x_prev >= self.m:
+                return Action.D
+        if x_last >= self.m:
+            return Action.D
+        if x_last == self.m - 1:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_29(BaseStrategy):
+    """
+    Always defect strategy for the Collective Risk Dilemma.
+    Ignores history and returns D in every round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.total_observed_cooperators = 0
+        self.observed_rounds = 0
+        self.last_observed_cooperators = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number > 0:
+            last_count = history.opponent_cooperators[-1]
+            try:
+                self.last_observed_cooperators = int(last_count)
+            except Exception:
+                self.last_observed_cooperators = 0
+            self.total_observed_cooperators += self.last_observed_cooperators
+            self.observed_rounds += 1
+        return Action.D
+
+class Strategy_SELFINTERESTED_30(BaseStrategy):
+    """
+    Always defects in every round, regardless of history or observed cooperation.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.state = 'defect'
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        self.state = 'defect'
+        if history.round_number == 0:
+            return Action.D
+        if len(history.my_actions) > 0 and bool(history.my_actions[-1]):
+            return Action.D
+        return Action.D
+
+class Strategy_SELFINTERESTED_31(BaseStrategy):
+    """
+    Threshold-based strategy for the Collective Risk Dilemma.
+
+    - Round 1: defect.
+    - Later rounds: estimate how often the pivotal count (m - 1)
+      has occurred with a smoothed frequency estimate.
+    - Cooperate iff the estimate exceeds 1 / k.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+        self.threshold = 1.0 / self.k if self.k != 0 else math.inf
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = int(history.round_number)
+        if t == 0:
+            return Action.D
+        pivotal_count = 0
+        target = self.m - 1
+        for x in history.opponent_cooperators:
+            if int(x) == target:
+                pivotal_count += 1
+        p_hat = (pivotal_count + 1) / (t + 1)
+        if p_hat > self.threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_SELFINTERESTED_32(BaseStrategy):
+    """
+    Conservative threshold-response strategy for the Collective Risk Dilemma.
+
+    - Defects in the first and last rounds.
+    - Cooperates on round 2 only when the previous round was exactly one short of the threshold.
+    - From round 3 onward, cooperates only when the previous round is narrowly below threshold
+      and the recent pattern suggests sustained near-threshold cooperation.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(getattr(game_description, 'n_players', 0))
+        self.n_rounds = int(getattr(game_description, 'n_rounds', 0))
+        self.m = int(getattr(game_description, 'm', 0))
+        self.k = float(getattr(game_description, 'k', 0.0))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(getattr(history, 'round_number', 0))
+        n_rounds = self.n_rounds
+        m = self.m
+        if n_rounds <= 0:
+            return Action.D
+        if round_number == 0 or round_number >= n_rounds - 1:
+            return Action.D
+        opp = getattr(history, 'opponent_cooperators', None)
+        if opp is None or len(opp) == 0:
+            return Action.D
+        x_prev = int(opp[-1])
+        if x_prev >= m:
+            return Action.D
+        if round_number == 1:
+            return Action.C if x_prev == m - 1 else Action.D
+        narrow = x_prev in {m - 2, m - 1}
+        start = max(0, len(opp) - 3)
+        recent = [int(x) for x in opp[start:]]
+        stable = sum((1 for x in recent if x >= m - 1)) >= 2
+        return Action.C if narrow and stable else Action.D
+
+class Strategy_OPPORTUNISTIC_5(BaseStrategy):
+    """
+    Adaptive Collective Risk Dilemma strategy with:
+    - cooperation on first round
+    - rolling-window and long-run adaptation
+    - aggressive defection after repeated low cooperation
+    - late-game tightening
+    - special handling for edge cases
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+        self.w = 3 if self.r >= 3 else 1
+        self.threshold_opponents = max(0, self.m - 1)
+        self.long_run_threshold = (self.m - 1) / (self.n - 1) if self.n > 1 else 1.0
+        self.late_rounds = max(2, math.ceil(self.r / 4))
+        self.last_processed_round = -1
+        self.recovery_remaining = 0
+        self.aggressive_defect = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            self.last_processed_round = 0
+            self.recovery_remaining = 0
+            self.aggressive_defect = False
+            return Action.C
+        opp = history.opponent_cooperators
+        last_h = int(opp[-1]) if len(opp) > 0 else 0
+        remaining_after_current = self.r - t
+        if t != self.last_processed_round:
+            if len(opp) >= 2 and int(opp[-1]) <= self.m - 3 and (int(opp[-2]) <= self.m - 3):
+                self.aggressive_defect = True
+            if len(opp) > 0 and int(opp[-1]) >= self.m - 1:
+                self.aggressive_defect = False
+            if len(opp) > 0 and int(opp[-1]) == self.m - 2 and (remaining_after_current >= 2):
+                self.recovery_remaining = min(2, remaining_after_current)
+            elif self.recovery_remaining > 0:
+                self.recovery_remaining -= 1
+            self.last_processed_round = t
+        if self.r == 2:
+            return Action.C if last_h >= self.threshold_opponents else Action.D
+        if self.m == 2:
+            if len(opp) >= 2 and int(opp[-1]) == 0 and (int(opp[-2]) == 0):
+                return Action.D
+            return Action.C if last_h >= 1 else Action.D
+        if self.m == self.n - 1:
+            recent_window = opp[max(0, t - self.w):t]
+            q = float(np.sum(recent_window)) / max(1, min(self.w, t))
+            return Action.C if last_h >= self.n - 2 or q >= self.n - 2 else Action.D
+        half_point = self.r // 2
+        if t >= half_point and np.max(opp[:t]) < self.threshold_opponents:
+            if t == self.r:
+                return Action.C if last_h >= self.threshold_opponents else Action.D
+            return Action.D
+        if t == self.r:
+            return Action.C if last_h >= self.threshold_opponents else Action.D
+        if self.aggressive_defect and remaining_after_current > 2:
+            return Action.D
+        total_obs = int(np.sum(opp[:t])) if t > 0 else 0
+        p_hat = total_obs / ((self.n - 1) * t) if self.n > 1 and t > 0 else 0.0
+        window_start = max(0, t - self.w)
+        window_len = min(self.w, t)
+        q = float(np.sum(opp[window_start:t])) / window_len if window_len > 0 else 0.0
+        if t > self.r - self.late_rounds:
+            if last_h >= self.threshold_opponents or (last_h == self.m - 2 and p_hat >= self.long_run_threshold):
+                return Action.C
+            return Action.D
+        if q >= self.threshold_opponents:
+            return Action.C
+        if p_hat >= self.long_run_threshold and last_h >= self.threshold_opponents:
+            return Action.C
+        if self.recovery_remaining > 0:
+            return Action.C
+        if remaining_after_current <= 2 and last_h >= self.m - 2:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_6(BaseStrategy):
+    """
+    Knife-edge conditional cooperator:
+    - Defect in round 1
+    - Defect in the final round
+    - In intermediate rounds, cooperate only when the previous round's opponent
+      cooperations were exactly m-1 and the round before that was also at least m-1
+      (or unavailable in round 2)
+    - Otherwise defect
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number + 1
+        if t == 1:
+            return Action.D
+        if t == self.n_rounds:
+            return Action.D
+        if history.round_number >= 1:
+            x_prev = int(history.opponent_cooperators[-1])
+        else:
+            x_prev = 0
+        if history.round_number >= 2:
+            x_prev2 = int(history.opponent_cooperators[-2])
+        else:
+            x_prev2 = None
+        if x_prev >= self.m:
+            return Action.D
+        if x_prev == self.m - 1 and (t == 2 or (x_prev2 is not None and x_prev2 >= self.m - 1)):
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_7(BaseStrategy):
+    """
+    Adaptive threshold strategy for the Collective Risk Dilemma.
+
+    - Opens with cooperation.
+    - Probes early, then uses recent and average opponent cooperation.
+    - Tightens cooperation requirements in the late game.
+    - Applies several edge-case overrides to avoid getting stuck in defection
+      or overreacting to short-term noise.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.m = game_description.m
+        self.r = game_description.n_rounds
+        self.q = self.m - 1
+        self.L = math.ceil(self.r / 4)
+        self.late_start = self.r - math.ceil(self.r / 5)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        opp = history.opponent_cooperators
+        last_h = int(opp[-1]) if len(opp) > 0 else 0
+        prev_action = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else False
+        if len(opp) > 0:
+            avg_h = float(np.mean(opp))
+        else:
+            avg_h = 0.0
+        if last_h >= self.m - 1 and (not prev_action):
+            return Action.C
+        if last_h == self.m - 2 and avg_h < self.m - 1:
+            return Action.D
+        if len(opp) >= 3:
+            if int(opp[-1]) >= self.m - 1 and int(opp[-2]) >= self.m - 1 and (int(opp[-3]) >= self.m - 1):
+                return Action.C
+        if len(opp) >= 2:
+            if int(opp[-1]) < self.m - 1 and int(opp[-2]) < self.m - 1 and (avg_h < self.m - 1):
+                return Action.D
+        if t <= self.L:
+            return Action.C if last_h >= self.m - 1 else Action.D
+        if t <= self.late_start:
+            return Action.C if last_h >= self.m - 1 and avg_h >= self.m - 1 else Action.D
+        return Action.C if last_h >= self.m - 1 and last_h >= max(self.m - 1, math.ceil(avg_h)) else Action.D
+
+class Strategy_OPPORTUNISTIC_8(BaseStrategy):
+    """
+    Contingent threshold strategy with early exploration, mid-game locking-in,
+    and cautious endgame opportunism.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+        self.opponent_count = max(0, self.n - 1)
+        self.threshold_opponents = max(0, self.m - 1)
+        self.q_threshold = self.threshold_opponents / self.opponent_count if self.opponent_count > 0 else 1.0
+
+    def _recent_fraction(self, history: PlayerHistory) -> float:
+        """
+        Fraction of opponents cooperating over the last L rounds, where
+        L = min(3, t-1) and t is the current round number.
+        """
+        t = history.round_number
+        if t <= 1 or self.opponent_count <= 0:
+            return 0.0
+        L = min(3, t - 1)
+        recent = history.opponent_cooperators[-L:]
+        if len(recent) == 0:
+            return 0.0
+        return float(np.mean(recent)) / float(self.opponent_count)
+
+    def _best_observed_opponents(self, history: PlayerHistory) -> int:
+        """
+        Best observed opponent cooperation level so far, clipped at m-1.
+        """
+        if history.round_number == 0 or len(history.opponent_cooperators) == 0:
+            return 0
+        return int(min(self.threshold_opponents, int(np.max(history.opponent_cooperators))))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        r = self.r
+        m1 = self.threshold_opponents
+        if t == 0:
+            return Action.C
+        if self.opponent_count <= 0:
+            return Action.C
+        last_h = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        best_so_far = self._best_observed_opponents(history)
+        q_recent = self._recent_fraction(history)
+        if t == r - 1:
+            return Action.C if last_h >= m1 else Action.D
+        if t == r - 2:
+            if r >= 4:
+                h_prev2 = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) >= 1 else 0
+                h_prev3 = int(history.opponent_cooperators[-2]) if len(history.opponent_cooperators) >= 2 else 0
+                return Action.C if h_prev2 >= m1 and h_prev3 >= m1 else Action.D
+            else:
+                return Action.C if last_h >= m1 else Action.D
+        if t <= r - 3:
+            if last_h >= m1:
+                return Action.C
+            if best_so_far >= m1:
+                return Action.C
+            if q_recent >= self.q_threshold:
+                return Action.C
+            return Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_9(BaseStrategy):
+    """
+    Cooperate initially, then cooperate whenever the previous round was at or below
+    the cooperation threshold, and defect only when the previous round exceeded it.
+    Includes a simple stabilization rule for consecutive under-threshold rounds.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._under_threshold_streak = 0
+        self._stabilization_mode = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        if history.round_number == 0:
+            self._under_threshold_streak = 0
+            self._stabilization_mode = 0
+            return Action.C
+        last_opponents = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        my_last_action = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else True
+        last_total = last_opponents + (1 if my_last_action else 0)
+        if last_total < m:
+            self._under_threshold_streak += 1
+            if self._under_threshold_streak >= 2 and self._stabilization_mode == 0:
+                self._stabilization_mode = 2
+        else:
+            self._under_threshold_streak = 0
+            self._stabilization_mode = 0
+        if self._stabilization_mode > 0:
+            self._stabilization_mode -= 1
+            return Action.C
+        if last_total <= m:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_10(BaseStrategy):
+    """
+    Adaptive collective-risk strategy:
+    - Start by defecting.
+    - Sample early rounds.
+    - Cooperate once recent opponent cooperation is near the threshold and momentum is nonnegative.
+    - Become more conservative again if cooperation drops sharply.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+        self.threshold_others = max(0, self.m - 1)
+        self.near_threshold = max(0, self.m - 2)
+        self.sharp_drop = max(0, self.m - 3)
+        self.decay = 0.7
+        self.momentum: float = 0.0
+        self.avg_opponent_coop: float = 0.0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.D
+        opp = history.opponent_cooperators
+        last_x = int(opp[-1]) if len(opp) > 0 else 0
+        if len(opp) > 0:
+            self.avg_opponent_coop = float(np.mean(opp))
+        else:
+            self.avg_opponent_coop = 0.0
+        s = 0.0
+        for x in opp:
+            s = self.decay * s + (float(x) - self.threshold_others)
+        self.momentum = float(s)
+        recent3 = opp[-3:] if len(opp) >= 3 else opp
+        recent2 = opp[-2:] if len(opp) >= 2 else opp
+        last_three_good = len(recent3) == 3 and all((int(x) >= self.near_threshold for x in recent3))
+        last_two_good = len(recent2) == 2 and all((int(x) >= self.near_threshold for x in recent2))
+        if last_x < self.sharp_drop:
+            return Action.D
+        if t >= self.n_rounds - 1:
+            if last_three_good:
+                return Action.C
+            if last_x >= self.near_threshold and len(opp) >= 2:
+                prev_momentum = 0.0
+                s2 = 0.0
+                for x in opp[:-1]:
+                    s2 = self.decay * s2 + (float(x) - self.threshold_others)
+                prev_momentum = float(s2)
+                if prev_momentum > 0:
+                    return Action.C
+            return Action.D
+        if t == 1:
+            return Action.C if last_x >= self.near_threshold else Action.D
+        if last_two_good:
+            return Action.C
+        if last_x >= self.near_threshold and self.avg_opponent_coop >= self.near_threshold and (self.momentum >= 0):
+            return Action.C
+        if last_three_good:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_11(BaseStrategy):
+    """
+    Adaptive collective-risk strategy:
+    - Defect initially.
+    - Defect when opponents already meet/exceed the threshold.
+    - Cooperate when pivotal.
+    - After consecutive failed low-cooperation observations, issue a probe cooperation.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.miss_streak = 0
+        self.last_action = Action.D
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        r = self.game_description.n_rounds
+        t = history.round_number
+        if t == 0:
+            self.last_action = Action.D
+            self.miss_streak = 0
+            return Action.D
+        observed_opponents = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        if t == r - 1:
+            action = Action.C if observed_opponents == m - 1 else Action.D
+            self.last_action = action
+            if action == Action.C and observed_opponents <= m - 2:
+                self.miss_streak = 1
+            elif action == Action.D and observed_opponents >= m:
+                self.miss_streak = 0
+            return action
+        if observed_opponents >= m:
+            action = Action.D
+            self.miss_streak = 0
+        elif observed_opponents == m - 1:
+            action = Action.C
+            self.miss_streak = 0
+        elif self.miss_streak >= 1:
+            action = Action.C
+            self.miss_streak = 1
+        else:
+            action = Action.D
+            self.miss_streak = 1
+        self.last_action = action
+        return action
+
+class Strategy_OPPORTUNISTIC_12(BaseStrategy):
+    """
+    Defect by default, but cooperate when the previous round was close to the
+    cooperation threshold or when the endgame suggests clustered support near
+    the threshold.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.D
+        opp = history.opponent_cooperators
+        h_prev = int(opp[-1]) if len(opp) >= 1 else 0
+        if t == self.n_rounds - 1:
+            if h_prev >= self.m:
+                return Action.D
+            if h_prev == self.m - 1:
+                return Action.C
+        recent_count = 3 if len(opp) >= 3 else len(opp)
+        if recent_count > 0:
+            recent_avg = float(np.mean(opp[-recent_count:]))
+        else:
+            recent_avg = 0.0
+        cond1 = h_prev == self.m - 1
+        cond2 = t > self.n_rounds - 2 and recent_avg >= self.m - 1
+        cond3 = False
+        if len(opp) >= 2:
+            h_prev2 = int(opp[-2])
+            cond3 = h_prev == self.m - 2 and h_prev2 >= self.m - 1
+        if cond1 or cond2 or cond3:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_13(BaseStrategy):
+    """
+    Opponent-count forecaster for the Collective Risk Dilemma.
+
+    - Defect by default.
+    - Cooperate only when the rounded recent mean opponent cooperation is exactly m - 1,
+      or once as a test when the last three observations are strictly increasing and
+      the most recent observation is m - 2.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._observed_counts = []
+        self._last_seen_round = 0
+        self._test_cooperation_used = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.D
+        observed = history.opponent_cooperators
+        observed_len = len(observed)
+        if observed_len > len(self._observed_counts):
+            self._observed_counts = [int(x) for x in observed.tolist()]
+        elif observed_len == 0:
+            self._observed_counts = []
+        else:
+            self._observed_counts = [int(x) for x in observed.tolist()]
+        if len(self._observed_counts) == 0:
+            return Action.D
+        recent = self._observed_counts[-3:]
+        mu = float(np.mean(recent)) if len(recent) > 0 else 0.0
+        forecast = int(round(mu))
+        if forecast == m - 1:
+            return Action.C
+        if not self._test_cooperation_used and len(self._observed_counts) >= 3 and (self._observed_counts[-3] < self._observed_counts[-2] < self._observed_counts[-1]) and (self._observed_counts[-1] == m - 2):
+            self._test_cooperation_used = True
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_14(BaseStrategy):
+    """
+    Conditional cooperator for the Collective Risk Dilemma.
+
+    - Opens with C only when m == 2, otherwise starts with D.
+    - Cooperates after a successful observed round only if enough opponents
+      cooperated to make the threshold plausible.
+    - In the last three rounds, becomes stricter and cooperates only when
+      recent success has been sufficiently frequent.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C if self.m == 2 else Action.D
+        if len(history.my_actions) == 0 or len(history.opponent_cooperators) == 0:
+            return Action.D
+        prev_my_coop = bool(history.my_actions[-1])
+        prev_opp_coop = int(history.opponent_cooperators[-1])
+        prev_total_coop = prev_opp_coop + (1 if prev_my_coop else 0)
+        prev_threshold_met = prev_total_coop >= self.m
+        successful_rounds_so_far = 0
+        for idx in range(t):
+            total_coop = int(history.opponent_cooperators[idx]) + (1 if bool(history.my_actions[idx]) else 0)
+            if total_coop >= self.m:
+                successful_rounds_so_far += 1
+        if t >= self.n_rounds - 3:
+            required_successes = math.ceil(t / 2) if t > 0 else 0
+            if prev_threshold_met and prev_opp_coop >= self.m - 1 and (successful_rounds_so_far >= required_successes):
+                return Action.C
+            return Action.D
+        if prev_threshold_met and prev_opp_coop >= self.m - 1:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_15(BaseStrategy):
+    """
+    Conditional, momentum-based cooperation strategy for the Collective Risk Dilemma.
+
+    - Defects in round 1.
+    - Cooperates only when recent opponent cooperation suggests the group is close
+      enough to meeting the threshold, with a smoothed estimate emphasizing recency.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.D
+        opp = history.opponent_cooperators
+        last_o = int(opp[-1]) if len(opp) >= 1 else 0
+        prev_o = int(opp[-2]) if len(opp) >= 2 else 0
+        prev2_o = int(opp[-3]) if len(opp) >= 3 else 0
+        S = 0.0
+        for x in opp:
+            S = 0.7 * float(x) + 0.3 * S
+        needed = self.m - 1
+        if self.m == 2:
+            if last_o >= 1 and S >= 1.0:
+                return Action.C
+            return Action.D
+        if self.n == self.m + 1:
+            if last_o == self.m - 2 and t >= 2 and (prev2_o <= prev_o):
+                return Action.C
+            if last_o == needed and S >= self.m - 1:
+                return Action.C
+        if t >= 2 and prev_o == 0 and (last_o == 0):
+            if last_o < max(0, self.m - 2):
+                return Action.D
+        if t >= self.r - 1:
+            if last_o >= needed and S >= self.m:
+                return Action.C
+            return Action.D
+        stable = S >= needed - 0.5
+        if last_o >= needed and stable:
+            return Action.C
+        if last_o == needed - 1:
+            if t >= 2 and prev_o <= last_o:
+                return Action.C
+        if last_o >= self.m - 1 and S >= self.m - 1:
+            return Action.C
+        if last_o == self.m - 2 and t >= 2 and (prev_o < last_o):
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_16(BaseStrategy):
+    """
+    Default-defect strategy that cooperates only when the recent history shows
+    a stable pattern of exactly m-1 cooperating opponents, suggesting that
+    cooperation may be pivotal for reaching the collective threshold.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.threshold = max(0, game_description.m - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        recent = history.opponent_cooperators[-3:] if len(history.opponent_cooperators) > 3 else history.opponent_cooperators
+        if len(recent) == 0:
+            return Action.D
+        last_observed = int(recent[-1])
+        if last_observed != self.threshold:
+            return Action.D
+        support = 0
+        for x in recent:
+            if int(x) >= self.threshold:
+                support += 1
+        if support >= 2:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_17(BaseStrategy):
+    """
+    Threshold-sensitive collective risk strategy with short memory,
+    strong-round escalation, and short defection cooldown after sharp drops.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.m = game_description.m
+        self.n_rounds = game_description.n_rounds
+        self.current_mode = Action.D
+        self.defect_cooldown = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number + 1
+        m = self.m
+        total_rounds = self.n_rounds
+        h = history.opponent_cooperators
+        h_len = len(h)
+
+        def get_h(offset_from_end: int) -> int:
+            idx = h_len - offset_from_end
+            if idx < 0 or idx >= h_len:
+                return -10 ** 9
+            return int(h[idx])
+        if t == 1:
+            action = Action.C if m == 2 else Action.D
+            self.current_mode = action
+            return action
+        last_h = get_h(1)
+        if last_h <= m - 3:
+            self.defect_cooldown = 2
+        window = min(3, h_len)
+        if window > 0:
+            recent_vals = [int(x) for x in h[-window:]]
+            A = sum(recent_vals) / window
+            B = sum((1 for x in recent_vals if x >= m - 1)) / window
+        else:
+            A = -10 ** 9
+            B = 0.0
+        h_t_1 = get_h(1)
+        h_t_2 = get_h(2)
+        h_t_3 = get_h(3)
+        if t == total_rounds:
+            action = Action.C if h_t_1 >= m - 1 and h_t_2 >= m - 1 else Action.D
+        elif t == total_rounds - 1:
+            strong_two = h_t_1 >= m - 1 and h_t_2 >= m - 1
+            action = Action.C if strong_two or A >= m - 1 else Action.D
+        elif self.defect_cooldown > 0:
+            action = Action.D
+            self.defect_cooldown -= 1
+        else:
+            strong_two = h_t_1 >= m - 1 and h_t_2 >= m - 1
+            if strong_two:
+                collapse = any((val < m - 2 for val in (h_t_1, h_t_2, h_t_3) if val > -10 ** 8))
+                action = Action.D if collapse else Action.C
+            elif h_t_1 >= m - 1 and (A >= m - 1 or B >= 2.0 / 3.0):
+                action = Action.C
+            else:
+                action = Action.C if h_t_1 >= m - 1 else Action.D
+        self.current_mode = action
+        return action
+
+class Strategy_OPPORTUNISTIC_18(BaseStrategy):
+    """
+    Defect initially. Thereafter, cooperate only when opponents were one short of
+    the threshold in the previous round, and that near-threshold state has either
+    just appeared (round 2) or repeated from the round before.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.m = int(game_description.m)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        x_last = int(history.opponent_cooperators[-1])
+        if x_last >= self.m:
+            return Action.D
+        if x_last == self.m - 1:
+            if history.round_number == 1:
+                return Action.C
+            x_prev = int(history.opponent_cooperators[-2])
+            if x_prev >= self.m - 1:
+                return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_19(BaseStrategy):
+    """
+    Conservative threshold-aware strategy for the Collective Risk Dilemma.
+
+    Core idea:
+    - Defect initially.
+    - Cooperate only when recent opponent cooperation suggests the group is
+      near or at the threshold, and only when the prescribed rule has a single
+      clear trigger.
+    - In ambiguous cases, defect.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+
+    def _recent_average(self, values, window_size: int) -> int:
+        if window_size <= 0:
+            return 0
+        total = 0
+        for v in values[-window_size:]:
+            total += int(v)
+        return math.floor(total / window_size)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        current_round = history.round_number + 1
+        if history.round_number == 0:
+            return Action.D
+        h_prev = int(history.opponent_cooperators[-1])
+        w = min(3, history.round_number)
+        recent = history.opponent_cooperators[-w:] if w > 0 else []
+        A_t = self._recent_average(recent, w)
+        m_minus_1 = self.m - 1
+        m_minus_2 = self.m - 2
+        if current_round == self.n_rounds:
+            cond1 = h_prev >= m_minus_1
+            cond2 = A_t >= m_minus_1
+            cond3 = h_prev == m_minus_2 and A_t >= m_minus_2
+            true_count = int(cond1) + int(cond2) + int(cond3)
+            if true_count == 1:
+                return Action.C
+            return Action.D
+        cond1 = A_t >= m_minus_1
+        cond2 = A_t == m_minus_2 and h_prev >= m_minus_2
+        cond3 = h_prev >= m_minus_1
+        true_count = int(cond1) + int(cond2) + int(cond3)
+        if true_count == 1:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_20(BaseStrategy):
+    """
+    Conditional supporter strategy for the Collective Risk Dilemma.
+
+    - Cooperates in round 1.
+    - Uses recent opponent cooperation levels, short-term average, and trend
+      to decide whether continued cooperation is likely to help sustain the
+      threshold.
+    - Applies simplified edge-case rules for very short games and special m values.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n = game_description.n_players
+        self.r = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+
+    def _recent_average(self, history: PlayerHistory, window: int=3) -> float:
+        count = history.round_number
+        if count <= 0:
+            return 0.0
+        start = max(0, count - window)
+        recent = history.opponent_cooperators[start:count]
+        if len(recent) == 0:
+            return 0.0
+        return float(np.mean(recent))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C
+        x_last = int(history.opponent_cooperators[-1])
+        x_prev = int(history.opponent_cooperators[-2]) if t >= 2 else 0
+        x_prev2 = int(history.opponent_cooperators[-3]) if t >= 3 else 0
+        p_prev = self._recent_average(history, window=3)
+        trend_prev = x_last - x_prev if t >= 2 else 0
+        if t == self.r - 1:
+            if x_last >= self.m - 2:
+                return Action.C
+            return Action.D
+        if self.r == 2:
+            if x_last >= self.m - 2:
+                return Action.C
+            return Action.D
+        if self.m == 2:
+            if x_last >= 1 and trend_prev >= 0:
+                return Action.C
+            return Action.D
+        if self.m == self.n - 1:
+            if x_last >= self.n - 3:
+                return Action.C
+            return Action.D
+        if x_last >= self.m - 1 and p_prev >= self.m - 1:
+            return Action.C
+        if x_last == self.m - 2 and trend_prev >= 0:
+            return Action.C
+        if x_last == self.m - 1 and x_prev >= self.m - 2:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_21(BaseStrategy):
+    """
+    Collective-risk strategy that is cautious by default, cooperates only when
+    recent opponent behavior makes future threshold success plausible, and
+    defects in the final round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+
+    def _cooperation_rate(self, total_opponent_coops: int, completed_rounds: int) -> float:
+        denom = completed_rounds * max(self.n_players - 1, 0)
+        if denom <= 0:
+            return 0.0
+        return float(total_opponent_coops) / float(denom)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.C if self.m == self.n_players - 1 else Action.D
+        if round_number == self.n_rounds - 1:
+            return Action.D
+        if round_number == self.n_rounds - 2:
+            total_opponent_coops = int(np.sum(history.opponent_cooperators))
+            q_prev = self._cooperation_rate(total_opponent_coops, round_number)
+            threshold_rate = (self.m - 1) / max(self.n_players - 1, 1)
+            return Action.C if q_prev >= threshold_rate else Action.D
+        last_opponent_coops = int(history.opponent_cooperators[-1])
+        my_last_action = bool(history.my_actions[-1])
+        my_last_coop = 1 if my_last_action else 0
+        threshold_met_last_round = last_opponent_coops + my_last_coop >= self.m
+        total_opponent_coops = int(np.sum(history.opponent_cooperators))
+        q_t = self._cooperation_rate(total_opponent_coops, round_number)
+        e_t = int(math.ceil((self.n_players - 1) * q_t))
+        threshold_rate = (self.m - 1) / max(self.n_players - 1, 1)
+        if threshold_met_last_round:
+            if last_opponent_coops <= self.m - 2 and q_t < threshold_rate:
+                return Action.C
+            return Action.D
+        if e_t == self.m - 1:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_22(BaseStrategy):
+    """
+    Pivot-rule strategy for the Collective Risk Dilemma.
+
+    - Round 1: defect.
+    - Thereafter:
+      * defect if the previous round already met/exceeded the threshold;
+      * cooperate if the previous round was exactly one below threshold;
+      * otherwise cooperate only if at least two of the last up to three rounds
+        were exactly one below threshold.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.m = int(game_description.m)
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.k = float(game_description.k)
+        self.last_observed_opponent_cooperators = None
+        self.recent_close_rounds = []
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            self.last_observed_opponent_cooperators = None
+            self.recent_close_rounds = []
+            return Action.D
+        opp = history.opponent_cooperators
+        if opp is None or len(opp) == 0:
+            self.last_observed_opponent_cooperators = None
+            self.recent_close_rounds = []
+            return Action.D
+        prev_opp = int(opp[-1])
+        self.last_observed_opponent_cooperators = prev_opp
+        start_idx = max(0, round_number - 3)
+        recent_window = opp[start_idx:round_number]
+        self.recent_close_rounds = [int(x) for x in recent_window if int(x) == self.m - 1]
+        if prev_opp >= self.m:
+            return Action.D
+        if prev_opp == self.m - 1:
+            return Action.C
+        close_count = 0
+        window_len = 0
+        for x in recent_window:
+            window_len += 1
+            if int(x) == self.m - 1:
+                close_count += 1
+        if window_len > 0 and close_count >= 2:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_23(BaseStrategy):
+    """
+    Cooperative only when the recent opponent cooperation level is stable and
+    near the threshold: defect on round 1, then cooperate iff the average of
+    all previously observed opponent cooperation counts is at least m-1 and the
+    most recent round lies in [m-2, m].
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.D
+        prev_count = int(history.opponent_cooperators[-1])
+        prior_counts = history.opponent_cooperators
+        avg_prior = float(np.mean(prior_counts)) if len(prior_counts) > 0 else 0.0
+        if avg_prior >= m - 1 and m - 2 <= prev_count <= m:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_24(BaseStrategy):
+    """
+    Probing strategy for the Collective Risk Dilemma:
+    - Start by defecting.
+    - Cooperate only to push a near-threshold round over the line.
+    - Defect whenever the threshold is already met by opponents alone.
+    - Never cooperate in the final round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.mode = 'probing'
+        self.stable = 0
+        self.streak = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = self.game_description.n_rounds
+        m = self.game_description.m
+        current_round = history.round_number + 1
+        if history.round_number == 0:
+            return Action.D
+        last_opp = int(history.opponent_cooperators[-1])
+        last_my_action = bool(history.my_actions[-1])
+        if last_opp + (1 if last_my_action else 0) >= m:
+            self.streak += 1
+        else:
+            self.streak = 0
+        if last_opp >= m:
+            self.stable += 1
+        else:
+            self.stable = 0
+        if current_round == n_rounds:
+            return Action.D
+        if last_opp >= m:
+            return Action.D
+        if last_opp == m - 1:
+            return Action.C
+        if self.stable >= 2 and last_opp >= m - 2:
+            return Action.C
+        if self.streak >= 2 and last_opp >= m - 2:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_25(BaseStrategy):
+    """
+    Collective-risk strategy:
+    - Start cautiously unless the cooperation threshold is very low.
+    - Cooperate when recent and cumulative opponent cooperation is at or above the pivotal threshold.
+    - Escalate cooperation when cooperation appears to be rising.
+    - Defect when cooperation falls clearly below the threshold, especially near the end.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+        self.T = self.m - 1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        opp = history.opponent_cooperators
+        n_obs = len(opp)
+        if t == 0:
+            return Action.C if self.m <= 2 else Action.D
+        last1 = int(opp[-1]) if n_obs >= 1 else 0
+        last2 = int(opp[-2]) if n_obs >= 2 else last1
+        last3 = int(opp[-3]) if n_obs >= 3 else last2
+        recent_count = min(3, n_obs)
+        recent_avg = float(np.mean(opp[-recent_count:])) if recent_count > 0 else 0.0
+        avg_all = float(np.mean(opp)) if n_obs > 0 else 0.0
+        threshold = self.T
+        prev_threshold = self.T - 1
+        lower_threshold = self.T - 2
+        rising = False
+        falling = False
+        if n_obs >= 2:
+            rising = last1 >= prev_threshold and last2 < prev_threshold
+            falling = last1 < prev_threshold and last2 >= prev_threshold
+        stable = recent_avg >= threshold
+        cooperate = False
+        defect = False
+        if avg_all >= threshold or recent_avg >= threshold or rising or (last1 >= threshold):
+            cooperate = True
+        elif t > 1 and last1 >= prev_threshold and (last2 < prev_threshold):
+            cooperate = True
+        else:
+            defect = True
+        if avg_all < prev_threshold:
+            defect = True
+            cooperate = False
+        if n_obs >= 2 and last1 <= lower_threshold and (last2 <= lower_threshold):
+            defect = True
+            cooperate = False
+        if self.r >= 3 and t >= self.r - 2:
+            high_last_three = 0
+            if n_obs >= 1 and last1 >= threshold:
+                high_last_three += 1
+            if n_obs >= 2 and last2 >= threshold:
+                high_last_three += 1
+            if n_obs >= 3 and last3 >= threshold:
+                high_last_three += 1
+            if high_last_three < 2:
+                defect = True
+                cooperate = False
+        if t == self.r - 1:
+            last_three_good = False
+            if n_obs >= 3:
+                last_three_good = opp[-1] >= prev_threshold and opp[-2] >= prev_threshold and (opp[-3] >= prev_threshold)
+            elif n_obs > 0:
+                last_three_good = bool(np.all(opp[-n_obs:] >= prev_threshold))
+            if not (last1 >= threshold or last_three_good):
+                return Action.D
+            return Action.C
+        if cooperate and (not defect):
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_26(BaseStrategy):
+    """
+    Two-mode Collective Risk Dilemma strategy:
+    probe early, then defect when the threshold is likely to be met by others,
+    cooperating mainly when pivotal or when recent history suggests a near-miss.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+        self._last_seen_round = -1
+        self._last_action = None
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.n
+        r = self.r
+        m = self.m
+        completed = int(history.round_number)
+        current_round = completed + 1
+        opp = history.opponent_cooperators
+        my_actions = history.my_actions
+        if completed == 0:
+            action = Action.C if m == n - 1 else Action.D
+            self._last_seen_round = completed
+            self._last_action = action
+            return action
+        opp_arr = np.asarray(opp, dtype=np.float64)
+        avg_opp = float(np.mean(opp_arr)) if opp_arr.size > 0 else 0.0
+        E = avg_opp
+        recent1 = int(opp[-1]) if len(opp) >= 1 else 0
+        recent2 = int(opp[-2]) if len(opp) >= 2 else None
+        recent3 = int(opp[-3]) if len(opp) >= 3 else None
+        threshold_met_flags = []
+        for j in range(completed):
+            oj = int(opp[j])
+            mj = bool(my_actions[j]) if j < len(my_actions) else False
+            threshold_met_flags.append(oj >= m or (oj == m - 1 and mj))
+        met_count = sum((1 for x in threshold_met_flags if x))
+        met_rate = met_count / completed if completed > 0 else 0.0
+        last_met = threshold_met_flags[-1] if threshold_met_flags else False
+        last_two_exact_m_minus_1 = len(opp) >= 2 and int(opp[-1]) == m - 1 and (int(opp[-2]) == m - 1)
+        stable_three_met = len(threshold_met_flags) >= 3 and threshold_met_flags[-1] and threshold_met_flags[-2] and threshold_met_flags[-3]
+        if current_round == r:
+            if E <= m - 2:
+                action = Action.C
+            else:
+                action = Action.D
+            self._last_seen_round = completed
+            self._last_action = action
+            return action
+        if completed > 0 and met_rate < 0.25:
+            if m == n - 1 or last_two_exact_m_minus_1:
+                action = Action.C
+            else:
+                action = Action.D
+            self._last_seen_round = completed
+            self._last_action = action
+            return action
+        if stable_three_met:
+            if recent1 < m - 1:
+                action = Action.C if recent1 == m - 1 else Action.D
+            else:
+                action = Action.D
+            self._last_seen_round = completed
+            self._last_action = action
+            return action
+        if E >= m:
+            action = Action.D
+        elif E <= m - 2:
+            action = Action.C
+        else:
+            midpoint = r // 2
+            if current_round <= midpoint:
+                action = Action.D
+            else:
+                action = Action.C
+        near_miss_last_round = recent1 == m - 1 and (len(my_actions) >= 1 and (not bool(my_actions[-1])))
+        if near_miss_last_round:
+            action = Action.C
+        elif last_met and recent1 >= m:
+            action = Action.D
+        if E >= m:
+            action = Action.D
+        self._last_seen_round = completed
+        self._last_action = action
+        return action
+
+class Strategy_OPPORTUNISTIC_27(BaseStrategy):
+    """
+    Opportunistic Threshold-Shadow Strategy.
+
+    - Starts with defection.
+    - Tracks a bounded momentum score S in [-3, 3].
+    - Cooperates only when recent opponent cooperation suggests the threshold is supportable.
+    - After a collapse, waits for two consecutive supportive rounds before re-entering.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.S = 0
+        self.supportive_streak = 0
+        self.in_recovery = False
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        threshold = m - 1
+        round_number = history.round_number
+        if round_number == 0:
+            self.S = 0
+            self.supportive_streak = 0
+            self.in_recovery = True
+            return Action.D
+        F = int(history.opponent_cooperators[-1])
+        supportive = F >= threshold
+        if supportive:
+            self.S = min(self.S + 1, 3)
+            self.supportive_streak += 1
+        else:
+            self.S = max(self.S - 1, -3)
+            self.supportive_streak = 0
+            self.in_recovery = True
+        final_round = round_number == self.game_description.n_rounds - 1
+        if self.in_recovery:
+            if self.supportive_streak >= 2:
+                self.in_recovery = False
+            else:
+                return Action.D
+        if final_round:
+            return Action.C if supportive and self.S >= 2 else Action.D
+        if supportive and self.S >= 1:
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_28(BaseStrategy):
+    """
+    Opportunistic threshold-tracking strategy for the Collective Risk Dilemma.
+
+    Core idea:
+    - Start conservatively (cooperate only on round 1 when m == 2).
+    - Track recent opponent cooperation counts.
+    - Cooperate when the group is near the threshold and cooperation looks pivotal.
+    - Defect when support is collapsing or the threshold is already comfortably met.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.H = []
+        self.T = max(0, game_description.m - 1)
+        self.p = 0.0
+        self.s = 0
+        self.support_streak = 0
+        self.collapse_streak = 0
+        self._last_seen_round = -1
+
+    def _sync_state(self, history: PlayerHistory) -> None:
+        """
+        Synchronize internal state with the provided history.
+        This recomputes state from scratch to stay consistent even if __call__
+        is invoked repeatedly with the same or a truncated history.
+        """
+        h_list = [int(x) for x in history.opponent_cooperators.tolist()]
+        self.H = h_list
+        self.support_streak = 0
+        self.collapse_streak = 0
+        self.s = 0
+        for h in h_list:
+            if h >= self.game_description.m - 1:
+                self.support_streak += 1
+                self.collapse_streak = 0
+                self.s += 1
+            elif h <= self.game_description.m - 3:
+                self.collapse_streak += 1
+                self.support_streak = 0
+                self.s -= 1
+            else:
+                pass
+        if len(h_list) > 0:
+            q = min(3, len(h_list))
+            recent = h_list[-q:]
+            self.p = float(sum((1 for x in recent if x >= self.game_description.m - 1))) / float(q)
+        else:
+            self.p = 0.0
+        self._last_seen_round = history.round_number
+        self.T = max(0, self.game_description.m - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = self.game_description.n_players
+        m = self.game_description.m
+        r = self.game_description.n_rounds
+        self._sync_state(history)
+        if history.round_number == 0:
+            return Action.C if m == 2 else Action.D
+        last_h = int(history.opponent_cooperators[-1])
+        if history.round_number >= r - 1:
+            return Action.C if last_h >= m - 1 else Action.D
+        q = min(3, history.round_number)
+        recent = [int(x) for x in history.opponent_cooperators[-q:]]
+        recent_avg = float(sum(recent)) / float(q) if q > 0 else 0.0
+        close_count = sum((1 for x in recent if x >= m - 1))
+        if history.round_number >= 2:
+            last2 = [int(x) for x in history.opponent_cooperators[-2:]]
+            if len(last2) == 2 and last2[0] < m - 2 and (last2[1] < m - 2):
+                return Action.D
+            if len(last2) == 2 and last2[0] >= m and (last2[1] >= m):
+                return Action.C if last_h <= m - 1 else Action.D
+        if last_h == m - 1:
+            return Action.C
+        if last_h >= m + 1:
+            if q >= 3:
+                downward_trend = recent[0] > recent[1] > recent[2]
+                if downward_trend and last_h in (m - 1, m - 2):
+                    return Action.C
+            return Action.D
+        near_threshold = last_h == m - 2 or last_h == m - 1
+        collapse = last_h <= m - 3
+        if not collapse:
+            if near_threshold and last_h <= m - 1 and (recent_avg >= m - 2):
+                return Action.C
+            if last_h == m - 2 and close_count >= 2 or (recent_avg >= m - 1 and last_h <= m - 1):
+                return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_29(BaseStrategy):
+    """
+    Collective Risk Dilemma strategy:
+    - Open with cooperation.
+    - Exploit clearly stable cooperation.
+    - Protect fragile threshold coordination.
+    - Rebuild after repeated failures.
+    - Use special endgame rules in the final two rounds.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number + 1
+        m = self.m
+        r = self.n_rounds
+        if history.round_number == 0:
+            return Action.C
+
+        def total_cooperators(round_index: int) -> int:
+            own_c = 1 if bool(history.my_actions[round_index]) else 0
+            opp_c = int(history.opponent_cooperators[round_index])
+            return own_c + opp_c
+        q1 = total_cooperators(history.round_number - 1)
+        q2 = total_cooperators(history.round_number - 2) if history.round_number >= 2 else None
+        s = 0
+        for idx in range(history.round_number):
+            if total_cooperators(idx) >= m:
+                s += 1
+        u = history.round_number - s
+        if t == r:
+            return Action.D if q1 >= m else Action.C
+        if t == r - 1:
+            return Action.C
+        if q1 >= m and q2 is not None and (q2 >= m):
+            return Action.D
+        if q1 >= m and q1 >= m + 1:
+            return Action.D
+        if q1 == m:
+            return Action.C
+        if q1 < m and q2 is not None and (q2 >= m):
+            return Action.C
+        if q1 < m and q2 is not None and (q2 < m):
+            return Action.D
+        if s <= u:
+            return Action.C
+        return Action.C if q1 < m else Action.D
+
+class Strategy_OPPORTUNISTIC_30(BaseStrategy):
+    """
+    Threshold-adaptive opportunist:
+    - Opens with defection.
+    - Cooperates only when recent cooperation is stable and near/above the threshold.
+    - Becomes stricter after failures and defects in unstable or late-game marginal states.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._threshold = max(1, game_description.m - 1)
+        self._last_seen_round = 0
+        self._failure_pressure = 0
+        self._history_snapshot = []
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        r = self.game_description.n_rounds
+        T = self._threshold
+        if t == 0:
+            self._last_seen_round = 0
+            return Action.D
+        opp = history.opponent_cooperators
+        if len(opp) == 0:
+            return Action.D
+        s_last = int(opp[-1])
+        s_prev = int(opp[-2]) if len(opp) >= 2 else s_last
+        recent_window = opp[-3:] if len(opp) >= 3 else opp
+        recent = float(np.mean(recent_window)) if len(recent_window) > 0 else 0.0
+        trend = float(s_last - s_prev) if len(opp) >= 2 else 0.0
+        failed_last_two_rounds = len(opp) >= 2 and int(opp[-1]) < T and (int(opp[-2]) < T)
+        success_streak = 0
+        for idx in range(len(opp) - 1, -1, -1):
+            if int(opp[idx]) >= T:
+                success_streak += 1
+            else:
+                break
+        if len(opp) > self._last_seen_round:
+            self._last_seen_round = len(opp)
+            self._history_snapshot = [int(x) for x in opp.tolist()]
+        if s_last >= T:
+            self._failure_pressure = 0
+        else:
+            self._failure_pressure += 1
+        if failed_last_two_rounds:
+            return Action.D
+        if t >= r - 1:
+            if success_streak >= 2 and s_last >= T:
+                return Action.C
+            return Action.D
+        strict_recent_threshold = T + 1 if self._failure_pressure > 0 else T
+        if recent >= strict_recent_threshold and trend >= 0 and (s_last >= max(0, T - 1)):
+            return Action.C
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_31(BaseStrategy):
+    """
+    Defect by default, but cooperate on repeated one-player-short threshold misses
+    when doing so may plausibly rescue the group. Defect in the final round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.mode = Action.D
+        self.near_miss_streak = 0
+        self.prev_total_cooperators = None
+        self.last_total_cooperators = None
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        r = self.game_description.n_rounds
+        round_number = history.round_number
+        if round_number == 0:
+            self.mode = Action.D
+            self.near_miss_streak = 0
+            self.prev_total_cooperators = None
+            self.last_total_cooperators = None
+            return Action.D
+        last_my_action = bool(history.my_actions[-1])
+        last_opponent_cooperators = int(history.opponent_cooperators[-1])
+        T_t = last_opponent_cooperators + (1 if last_my_action else 0)
+        if T_t == m - 1:
+            self.near_miss_streak += 1
+        else:
+            self.near_miss_streak = 0
+        prev_T = self.last_total_cooperators
+        self.prev_total_cooperators = prev_T
+        self.last_total_cooperators = T_t
+        if round_number + 1 == r:
+            self.mode = Action.D
+            return Action.D
+        if T_t >= m:
+            self.mode = Action.D
+            return Action.D
+        if T_t == m - 1:
+            repeated_near_miss = False
+            if prev_T is not None:
+                repeated_near_miss = prev_T >= m or prev_T == m - 1
+            if self.near_miss_streak >= 2 or repeated_near_miss:
+                self.mode = Action.C
+                return Action.C
+        self.mode = Action.D
+        return Action.D
+
+class Strategy_OPPORTUNISTIC_32(BaseStrategy):
+    """
+    Adaptive collective-risk strategy:
+    - Defect initially.
+    - Estimate opponent cooperation using the last up to 3 rounds.
+    - Cooperate only when the rounded estimate is exactly m - 1,
+      with a small near-threshold streak filter to avoid over-cooperating.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._near_threshold_streak = 0
+        self._last_seen_round = 0
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.game_description.m
+        t = history.round_number
+        if t == 0:
+            self._near_threshold_streak = 0
+            self._last_seen_round = 0
+            return Action.D
+        if t > self._last_seen_round:
+            last_opponent_coops = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+            if last_opponent_coops >= m - 1:
+                self._near_threshold_streak += 1
+            else:
+                self._near_threshold_streak = 0
+            self._last_seen_round = t
+        l = min(3, t)
+        if l <= 0 or len(history.opponent_cooperators) == 0:
+            return Action.D
+        recent = history.opponent_cooperators[-l:]
+        sbar = float(np.mean(recent)) if len(recent) > 0 else 0.0
+        p = round(sbar)
+        if p == m - 1 and self._near_threshold_streak >= 1:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_5(BaseStrategy):
+    """
+    Always defect in every round, regardless of history or game state.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_6(BaseStrategy):
+    """
+    Always defect in every round of the Collective Risk Dilemma.
+    Records observed cooperation counts, but never changes action.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.observed_opponent_cooperators = []
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = getattr(history, 'round_number', 0)
+        if round_number > 0:
+            last_count = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+            self.observed_opponent_cooperators.append(last_count)
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_7(BaseStrategy):
+    """
+    Defect by default, but cooperate when the previous rounds show the group is
+    repeatedly just below the threshold or averaging at the threshold level,
+    making our contribution likely to secure the collective reward.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.m = game_description.m
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        x_last = int(history.opponent_cooperators[-1])
+        if x_last >= self.m:
+            return Action.D
+        if x_last == self.m - 1:
+            L = min(3, history.round_number)
+            recent = history.opponent_cooperators[-L:] if L > 0 else []
+            if len(recent) > 0:
+                count_near_threshold = sum((1 for x in recent if int(x) == self.m - 1))
+                avg_recent = float(sum((int(x) for x in recent))) / float(len(recent))
+                if count_near_threshold >= 2 or avg_recent >= self.m - 1:
+                    return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_8(BaseStrategy):
+    """
+    Pivot-rule strategy for the Collective Risk Dilemma.
+
+    - Round 1: defect.
+    - Later rounds: cooperate only when the previous round had exactly m - 1
+      cooperating opponents; otherwise defect.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        h = int(history.opponent_cooperators[-1]) if history.opponent_cooperators.size > 0 else 0
+        if h == self.m - 1:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_9(BaseStrategy):
+    """
+    Defect by default. Cooperate only after at least two consecutive previous
+    rounds in which opponents met the near-threshold condition, and only when
+    the most recent round is exactly at the knife edge (m - 1 cooperators).
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self._m_minus_1 = max(0, game_description.m - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        opp = history.opponent_cooperators
+        if len(opp) == 0:
+            return Action.D
+        last_o = int(opp[-1])
+        streak = 0
+        idx = len(opp) - 1
+        while idx >= 0 and int(opp[idx]) >= self._m_minus_1 and (streak < 2):
+            streak += 1
+            idx -= 1
+        if streak >= 2 and last_o == self._m_minus_1:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_10(BaseStrategy):
+    """
+    Always defect in every round, regardless of history or game state.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_11(BaseStrategy):
+    """
+    Adaptive threshold strategy for the Collective Risk Dilemma.
+
+    - Starts with threshold T = max(1, m - 1)
+    - Cooperates in round 1 only when m == 2
+    - Thereafter cooperates when the observed cooperation level from the
+      previous round meets the current threshold
+    - Becomes stricter after success and more permissive after failure
+    - Uses a simple endgame concession when the final round is pivotal
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+        self.threshold = max(1, self.m - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.C if self.m == 2 else Action.D
+        last_opp_cooperators = 0
+        last_my_action = False
+        if len(history.opponent_cooperators) > 0:
+            last_opp_cooperators = int(history.opponent_cooperators[-1])
+        if len(history.my_actions) > 0:
+            last_my_action = bool(history.my_actions[-1])
+        last_total_cooperators = last_opp_cooperators + (1 if last_my_action else 0)
+        threshold_met_last_round = last_total_cooperators >= self.m
+        if threshold_met_last_round:
+            self.threshold = min(self.n - 1, self.threshold + 1)
+        else:
+            self.threshold = max(1, self.threshold - 1)
+        if round_number == self.r - 1:
+            if self.threshold >= self.m:
+                return Action.C
+            if last_opp_cooperators >= self.threshold:
+                return Action.C
+            return Action.D
+        if last_opp_cooperators >= self.threshold:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_12(BaseStrategy):
+    """
+    Threshold-pivot strategy for the Collective Risk Dilemma.
+
+    Cooperate only when the most recent reliable estimate of opponent
+    cooperators is exactly m - 1; otherwise defect.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.m = int(game_description.m)
+        self.n_players = int(game_description.n_players)
+        self.n_opponents = max(0, self.n_players - 1)
+        self.target_opponents = self.m - 1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history is None or history.round_number == 0:
+            return Action.D
+        observed = getattr(history, 'opponent_cooperators', None)
+        if observed is None:
+            return Action.D
+        try:
+            last_count = int(observed[-1])
+        except Exception:
+            return Action.D
+        if last_count < 0 or last_count > self.n_opponents:
+            return Action.D
+        if last_count == self.target_opponents:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_13(BaseStrategy):
+    """
+    Threshold-sensitive strategy for the Collective Risk Dilemma.
+
+    Defaults to D, cooperates only when recent opponent cooperation is
+    hovering at or just below the threshold, and never cooperates in the
+    final round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            return Action.D
+        if round_number >= self.n_rounds - 1:
+            return Action.D
+        opp = history.opponent_cooperators
+        a = int(opp[-1]) if len(opp) > 0 else 0
+        if len(opp) >= 3:
+            w = opp[-3:]
+            b = float(np.median(w))
+        else:
+            b = float(a)
+        threshold = self.m - 1
+        if a == threshold:
+            return Action.C
+        if a == self.m - 2 and b >= threshold:
+            return Action.C
+        if len(opp) >= 2:
+            prev_a = int(opp[-2])
+            last_two = (prev_a, a)
+            if min(last_two) >= threshold and max(last_two) > threshold and (threshold in last_two):
+                return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_14(BaseStrategy):
+    """
+    Default-defect, opportunistic-rescue strategy for the Collective Risk Dilemma.
+
+    - Defect in the first and last rounds.
+    - Cooperate only if the previous round had exactly m-1 cooperating opponents
+      and this player defected in that round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(getattr(game_description, 'n_players', 0) or 0)
+        self.n_rounds = int(getattr(game_description, 'n_rounds', 0) or 0)
+        self.m = int(getattr(game_description, 'm', 0) or 0)
+        self.k = float(getattr(game_description, 'k', 0.0) or 0.0)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(getattr(history, 'round_number', 0) or 0)
+        if round_number == 0:
+            return Action.D
+        if self.n_rounds > 0 and round_number >= self.n_rounds - 1:
+            return Action.D
+        prev_opponent_cooperators = history.opponent_cooperators[-1] if len(history.opponent_cooperators) > 0 else 0
+        prev_my_action = history.my_actions[-1] if len(history.my_actions) > 0 else False
+        if prev_opponent_cooperators == self.m - 1 and (not bool(prev_my_action)):
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_15(BaseStrategy):
+    """
+    Individualistic Adaptive Threshold Strategy for the Collective Risk Dilemma.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = game_description.n_players
+        self.n_rounds = game_description.n_rounds
+        self.m = game_description.m
+        self.k = game_description.k
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        need = self.m - 1
+        if t == 0:
+            return Action.D
+        opp = history.opponent_cooperators
+
+        def avg_last(s: int) -> float:
+            if s <= 0 or len(opp) == 0:
+                return 0.0
+            start = max(0, len(opp) - s)
+            window = opp[start:]
+            if len(window) == 0:
+                return 0.0
+            return float(np.mean(window))
+        last_obs = int(opp[-1]) if len(opp) > 0 else 0
+        last_action = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else False
+        prev_action = bool(history.my_actions[-2]) if len(history.my_actions) > 1 else False
+        if t == self.n_rounds - 1:
+            s2 = min(5, t)
+            avg2 = avg_last(s2)
+            if avg2 >= need:
+                return Action.C
+            return Action.D
+        s = min(3, t)
+        avg = avg_last(s)
+        if len(opp) < 1:
+            return Action.D
+        if avg >= need:
+            if last_action and (not (last_obs >= need and avg >= need + 0.25)):
+                return Action.D
+            return Action.C
+        if avg <= need - 2:
+            return Action.D
+        if last_obs >= need:
+            if last_action and (not (prev_action and last_obs >= need)):
+                return Action.D
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_16(BaseStrategy):
+    """
+    Conservative collective-risk strategy:
+    - Start with defection.
+    - Cooperate only after two consecutive rounds of sustained opponent support.
+    - Use occasional probe cooperation on every 4th round to test whether the group
+      is approaching the threshold.
+    - Defect immediately in the final round or whenever support becomes unstable.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+        self.threshold = max(0, self.m - 1)
+        self.probe_period = 4
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_idx = history.round_number
+        if round_idx == 0:
+            return Action.D
+        if round_idx >= self.r - 1:
+            return Action.D
+        opp = history.opponent_cooperators
+        s = int(opp[-1]) if len(opp) > 0 else 0
+        s2 = int(opp[-2]) if len(opp) > 1 else None
+        s3 = int(opp[-3]) if len(opp) > 2 else None
+        streak = 0
+        for x in reversed(opp):
+            if int(x) >= self.threshold:
+                streak += 1
+            else:
+                break
+        if len(history.my_actions) > 0 and bool(history.my_actions[-1]) and (s < self.threshold):
+            return Action.D
+        if self.m == 2:
+            if s >= 1 and streak >= 2:
+                return Action.C
+            if (round_idx + 1) % self.probe_period == 0 and s >= 0 and (streak >= 1):
+                return Action.C
+            return Action.D
+        if self.m == self.n - 1:
+            if s == self.n - 2 and streak >= 2:
+                return Action.C
+            if (round_idx + 1) % self.probe_period == 0 and s >= self.n - 3 and (streak >= 1):
+                if not (s3 is not None and s3 > s2 > s):
+                    return Action.C
+            return Action.D
+        if s >= self.threshold and streak >= 2:
+            return Action.C
+        is_probe_round = (round_idx + 1) % self.probe_period == 0
+        if is_probe_round:
+            recent_not_strictly_declining = True
+            if s2 is not None and s3 is not None:
+                recent_not_strictly_declining = not s3 > s2 > s
+            if s >= max(0, self.threshold - 1) and recent_not_strictly_declining:
+                return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_17(BaseStrategy):
+    """
+    Play D by default, and cooperate only as a narrow one-shot insurance move
+    when opponents have shown exactly the same near-threshold cooperation level
+    for two consecutive non-final rounds.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_rounds = getattr(game_description, 'n_rounds', 0)
+        self.m = getattr(game_description, 'm', 0)
+        self.need = self.m - 1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        r = self.n_rounds
+        if r <= 2:
+            return Action.D
+        if t < 2:
+            return Action.D
+        if t >= r - 1:
+            return Action.D
+        if len(history.opponent_cooperators) >= 2:
+            if history.opponent_cooperators[-1] == self.need and history.opponent_cooperators[-2] == self.need:
+                return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_18(BaseStrategy):
+    """
+    Adaptive collective-risk strategy:
+    - Defect initially
+    - Cooperate on the last round only when the previous round was exactly one short
+    - In intermediate rounds, cooperate when recent anonymous cooperation is near the threshold,
+      especially when the recent trend suggests the group is moving toward the critical zone
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0:
+            return Action.D
+        current_round = round_number + 1
+        past = history.opponent_cooperators
+        if round_number <= 0:
+            return Action.D
+        last_x = int(past[-1])
+        if current_round >= self.n_rounds:
+            return Action.C if last_x == self.m - 1 else Action.D
+        lookback = min(3, round_number)
+        recent = past[-lookback:]
+        avg_t = float(np.mean(recent)) if len(recent) > 0 else 0.0
+
+        def is_close(value: float, target: int) -> bool:
+            return abs(value - float(target)) < 1e-09
+        if avg_t >= self.m:
+            return Action.D
+        if is_close(avg_t, self.m - 1):
+            return Action.C
+        if is_close(avg_t, self.m - 2):
+            if round_number >= 2:
+                trend_t = int(past[-1]) - int(past[-2])
+                if trend_t >= 1 and last_x >= self.m - 2:
+                    return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_19(BaseStrategy):
+    """
+    Conditional near-threshold cooperator with smoothed evidence and strict
+    nondecreasing-trend tiebreaking. Starts with defection and only cooperates
+    when opponents appear to be sustaining cooperation near the threshold.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.alpha = 0.5
+        self.e = 0.0
+        self._last_processed_round = 0
+
+    def _trend_non_decreasing(self, observations) -> bool:
+        n = len(observations)
+        if n < 2:
+            return False
+        if n == 2:
+            return observations[-1] >= observations[-2]
+        return observations[-1] >= observations[-2] and observations[-2] >= observations[-3]
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        if round_number == 0:
+            self.e = 0.0
+            self._last_processed_round = 0
+            return Action.D
+        obs = history.opponent_cooperators
+        if round_number == 0:
+            self.e = 0.0
+        else:
+            self.e = float(obs[0]) if round_number >= 1 else 0.0
+            for idx in range(1, round_number):
+                self.e = self.alpha * float(obs[idx]) + (1.0 - self.alpha) * self.e
+        x_t = int(obs[-1])
+        m = self.game_description.m
+        L = m - 1
+        trend_ok = self._trend_non_decreasing(obs)
+        if x_t >= m:
+            self._last_processed_round = round_number
+            return Action.D
+        if (x_t == L or self.e >= L) and trend_ok:
+            self._last_processed_round = round_number
+            return Action.C
+        self._last_processed_round = round_number
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_20(BaseStrategy):
+    """
+    Always defect strategy for the Collective Risk Dilemma.
+    Ignores all history and returns Action.D in every round.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_21(BaseStrategy):
+    """
+    Threshold-seeking, evidence-conservative strategy for the Collective Risk Dilemma.
+
+    - Defect in round 1.
+    - Cooperate only when opponents are exactly one short of the threshold,
+      cooperation momentum is nonnegative when required, and the internal EWMA
+      estimate indicates the threshold is plausibly reachable.
+    - Defect otherwise.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.mode = Action.D
+        self._seen_rounds = 0
+        self._ewma = 0.0
+        self._last_h = None
+        self._prev_h = None
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n_rounds = self.game_description.n_rounds
+        m = self.game_description.m
+        n_players = self.game_description.n_players
+        if history.round_number == 0:
+            return Action.D
+        total_observed = history.round_number
+        if total_observed > self._seen_rounds:
+            for idx in range(self._seen_rounds, total_observed):
+                h = int(history.opponent_cooperators[idx])
+                if self._seen_rounds == 0 and idx == 0:
+                    self._ewma = float(h)
+                else:
+                    self._ewma = 0.6 * float(h) + 0.4 * float(self._ewma)
+                self._prev_h = self._last_h
+                self._last_h = h
+                self._seen_rounds += 1
+        current_round = history.round_number + 1
+        if self._last_h is None:
+            return Action.D
+        last = int(self._last_h)
+        trend = 0
+        if self._prev_h is not None:
+            trend = int(self._last_h) - int(self._prev_h)
+        threshold_minus_one = m - 2
+        ewma_estimate = float(self._ewma)
+        if current_round <= n_rounds - 2:
+            if last == threshold_minus_one and trend >= 0 and (ewma_estimate >= threshold_minus_one):
+                self.mode = Action.C
+                return Action.C
+            self.mode = Action.D
+            return Action.D
+        require_trend = m == n_players - 1
+        if last == threshold_minus_one and ewma_estimate >= threshold_minus_one:
+            if not require_trend or trend >= 0:
+                self.mode = Action.C
+                return Action.C
+        self.mode = Action.D
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_22(BaseStrategy):
+    """
+    Always defect in every round, ignoring all history.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_23(BaseStrategy):
+    """
+    Conservative threshold-response strategy for the Collective Risk Dilemma.
+
+    - Defect in the first and final rounds.
+    - In intermediate rounds, cooperate only if the last observed round
+      had exactly m - 1 cooperating opponents.
+    - With the persistence filter, cooperate in round t only if the two
+      most recent observed rounds were both at the near-threshold count
+      (m - 1), when available.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.m = int(game_description.m)
+        self.n_rounds = int(game_description.n_rounds)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = int(history.round_number)
+        if round_number == 0 or round_number >= self.n_rounds - 1:
+            return Action.D
+        if len(history.opponent_cooperators) == 0:
+            return Action.D
+        s1 = int(history.opponent_cooperators[-1])
+        if round_number == 1:
+            return Action.C if s1 == self.m - 1 else Action.D
+        if len(history.opponent_cooperators) < 2:
+            return Action.D
+        s2 = int(history.opponent_cooperators[-2])
+        if s1 == self.m - 1 and s2 == self.m - 1:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_24(BaseStrategy):
+    """
+    Conservative pivotal-cooperation strategy for the Collective Risk Dilemma.
+
+    - Round 1: defect.
+    - Later rounds: estimate the probability that exactly m-1 opponents cooperate
+      in the next round using smoothed historical frequency.
+    - Cooperate only when k * P(X = m-1) > 1, where X ~ Binomial(n-1, p_hat).
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+        self.n_opponents = max(0, self.n_players - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        t = int(history.round_number)
+        opp_hist = history.opponent_cooperators
+        h = int(np.sum(opp_hist)) if len(opp_hist) > 0 else 0
+        denom = t * self.n_opponents + 2
+        if denom <= 0:
+            return Action.D
+        p_hat = (h + 1.0) / denom
+        if p_hat <= 0.0:
+            p_hat = 0.0
+        elif p_hat >= 1.0:
+            p_hat = 1.0
+        x = self.m - 1
+        if x < 0 or x > self.n_opponents:
+            q = 0.0
+        else:
+            comb = math.comb(self.n_opponents, x)
+            q = comb * p_hat ** x * (1.0 - p_hat) ** (self.n_opponents - x)
+        if self.k * q > 1.0:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_25(BaseStrategy):
+    """
+    Default-defect threshold-follower for the Collective Risk Dilemma.
+
+    Cooperates only when the previous round's opponent cooperation count is
+    exactly m - 1 and the recent history suggests the group is stably near
+    the threshold; otherwise defects.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.m = game_description.m
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        m = self.m
+        n_obs = history.round_number
+        if n_obs == 0:
+            return Action.D
+        opp = history.opponent_cooperators
+        latest = int(opp[-1])
+        if latest != m - 1:
+            return Action.D
+        if n_obs < 2:
+            return Action.D
+        cond1 = int(opp[-2]) >= m - 1
+        cond2 = False
+        if n_obs >= 3:
+            cond2 = int(opp[-2]) == m - 2 and int(opp[-3]) >= m - 1
+        cond3 = False
+        if n_obs >= 3:
+            a = int(opp[-3])
+            b = int(opp[-2])
+            c = int(opp[-1])
+            cond3 = a <= b <= c and c == m - 1
+        if cond1 or cond2 or cond3:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_26(BaseStrategy):
+    """
+    Rolling-threshold strategy:
+    cooperate only when recent opponent cooperation makes the threshold
+    likely to be met; otherwise defect, with conservative defaults.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+        self._defect_forever = False
+        self._cooperate_forever = False
+        self._last_decision: Action | None = None
+
+    def _recent_average_opponents(self, history: PlayerHistory) -> float:
+        t = history.round_number
+        if t <= 0:
+            return 0.0
+        L = min(5, t)
+        recent = history.opponent_cooperators[-L:]
+        if len(recent) == 0:
+            return 0.0
+        return float(np.mean(recent))
+
+    def _recent_window_all_below(self, history: PlayerHistory, threshold: int) -> bool:
+        t = history.round_number
+        if t <= 0:
+            return False
+        L = min(5, t)
+        recent = history.opponent_cooperators[-L:]
+        if len(recent) == 0:
+            return False
+        return bool(np.all(recent < threshold))
+
+    def _recent_window_all_at_least(self, history: PlayerHistory, threshold: int) -> bool:
+        t = history.round_number
+        if t <= 0:
+            return False
+        L = min(5, t)
+        recent = history.opponent_cooperators[-L:]
+        if len(recent) == 0:
+            return False
+        return bool(np.all(recent >= threshold))
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        round_number = history.round_number
+        last_round = round_number >= max(self.n_rounds - 1, 0)
+        if round_number == 0:
+            if self.m <= 2:
+                self._last_decision = Action.C
+                return Action.C
+            self._last_decision = Action.D
+            return Action.D
+        if self._cooperate_forever:
+            if last_round:
+                recent_avg = self._recent_average_opponents(history)
+                if recent_avg + 1.0 >= self.m and recent_avg >= self.m - 2:
+                    self._last_decision = Action.C
+                    return Action.C
+                self._last_decision = Action.D
+                return Action.D
+            self._last_decision = Action.C
+            return Action.C
+        if self._defect_forever:
+            self._last_decision = Action.D
+            return Action.D
+        if self.m == 2:
+            if history.opponent_cooperators[-1] >= 1:
+                self._last_decision = Action.C
+                return Action.C
+            self._defect_forever = True
+            self._last_decision = Action.D
+            return Action.D
+        recent_avg = self._recent_average_opponents(history)
+        if self._recent_window_all_below(history, self.m - 2):
+            self._defect_forever = True
+            self._last_decision = Action.D
+            return Action.D
+        if self._recent_window_all_at_least(history, self.m - 1):
+            self._cooperate_forever = True
+            if last_round:
+                if recent_avg + 1.0 >= self.m and recent_avg >= self.m - 2:
+                    self._last_decision = Action.C
+                    return Action.C
+                self._last_decision = Action.D
+                return Action.D
+            self._last_decision = Action.C
+            return Action.C
+        cooperate = recent_avg + 1.0 >= self.m and recent_avg >= self.m - 2
+        if last_round and (not cooperate):
+            self._last_decision = Action.D
+            return Action.D
+        if cooperate:
+            self._last_decision = Action.C
+            return Action.C
+        self._last_decision = Action.D
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_27(BaseStrategy):
+    """
+    Individualistic threshold-pivot strategy for the Collective Risk Dilemma.
+
+    - Defect in round 1.
+    - Cooperate only when the previous round's opponent cooperation count was
+      exactly m - 1, i.e. when our cooperation would be immediately pivotal.
+    - Defect otherwise, including when the threshold is already met or exceeded.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.need = max(0, game_description.m - 1)
+        self.last_observed_opp_coops = None
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            self.last_observed_opp_coops = None
+            return Action.D
+        x = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        self.last_observed_opp_coops = x
+        if x == self.need:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_28(BaseStrategy):
+    """
+    Always defect in every round of the Collective Risk Dilemma.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = getattr(game_description, 'n_players', 0)
+        self.n_rounds = getattr(game_description, 'n_rounds', 0)
+        self.m = getattr(game_description, 'm', 0)
+        self.k = getattr(game_description, 'k', 0.0)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_29(BaseStrategy):
+    """
+    Guarded threshold strategy with a personal reservation level.
+
+    - Cooperates only when prior support was clearly sufficient.
+    - Defects immediately when the threshold appears uncertain.
+    - Never attempts to rescue the threshold alone.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n = int(game_description.n_players)
+        self.r = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+        self.need = self.m
+        self.margin = 1
+        self.safe = self.m - self.margin
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.C if self.m == 2 else Action.D
+        prev_opponents = int(history.opponent_cooperators[-1]) if len(history.opponent_cooperators) > 0 else 0
+        prev_my_action = bool(history.my_actions[-1]) if len(history.my_actions) > 0 else False
+        prev_total = prev_opponents + (1 if prev_my_action else 0)
+        if t == self.r - 1:
+            return Action.C if prev_total >= self.m + 1 else Action.D
+        if prev_total >= self.m and prev_opponents >= self.safe:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_30(BaseStrategy):
+    """
+    Default-defect, near-threshold contingent cooperator.
+
+    Cooperates only when the opponents have shown stable support right at the
+    pivotal threshold (m - 1) for enough recent rounds.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.threshold_support = max(0, game_description.m - 1)
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        if history.round_number == 0:
+            return Action.D
+        opp = history.opponent_cooperators
+        n_obs = len(opp)
+        if n_obs == 0:
+            return Action.D
+        support = self.threshold_support
+        last = int(opp[-1])
+        if last != support:
+            return Action.D
+        if n_obs >= 2 and int(opp[-2]) != support:
+            return Action.D
+        recent = opp[-3:] if n_obs >= 3 else opp
+        count_at_or_above = 0
+        for val in recent:
+            if int(val) >= support:
+                count_at_or_above += 1
+        if count_at_or_above < 2:
+            return Action.D
+        return Action.C
+
+class Strategy_INDIVIDUALISTIC_31(BaseStrategy):
+    """
+    Conservative threshold-tipping strategy.
+
+    - Defaults to defection.
+    - Cooperates only when estimated support is just below the threshold and
+      recent history suggests this player's move may be decisive.
+    - Uses a smoothed estimate of opponent cooperation and suppresses probing
+      in the final two rounds.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        n = int(getattr(game_description, 'n_players', 0))
+        m = int(getattr(game_description, 'm', 0))
+        denom = max(n - 1, 1)
+        self._p_est = (m - 1) / denom if denom > 0 else 0.0
+        self._last_processed_round = 0
+        self._seen_threshold_reached = False
+
+    def _near_threshold_support(self, h_prev: int) -> bool:
+        m = int(self.game_description.m)
+        if m <= 2:
+            return h_prev >= 1
+        return h_prev >= m - 1
+
+    def _update_from_history(self, history: PlayerHistory) -> None:
+        n = int(self.game_description.n_players)
+        denom = max(n - 1, 1)
+        while self._last_processed_round < history.round_number:
+            idx = self._last_processed_round
+            h_t = int(history.opponent_cooperators[idx]) if idx < len(history.opponent_cooperators) else 0
+            if h_t >= max(int(self.game_description.m) - 1, 0):
+                self._seen_threshold_reached = True
+            observed_rate = h_t / denom if denom > 0 else 0.0
+            self._p_est = 0.7 * self._p_est + 0.3 * observed_rate
+            self._last_processed_round += 1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        n = int(self.game_description.n_players)
+        r = int(self.game_description.n_rounds)
+        m = int(self.game_description.m)
+        if history.round_number <= 0:
+            return Action.D
+        self._update_from_history(history)
+        current_round_index = history.round_number
+        rounds_remaining = max(r - current_round_index, 0)
+        if len(history.opponent_cooperators) < 1:
+            return Action.D
+        h_prev = int(history.opponent_cooperators[-1])
+        h_prev2 = int(history.opponent_cooperators[-2]) if len(history.opponent_cooperators) >= 2 else -1
+        denom = max(n - 1, 1)
+        expected_support = self._p_est * (n - 1) if denom > 0 else 0.0
+        margin = expected_support - (m - 1)
+        if rounds_remaining <= 2:
+            if expected_support < m - 1:
+                return Action.D
+            if expected_support < m:
+                return Action.C
+            return Action.D
+        if not self._seen_threshold_reached and current_round_index % 3 == 0 and (h_prev == m - 2):
+            return Action.C
+        recent_support = self._near_threshold_support(h_prev) or (h_prev == m - 2 and h_prev2 >= m - 2)
+        if 0 <= margin < 1 and recent_support:
+            return Action.C
+        return Action.D
+
+class Strategy_INDIVIDUALISTIC_32(BaseStrategy):
+    """
+    Opportunistic threshold strategy:
+    - Start with defection.
+    - Cooperate only when the previous round and recent history indicate the
+      opponents are repeatedly sitting exactly at the critical threshold m - 1.
+    """
+
+    def __init__(self, game_description: CollectiveRiskDescription):
+        self.game_description = game_description
+        self.n_players = int(game_description.n_players)
+        self.n_rounds = int(game_description.n_rounds)
+        self.m = int(game_description.m)
+        self.k = float(game_description.k)
+        self.threshold = self.m - 1
+
+    def __call__(self, history: PlayerHistory) -> Action:
+        t = history.round_number
+        if t == 0:
+            return Action.D
+        opp = history.opponent_cooperators
+        prev_h = int(opp[-1])
+        if prev_h != self.threshold:
+            return Action.D
+        W = min(4, t - 1)
+        if W <= 0:
+            return Action.C
+        recent = opp[-W:]
+        recent_list = [int(x) for x in recent]
+        avg = float(sum(recent_list)) / float(W) if W > 0 else 0.0
+        required = int(math.ceil(W / 2.0))
+        count_ge = sum((1 for x in recent_list if x >= self.threshold))
+        if avg >= self.threshold and count_ge >= required:
+            return Action.C
+        return Action.D
