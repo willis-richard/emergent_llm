@@ -10,7 +10,6 @@ from .configs import (
     CulturalEvolutionConfig,
     MixtureKey,
     OutputStyle,
-    SurvivorRecord,
 )
 from .cultural_evolution import CulturalEvolution
 from .fair_tournament import FairTournament
@@ -56,5 +55,4 @@ __all__ = [
     'MixtureTournamentSummary',
     'OutputStyle',
     'PlayerStats',
-    'SurvivorRecord'
 ]

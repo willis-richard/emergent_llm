@@ -27,10 +27,10 @@ class PublicGoodsDescription(GameDescription):
     def game_type(cls) -> type[PublicGoodsGame]:
         return PublicGoodsGame
 
-    def max_social_welfare(self) -> float:
+    def max_player_welfare(self) -> float:
         return self.k * self.n_rounds
 
-    def min_social_welfare(self) -> float:
+    def min_player_welfare(self) -> float:
         return self.n_rounds
 
     def max_payoff(self) -> float:

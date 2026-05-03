@@ -89,76 +89,38 @@ class BatchTournamentConfig:
         return f"rep{self.repetitions}"
 
 
-@dataclass(frozen=True)
-class SurvivorRecord:
-    """Record of a survivor from selection."""
-    gene: Gene
-    strategy_name: str
-    fitness: float
-
-    def to_dict(self) -> dict:
-        return {
-            'gene': {
-                'model': self.gene.model,
-                'attitude': self.gene.attitude.value
-            },
-            'strategy_name': self.strategy_name,
-            'fitness': self.fitness
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> 'SurvivorRecord':
-        gene = Gene.from_dict(data['gene'])
-        return cls(gene=gene,
-                   strategy_name=data['strategy_name'],
-                   fitness=data['fitness'])
-
-    @property
-    def name(self):
-        return f"{self.gene}[{self.strategy_name}]"
-
-
 @dataclass
 class CulturalEvolutionConfig:
-    """Configuration for cultural evolution tournament."""
+    """Configuration for cultural evolution under Fermi pairwise-comparison dynamics."""
     game_description: GameDescription
     population_size: int
-    top_k: int  # Number of survivors each generation
-    mutation_rate: float  # Probability of mutation during reproduction
-    threshold_pct: float  # Terminate when any gene reaches this % (0-1)
+    mutation_rate: float
+    beta: float
+    threshold_pct: float
     max_generations: int
-    repetitions_per_generation: int  # How many games each player plays per generation
+    games_per_agent: int
 
     def __post_init__(self):
-        """Validate configuration parameters."""
         if self.population_size <= 0:
             raise ValueError("population_size must be positive")
-
         if self.population_size % self.game_description.n_players != 0:
             raise ValueError(
                 f"population_size ({self.population_size}) must be divisible by "
                 f"n_players ({self.game_description.n_players})")
-
-        if not (0 < self.top_k < self.population_size):
-            raise ValueError(
-                f"top_k ({self.top_k}) must be between 0 and population_size ({self.population_size})"
-            )
-
         if not (0 <= self.mutation_rate <= 1):
             raise ValueError(
-                f"mutation_rate must be between 0 and 1, got {self.mutation_rate}"
-            )
-
+                f"mutation_rate must be in [0, 1], got {self.mutation_rate}")
+        if not (0 < self.beta <= 1):
+            raise ValueError(
+                f"beta (beta) must be in (0, 1] for proportional "
+                f"imitation, got {self.beta}")
         if not (0 < self.threshold_pct <= 1):
             raise ValueError(
-                f"threshold_pct must be between 0 and 1, got {self.threshold_pct}"
-            )
-
+                f"threshold_pct must be in (0, 1], got {self.threshold_pct}")
         if self.max_generations <= 0:
             raise ValueError("max_generations must be positive")
-
-        if self.repetitions_per_generation <= 0:
-            raise ValueError("repetitions_per_generation must be positive")
+        if self.games_per_agent <= 0:
+            raise ValueError("games_per_agent must be positive")
 
     def serialise(self) -> dict:
         data = asdict(self)
@@ -171,15 +133,14 @@ class CulturalEvolutionConfig:
         class_name = gd_data.pop('__class__')
         game_cls = get_description_type(class_name)
         game_description = game_cls(**gd_data)
-
         return cls(
             game_description=game_description,
             population_size=data['population_size'],
-            top_k=data['top_k'],
             mutation_rate=data['mutation_rate'],
+            beta=data['beta'],
             threshold_pct=data['threshold_pct'],
             max_generations=data['max_generations'],
-            repetitions_per_generation=data['repetitions_per_generation'],
+            games_per_agent=data['games_per_agent'],
         )
 
 
@@ -213,26 +174,21 @@ class BatchCulturalEvolutionConfig:
 
     @property
     def _experiment_dir_name(self) -> str:
-        """Generate unique experiment directory name from config."""
-
         cfg = self.evolution_config
         gd = cfg.game_description
-
         parts = [
             f"n{gd.n_players}",
             f"r{gd.n_rounds}",
             f"pop{cfg.population_size}",
-            f"top{cfg.top_k}",
             f"mut{cfg.mutation_rate}",
+            f"beta{cfg.beta}",
             f"thr{cfg.threshold_pct}",
             f"gen{cfg.max_generations}",
-            f"rep{cfg.repetitions_per_generation}",
+            f"games{cfg.games_per_agent}",
         ]
-
         if self.models:
             models_str = "-".join(sorted(self.models))
             parts.append(f"models_{models_str}")
-
         return "_".join(parts)
 
     @classmethod
