@@ -4,7 +4,6 @@ import json
 import math
 from collections import Counter
 from dataclasses import asdict, dataclass, field
-from enum import StrEnum
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -13,7 +12,6 @@ import pandas as pd
 from matplotlib.ticker import MaxNLocator, MultipleLocator, PercentFormatter
 
 from emergent_llm.common import Attitude, Gene, PlayerId, setup
-from emergent_llm.games import get_description_type
 from emergent_llm.tournament.configs import (
     BaseTournamentConfig,
     BatchCulturalEvolutionConfig,
@@ -21,7 +19,6 @@ from emergent_llm.tournament.configs import (
     CulturalEvolutionConfig,
     MixtureKey,
     OutputStyle,
-    SurvivorRecord,
 )
 
 FIGSIZE, FORMAT = setup('3_col_paper')
@@ -188,7 +185,7 @@ class MixtureTournamentSummary:
                 'n_exploitative': result.n_exploitative,
                 'mean_collective_score': result.mean_collective_score,
                 'mean_exploitative_score': result.mean_exploitative_score,
-                'mean_social_welfare': result.mean_social_welfare,
+                'mean_player_welfare': result.mean_player_welfare,
                 'matches_played': result.matches_played,
             })
         return cls(results_df=pd.DataFrame(rows))
@@ -199,16 +196,13 @@ class CulturalEvolutionSummary:
     """Summary statistics from cultural evolution tournament."""
     gene_frequency_df: pd.DataFrame
     generation_stats_df: pd.DataFrame
-    survivor_summary_df: pd.DataFrame
+    strategy_summary_df: pd.DataFrame  # built from retention_history
 
     def to_dict(self) -> dict:
         return {
-            'gene_frequency':
-                self.gene_frequency_df.to_dict(orient='records'),
-            'generation_stats':
-                self.generation_stats_df.to_dict(orient='records'),
-            'survivor_summary':
-                self.survivor_summary_df.to_dict(orient='records'),
+            'gene_frequency': self.gene_frequency_df.to_dict(orient='records'),
+            'generation_stats': self.generation_stats_df.to_dict(orient='records'),
+            'strategy_summary': self.strategy_summary_df.to_dict(orient='records'),
         }
 
     @classmethod
@@ -220,25 +214,21 @@ class CulturalEvolutionSummary:
         return cls(
             gene_frequency_df=gene_freq_df,
             generation_stats_df=gen_stats_df,
-            survivor_summary_df=pd.DataFrame.from_records(
-                data['survivor_summary']),
+            strategy_summary_df=pd.DataFrame.from_records(data['strategy_summary']),
         )
 
     @classmethod
     def from_raw_data(
-            cls, gene_frequency_history: list[dict[Gene, float]],
-            survivor_history: list[list[SurvivorRecord]],
+            cls,
+            gene_frequency_history: list[dict[Gene, float]],
             generation_results: list['FairTournamentResults'],
+            retention_history: list[dict[tuple[Gene, str], int]],
             config: CulturalEvolutionConfig) -> 'CulturalEvolutionSummary':
-        """Compute summary from raw data."""
-        gene_frequency_df = cls._build_gene_frequency_df(gene_frequency_history)
-        generation_stats_df = cls._build_generation_stats_df(
-            generation_results, gene_frequency_history, config)
-        survivor_summary_df = cls._build_survivor_summary_df(survivor_history)
         return cls(
-            gene_frequency_df=gene_frequency_df,
-            generation_stats_df=generation_stats_df,
-            survivor_summary_df=survivor_summary_df,
+            gene_frequency_df=cls._build_gene_frequency_df(gene_frequency_history),
+            generation_stats_df=cls._build_generation_stats_df(
+                generation_results, gene_frequency_history, config),
+            strategy_summary_df=cls._build_strategy_summary_df(retention_history),
         )
 
     @staticmethod
@@ -248,12 +238,10 @@ class CulturalEvolutionSummary:
         for gen_freqs in gene_frequency_history:
             all_genes.update(gen_freqs.keys())
         all_genes = sorted(all_genes, key=str)
-
-        rows = []
-        for gen_freqs in gene_frequency_history:
-            row = {str(gene): gen_freqs.get(gene, 0.0) for gene in all_genes}
-            rows.append(row)
-
+        rows = [
+            {str(gene): gen_freqs.get(gene, 0.0) for gene in all_genes}
+            for gen_freqs in gene_frequency_history
+        ]
         df = pd.DataFrame(rows)
         df.index.name = 'generation'
         return df
@@ -267,41 +255,32 @@ class CulturalEvolutionSummary:
         total_rounds = config.game_description.n_rounds
 
         for generation, gen_result in enumerate(generation_results):
-            collective_payoffs = []
-            exploitative_payoffs = []
-            all_payoffs = []
-            cooperations = []
+            collective_payoffs, exploitative_payoffs = [], []
+            all_payoffs, cooperations = [], []
 
             for _, row in gen_result.summary.results_df.iterrows():
                 all_payoffs.append(row['mean_payoff'])
                 cooperations.append(row['mean_cooperations'] / total_rounds)
-
-                row_attitude = Attitude(row['player_attitude']).to_base_attitude()
-                if row_attitude == Attitude.COLLECTIVE:
+                base_attitude = Attitude(row['player_attitude']).to_base_attitude()
+                if base_attitude == Attitude.COLLECTIVE:
                     collective_payoffs.append(row['mean_payoff'])
-                elif row_attitude == Attitude.EXPLOITATIVE:
+                elif base_attitude == Attitude.EXPLOITATIVE:
                     exploitative_payoffs.append(row['mean_payoff'])
 
             gen_freqs = gene_frequency_history[generation]
-            collective_freq = sum(freq for gene, freq in gen_freqs.items()
-                                  if gene.attitude.to_base_attitude() ==
-                                  Attitude.COLLECTIVE)
+            collective_freq = sum(
+                f for g, f in gen_freqs.items()
+                if g.attitude.to_base_attitude() == Attitude.COLLECTIVE)
 
             stats_rows.append({
                 'collective_mean_payoff':
-                    np.mean(collective_payoffs)
-                    if collective_payoffs else np.nan,
+                    np.mean(collective_payoffs) if collective_payoffs else np.nan,
                 'exploitative_mean_payoff':
-                    np.mean(exploitative_payoffs)
-                    if exploitative_payoffs else np.nan,
-                'overall_mean_payoff':
-                    np.mean(all_payoffs),
-                'cooperation_rate':
-                    np.mean(cooperations),
-                'collective_frequency':
-                    collective_freq,
-                'exploitative_frequency':
-                    1 - collective_freq,
+                    np.mean(exploitative_payoffs) if exploitative_payoffs else np.nan,
+                'overall_mean_payoff': np.mean(all_payoffs),
+                'cooperation_rate': np.mean(cooperations),
+                'collective_frequency': collective_freq,
+                'exploitative_frequency': 1 - collective_freq,
             })
 
         df = pd.DataFrame(stats_rows)
@@ -309,39 +288,30 @@ class CulturalEvolutionSummary:
         return df
 
     @staticmethod
-    def _build_survivor_summary_df(
-            survivor_history: list[list[SurvivorRecord]]) -> pd.DataFrame:
-        strategy_counts: Counter[str] = Counter()
-        strategy_genes: dict[str, Gene] = {}
-        strategy_total_fitness: dict[str, float] = Counter()
+    def _build_strategy_summary_df(
+            retention_history: list[dict[tuple[Gene, str], int]]) -> pd.DataFrame:
+        """Aggregate retention counts across all generations of a single run.
 
-        for gen_survivors in survivor_history:
-            for record in gen_survivors:
-                strategy_counts[record.name] += 1
-                strategy_genes[record.name] = record.gene
-                strategy_total_fitness[record.name] += record.fitness
+        Two count columns:
+        - retention_count: total retentions across the run
+        - final_retention_count: retentions in the final recorded generation
+        """
+        total: Counter[tuple[Gene, str]] = Counter()
+        for gen_map in retention_history:
+            total.update(gen_map)
+
+        final_map = retention_history[-1] if retention_history else {}
 
         rows = []
-        for name, count in strategy_counts.most_common():
-            gene = strategy_genes[name]
-            avg_fitness = strategy_total_fitness[name] / count
+        for (gene, strategy_name), count in total.most_common():
             rows.append({
-                'strategy':
-                    name,
-                'gene':
-                    str(gene),
-                'model':
-                    gene.model,
-                'attitude':
-                    gene.attitude.value,
-                'survival_count':
-                    count,
-                'survival_rate':
-                    count / len(survivor_history) if survivor_history else 0,
-                'mean_fitness':
-                    avg_fitness,
+                'strategy': strategy_name,
+                'gene': str(gene),
+                'model': gene.model,
+                'attitude': gene.attitude.value,
+                'retention_count': count,
+                'final_retention_count': final_map.get((gene, strategy_name), 0),
             })
-
         return pd.DataFrame(rows)
 
 
@@ -443,7 +413,7 @@ class MixtureResult:
             self.exploitative_scores)) if self.exploitative_scores else np.nan
 
     @property
-    def mean_social_welfare(self) -> float:
+    def mean_player_welfare(self) -> float:
         all_scores = self.collective_scores + self.exploitative_scores
         return float(np.mean(all_scores)) if all_scores else np.nan
 
@@ -700,7 +670,7 @@ class CulturalEvolutionResults:
     final_generation: int
     final_gene_frequencies: dict[Gene, float]
     gene_frequency_history: list[dict[Gene, float]]
-    survivor_history: list[list[SurvivorRecord]]
+    retention_history: list[dict[tuple[Gene, str], int]]
     summary: CulturalEvolutionSummary
     generation_results: list[FairTournamentResults] | None = None
 
@@ -713,8 +683,8 @@ class CulturalEvolutionResults:
         return self.summary.generation_stats_df
 
     @property
-    def survivor_summary_df(self) -> pd.DataFrame:
-        return self.summary.survivor_summary_df
+    def strategy_summary_df(self) -> pd.DataFrame:
+        return self.summary.strategy_summary_df
 
     @property
     def winning_gene(self) -> Gene:
@@ -722,46 +692,55 @@ class CulturalEvolutionResults:
 
     def __str__(self) -> str:
         lines = [
-            f"Cultural Evolution Results",
+            "Cultural Evolution Results",
             f"Final generation: {self.final_generation}",
-            f"Final gene frequencies:"
+            "Final gene frequencies:",
         ]
         for gene, freq in sorted(self.final_gene_frequencies.items(),
-                                 key=lambda x: x[1],
-                                 reverse=True):
+                                 key=lambda x: x[1], reverse=True):
             lines.append(f"  {gene}: {freq:.2%}")
 
-        lines.append(
-            f"\nTop surviving strategies (across {len(self.survivor_history)} generations):"
-        )
-        for _, row in self.survivor_summary_df.head(10).iterrows():
-            lines.append(
-                f"  {row['strategy']} ({row['gene']}): "
-                f"survived {row['survival_count']}x, mean fitness {row['mean_fitness']:.2f}"
-            )
+        if not self.strategy_summary_df.empty:
+            lines.append("\nMost retained strategies (cumulative):")
+            for _, row in self.strategy_summary_df.head(10).iterrows():
+                lines.append(
+                    f"  {row['strategy']} ({row['model']}, {row['attitude']}): "
+                    f"{row['retention_count']} retentions"
+                )
+
+            final_gen_df = self.strategy_summary_df[
+                self.strategy_summary_df['final_retention_count'] > 0
+            ].sort_values('final_retention_count', ascending=False)
+
+            if not final_gen_df.empty:
+                lines.append("\nMost common strategies in the final generation:")
+                for _, row in final_gen_df.head(10).iterrows():
+                    lines.append(
+                        f"  {row['strategy']} ({row['model']}, {row['attitude']}): "
+                        f"{row['final_retention_count']} agents"
+                    )
 
         return "\n".join(lines)
 
     def serialise(self, style: OutputStyle = OutputStyle.FULL) -> dict:
-        config_dict = self.config.serialise()
-
         data = {
-            'config': config_dict,
+            'config': self.config.serialise(),
             'final_generation': self.final_generation,
-            'final_gene_frequencies': [{
-                'gene': asdict(gene),
-                'frequency': freq
-            } for gene, freq in self.final_gene_frequencies.items()],
-            'gene_frequency_history':
-                [[{
-                    'gene': asdict(gene),
-                    'frequency': freq
-                }
-                  for gene, freq in gen_freqs.items()]
-                 for gen_freqs in self.gene_frequency_history],
-            'survivor_history': [[record.to_dict()
-                                  for record in gen_survivors]
-                                 for gen_survivors in self.survivor_history],
+            'final_gene_frequencies': [
+                {'gene': asdict(g), 'frequency': f}
+                for g, f in self.final_gene_frequencies.items()
+            ],
+            'gene_frequency_history': [
+                [{'gene': asdict(g), 'frequency': f} for g, f in gen_freqs.items()]
+                for gen_freqs in self.gene_frequency_history
+            ],
+            'retention_history': [
+                [
+                    {'gene': asdict(gene), 'strategy': strategy_name, 'count': count}
+                    for (gene, strategy_name), count in gen_map.items()
+                ]
+                for gen_map in self.retention_history
+            ],
             'result_type': 'CulturalEvolutionResults',
         }
 
@@ -772,11 +751,9 @@ class CulturalEvolutionResults:
             data['generation_results'] = [
                 r.serialise(style) for r in self.generation_results
             ]
-
         return data
 
-    def save(self,
-             output_dir: Path,
+    def save(self, output_dir: Path,
              style: OutputStyle = OutputStyle.FULL) -> Path:
         output_dir = Path(output_dir)
         filepath = output_dir / f"{self.FILENAME}{style.get_suffix()}"
@@ -791,44 +768,47 @@ class CulturalEvolutionResults:
             Gene.from_dict(item['gene']): item['frequency']
             for item in data['final_gene_frequencies']
         }
-
-        gene_frequency_history = [{
-            Gene.from_dict(item['gene']): item['frequency'] for item in gen_freqs
-        } for gen_freqs in data['gene_frequency_history']]
-
-        survivor_history = [[
-            SurvivorRecord.from_dict(record) for record in gen_survivors
-        ] for gen_survivors in data['survivor_history']]
+        gene_frequency_history = [
+            {Gene.from_dict(item['gene']): item['frequency'] for item in gen_freqs}
+            for gen_freqs in data['gene_frequency_history']
+        ]
+        retention_history = [
+            {
+                (Gene.from_dict(rec['gene']), rec['strategy']): rec['count']
+                for rec in gen_records
+            }
+            for gen_records in data['retention_history']
+        ]
 
         if 'generation_results' in data:
             generation_results = [
-                FairTournamentResults.from_dict(r)
-                for r in data['generation_results']
+                FairTournamentResults.from_dict(r) for r in data['generation_results']
             ]
             summary = CulturalEvolutionSummary.from_raw_data(
-                gene_frequency_history, survivor_history, generation_results,
-                config)
+                gene_frequency_history, generation_results,
+                retention_history, config)
         else:
             generation_results = None
             gene_frequency_df = CulturalEvolutionSummary._build_gene_frequency_df(
                 gene_frequency_history)
-            survivor_summary_df = CulturalEvolutionSummary._build_survivor_summary_df(
-                survivor_history)
-            generation_stats_df = pd.DataFrame.from_records(
-                data['generation_stats'])
+            strategy_summary_df = CulturalEvolutionSummary._build_strategy_summary_df(
+                retention_history)
+            generation_stats_df = pd.DataFrame.from_records(data['generation_stats'])
             generation_stats_df.index.name = 'generation'
             summary = CulturalEvolutionSummary(
                 gene_frequency_df=gene_frequency_df,
                 generation_stats_df=generation_stats_df,
-                survivor_summary_df=survivor_summary_df)
+                strategy_summary_df=strategy_summary_df)
 
-        return cls(config=config,
-                   final_generation=data['final_generation'],
-                   final_gene_frequencies=final_gene_frequencies,
-                   gene_frequency_history=gene_frequency_history,
-                   survivor_history=survivor_history,
-                   summary=summary,
-                   generation_results=generation_results)
+        return cls(
+            config=config,
+            final_generation=data['final_generation'],
+            final_gene_frequencies=final_gene_frequencies,
+            gene_frequency_history=gene_frequency_history,
+            retention_history=retention_history,
+            summary=summary,
+            generation_results=generation_results,
+        )
 
     @classmethod
     def load(cls, output_dir: Path) -> 'CulturalEvolutionResults':
@@ -836,8 +816,7 @@ class CulturalEvolutionResults:
         data = _load_json(filepath)
         if data.get('result_type') != 'CulturalEvolutionResults':
             raise ValueError(
-                f"Expected CulturalEvolutionResults, got {data.get('result_type')}"
-            )
+                f"Expected CulturalEvolutionResults, got {data.get('result_type')}")
         return cls.from_dict(data)
 
     def plot_gene_frequencies(self, output_dir: Path):
@@ -1101,7 +1080,7 @@ class BatchMixtureTournamentResults:
         combined_df = pd.concat(combined_rows, ignore_index=True)
         object.__setattr__(self, '_combined_df', combined_df)
 
-        summary_df = combined_df.pivot_table(values='mean_social_welfare',
+        summary_df = combined_df.pivot_table(values='mean_player_welfare',
                                              index='collective_ratio',
                                              columns='group_size',
                                              fill_value=np.nan)
@@ -1117,7 +1096,7 @@ class BatchMixtureTournamentResults:
         return self._summary_df
 
     def __str__(self) -> str:
-        pivot_df = self.combined_df.pivot_table(values='mean_social_welfare',
+        pivot_df = self.combined_df.pivot_table(values='mean_player_welfare',
                                                 index='collective_ratio',
                                                 columns='group_size',
                                                 fill_value=np.nan)
@@ -1173,14 +1152,14 @@ class BatchMixtureTournamentResults:
 
         for group_size in group_sizes:
             gd = self.mixture_results[group_size].config.game_description
-            min_welfare = gd.min_social_welfare()
-            max_welfare = gd.max_social_welfare()
+            min_welfare = gd.min_player_welfare()
+            max_welfare = gd.max_player_welfare()
 
             group_data = self.combined_df[self.combined_df['group_size'] ==
                                         group_size]
             group_data = group_data.sort_values('collective_ratio')
 
-            efficiency = ((group_data['mean_social_welfare'] - min_welfare) /
+            efficiency = ((group_data['mean_player_welfare'] - min_welfare) /
                         (max_welfare - min_welfare))
 
             ax.plot(group_data['collective_ratio'] * 100,
@@ -1270,98 +1249,82 @@ class BatchCulturalEvolutionResults:
     runs: list[CulturalEvolutionResults]
     _run_summary_df: pd.DataFrame = field(default=None, init=False, repr=False)
     _gene_summary_df: pd.DataFrame = field(default=None, init=False, repr=False)
-    _strategy_summary_df: pd.DataFrame = field(default=None,
-                                               init=False,
-                                               repr=False)
+    _strategy_summary_df: pd.DataFrame = field(default=None, init=False, repr=False)
 
     def __post_init__(self):
         if not self.runs:
             raise ValueError("Cannot create results with no runs")
 
+        # Per-run summary
         run_rows = []
         for run_idx, run in enumerate(self.runs):
-            winning_gene = run.winning_gene
-            winning_frequency = run.final_gene_frequencies[winning_gene]
-
+            winner = run.winning_gene
+            winning_frequency = run.final_gene_frequencies[winner]
             n_rounds = run.config.game_description.n_rounds
-            normalised_collective_payoff = run.generation_stats_df.iloc[-1]['collective_mean_payoff'] / n_rounds
-            normalised_exploitative_payoff = run.generation_stats_df.iloc[-1]['exploitative_mean_payoff'] / n_rounds
-            normalised_social_welfare = run.generation_stats_df.iloc[-1]['overall_mean_payoff'] / n_rounds
+            last_stats = run.generation_stats_df.iloc[-1]
 
             run_rows.append({
                 'run': run_idx,
                 'generations': run.final_generation,
-                'winning_gene': str(winning_gene),
-                'winning_model': winning_gene.model,
-                'winning_attitude': winning_gene.attitude.value,
-                'winning_frequency': winning_frequency,
+                'dominant_gene': str(winner),
+                'dominant_model': winner.model,
+                'dominant_attitude': winner.attitude.value,
+                'dominant_frequency': winning_frequency,
                 'threshold_met': winning_frequency >= run.config.threshold_pct,
-                'normalised_collective_payoff': normalised_collective_payoff,
-                'normalised_exploitative_payoff': normalised_exploitative_payoff,
-                'normalised_social_welfare': normalised_social_welfare})
-
+                'normalised_collective_payoff':
+                    last_stats['collective_mean_payoff'] / n_rounds,
+                'normalised_exploitative_payoff':
+                    last_stats['exploitative_mean_payoff'] / n_rounds,
+                'normalised_social_welfare':
+                    last_stats['overall_mean_payoff'] / n_rounds,
+            })
         object.__setattr__(self, '_run_summary_df', pd.DataFrame(run_rows))
 
+        # Per-gene summary across runs
         all_genes = set()
         for run in self.runs:
             all_genes.update(run.final_gene_frequencies.keys())
-
-        win_counts = {}
-        for run in self.runs:
-            winner = run.winning_gene
-            win_counts[winner] = win_counts.get(winner, 0) + 1
+        wins: Counter[Gene] = Counter(run.winning_gene for run in self.runs)
 
         gene_rows = []
         for gene in sorted(all_genes, key=str):
             frequencies = [
-                run.final_gene_frequencies.get(gene, 0.0)
-                for run in self.runs
-                if gene in run.final_gene_frequencies
+                run.final_gene_frequencies.get(gene, 0.0) for run in self.runs
             ]
-            wins = win_counts.get(gene, 0)
             gene_rows.append({
                 'gene': str(gene),
                 'model': gene.model,
                 'attitude': gene.attitude.value,
-                'wins': wins,
-                'win_proportion': wins / len(self.runs),
-                'mean_frequency': np.mean(frequencies) if frequencies else 0.0,
-                'std_frequency': np.std(frequencies) if frequencies else 0.0,
+                'wins': wins.get(gene, 0),
+                'win_proportion': wins.get(gene, 0) / len(self.runs),
+                'mean_frequency': float(np.mean(frequencies)),
+                'std_frequency': float(np.std(frequencies)),
             })
-
         object.__setattr__(
             self, '_gene_summary_df',
             pd.DataFrame(gene_rows).sort_values('wins', ascending=False))
 
-        strategy_counts: Counter[str] = Counter()
-        strategy_genes: dict[str, Gene] = {}
-        strategy_fitness_sum: dict[str, float] = Counter()
-        strategy_fitness_count: dict[str, int] = Counter()
-
+        # Per-strategy summary across runs (sum retentions across all runs and generations)
+        total_retention: Counter[tuple[Gene, str]] = Counter()
+        final_retention: Counter[tuple[Gene, str]] = Counter()
         for run in self.runs:
-            if run.survivor_history:
-                for record in run.survivor_history[-1]:
-                    strategy_counts[record.name] += 1
-                    strategy_genes[record.name] = record.gene
-                    strategy_fitness_sum[record.name] += record.fitness
-                    strategy_fitness_count[record.name] += 1
+            for gen_map in run.retention_history:
+                total_retention.update(gen_map)
+            if run.retention_history:
+                final_retention.update(run.retention_history[-1])
 
         strat_rows = []
-        for name, count in strategy_counts.most_common():
-            gene = strategy_genes[name]
-            avg_fitness = strategy_fitness_sum[name] / strategy_fitness_count[
-                name]
+        for (gene, strategy_name), count in total_retention.most_common():
             strat_rows.append({
-                'strategy': name,
+                'strategy': strategy_name,
                 'gene': str(gene),
                 'model': gene.model,
                 'attitude': gene.attitude.value,
-                'total_survivals': count,
-                'mean_fitness': avg_fitness,
+                'total_retention_count': count,
+                'final_retention_count':
+                    final_retention.get((gene, strategy_name), 0),
             })
-
-        object.__setattr__(self, '_strategy_summary_df',
-                           pd.DataFrame(strat_rows))
+        object.__setattr__(self, '_strategy_summary_df', pd.DataFrame(strat_rows))
 
     @property
     def run_summary_df(self) -> pd.DataFrame:
@@ -1376,69 +1339,76 @@ class BatchCulturalEvolutionResults:
         return self._strategy_summary_df
 
     def __str__(self) -> str:
-        threshold_met = self.run_summary_df['threshold_met'].sum()
-        avg_gens = self.run_summary_df['generations'].mean()
+        threshold_met = self._run_summary_df['threshold_met'].sum()
+        n_runs = len(self.runs)
+        avg_gens = self._run_summary_df['generations'].mean()
 
         lines = [
-            f"Multi-run cultural evolution: {len(self.runs)} runs",
-            f"Threshold reached: {threshold_met}/{len(self.runs)} ({threshold_met/len(self.runs):.1%})",
-            f"Average generations: {avg_gens:.1f}",
+            f"Batch cultural evolution: {n_runs} runs",
+            f"Threshold reached: {threshold_met}/{n_runs} ({threshold_met/n_runs:.1%})",
+            f"Mean termination generation: {avg_gens:.1f}",
             "",
             "Gene performance:",
         ]
-
-        display_df = self.gene_summary_df[[
+        display_df = self._gene_summary_df[[
             'gene', 'wins', 'win_proportion', 'mean_frequency', 'std_frequency'
         ]].copy()
-        display_df['win_proportion'] = display_df['win_proportion'].apply(
-            lambda x: f"{x:.1%}")
-        display_df['mean_frequency'] = display_df['mean_frequency'].apply(
-            lambda x: f"{x:.3f}")
-        display_df['std_frequency'] = display_df['std_frequency'].apply(
-            lambda x: f"{x:.3f}")
+        display_df['win_proportion'] = display_df['win_proportion'].apply(lambda x: f"{x:.1%}")
+        display_df['mean_frequency'] = display_df['mean_frequency'].apply(lambda x: f"{x:.3f}")
+        display_df['std_frequency'] = display_df['std_frequency'].apply(lambda x: f"{x:.3f}")
         display_df.columns = ['Gene', 'Wins', 'Win%', 'Mean', 'Std']
         lines.append(display_df.to_string(index=False))
 
-        lines.append("")
-        lines.append("By attitude:")
-        for attitude, count in self.run_summary_df[
-                'winning_attitude'].value_counts().items():
-            lines.append(f"  {attitude}: {count} ({count/len(self.runs):.1%})")
+        lines.append("\nDominant attitudes:")
+        for attitude, count in self._run_summary_df['dominant_attitude'].value_counts().items():
+            lines.append(f"  {attitude}: {count} ({count/n_runs:.1%})")
 
-        lines.append("")
-        lines.append("By model:")
-        for model, count in self.run_summary_df['winning_model'].value_counts(
-        ).items():
-            lines.append(f"  {model}: {count} ({count/len(self.runs):.1%})")
+        lines.append("\nDominant models:")
+        for model, count in self._run_summary_df['dominant_model'].value_counts().items():
+            lines.append(f"  {model}: {count} ({count/n_runs:.1%})")
 
-        lines.append("")
-        lines.append("Top surviving strategies (across all runs):")
-        for _, row in self._strategy_summary_df.nlargest(
-                10, 'total_survivals').iterrows():
-            lines.append(
-                f"  {row['strategy']} ({row['attitude']}): "
-                f"{row['total_survivals']} survivals, fitness={row['mean_fitness']:.2f}"
-            )
+        if not self._strategy_summary_df.empty:
+            lines.append("\nMost retained strategies across all runs (cumulative):")
+            for _, row in self._strategy_summary_df.head(10).iterrows():
+                lines.append(
+                    f"  {row['strategy']} ({row['model']}, {row['attitude']}): "
+                    f"{row['total_retention_count']} retentions"
+                )
 
-        n_rounds = self.config.evolution_config.game_description.n_rounds
-        social_welfare = self.run_summary_df.normalised_social_welfare.mean()
-        max_social_welfare = self.config.evolution_config.game_description.max_social_welfare() / n_rounds
-        min_social_welfare = self.config.evolution_config.game_description.min_social_welfare() / n_rounds
-        proportion = (social_welfare - min_social_welfare) / (max_social_welfare - min_social_welfare)
-        lines.append(f"Normalised collective payoff: {self.run_summary_df.normalised_collective_payoff.mean():.2f}")
-        lines.append(f"Normalised exploitative payoff: {self.run_summary_df.normalised_exploitative_payoff.mean():.2f}")
-        lines.append(f"Normalised social welfare: {social_welfare:.2f}")
-        lines.append(f"Maximum social welfare: {max_social_welfare:.2f}")
-        lines.append(f"Minimum social welfare: {min_social_welfare:.2f}")
-        lines.append(f"Proportion: {proportion:.2f}")
+            final_gen_df = self._strategy_summary_df[
+                self._strategy_summary_df['final_retention_count'] > 0
+            ].sort_values('final_retention_count', ascending=False)
 
+            if not final_gen_df.empty:
+                lines.append(
+                    "\nMost common strategies in the final generation across all runs:")
+                for _, row in final_gen_df.head(10).iterrows():
+                    lines.append(
+                        f"  {row['strategy']} ({row['model']}, {row['attitude']}): "
+                        f"{row['final_retention_count']} agents"
+                    )
+
+        # Welfare efficiency in the final generation
+        gd = self.config.evolution_config.game_description
+        n_rounds = gd.n_rounds
+        max_w = gd.max_player_welfare() / n_rounds
+        min_w = gd.min_player_welfare() / n_rounds
+        sw = self._run_summary_df['normalised_social_welfare'].mean()
+        efficiency = (sw - min_w) / (max_w - min_w) if max_w > min_w else float('nan')
+
+        lines.extend([
+            "",
+            f"Mean normalised collective payoff:   {self._run_summary_df['normalised_collective_payoff'].mean():.3f}",
+            f"Mean normalised exploitative payoff: {self._run_summary_df['normalised_exploitative_payoff'].mean():.3f}",
+            f"Mean normalised social welfare:      {sw:.3f}",
+            f"Welfare bounds (per round):          [{min_w:.3f}, {max_w:.3f}]",
+            f"Welfare efficiency (final gen):      {efficiency:.1%}",
+        ])
         return "\n".join(lines)
 
     def plots(self, output_dir: Path | None = None):
-        savepath = self.config.output_dir if output_dir is None else Path(
-            output_dir)
+        savepath = self.config.output_dir if output_dir is None else Path(output_dir)
         savepath.mkdir(parents=True, exist_ok=True)
-
         individual_dir = savepath / "individual_runs"
         individual_dir.mkdir(exist_ok=True)
         for idx, run in enumerate(self.runs):
@@ -1447,17 +1417,14 @@ class BatchCulturalEvolutionResults:
     def serialise(self) -> dict:
         return {
             'config': self.config.serialise(),
-            'runs': [
-                run.serialise(self.config.output_style) for run in self.runs
-            ],
-            'result_type': 'BatchCulturalEvolutionResults'
+            'runs': [run.serialise(self.config.output_style) for run in self.runs],
+            'result_type': 'BatchCulturalEvolutionResults',
         }
 
     def save(self) -> Path:
         output_dir = self.config.output_dir
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "results.txt").write_text(str(self))
-
         filepath = output_dir / f"{self.FILENAME}{self.config.output_style.get_suffix()}"
         _save_json(filepath, self.serialise())
         return filepath
@@ -1474,6 +1441,5 @@ class BatchCulturalEvolutionResults:
         data = _load_json(filepath)
         if data.get('result_type') != 'BatchCulturalEvolutionResults':
             raise ValueError(
-                f"Expected BatchCulturalEvolutionResults, got {data.get('result_type')}"
-            )
+                f"Expected BatchCulturalEvolutionResults, got {data.get('result_type')}")
         return cls.from_dict(data)

@@ -22,7 +22,7 @@ PROVIDER_MODELS=(
     "ollama mistral:7b"
     "openrouter deepseek-r1-distill-llama-70b"
 )
-EVOLUTION_PLAYERS=(4 64)
+EVOLUTION_PLAYERS=(4 32)
 
 # for game in "${GAMES[@]}"; do
 #     for pm in "${PROVIDER_MODELS[@]}"; do
@@ -48,37 +48,37 @@ EVOLUTION_PLAYERS=(4 64)
 #     wait
 # done
 
-python scripts/diversity.py \
-        --strategies_dir "$STRATEGIES_DIR" \
-        --n_rounds 5 \
-        --n_games 50 \
-        --n_processes $N_PROCESSES \
-        --results_dir "$RESULTS_DIR"
-
-for pm in "${PROVIDER_MODELS[@]}"; do
-    read provider model <<< "$pm"
-
-    for game in "${GAMES[@]}"; do
-        # Gemini uses Enum which sometimes gives pickle errors, so it needs single processing
-        # gpt-mini and llama are the slow model
-        if [[ "$model" == *"llama"* || "$model" == *"gpt"* ]]; then
-            n_proc=$(((N_PROCESSES - 12) / 6))
-        else
-            n_proc=1
-        fi
-
-        python scripts/run_tournament.py \
-                --strategies "$STRATEGIES_DIR/$game/${model}.py" \
-                --game "$game" \
-                --matches 200 \
-                --group-sizes 4 16 64 256 \
-                --n_processes $n_proc \
-                --results_dir "$RESULTS_DIR" \
-                --output_style summary \
-                --verbose &
-    done
-done
-wait
+# python scripts/diversity.py \
+#         --strategies_dir "$STRATEGIES_DIR" \
+#         --n_rounds 5 \
+#         --n_games 50 \
+#         --n_processes $N_PROCESSES \
+#         --results_dir "$RESULTS_DIR"
+#
+# for pm in "${PROVIDER_MODELS[@]}"; do
+#     read provider model <<< "$pm"
+# 
+#     for game in "${GAMES[@]}"; do
+#     #     # Gemini uses Enum which sometimes gives pickle errors, so it needs single processing
+#     #     # gpt-mini and llama are the slow model
+#     #     if [[ "$model" == *"llama"* || "$model" == *"gpt"* ]]; then
+#     #         n_proc=$(((N_PROCESSES - 12) / 6))
+#     #     else
+#     #         n_proc=1
+#     #     fi
+# 
+#         python scripts/run_tournament.py \
+#                 --strategies "$STRATEGIES_DIR/$game/${model}.py" \
+#                 --game "$game" \
+#                 --matches 200 \
+#                 --group-sizes 4 16 64 256 \
+#                 --n_processes 1 \
+#                 --results_dir "$RESULTS_DIR" \
+#                 --output_style summary \
+#                 --verbose
+#     done
+# done
+# wait
 
 for game in "${GAMES[@]}"; do
     for n_players in "${EVOLUTION_PLAYERS[@]}"; do
@@ -86,11 +86,11 @@ for game in "${GAMES[@]}"; do
                --game ${game} \
                --n_players $n_players \
                --n_rounds 20 \
-               --population_size 512 \
-               --top_k 64 \
-               --mutation_rate 0.1 \
+               --population_size 128 \
+               --mutation_rate 0.01 \
+               --beta 1 \
                --threshold_pct 0.75 \
-               --max_generations 200 \
+               --max_generations 400 \
                --repetitions 10 \
                --n_runs 100 \
                --n_processes $N_PROCESSES \

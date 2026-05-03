@@ -75,13 +75,13 @@ class GameDescription(ABC):
         """
 
     @abstractmethod
-    def max_social_welfare(self) -> float:
+    def max_player_welfare(self) -> float:
         """
         Return the highest possible social welfare (per player)
         """
 
     @abstractmethod
-    def min_social_welfare(self) -> float:
+    def min_player_welfare(self) -> float:
         """
         Return the lowest possible social welfare (per player)
         """
@@ -99,10 +99,10 @@ class GameDescription(ABC):
         """
 
     def normalised_max_social_welfare(self) -> float:
-        return self.max_social_welfare() / self.n_rounds
+        return self.max_player_welfare() / self.n_rounds
 
     def normalised_min_social_welfare(self) -> float:
-        return self.min_social_welfare() / self.n_rounds
+        return self.min_player_welfare() / self.n_rounds
 
     def normalised_max_payoff(self) -> float:
         return self.max_payoff() / self.n_rounds

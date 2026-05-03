@@ -165,11 +165,11 @@ def run_batch_mixture_tournament(generator_name):
 def create_ce_config(game_description : GameDescription):
     return CulturalEvolutionConfig(game_description,
                                    population_size=18,
-                                   top_k=4,
                                    mutation_rate=0.1,
+                                   beta=1,
                                    threshold_pct=0.8,
                                    max_generations=5,
-                                   repetitions_per_generation=2)
+                                   games_per_agent=2)
 
 def run_cultural_evolution(game_description: GameDescription):
     """Run tournament with Public Goods Game."""
@@ -274,7 +274,7 @@ def main():
     print(bce_results)
     bce_results.save()
 
-    check = BatchCulturalEvolutionResults.load("./test/cultural_evolution/public_goods/n6_r20_pop18_top4_mut0.1_thr0.8_gen5_rep2")
+    check = BatchCulturalEvolutionResults.load("./test/cultural_evolution/public_goods/n6_r20_pop18_mut0.1_beta1_thr0.8_gen5_games2")
     print(check)
 
 if __name__ == "__main__":

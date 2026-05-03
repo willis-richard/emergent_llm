@@ -55,13 +55,13 @@ def parse_args():
                         type=int,
                         default=128,
                         help="Total population size")
-    parser.add_argument("--top_k",
+    parser.add_argument("--beta",
                         type=int,
-                        default=16,
-                        help="Number of survivors per generation")
+                        default=1,
+                        help="Selection strength")
     parser.add_argument("--mutation_rate",
                         type=float,
-                        default=0.1,
+                        default=0.02,
                         help="Probability of mutation")
     parser.add_argument("--threshold_pct",
                         type=float,
@@ -111,11 +111,11 @@ if __name__ == "__main__":
     evolution_config = CulturalEvolutionConfig(
         game_description=game_description,
         population_size=args.population_size,
-        top_k=args.top_k,
         mutation_rate=args.mutation_rate,
+        beta=args.beta,
         threshold_pct=args.threshold_pct,
         max_generations=args.max_generations,
-        repetitions_per_generation=args.repetitions)
+        games_per_agent=args.repetitions)
 
     batch_config = BatchCulturalEvolutionConfig(
         evolution_config=evolution_config,
