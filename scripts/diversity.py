@@ -774,13 +774,14 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
                    color='w',
                    markerfacecolor=model_colors[m],
                    markersize=10,
-                   label=m) for m in models
+                   label=MODELS_MAPPING[m]) for m in models
     ]
+    ncol = len(legend_handles) // 2 if len(legend_handles) > 4 else len(legend_handles)
     fig.legend(handles=legend_handles,
                loc='upper center',
                frameon=False,
-               bbox_to_anchor=(0.4, 1.05),
-               ncol=len(registry.available_models))
+               bbox_to_anchor=(0.4, 1.05 if len(legend_handles) <= 4 else (0.4, 1.1),
+               ncol=ncol)
 
     plt.tight_layout(rect=[0, 0, 0.95, 1])  # Leave space for legend
     plt.savefig(output_dir / f"pca_by_game.{FORMAT}",
