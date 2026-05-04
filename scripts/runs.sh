@@ -19,7 +19,7 @@ PROVIDER_MODELS=(
     "google gemini-3.1-flash-lite-preview"
     "anthropic claude-haiku-4-5"
 )
-EVOLUTION_PLAYERS=(4 32)
+EVOLUTION_PLAYERS=(4 64)
 
 for game in "${GAMES[@]}"; do
     for pm in "${PROVIDER_MODELS[@]}"; do
@@ -32,7 +32,7 @@ for game in "${GAMES[@]}"; do
                    --strategies_dir "$STRATEGIES_DIR" \
                    --full_attitudes \
                    descriptions \
-                   --n 32
+                   --n 128
 
             python src/emergent_llm/generation/create_strategies.py \
                    --llm_provider "$provider" \
@@ -85,8 +85,8 @@ done
 #                --n_players $n_players \
 #                --n_rounds 20 \
 #                --population_size 512 \
-#                --top_k 64 \
-#                --mutation_rate 0.1 \
+#                --mutation_rate 0.0025 \
+#                --beta 1 \
 #                --threshold_pct 0.75 \
 #                --max_generations 200 \
 #                --repetitions 10 \
