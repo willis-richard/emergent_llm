@@ -851,7 +851,11 @@ def plot_pca_single_game(
 
 def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
                      baseline_pca, baseline_labels, games, pca, output_dir):
-    """2×3 grid: rows=base attitude family, columns=games. One ellipse per model."""
+    """2×3 grid: rows=base attitude family, columns=games. One ellipse per model.
+
+    For each (model, base_attitude) cell, aggregates all synonyms in that
+    base-attitude family (matches plot_pca_single_game / plot_pca_by_model).
+    """
     all_genes = []
     for g in games:
         all_genes.extend(pca_data[g]['genes'])
@@ -865,95 +869,61 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
         game_mask = game_labels == game
         genes_for_game = pca_data[game]['genes']
 
-        for row, attitude in enumerate(Attitude.base_attitudes()):
+        for row, base_att in enumerate(Attitude.base_attitudes()):
             ax = axes[row, col]
 
-            # Filter genes for this attitude
-            genes_this_attitude = [
-                g for g in genes_for_game if g.attitude == attitude
-            ]
-            handles = []
-
             for model in models:
-                # Find the gene for this model+attitude (if exists)
-                matching_genes = [
-                    g for g in genes_this_attitude if g.model == model
-                ]
-                if not matching_genes:
-                    continue
-                gene = matching_genes[0]
-
-                mask = game_mask & (labels_all == str(gene))
-                points = X_pca_combined[mask, :2]
-
+                # Aggregate all synonyms whose base attitude == base_att
+                points = _aggregate_points_for_family(
+                    X_pca_combined, labels_all, game_mask,
+                    genes_for_game, model, base_att,
+                )
                 if len(points) == 0:
                     continue
 
                 color = model_colors[model]
-                scatter = ax.scatter(points[:, 0],
-                                     points[:, 1],
-                                     alpha=0.3,
-                                     s=10,
-                                     color=color)
+                ax.scatter(points[:, 0], points[:, 1],
+                           alpha=0.3, s=10, color=color)
 
-                # Centroid
                 mean_pt = points.mean(axis=0)
-                ax.scatter(mean_pt[0],
-                           mean_pt[1],
-                           marker='o',
-                           s=100,
-                           color=color,
-                           edgecolors='black',
-                           linewidths=1.5,
-                           zorder=5)
+                ax.scatter(mean_pt[0], mean_pt[1],
+                           marker='o', s=100, color=color,
+                           edgecolors='black', linewidths=1.5, zorder=5)
 
-                # Ellipse
                 if len(points) > 2:
                     cov = np.cov(points.T)
-                    plot_covariance_ellipse(ax,
-                                            mean_pt,
-                                            cov,
-                                            n_std=1.0,
-                                            facecolor=color,
-                                            alpha=0.25,
-                                            edgecolor=color,
-                                            linewidth=1.5)
+                    plot_covariance_ellipse(
+                        ax, mean_pt, cov, n_std=1.0,
+                        facecolor=color, alpha=0.25,
+                        edgecolor=color, linewidth=1.5,
+                    )
 
-                handles.append((scatter, model))
-
-            # Baselines (smaller markers for grid)
             plot_baselines(ax, baseline_pca, baseline_labels, marker_size=60)
 
-            # Labels
             if row == 0:
                 ax.set_title(GAME_MAPPING[game])
             if col == 0:
                 ax.set_ylabel(
-                    f"{attitude.value}\nPC2 ({pca.explained_variance_ratio_[1]:.1%})"
+                    f"{base_att.value}\nPC2 ({pca.explained_variance_ratio_[1]:.1%})"
                 )
             if row == 1:
                 ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
 
-    # Shared legend for models (outside the grid on the right)
     legend_handles = [
-        plt.Line2D([0], [0],
-                   marker='o',
-                   color='w',
-                   markerfacecolor=model_colors[m],
-                   markersize=10,
-                   label=pretty_model(m)) for m in models
+        plt.Line2D([0], [0], marker='o', color='w',
+                   markerfacecolor=model_colors[m], markersize=10,
+                   label=pretty_model(m))
+        for m in models
     ]
     ncol = len(legend_handles) // 2 if len(legend_handles) > 4 else len(legend_handles)
     fig.legend(handles=legend_handles,
-               loc='upper center',
-               frameon=False,
+               loc='upper center', frameon=False,
                bbox_to_anchor=(0.4, 1.05) if len(legend_handles) <= 4 else (0.4, 1.1),
                ncol=ncol)
 
-    plt.tight_layout(rect=[0, 0, 0.95, 1])  # Leave space for legend
+    plt.tight_layout(rect=[0, 0, 0.95, 1])
     plt.savefig(output_dir / f"pca_by_game.{FORMAT}",
-                format=FORMAT,
-                bbox_inches='tight')
+                format=FORMAT, bbox_inches='tight')
     plt.close()
     logger.info(
         f"Saved combined PCA grid to {output_dir / f'pca_by_game.{FORMAT}'}")

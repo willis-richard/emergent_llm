@@ -852,7 +852,7 @@ class CulturalEvolutionResults:
             ax.plot(self.gene_frequency_df.index,
                     self.gene_frequency_df[col],
                     marker='o', lw=0.75,
-                    label=MODELS_MAP.get(col, col),
+                    label=pretty_model(col),
                     color=colors[i], clip_on=False)
 
         # Shade the averaging window.

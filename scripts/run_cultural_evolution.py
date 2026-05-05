@@ -89,15 +89,11 @@ def parse_args():
     # Output
     parser.add_argument("--results_dir", type=str, default="results")
     parser.add_argument("--output_style", choices=["full", "compress", "summary"],
-                       default="full", help="What compression to apply to the results")
-    parser.add_argument(
-        '-d',
-        '--debug',
-        action="store_const",
-        dest="loglevel",
-        const=logging.DEBUG,
-        default=logging.INFO,
-    )
+                        default="full", help="What compression to apply to the results")
+    parser.add_argument("--log_level",
+                        type=str,
+                        default="INFO",
+                        help="Logging level to use")
 
     return parser.parse_args()
 
@@ -128,7 +124,7 @@ if __name__ == "__main__":
         models=args.models)
 
     log_file = batch_config.output_dir / "logs" / "batch_evolution.log"
-    setup_logging(log_file, args.loglevel)
+    setup_logging(log_file, args.log_level)
     logger = logging.getLogger(__name__)
 
     logger.info(f"Starting batch cultural evolution: {args.game}")
