@@ -39,6 +39,7 @@ from emergent_llm.players import (
     LLMPlayer,
     SimplePlayer,
 )
+from emergent_llm.tournament import pretty_model
 
 FIGSIZE, FORMAT = setup('fullscreen')
 
@@ -46,19 +47,8 @@ GAME_MAPPING = {
     'public_goods': ' Public Goods Game',
     'collective_risk': 'Collective Risk Dilemma',
     'common_pool': 'Common Pool Resource',
-    'public_goods_prompt': 'Public Goods'
 }
 
-MODELS_MAPPING = {
-    "gpt-5-mini": "GPT-5 Mini",
-    "gpt-5.4-mini": "GPT 5.4 Mini",
-    "gemini-2.5-flash": "Gemini 2.5 Flash",
-    "gemini-3.1-flash-lite-preview": "Gemini 3.1 Flash Lite",
-    "claude-haiku-4-5": "Claude Haiku 4.5",
-    "llama3.1-70b": "Llama 3.1 70b",
-    "mistral-7b": "Mistral 7b",
-    "deepseek-r1-distill-llama-70b": "DeepSeek R1"
-}
 
 # =============================================================================
 # ARGUMENT PARSING
@@ -774,7 +764,7 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
                    color='w',
                    markerfacecolor=model_colors[m],
                    markersize=10,
-                   label=MODELS_MAPPING[m]) for m in models
+                   label=pretty_model(m)) for m in models
     ]
     ncol = len(legend_handles) // 2 if len(legend_handles) > 4 else len(legend_handles)
     fig.legend(handles=legend_handles,
@@ -878,7 +868,7 @@ def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
                                             linewidth=1.5)
 
         plot_baselines(ax, baseline_pca, baseline_labels, marker_size=60)
-        ax.set_title(MODELS_MAPPING[model])
+        ax.set_title(pretty_model(model))
 
         if col == 0:
             ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})')

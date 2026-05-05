@@ -27,6 +27,8 @@ from .results import (
     MixtureTournamentResults,
     MixtureTournamentSummary,
     PlayerStats,
+    collapse_to_base,
+    pretty_model,
 )
 
 __all__ = [
@@ -55,4 +57,6 @@ __all__ = [
     'MixtureTournamentSummary',
     'OutputStyle',
     'PlayerStats',
+    'collapse_to_base',
+    'pretty_model',
 ]

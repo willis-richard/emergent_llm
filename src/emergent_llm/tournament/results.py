@@ -23,20 +23,26 @@ from emergent_llm.tournament.configs import (
 
 FIGSIZE, FORMAT = setup('3_col_paper')
 
-MODELS_MAP = {
-    "gpt-5-mini[collective]": "GPT 5 Mini[Collective]",
-    "gemini-2.5-flash[collective]": "Gemini 2.5 Flash[Collective]",
-    "claude-haiku-4-5[collective]": "Claude Haiku 4.5[Collective]",
-    "llama3.1-70b[collective]": "Llama 3.1 70b[Collective]",
-    "mistral-7b[collective]": "Mistral 7b[Collective]",
-    "deepseek-r1-distill-llama-70b[collective]": "DeepSeek R1[Collective]",
-    "gpt-5-mini[selfish]": "GPT 5 Mini[Selfish]",
-    "gemini-2.5-flash[selfish]": "Gemini 2.5 Flash[Selfish]",
-    "claude-haiku-4-5[selfish]": "Claude Haiku 4.5[Selfish]",
-    "llama3.1-70b[selfish]": "Llama 3.1 70b[Selfish]",
-    "mistral-7b[selfish]": "Mistral 7b[Selfish]",
-    "deepseek-r1-distill-llama-70b[selfish]": "DeepSeek R1[Selfish]",
+def collapse_to_base(gen_freqs: dict[Gene, float]) -> dict[Gene, float]:
+    """Aggregate fine-grained (model, attitude) frequencies into
+    (model, base_attitude) frequencies. Used by all reporting paths so that
+    the four sub-attitudes in each base are treated as a single genotype."""
+    collapsed: dict[Gene, float] = {}
+    for gene, freq in gen_freqs.items():
+        base_gene = Gene(gene.model, gene.attitude.to_base_attitude())
+        collapsed[base_gene] = collapsed.get(base_gene, 0.0) + freq
+    return collapsed
+
+
+_MODEL_DISPLAY = {
+    "gpt-5.4-mini": "GPT-5.4 Mini",
+    "gemini-3.1-flash-lite-preview": "Gemini 3.1 Flash Lite",
+    "claude-haiku-4-5": "Claude Haiku 4.5",
 }
+
+
+def pretty_model(name: str) -> str:
+    return _MODEL_DISPLAY.get(name, name)
 
 
 def _load_json(filepath: Path) -> dict:
@@ -234,13 +240,16 @@ class CulturalEvolutionSummary:
     @staticmethod
     def _build_gene_frequency_df(
             gene_frequency_history: list[dict[Gene, float]]) -> pd.DataFrame:
+        # Reporting at base-attitude granularity. The fine-grained history
+        # remains on CulturalEvolutionResults.gene_frequency_history.
+        collapsed_history = [collapse_to_base(g) for g in gene_frequency_history]
         all_genes = set()
-        for gen_freqs in gene_frequency_history:
+        for gen_freqs in collapsed_history:
             all_genes.update(gen_freqs.keys())
         all_genes = sorted(all_genes, key=str)
         rows = [
             {str(gene): gen_freqs.get(gene, 0.0) for gene in all_genes}
-            for gen_freqs in gene_frequency_history
+            for gen_freqs in collapsed_history
         ]
         df = pd.DataFrame(rows)
         df.index.name = 'generation'
@@ -299,6 +308,7 @@ class CulturalEvolutionSummary:
     def _build_strategy_summary_df(
             retention_history: list[dict[tuple[Gene, str], int]]) -> pd.DataFrame:
         """Aggregate retention counts across all generations of a single run.
+        Reports the true attitude so the strategy file/class can be located.
 
         Two count columns:
         - retention_count: total retentions across the run
@@ -317,6 +327,7 @@ class CulturalEvolutionSummary:
                 'gene': str(gene),
                 'model': gene.model,
                 'attitude': gene.attitude.value,
+                'base_attitude': gene.attitude.to_base_attitude().value,
                 'retention_count': count,
                 'final_retention_count': final_map.get((gene, strategy_name), 0),
             })
@@ -1161,6 +1172,7 @@ class BatchMixtureTournamentResults:
                 handletextpad=0.4,
                 columnspacing=0.6)
 
+        fig.suptitle(pretty_model(self.config.model_name), y=1.05)
         output_file = self.config.output_dir / f"social_welfare.{FORMAT}"
         output_file.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_file, format=FORMAT, bbox_inches='tight')
@@ -1304,12 +1316,13 @@ class BatchCulturalEvolutionResults:
                 'gene': str(gene),
                 'model': gene.model,
                 'attitude': gene.attitude.value,
+                'base_attitude': gene.attitude.to_base_attitude().value,
                 'total_retention_count': count,
                 'window_retention_count':
                     window_retention.get((gene, strategy_name), 0),
             })
         object.__setattr__(self, '_strategy_summary_df',
-                           pd.DataFrame(strat_rows))
+                        pd.DataFrame(strat_rows))
 
     @property
     def run_summary_df(self) -> pd.DataFrame:

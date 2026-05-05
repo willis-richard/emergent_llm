@@ -2,7 +2,7 @@
 import logging
 import math
 import random
-from collections import Counter
+from collections import Counter, defaultdict
 
 import numpy as np
 
@@ -17,6 +17,7 @@ from emergent_llm.tournament.fair_tournament import FairTournament
 from emergent_llm.tournament.results import (
     CulturalEvolutionResults,
     CulturalEvolutionSummary,
+    collapse_to_base,
 )
 
 # Per-generation retention map: (gene, strategy class name) -> count
@@ -25,9 +26,9 @@ RetentionMap = dict[tuple[Gene, str], int]
 
 class CulturalEvolution:
     """Cultural evolution under Fermi pairwise-comparison imitation
-    (Traulsen, Nowak, Pacheco, 2006), per-gene mutation, and strategy refresh on
-    genotype change. Runs for a fixed number of generations and reports
-    genotype-frequency statistics over the final window."""
+    (Traulsen, Nowak, Pacheco, 2006), per-gene mutation, and strategy refresh
+    on genotype change. Runs natively over all attitudes; reporting collapses
+    to the two base attitudes."""
 
     def __init__(self, config: CulturalEvolutionConfig,
                  strategy_registry: StrategyRegistry):
@@ -35,9 +36,15 @@ class CulturalEvolution:
         self.registry = strategy_registry
         self.logger = logging.getLogger(__name__)
 
-        # Require all model x base-attitude combinations to be present.
+        self._attitudes_by_base: dict[Attitude, list[Attitude]] = defaultdict(list)
+        for attitude in Attitude:
+            self._attitudes_by_base[attitude.to_base_attitude()].append(attitude)
+
+        if not self.registry.available_models:
+            raise ValueError("Strategy registry is empty")
+
         for model in self.registry.available_models:
-            for attitude in Attitude.base_attitudes():
+            for attitude in Attitude:
                 gene = Gene(model, attitude)
                 if gene not in self.registry.available_genes:
                     raise ValueError(f"Missing strategies for {gene}")
@@ -52,13 +59,8 @@ class CulturalEvolution:
         self._initialise_population()
 
     def _initialise_population(self):
-        """Initialise uniformly across base-attitude genotypes."""
-        genes = sorted(
-            (g for g in self.registry.available_genes
-             if g.attitude in Attitude.base_attitudes()),
-            key=str)
-        if not genes:
-            raise ValueError("No base-attitude genes found in registry")
+        """Initialise uniformly across all (model, attitude) genotypes."""
+        genes = sorted(self.registry.available_genes, key=str)
 
         per_gene = math.ceil(self.config.population_size / len(genes))
         self.population: list[StrategySpec] = [
@@ -88,8 +90,9 @@ class CulturalEvolution:
             self._run_generation()
             self.generation += 1
 
-        # Record post-final-update frequencies so the history covers the entire
-        # trajectory, including the state after the last generation's update.
+        # Record post-final-update frequencies so the history covers the
+        # entire trajectory, including the state after the last generation's
+        # update.
         final_frequencies = self._calculate_gene_frequencies()
         self.gene_frequencies.append(final_frequencies)
         self.logger.info("Generation %d (final): %s", self.generation,
@@ -113,9 +116,13 @@ class CulturalEvolution:
 
     def _compute_window_statistics(
             self) -> tuple[dict[Gene, float], dict[Gene, float]]:
-        """Mean and (population) standard deviation of genotype frequencies
-        across the final `final_window` recorded states."""
-        window = self.gene_frequencies[-self.config.final_window:]
+        """Mean and population std of base-attitude-collapsed genotype
+        frequencies across the final `final_window` recorded states.
+        Reporting (dominant_gene, batch summaries) operates at base-attitude
+        granularity; the fine-grained history remains on
+        CulturalEvolutionResults.gene_frequency_history."""
+        window = [collapse_to_base(g) for g in
+                  self.gene_frequencies[-self.config.final_window:]]
         all_genes: set[Gene] = set()
         for gen_freqs in window:
             all_genes.update(gen_freqs.keys())
@@ -129,7 +136,6 @@ class CulturalEvolution:
             means[gene] = float(values.mean())
             stds[gene] = float(values.std(ddof=0))
 
-        # Sort by mean descending for readability.
         means = dict(sorted(means.items(), key=lambda kv: kv[1], reverse=True))
         stds = {g: stds[g] for g in means}
         return means, stds
@@ -163,10 +169,7 @@ class CulturalEvolution:
         # 3. Mutation (per-gene independent)
         new_genes, mutated = self._mutate(new_genes)
 
-        # 4. Strategy refresh + retention bookkeeping. An agent is retained
-        # this generation iff its genotype did not change. Same-genotype
-        # imitation copies (which Fermi produces with prob ~0.5 at zero
-        # delta) are deliberately NOT treated as refresh events.
+        # 4. Strategy refresh + retention bookkeeping
         changed = imitated | mutated
         new_population = [
             self.registry.sample_spec(new_genes[i]) if changed[i] else spec
@@ -185,18 +188,7 @@ class CulturalEvolution:
             len(self.population) - int(changed.sum()))
 
     def _imitate(self, fitnesses: np.ndarray) -> tuple[list[Gene], np.ndarray]:
-        """Fermi pairwise-comparison rule (Traulsen, Nowak, Pacheco, 2006).
-
-        Each agent samples one other agent uniformly at random and adopts the
-        partner's genotype with probability
-
-            p = 1 / (1 + exp(-beta * (pi_partner - pi_self))).
-
-        Larger beta -> more deterministic imitation of the fitter peer.
-        Returns (new_genes, imitated_mask), where the mask flags only agents
-        whose genotype actually changed (same-genotype copies are no-ops and
-        do not trigger strategy refresh).
-        """
+        """Fermi pairwise-comparison rule (Traulsen, Nowak, Pacheco, 2006)."""
         n = len(fitnesses)
         partners = (np.arange(n) + np.random.randint(1, n, size=n)) % n
         deltas = fitnesses[partners] - fitnesses
@@ -217,11 +209,12 @@ class CulturalEvolution:
         return new_genes, imitate_mask
 
     def _mutate(self, genes: list[Gene]) -> tuple[list[Gene], np.ndarray]:
-        """Each gene independently replaced with prob mu by a uniformly
-        random alternative. Restricted to base attitudes."""
+        """Per-gene independent mutation. Model mutates uniformly to a
+        different model. Attitude mutates by flipping its base attitude and
+        uniformly sampling one of the four sub-attitudes mapping to the new
+        base."""
         mu = self.config.mutation_rate
         models = sorted(self.registry.available_models)
-        attitudes = list(Attitude.base_attitudes())
 
         new_genes = list(genes)
         mutated = np.zeros(len(genes), dtype=bool)
@@ -231,12 +224,12 @@ class CulturalEvolution:
             new_attitude = gene.attitude
 
             if len(models) > 1 and random.random() < mu:
-                alts = [m for m in models if m != gene.model]
-                new_model = random.choice(alts)
+                new_model = random.choice([m for m in models if m != gene.model])
                 mutated[i] = True
 
-            if len(attitudes) > 1 and random.random() < mu:
-                new_attitude = gene.attitude.flip()
+            if random.random() < mu:
+                other_base = gene.attitude.to_base_attitude().flip()
+                new_attitude = random.choice(self._attitudes_by_base[other_base])
                 mutated[i] = True
 
             new_genes[i] = Gene(new_model, new_attitude)
@@ -244,6 +237,8 @@ class CulturalEvolution:
         return new_genes, mutated
 
     def _calculate_gene_frequencies(self) -> dict[Gene, float]:
+        """Fine-grained (model, attitude) frequencies for the current
+        population."""
         counts = Counter(spec.gene for spec in self.population)
         total = len(self.population)
         return dict(
@@ -252,4 +247,9 @@ class CulturalEvolution:
 
     @staticmethod
     def _format_frequencies(frequencies: dict[Gene, float]) -> str:
-        return ", ".join(f"{g}: {f:.2%}" for g, f in frequencies.items())
+        """Log base-attitude collapsed frequencies; the full 8-attitude × N-model
+        table is too noisy for per-generation logging."""
+        collapsed = collapse_to_base(frequencies)
+        sorted_items = sorted(collapsed.items(), key=lambda kv: kv[1],
+                              reverse=True)
+        return ", ".join(f"{g}: {f:.2%}" for g, f in sorted_items)
