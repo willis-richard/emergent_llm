@@ -3,13 +3,12 @@
 import argparse
 import logging
 import pickle
-from collections import defaultdict
-from dataclasses import dataclass
 from multiprocessing import Pool
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from matplotlib.patches import Ellipse
 from scipy.spatial.distance import cdist, pdist
 from sklearn.decomposition import PCA
@@ -44,9 +43,15 @@ from emergent_llm.tournament import pretty_model
 FIGSIZE, FORMAT = setup('fullscreen')
 
 GAME_MAPPING = {
-    'public_goods': ' Public Goods Game',
+    'public_goods': 'Public Goods Game',
     'collective_risk': 'Collective Risk Dilemma',
     'common_pool': 'Common Pool Resource',
+}
+
+GAME_SHORT = {
+    'public_goods': 'PGG',
+    'collective_risk': 'CRD',
+    'common_pool': 'CPR',
 }
 
 
@@ -241,10 +246,62 @@ def compute_baselines(n_players: int,
     for player in baseline_players:
         features = compute_features(player, 1)
         baseline_features[player.id.name] = features
-
         mean = np.mean(list(features.values()))
         logger.info(f"{player.id.name}: {mean:.3f}")
     return baseline_features
+
+
+# =============================================================================
+# AGGREGATION HELPERS
+# =============================================================================
+
+
+def aggregate_by_base_family(
+    X_all: np.ndarray,
+    labels_all: np.ndarray,
+    game_labels: np.ndarray,
+    pca_data: dict,
+    game: str,
+    model: str,
+    base_attitude: Attitude,
+    exclude_synonym: Attitude | None = None,
+) -> np.ndarray:
+    """
+    Get feature vectors for all synonyms mapping to base_attitude in (game, model).
+
+    If exclude_synonym is given, omit that synonym (used for leave-one-out).
+    """
+    genes = pca_data[game]['genes']
+    matching = [
+        g for g in genes
+        if g.model == model
+        and g.attitude.to_base_attitude() == base_attitude
+        and (exclude_synonym is None or g.attitude != exclude_synonym)
+    ]
+    if not matching:
+        return np.empty((0, X_all.shape[1]))
+    gene_strs = [str(g) for g in matching]
+    mask = (game_labels == game) & np.isin(labels_all, gene_strs)
+    return X_all[mask]
+
+
+def get_feature_vectors_for_synonym(
+    X_all: np.ndarray,
+    labels_all: np.ndarray,
+    game_labels: np.ndarray,
+    pca_data: dict,
+    game: str,
+    model: str,
+    attitude: Attitude,
+) -> np.ndarray:
+    """Feature vectors for one specific (game, model, attitude) gene."""
+    genes = pca_data[game]['genes']
+    matching = [g for g in genes if g.model == model and g.attitude == attitude]
+    if not matching:
+        return np.empty((0, X_all.shape[1]))
+    gene_strs = [str(g) for g in matching]
+    mask = (game_labels == game) & np.isin(labels_all, gene_strs)
+    return X_all[mask]
 
 
 # =============================================================================
@@ -252,71 +309,9 @@ def compute_baselines(n_players: int,
 # =============================================================================
 
 
-@dataclass
-class DiversityMetrics:
-    """Metrics for a single gene."""
-    gene: Gene
-    n_strategies: int
-    mean_pairwise_distance: float
-    mean_pairwise_distance_normalised: float  # relative to random baseline
-    participation_ratio: float
-
-    def __str__(self):
-        return (f"{self.gene}: n={self.n_strategies}, "
-                f"MPD={self.mean_pairwise_distance:.3f} "
-                f"(norm={self.mean_pairwise_distance_normalised:.2f}), "
-                f"PR={self.participation_ratio:.2f}")
-
-
-@dataclass
-class BetweenSetMetrics:
-    """Metrics comparing attitudes within a game/model."""
-    game: str
-    model: str
-    centroid_distance: float
-    cohens_d: float
-
-    def __str__(self):
-        return (f"{self.game}/{self.model}: "
-                f"centroid_dist={self.centroid_distance:.3f}, "
-                f"Cohen's d={self.cohens_d:.2f}")
-
-
-@dataclass
-class AttitudeComparisonMetrics:
-    """Metrics comparing a non-base attitude to both base attitudes."""
-    game: str
-    model: str
-    attitude: Attitude
-    n_strategies: int
-    # vs collective
-    d_vs_collective: float
-    d_vs_collective_ci_lower: float
-    d_vs_collective_ci_upper: float
-    centroid_dist_collective: float
-    # vs selfish
-    d_vs_selfish: float
-    d_vs_selfish_ci_lower: float
-    d_vs_selfish_ci_upper: float
-    centroid_dist_selfish: float
-    # ratio: d_to_own_base / d_to_other_base (< 1 means closer to own base)
-    proximity_ratio: float
-
-    def __str__(self):
-        return (
-            f"{self.game}/{self.model}/{self.attitude.value} "
-            f"(n={self.n_strategies}): "
-            f"d_coll={self.d_vs_collective:.2f} "
-            f"[{self.d_vs_collective_ci_lower:.2f}, {self.d_vs_collective_ci_upper:.2f}], "
-            f"d_expl={self.d_vs_selfish:.2f} "
-            f"[{self.d_vs_selfish_ci_lower:.2f}, {self.d_vs_selfish_ci_upper:.2f}], "
-            f"ratio(own/other)={self.proximity_ratio:.2f}"
-        )
-
-
 def compute_random_baseline_distance(n_features: int,
                                      n_samples: int = 500) -> float:
-    """Compute mean pairwise distance for random [0,1] vectors."""
+    """Mean pairwise Euclidean distance for uniform [0,1] random vectors."""
     random_X = np.random.uniform(0, 1, (n_samples, n_features))
     distances = pdist(random_X, metric='euclidean')
     return float(np.mean(distances))
@@ -324,12 +319,7 @@ def compute_random_baseline_distance(n_features: int,
 
 def compute_within_set_metrics(X: np.ndarray,
                                random_baseline: float) -> tuple[float, float]:
-    """
-    Compute within-set diversity metrics.
-
-    Returns:
-        (mean_pairwise_distance, normalized_distance)
-    """
+    """Returns (mean_pairwise_distance, normalised_distance)."""
     if len(X) < 2:
         return 0.0, 0.0
     distances = pdist(X, metric='euclidean')
@@ -338,201 +328,387 @@ def compute_within_set_metrics(X: np.ndarray,
 
 
 def compute_participation_ratio(X: np.ndarray) -> float:
-    """
-    Compute participation ratio from data matrix.
-    PR = (sum of eigenvalues)^2 / sum of eigenvalues^2
-    """
+    """PR = (sum of eigenvalues)^2 / sum of eigenvalues^2."""
     if len(X) < 2:
         return 1.0
-    # Center the data
     X_centered = X - X.mean(axis=0)
-    # Compute covariance eigenvalues
     cov = np.cov(X_centered.T)
     eigenvalues = np.linalg.eigvalsh(cov)
-    eigenvalues = eigenvalues[eigenvalues > 1e-10]  # numerical stability
-
+    eigenvalues = eigenvalues[eigenvalues > 1e-10]
     if len(eigenvalues) == 0:
         return 1.0
-
     return (eigenvalues.sum()**2) / (eigenvalues**2).sum()
 
 
-def compute_between_set_metrics(
-        X_collective: np.ndarray,
-        X_selfish: np.ndarray) -> tuple[float, float]:
+def compute_delta(X_a: np.ndarray, X_b: np.ndarray) -> float:
     """
-    Compute between-set metrics.
+    Standardised centroid distance:
+        Delta = ||centroid_a - centroid_b|| / pooled_within_set_std
 
-    Returns:
-        (centroid_distance, cohens_d)
-    """
-    if len(X_collective) == 0 or len(X_selfish) == 0:
-        return np.nan, np.nan
-
-    centroid_c = X_collective.mean(axis=0)
-    centroid_e = X_selfish.mean(axis=0)
-    centroid_distance = np.linalg.norm(centroid_c - centroid_e)
-
-    # Cohen's d: centroid distance / pooled within-set std
-    # Pooled std: sqrt of average variance across both sets
-    var_c = np.var(X_collective, axis=0).mean() if len(X_collective) > 1 else 0
-    var_e = np.var(X_selfish,
-                   axis=0).mean() if len(X_selfish) > 1 else 0
-
-    n_c, n_e = len(X_collective), len(X_selfish)
-    pooled_var = ((n_c - 1) * var_c +
-                  (n_e - 1) * var_e) / (n_c + n_e - 2) if (n_c + n_e) > 2 else 1
-    pooled_std = np.sqrt(pooled_var *
-                         X_collective.shape[1])  # scale by sqrt(dimensions)
-
-    cohens_d = centroid_distance / pooled_std if pooled_std > 0 else np.nan
-
-    return centroid_distance, cohens_d
-
-
-def compute_cohens_d(X_a: np.ndarray, X_b: np.ndarray) -> float:
-    """
-    Multivariate Cohen's d: centroid distance / pooled within-set std.
-
-    Same formulation as compute_between_set_metrics for consistency.
+    Pooled std: sqrt(pooled_var * n_features), so Delta = 1 means the centroid
+    gap equals one typical strategy-distance under the within-set covariance.
     """
     if len(X_a) < 2 or len(X_b) < 2:
         return np.nan
-
     centroid_distance = np.linalg.norm(X_a.mean(axis=0) - X_b.mean(axis=0))
-
     n_a, n_b = len(X_a), len(X_b)
     var_a = np.var(X_a, axis=0).mean()
     var_b = np.var(X_b, axis=0).mean()
-
     pooled_var = ((n_a - 1) * var_a + (n_b - 1) * var_b) / (n_a + n_b - 2)
     pooled_std = np.sqrt(pooled_var * X_a.shape[1])
-
     return centroid_distance / pooled_std if pooled_std > 0 else np.nan
-
-
-def bootstrap_cohens_d(
-    X_a: np.ndarray,
-    X_b: np.ndarray,
-    n_bootstrap: int = 1000,
-    confidence: float = 0.95,
-) -> tuple[float, float, float]:
-    """
-    Bootstrap confidence interval for multivariate Cohen's d.
-
-    Returns:
-        (point_estimate, ci_lower, ci_upper)
-    """
-    point = compute_cohens_d(X_a, X_b)
-    if np.isnan(point):
-        return np.nan, np.nan, np.nan
-
-    rng = np.random.default_rng(42)
-    boot_ds = []
-    for _ in range(n_bootstrap):
-        idx_a = rng.choice(len(X_a), size=len(X_a), replace=True)
-        idx_b = rng.choice(len(X_b), size=len(X_b), replace=True)
-        d = compute_cohens_d(X_a[idx_a], X_b[idx_b])
-        if not np.isnan(d):
-            boot_ds.append(d)
-
-    if len(boot_ds) < 10:
-        return point, np.nan, np.nan
-
-    alpha = (1 - confidence) / 2
-    ci_lower = float(np.percentile(boot_ds, 100 * alpha))
-    ci_upper = float(np.percentile(boot_ds, 100 * (1 - alpha)))
-    return point, ci_lower, ci_upper
-
-
-def compute_attitude_comparison(
-    X_nonbase: np.ndarray,
-    X_collective: np.ndarray,
-    X_selfish: np.ndarray,
-    game: str,
-    model: str,
-    attitude: Attitude,
-    n_bootstrap: int = 1000,
-) -> AttitudeComparisonMetrics:
-    """Compare a non-base attitude to both base attitudes in original feature space."""
-
-    d_c, ci_c_lo, ci_c_hi = bootstrap_cohens_d(X_nonbase, X_collective, n_bootstrap)
-    d_e, ci_e_lo, ci_e_hi = bootstrap_cohens_d(X_nonbase, X_selfish, n_bootstrap)
-
-    centroid_c = float(np.linalg.norm(
-        X_nonbase.mean(axis=0) - X_collective.mean(axis=0)
-    )) if len(X_nonbase) > 0 and len(X_collective) > 0 else np.nan
-
-    centroid_e = float(np.linalg.norm(
-        X_nonbase.mean(axis=0) - X_selfish.mean(axis=0)
-    )) if len(X_nonbase) > 0 and len(X_selfish) > 0 else np.nan
-
-    # Proximity ratio: distance to own base / distance to other base
-    own_base = attitude.to_base_attitude()
-    if own_base == Attitude.COLLECTIVE:
-        ratio = d_c / d_e if d_e > 0 else np.nan
-    else:
-        ratio = d_e / d_c if d_c > 0 else np.nan
-
-    return AttitudeComparisonMetrics(
-        game=game,
-        model=model,
-        attitude=attitude,
-        n_strategies=len(X_nonbase),
-        d_vs_collective=d_c,
-        d_vs_collective_ci_lower=ci_c_lo,
-        d_vs_collective_ci_upper=ci_c_hi,
-        centroid_dist_collective=centroid_c,
-        d_vs_selfish=d_e,
-        d_vs_selfish_ci_lower=ci_e_lo,
-        d_vs_selfish_ci_upper=ci_e_hi,
-        centroid_dist_selfish=centroid_e,
-        proximity_ratio=ratio,
-    )
-
-
-def get_feature_vectors_for_gene(
-    X_all: np.ndarray,
-    labels_all: np.ndarray,
-    game_labels: np.ndarray,
-    game_name: str,
-    pca_data: dict,
-    model: str,
-    attitude: Attitude,
-) -> np.ndarray:
-    """Extract feature vectors for a specific (game, model, attitude) combination."""
-    mask = game_labels == game_name
-    genes = pca_data[game_name]['genes']
-    matching = [g for g in genes if g.model == model and g.attitude == attitude]
-    if not matching:
-        return np.empty((0, X_all.shape[1]))
-    gene_strs = [str(g) for g in matching]
-    gene_mask = mask & np.isin(labels_all, gene_strs)
-    return X_all[gene_mask]
 
 
 def compute_game_variance_explained(X: np.ndarray,
                                     game_labels: np.ndarray) -> float:
-    """
-    Compute proportion of variance explained by game membership.
-
-    Multivariate η² = trace(S_between) / trace(S_total)
-    """
+    """Multivariate η² = trace(S_between) / trace(S_total)."""
     games = np.unique(game_labels)
     global_centroid = X.mean(axis=0)
-
-    # Total sum of squares
     ss_total = np.sum((X - global_centroid)**2)
-
-    # Between-group sum of squares
     ss_between = 0.0
     for game in games:
         mask = game_labels == game
         n_game = mask.sum()
         game_centroid = X[mask].mean(axis=0)
         ss_between += n_game * np.sum((game_centroid - global_centroid)**2)
-
     return ss_between / ss_total if ss_total > 0 else 0.0
+
+
+# =============================================================================
+# DATAFRAME BUILDERS
+# =============================================================================
+
+
+def build_main_dataframe(
+    X_all: np.ndarray,
+    labels_all: np.ndarray,
+    game_labels: np.ndarray,
+    pca_data: dict,
+    games: list[str],
+    random_baseline_dist: float,
+) -> pd.DataFrame:
+    """
+    Main metrics table: aggregated by base attitude family.
+
+    Columns: (game, metric) where metric in {coop, mpd_norm, delta, pr}.
+    Rows: (model, attitude_family).
+    Delta is per (model, game) and repeated across both attitude rows.
+    """
+    rows = []
+    for game in games:
+        genes = pca_data[game]['genes']
+        models = sorted(set(g.model for g in genes))
+        for model in models:
+            X_by_attitude = {}
+            for base_att in Attitude.base_attitudes():
+                X_by_attitude[base_att] = aggregate_by_base_family(
+                    X_all, labels_all, game_labels, pca_data,
+                    game, model, base_att,
+                )
+
+            # Between-set Delta (shared across both attitude rows for this model+game)
+            X_c = X_by_attitude[Attitude.COLLECTIVE]
+            X_s = X_by_attitude[Attitude.SELFISH]
+            delta = compute_delta(X_c, X_s) if len(X_c) > 0 and len(X_s) > 0 else np.nan
+
+            for base_att in Attitude.base_attitudes():
+                X_set = X_by_attitude[base_att]
+                if len(X_set) == 0:
+                    continue
+                coop = float(X_set.mean())
+                _, mpd_norm = compute_within_set_metrics(X_set, random_baseline_dist)
+                pr = compute_participation_ratio(X_set)
+                rows.append({
+                    'game': game,
+                    'model': model,
+                    'attitude': base_att.value,
+                    'coop': coop,
+                    'mpd_norm': mpd_norm,
+                    'delta': delta,
+                    'pr': pr,
+                })
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+
+    # Pivot: index = (model, attitude), columns = (game, metric)
+    df_pivot = df.pivot_table(
+        index=['model', 'attitude'],
+        columns='game',
+        values=['coop', 'mpd_norm', 'delta', 'pr'],
+        aggfunc='first',
+    )
+    # Reorder columns: (game, metric) instead of (metric, game)
+    df_pivot = df_pivot.swaplevel(axis=1)
+    # Reorder games and metrics
+    metric_order = ['coop', 'mpd_norm', 'delta', 'pr']
+    game_order = [g for g in games if g in df_pivot.columns.get_level_values(0).unique()]
+    new_cols = [(g, m) for g in game_order for m in metric_order
+                if (g, m) in df_pivot.columns]
+    df_pivot = df_pivot[new_cols]
+
+    # Reorder index: attitude in Attitude.base_attitudes() order
+    df_pivot = df_pivot.reindex(
+        sorted(df_pivot.index, key=lambda x: (x[0], 0 if x[1] == 'Collective' else 1))
+    )
+    return df_pivot
+
+
+def build_appendix_dataframe(
+    X_all: np.ndarray,
+    labels_all: np.ndarray,
+    game_labels: np.ndarray,
+    pca_data: dict,
+    games: list[str],
+) -> pd.DataFrame:
+    """
+    Appendix table: each non-canonical synonym vs its own family (LOO) and the other family.
+
+    For synonym X with base family F_X:
+        own_family   = F_X excluding X (leave-one-out, avoids self-inclusion bias)
+        other_family = full F_~X
+        d_own   = Delta(X, own_family)
+        d_other = Delta(X, other_family)
+        ratio   = d_own / d_other  (< 1 means X clusters with its semantic family)
+    """
+    non_base_attitudes = [
+        a for a in Attitude if a not in Attitude.base_attitudes()
+    ]
+    if not non_base_attitudes:
+        return pd.DataFrame()
+
+    rows = []
+    for game in games:
+        genes = pca_data[game]['genes']
+        models_in_game = sorted(set(g.model for g in genes))
+        for model in models_in_game:
+            for synonym in non_base_attitudes:
+                X_syn = get_feature_vectors_for_synonym(
+                    X_all, labels_all, game_labels, pca_data,
+                    game, model, synonym,
+                )
+                if len(X_syn) < 2:
+                    continue
+
+                own_base = synonym.to_base_attitude()
+                other_base = (Attitude.SELFISH if own_base == Attitude.COLLECTIVE
+                              else Attitude.COLLECTIVE)
+
+                X_own = aggregate_by_base_family(
+                    X_all, labels_all, game_labels, pca_data,
+                    game, model, own_base, exclude_synonym=synonym,
+                )
+                X_other = aggregate_by_base_family(
+                    X_all, labels_all, game_labels, pca_data,
+                    game, model, other_base,
+                )
+
+                d_own = compute_delta(X_syn, X_own)
+                d_other = compute_delta(X_syn, X_other)
+                ratio = d_own / d_other if d_other > 0 else np.nan
+
+                rows.append({
+                    'game': game,
+                    'model': model,
+                    'synonym': synonym.value,
+                    'base_family': own_base.value,
+                    'd_own': d_own,
+                    'd_other': d_other,
+                    'ratio': ratio,
+                })
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+
+    df_pivot = df.pivot_table(
+        index=['base_family', 'synonym', 'model'],
+        columns='game',
+        values=['d_own', 'd_other', 'ratio'],
+        aggfunc='first',
+    )
+    df_pivot = df_pivot.swaplevel(axis=1)
+    metric_order = ['d_own', 'd_other', 'ratio']
+    game_order = [g for g in games if g in df_pivot.columns.get_level_values(0).unique()]
+    new_cols = [(g, m) for g in game_order for m in metric_order
+                if (g, m) in df_pivot.columns]
+    df_pivot = df_pivot[new_cols]
+    return df_pivot
+
+
+# =============================================================================
+# LATEX WRITERS
+# =============================================================================
+
+
+def _fmt(x, precision=1):
+    if pd.isna(x):
+        return '--'
+    return f"{x:.{precision}f}"
+
+
+def write_main_latex(df_pivot: pd.DataFrame, output_path: Path):
+    """
+    Main metrics table with multirow for Model and Δ.
+
+    Layout: per game we show Coop, MPD, Δ, PR; Δ spans both attitude rows.
+    """
+    if df_pivot.empty:
+        logger.warning("Main DataFrame empty; skipping LaTeX write.")
+        return
+
+    games = sorted(set(df_pivot.columns.get_level_values(0)))
+    games = [g for g in ['public_goods', 'collective_risk', 'common_pool'] if g in games]
+    n_games = len(games)
+    cols_per_game = 4  # Coop, MPD, Δ, PR
+
+    # column spec
+    inner = '|'.join(['cccc'] * n_games)
+    col_spec = 'll|' + inner
+
+    # Group rows by model
+    models = list(dict.fromkeys(df_pivot.index.get_level_values(0)))
+
+    lines = []
+    lines.append('% Auto-generated; copy into paper.')
+    lines.append('\\begin{table*}[t]')
+    lines.append('\\caption{Strategic variation in the generated algorithms.}')
+    lines.append('\\centering')
+    lines.append('\\setlength{\\tabcolsep}{2pt}')
+    lines.append(f'\\begin{{tabular}}{{{col_spec}}}')
+    lines.append('\\hline')
+
+    # Header row 1: game group names
+    header_groups = ['', '']  # Model, Attitude
+    for i, g in enumerate(games):
+        sep = '|' if i < n_games - 1 else ''
+        header_groups.append(f'\\multicolumn{{{cols_per_game}}}{{c{sep}}}{{{GAME_MAPPING[g]}}}')
+    lines.append('Model & Attitude & ' + ' & '.join(header_groups[2:]) + ' \\\\')
+
+    # Header row 2: metric names
+    metric_headers = ['', '']
+    for _ in games:
+        metric_headers += ['Coop', 'MPD', '$\\Delta$', 'PR']
+    lines.append(' & '.join(metric_headers) + ' \\\\')
+    lines.append('\\hline')
+
+    # Body
+    for model in models:
+        sub = df_pivot.loc[model]
+        attitudes = list(sub.index)
+        n_att = len(attitudes)
+
+        for row_idx, attitude in enumerate(attitudes):
+            cells = []
+            # Model column (multirow on first row)
+            if row_idx == 0:
+                cells.append(f'\\multirow{{{n_att}}}{{*}}{{{pretty_model(model)}}}')
+            else:
+                cells.append('')
+            # Attitude column
+            cells.append(attitude)
+            # Per-game metrics
+            for g in games:
+                coop = sub.loc[attitude, (g, 'coop')] if (g, 'coop') in sub.columns else np.nan
+                mpd = sub.loc[attitude, (g, 'mpd_norm')] if (g, 'mpd_norm') in sub.columns else np.nan
+                delta = sub.loc[attitude, (g, 'delta')] if (g, 'delta') in sub.columns else np.nan
+                pr = sub.loc[attitude, (g, 'pr')] if (g, 'pr') in sub.columns else np.nan
+
+                cells.append(_fmt(coop, 2))
+                cells.append(_fmt(mpd, 1))
+                # Delta: multirow on first row, blank otherwise
+                if row_idx == 0:
+                    cells.append(f'\\multirow{{{n_att}}}{{*}}{{{_fmt(delta, 1)}}}')
+                else:
+                    cells.append('')
+                cells.append(_fmt(pr, 1))
+            lines.append(' & '.join(cells) + ' \\\\')
+        lines.append('\\hline')
+
+    lines.append('\\end{tabular}')
+    lines.append('\\label{tab:pca}')
+    lines.append('\\end{table*}')
+
+    output_path.write_text('\n'.join(lines) + '\n')
+    logger.info(f"Wrote main LaTeX table to {output_path}")
+
+
+def write_appendix_latex(df_pivot: pd.DataFrame, output_path: Path):
+    """Synonym comparison table for the appendix."""
+    if df_pivot.empty:
+        logger.warning("Appendix DataFrame empty; skipping LaTeX write.")
+        return
+
+    games = sorted(set(df_pivot.columns.get_level_values(0)))
+    games = [g for g in ['public_goods', 'collective_risk', 'common_pool'] if g in games]
+    n_games = len(games)
+    cols_per_game = 3
+
+    inner = '|'.join(['ccc'] * n_games)
+    col_spec = 'lll|' + inner
+
+    lines = []
+    lines.append('% Auto-generated synonym comparison table.')
+    lines.append('\\begin{table*}[t]')
+    lines.append('\\caption{Synonym placement relative to base-attitude families. '
+                 '$d_{\\text{own}}$ uses leave-one-out (synonym excluded from own family centroid).}')
+    lines.append('\\centering')
+    lines.append('\\setlength{\\tabcolsep}{3pt}')
+    lines.append(f'\\begin{{tabular}}{{{col_spec}}}')
+    lines.append('\\hline')
+
+    header_groups = ['', '', '']
+    for i, g in enumerate(games):
+        sep = '|' if i < n_games - 1 else ''
+        header_groups.append(f'\\multicolumn{{{cols_per_game}}}{{c{sep}}}{{{GAME_SHORT[g]}}}')
+    lines.append('Family & Synonym & Model & ' + ' & '.join(header_groups[3:]) + ' \\\\')
+
+    metric_headers = ['', '', '']
+    for _ in games:
+        metric_headers += ['$d_{\\text{own}}$', '$d_{\\text{other}}$', 'ratio']
+    lines.append(' & '.join(metric_headers) + ' \\\\')
+    lines.append('\\hline')
+
+    # Group by (family, synonym)
+    last_family = None
+    last_synonym = None
+    for (family, synonym, model), row in df_pivot.iterrows():
+        cells = []
+        # Family with horizontal rule on change
+        if family != last_family:
+            if last_family is not None:
+                lines.append('\\hline')
+            last_family = family
+            last_synonym = None
+            cells.append(family)
+        else:
+            cells.append('')
+
+        if synonym != last_synonym:
+            last_synonym = synonym
+            cells.append(synonym)
+        else:
+            cells.append('')
+
+        cells.append(pretty_model(model))
+
+        for g in games:
+            d_own = row.get((g, 'd_own'), np.nan)
+            d_other = row.get((g, 'd_other'), np.nan)
+            ratio = row.get((g, 'ratio'), np.nan)
+            cells.append(_fmt(d_own, 2))
+            cells.append(_fmt(d_other, 2))
+            cells.append(_fmt(ratio, 2))
+        lines.append(' & '.join(cells) + ' \\\\')
+
+    lines.append('\\hline')
+    lines.append('\\end{tabular}')
+    lines.append('\\label{tab:synonyms}')
+    lines.append('\\end{table*}')
+
+    output_path.write_text('\n'.join(lines) + '\n')
+    logger.info(f"Wrote appendix LaTeX table to {output_path}")
 
 
 # =============================================================================
@@ -540,46 +716,22 @@ def compute_game_variance_explained(X: np.ndarray,
 # =============================================================================
 
 
-def fit_base_attitude_pca(X_all, labels_all, game_labels, pca_data, games):
-    """
-    Fit PCA on base attitudes only, return transformer and transformed data.
-
-    Returns:
-        pca: fitted PCA object
-        X_pca_all: all data projected into base-attitude PCA space
-        base_mask: boolean mask for base attitude rows
-    """
-    base_attitude_set = set(Attitude.base_attitudes())
-    base_mask = np.zeros(len(X_all), dtype=bool)
-
-    for game_name in games:
-        game_mask = game_labels == game_name
-        for gene in pca_data[game_name]['genes']:
-            if gene.attitude in base_attitude_set:
-                gene_mask = game_mask & (labels_all == str(gene))
-                base_mask |= gene_mask
-
-    X_base = X_all[base_mask]
-    logger.info(
-        f"Fitting PCA on {base_mask.sum()} base-attitude strategies "
-        f"(out of {len(X_all)} total)"
-    )
-
-    n_components = min(10, X_base.shape[1], X_base.shape[0])
+def fit_pca_on_all(X_all: np.ndarray) -> tuple[PCA, np.ndarray]:
+    """Fit PCA on all data; return fitted PCA and transformed data."""
+    n_components = min(10, X_all.shape[1], X_all.shape[0])
     pca = PCA(n_components=n_components)
-    pca.fit(X_base)
-
-    # Transform ALL data (base + non-base) into this space
-    X_pca_all = pca.transform(X_all)
-
-    return pca, X_pca_all, base_mask
+    X_pca = pca.fit_transform(X_all)
+    logger.info(
+        f"Fitted PCA on {len(X_all)} strategies (all attitudes). "
+        f"First 5 components explain: {pca.explained_variance_ratio_[:5]}"
+    )
+    return pca, X_pca
 
 
 # =============================================================================
 # PLOTTING HELPERS
 # =============================================================================
 
-# Baselines with labels on the left (defector-ish strategies)
 BASELINE_LABELS_LEFT = {"A-D", "A-D,LR-C", "CD(1)", "CC(3)"}
 
 
@@ -611,76 +763,101 @@ def plot_baselines(ax, baseline_pca, baseline_labels, marker_size=120):
                     textcoords='offset points')
 
 
-def plot_pca(ax, X_pca, genes, labels, baseline_pca, baseline_labels, title,
-             pca):
-    """Plot PCA scatter with ellipses for each gene."""
-    colors = plt.colormaps.get_cmap('tab10')(np.linspace(0, 1, len(genes)))
+def _legend_top_reservation(n_handles: int, ncol: int) -> float:
+    """Return the `top` value for tight_layout rect to leave room for legend above."""
+    n_rows = max(1, (n_handles + ncol - 1) // ncol)
+    return max(0.80, 1.0 - 0.05 * n_rows - 0.03)
+
+
+def _aggregate_points_for_family(
+    X_pca_combined, labels_all, game_mask, genes_for_game, model, base_attitude
+):
+    """Get PCA-projected points for (model, base_attitude family) within one game."""
+    matching = [
+        g for g in genes_for_game
+        if g.model == model and g.attitude.to_base_attitude() == base_attitude
+    ]
+    if not matching:
+        return np.empty((0, 2))
+    gene_strs = [str(g) for g in matching]
+    mask = game_mask & np.isin(labels_all, gene_strs)
+    return X_pca_combined[mask, :2]
+
+
+def plot_pca_single_game(
+    ax, X_pca_combined, labels_all, game_mask, genes_for_game,
+    baseline_pca, baseline_labels, title, pca,
+):
+    """Single-game PCA plot: aggregate by (model, base_attitude_family)."""
+    models = sorted(set(g.model for g in genes_for_game))
+    cmap = plt.colormaps.get_cmap('tab10')
+    model_colors = {m: cmap(i) for i, m in enumerate(models)}
+    attitude_markers = {Attitude.COLLECTIVE: 'o', Attitude.SELFISH: 's'}
+
     handles = []
+    seen_models = set()
+    for model in models:
+        for base_att in Attitude.base_attitudes():
+            points = _aggregate_points_for_family(
+                X_pca_combined, labels_all, game_mask,
+                genes_for_game, model, base_att,
+            )
+            if len(points) == 0:
+                continue
 
-    for i, gene in enumerate(genes):
-        mask = labels == str(gene)
-        points = X_pca[mask, :2]
+            color = model_colors[model]
+            marker = attitude_markers[base_att]
+            ax.scatter(points[:, 0], points[:, 1],
+                       alpha=0.3, s=10, color=color, marker=marker)
 
-        scatter = ax.scatter(points[:, 0],
-                             points[:, 1],
-                             alpha=0.3,
-                             s=10,
-                             color=colors[i])
-
-        if len(points) > 0:
             mean_pt = points.mean(axis=0)
             ax.scatter(mean_pt[0],
                        mean_pt[1],
                        marker='o',
                        s=100,
-                       color=colors[i],
+                       color=color,
                        edgecolors='black',
                        linewidths=1.5,
                        zorder=5)
 
             if len(points) > 2:
                 cov = np.cov(points.T)
-                plot_covariance_ellipse(ax,
-                                        mean_pt,
-                                        cov,
-                                        n_std=1.0,
-                                        facecolor=colors[i],
-                                        alpha=0.25,
-                                        edgecolor=colors[i],
-                                        linewidth=1.5)
-        handles.append((scatter, str(gene)))
+                plot_covariance_ellipse(
+                    ax, mean_pt, cov, n_std=1.0,
+                    facecolor=color, alpha=0.25,
+                    edgecolor=color, linewidth=1.5,
+                )
+
+            if model not in seen_models:
+                handles.append(plt.Line2D(
+                    [0], [0], marker='o', color='w',
+                    markerfacecolor=color, markersize=10,
+                    label=pretty_model(model),
+                ))
+                seen_models.add(model)
+
+    handles.append(plt.Line2D([0], [0], marker='o', color='gray',
+                              markersize=8, label='Collective'))
+    handles.append(plt.Line2D([0], [0], marker='s', color='gray',
+                              markersize=8, label='Selfish'))
 
     plot_baselines(ax, baseline_pca, baseline_labels)
-
     ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
     ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})')
     ax.set_title(title)
-    ax.legend([h[0] for h in handles], [h[1] for h in handles],
-              loc='upper center',
-              frameon=False,
-              bbox_to_anchor=(0.4, 1.05),
-              ncol=2)
+    ax.legend(handles=handles, loc='upper center', frameon=False,
+              bbox_to_anchor=(0.4, 1.05), ncol=min(3, len(handles)))
 
 
 def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
                      baseline_pca, baseline_labels, games, pca, output_dir):
-    """
-    Create a 2×3 grid: rows=attitudes, columns=games.
-    Each subplot shows all models for that game/attitude combination.
-    """
-    attitudes = Attitude.base_attitudes()
-    attitude_names = {
-        Attitude.COLLECTIVE: "Collective",
-        Attitude.SELFISH: "Selfish"
-    }
-
-    # Extract unique models across all genes
+    """2×3 grid: rows=base attitude family, columns=games. One ellipse per model."""
     all_genes = []
     for g in games:
         all_genes.extend(pca_data[g]['genes'])
-    models = sorted(set(gene.model for gene in all_genes))
+    models = sorted(set(g.model for g in all_genes))
     cmap = plt.colormaps.get_cmap('tab10')
-    model_colors = {model: cmap(i) for i, model in enumerate(models)}
+    model_colors = {m: cmap(i) for i, m in enumerate(models)}
 
     fig, axes = plt.subplots(2, 3, figsize=FIGSIZE, sharex=True, sharey=True)
 
@@ -688,7 +865,7 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
         game_mask = game_labels == game
         genes_for_game = pca_data[game]['genes']
 
-        for row, attitude in enumerate(attitudes):
+        for row, attitude in enumerate(Attitude.base_attitudes()):
             ax = axes[row, col]
 
             # Filter genes for this attitude
@@ -752,7 +929,7 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
                 ax.set_title(GAME_MAPPING[game])
             if col == 0:
                 ax.set_ylabel(
-                    f"{attitude_names[attitude]}\nPC2 ({pca.explained_variance_ratio_[1]:.1%})"
+                    f"{attitude.value}\nPC2 ({pca.explained_variance_ratio_[1]:.1%})"
                 )
             if row == 1:
                 ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
@@ -821,107 +998,71 @@ def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
             genes_for_game = pca_data[game]['genes']
             color = game_colors[game]
 
-            for attitude in [Attitude.COLLECTIVE, Attitude.SELFISH]:
-                matching_genes = [
-                    g for g in genes_for_game
-                    if g.model == model and g.attitude == attitude
-                ]
-                if not matching_genes:
-                    continue
-                gene = matching_genes[0]
-
-                mask = game_mask & (labels_all == str(gene))
-                points = X_pca_combined[mask, :2]
-
+            for base_att in Attitude.base_attitudes():
+                points = _aggregate_points_for_family(
+                    X_pca_combined, labels_all, game_mask,
+                    genes_for_game, model, base_att,
+                )
                 if len(points) == 0:
                     continue
-
-                marker = attitude_markers[attitude]
-                ax.scatter(points[:, 0],
-                           points[:, 1],
-                           alpha=0.3,
-                           s=10,
-                           color=color,
-                           marker=marker)
-
-                # Centroid
+                marker = attitude_markers[base_att]
+                ax.scatter(points[:, 0], points[:, 1],
+                           alpha=0.3, s=10, color=color, marker=marker)
                 mean_pt = points.mean(axis=0)
-                ax.scatter(mean_pt[0],
-                           mean_pt[1],
-                           marker=marker,
-                           s=100,
-                           color=color,
-                           edgecolors='black',
-                           linewidths=1.5,
-                           zorder=5)
-
-                # Ellipse
+                ax.scatter(mean_pt[0], mean_pt[1],
+                           marker=marker, s=100, color=color,
+                           edgecolors='black', linewidths=1.5, zorder=5)
                 if len(points) > 2:
                     cov = np.cov(points.T)
-                    plot_covariance_ellipse(ax,
-                                            mean_pt,
-                                            cov,
-                                            n_std=1.0,
-                                            facecolor=color,
-                                            alpha=0.25,
-                                            edgecolor=color,
-                                            linewidth=1.5)
+                    plot_covariance_ellipse(
+                        ax, mean_pt, cov, n_std=1.0,
+                        facecolor=color, alpha=0.25,
+                        edgecolor=color, linewidth=1.5,
+                    )
 
         plot_baselines(ax, baseline_pca, baseline_labels, marker_size=60)
         ax.set_title(pretty_model(model))
-
         if col == 0:
             ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})')
         if row == n_rows - 1:
             ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
 
-    # Hide unused subplots
     for idx in range(n_models, n_rows * n_cols):
         row, col = divmod(idx, n_cols)
         axes[row, col].set_visible(False)
 
-    # Legend: games (colors) + attitudes (markers)
     legend_handles = []
     for game in games:
-        legend_handles.append(
-            plt.Line2D([0], [0],
-                       marker='o',
-                       color='w',
-                       markerfacecolor=game_colors[game],
-                       markersize=10,
-                       label=GAME_MAPPING[game]))
-    legend_handles.append(
-        plt.Line2D([0], [0],
-                   marker='o',
-                   color='gray',
-                   markersize=8,
-                   label='Collective'))
-    legend_handles.append(
-        plt.Line2D([0], [0],
-                   marker='s',
-                   color='gray',
-                   markersize=8,
-                   label='Selfish'))
+        legend_handles.append(plt.Line2D(
+            [0], [0], marker='o', color='w',
+            markerfacecolor=game_colors[game], markersize=10,
+            label=GAME_MAPPING[game],
+        ))
+    legend_handles.append(plt.Line2D([0], [0], marker='o', color='gray',
+                                     markersize=8, label='Collective'))
+    legend_handles.append(plt.Line2D([0], [0], marker='s', color='gray',
+                                     markersize=8, label='Selfish'))
 
-    fig.legend(handles=legend_handles,
-               loc='upper center',
-               frameon=False,
-               bbox_to_anchor=(0.5, 1.02),
-               ncol=len(games) + 2,
-               columnspacing=0.6,
-               handletextpad=0.5)
+    ncol = len(games) + 2
+    fig.legend(handles=legend_handles, loc='upper center', frameon=False,
+               bbox_to_anchor=(0.4, 1.02),
+               ncol=ncol, columnspacing=0.6, handletextpad=0.5)
 
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    top = _legend_top_reservation(len(legend_handles), ncol)
+    plt.tight_layout(rect=[0, 0, 1, top])
     plt.savefig(output_dir / f"pca_by_model.{FORMAT}",
-                format=FORMAT,
-                bbox_inches='tight')
+                format=FORMAT, bbox_inches='tight')
     plt.close()
-    logger.info(
-        f"Saved per-model PCA grid to {output_dir / f'pca_by_model.{FORMAT}'}")
+    logger.info(f"Saved pca_by_model.{FORMAT}")
+
+
+# =============================================================================
+# CENTROID-NEAREST STRATEGIES (for inspection)
+# =============================================================================
 
 
 def find_centroid_strategies(X, labels, game_labels, pca_data, games):
-    """For each (game, attitude, model), find the strategy closest to the group centroid."""
+    """For each (game, model, base_attitude_family), find strategy nearest centroid."""
     for game_name in games:
         logger.info(f"\n  {game_name}:")
         mask = game_labels == game_name
@@ -929,16 +1070,15 @@ def find_centroid_strategies(X, labels, game_labels, pca_data, games):
         metadata = pca_data[game_name]['metadata']
         X_game = X[mask]
         labels_game = labels[mask]
-
-        # Build index mapping from game-local index to metadata
         game_indices = np.where(mask)[0]
 
         models = sorted(set(g.model for g in genes))
         for model in models:
-            for attitude in [Attitude.COLLECTIVE, Attitude.SELFISH]:
+            for base_att in Attitude.base_attitudes():
                 matching_genes = [
                     g for g in genes
-                    if g.model == model and g.attitude == attitude
+                    if g.model == model
+                    and g.attitude.to_base_attitude() == base_att
                 ]
                 if not matching_genes:
                     continue
@@ -946,7 +1086,6 @@ def find_centroid_strategies(X, labels, game_labels, pca_data, games):
                 gene_strs = [str(g) for g in matching_genes]
                 gene_mask = np.isin(labels_game, gene_strs)
                 X_group = X_game[gene_mask]
-
                 if len(X_group) == 0:
                     continue
 
@@ -954,14 +1093,13 @@ def find_centroid_strategies(X, labels, game_labels, pca_data, games):
                 dists = cdist(centroid, X_group, metric='euclidean')[0]
                 local_idx = np.argmin(dists)
 
-                # Map back to metadata
                 game_local_indices = np.where(gene_mask)[0]
                 metadata_idx = game_local_indices[local_idx]
                 gene, strategy_name, feature_dict = metadata[metadata_idx]
-
                 coop_rate = np.mean(list(feature_dict.values()))
                 logger.info(
-                    f"    {gene}: {strategy_name} "
+                    f"    {model}/{base_att.value} "
+                    f"(actual: {gene}): {strategy_name} "
                     f"(dist={dists[local_idx]:.3f}, coop={coop_rate:.2%})"
                 )
 
@@ -972,7 +1110,6 @@ def find_centroid_strategies(X, labels, game_labels, pca_data, games):
 
 
 def find_extrema(X_pca, metadata):
-    """Find strategies at plot extrema."""
     extrema_indices = {
         'top_left': np.argmin(X_pca[:, 0] - X_pca[:, 1]),
         'top_right': np.argmax(X_pca[:, 0] + X_pca[:, 1]),
@@ -983,59 +1120,35 @@ def find_extrema(X_pca, metadata):
         'bottom': np.argmin(X_pca[:, 0]),
         'left': np.argmin(X_pca[:, 1]),
     }
-
     results = {}
     for position, idx in extrema_indices.items():
         gene, strategy_name, feature_dict = metadata[idx]
-
         results[position] = {
             'idx': idx,
             'gene': str(gene),
             'strategy': strategy_name,
             'coords': (X_pca[idx, 0], X_pca[idx, 1]),
-            'features': feature_dict
+            'features': feature_dict,
         }
-
         logger.info(f"\n{position.upper().replace('_', ' ')}:")
         logger.info(f"  Gene: {gene}")
         logger.info(f"  Strategy: {strategy_name}")
         logger.info(f"  PC1: {X_pca[idx, 0]:.3f}, PC2: {X_pca[idx, 1]:.3f}")
-
         coop_rate = np.mean(list(feature_dict.values()))
         logger.info(f"  Overall cooperation rate: {coop_rate:.2%}")
-
     return results
-
-
-def extrema_analysis(tl):
-    logger.info(f"\n{'='*60}")
-    logger.info(f"EXTREMA ANALYSIS")
-    logger.info(f"{'='*60}")
-    features = tl['features']
-    logger.info(f"Behavior by context (showing first 20 contexts):")
-    for i, (context, coop_prob) in enumerate(list(features.items())[:20]):
-        # Context is tuple of tuples, flatten and convert to string
-        if len(context) == 0:
-            context_str = 'Start'
-        else:
-            context_str = '|'.join(str(c) for c in context)
-        logger.info(f"  {context_str}: {coop_prob:.1%} coop)")
 
 
 def plot_extrema(extrema_info, ax):
     for position, info in extrema_info.items():
         ax.annotate(f"{info['strategy']}\n({info['gene']})",
-                    xy=info['coords'],
-                    xytext=(10, 10),
+                    xy=info['coords'], xytext=(10, 10),
                     textcoords='offset points',
                     bbox=dict(boxstyle='round,pad=0.5',
-                              facecolor='yellow',
-                              alpha=0.7),
+                              facecolor='yellow', alpha=0.7),
                     arrowprops=dict(arrowstyle='->',
-                                    connectionstyle='arc3,rad=0',
-                                    lw=1.5),
-                    fontsize=8,
-                    zorder=10)
+                                    connectionstyle='arc3,rad=0', lw=1.5),
+                    fontsize=8, zorder=10)
 
 
 # =============================================================================
@@ -1062,10 +1175,9 @@ if __name__ == "__main__":
     )
 
     # ==========================================================================
-    # PHASE 1: Load/compute features for each game (with caching)
+    # PHASE 1: Load/compute features
     # ==========================================================================
     pca_data = {}
-
     for game_name in args.games:
         game_class, _ = get_game_type(game_name)
         description = STANDARD_GENERATORS[game_name + "_default"](
@@ -1074,11 +1186,9 @@ if __name__ == "__main__":
                                     game_name=game_name,
                                     models=args.models)
         genes = sorted(list(registry.available_genes), key=str)
-
         results_dict = {}
 
         for gene in genes:
-            # Check cache first
             if not args.recompute:
                 cached_data = load_features(game_name, gene, args)
                 if cached_data is not None:
@@ -1130,13 +1240,9 @@ if __name__ == "__main__":
         }
 
     # ==========================================================================
-    # PHASE 2: Compute baselines (same for all games - depends only on n_players, n_rounds)
+    # PHASE 2: Baselines
     # ==========================================================================
-    logger.info(f"\n{'='*60}")
-    logger.info("COMPUTING BASELINES")
-    logger.info(f"{'='*60}")
-
-    # Need to set globals for baseline computation (use first game's setup)
+    logger.info(f"\n{'='*60}\nCOMPUTING BASELINES\n{'='*60}")
     game_class, _ = get_game_type(args.games[0])
     description = STANDARD_GENERATORS[args.games[0] + "_default"](
         n_players=args.n_players, n_rounds=args.n_rounds)
@@ -1148,65 +1254,55 @@ if __name__ == "__main__":
     baseline_X = np.array(baseline_X + [[0.5] * n_features])
 
     logger.info(
-        f"Features:\n{len(unique_combos)} unique opponent action combinations of length {args.n_rounds - 1}\nGiving rise to {n_features} features in total (including histories of shorter length)."
+        f"Features: {len(unique_combos)} unique opponent action combinations "
+        f"of length {args.n_rounds - 1}, giving {n_features} features total "
+        f"(including histories of shorter length)."
     )
 
     # ==========================================================================
-    # PHASE 3: Combined PCA (fit on base attitudes only, project everything)
+    # PHASE 3: PCA on all data
     # ==========================================================================
-    logger.info(f"\n{'='*60}")
-    logger.info("COMBINED PCA ANALYSIS (fitted on base attitudes only)")
-    logger.info(f"{'='*60}")
+    logger.info(f"\n{'='*60}\nCOMBINED PCA (fitted on all attitudes)\n{'='*60}")
 
-    # Stack all games
     X_all = np.vstack([pca_data[g]['X'] for g in args.games])
     labels_all = np.concatenate([pca_data[g]['labels'] for g in args.games])
     game_labels = np.concatenate(
         [[g] * len(pca_data[g]['X']) for g in args.games])
 
-    # Fit PCA on base attitudes only, transform everything
-    pca_combined, X_pca_combined, base_mask = fit_base_attitude_pca(
-        X_all, labels_all, game_labels, pca_data, args.games
-    )
+    pca_combined, X_pca_combined = fit_pca_on_all(X_all)
     baseline_pca_combined = pca_combined.transform(baseline_X)
 
-    logger.info(
-        f"PCA explained variance (base attitudes): "
-        f"{pca_combined.explained_variance_ratio_[:5]}"
-    )
-
-    # Random baseline for normalization
     random_baseline_dist = compute_random_baseline_distance(X_all.shape[1])
 
-    # Scree plot (combined)
+    # Scree plot
     cumulative = np.cumsum(pca_combined.explained_variance_ratio_)
     plt.figure()
     plt.plot(range(1, len(cumulative) + 1), cumulative, 'o-')
     plt.axhline(y=0.9, color='r', linestyle='--', label='90% threshold')
     plt.xlabel('Component')
     plt.ylabel('Cumulative Explained Variance')
-    plt.title('Combined PCA Scree Plot (base attitudes)')
+    plt.title('Combined PCA Scree Plot')
     plt.legend()
     plt.savefig(output_dir / f"scree_combined.{FORMAT}", format=FORMAT)
     plt.close()
 
-    # Individual plots per game (using combined PCA)
+    # Per-game plots
     for game_name in args.games:
         mask = game_labels == game_name
-        X_game_pca = X_pca_combined[mask]
-        labels_game = labels_all[mask]
+        labels_game = labels_all
         genes = pca_data[game_name]['genes']
         metadata = pca_data[game_name]['metadata']
 
         fig, ax = plt.subplots(figsize=FIGSIZE)
-        plot_pca(ax, X_game_pca, genes, labels_game, baseline_pca_combined,
-                 baseline_labels, game_name, pca_combined)
+        plot_pca_single_game(
+            ax, X_pca_combined, labels_all, mask, genes,
+            baseline_pca_combined, baseline_labels,
+            GAME_MAPPING[game_name], pca_combined,
+        )
 
         if args.plot_extrema:
-            extrema_info = find_extrema(X_game_pca, metadata)
-            extrema_analysis(
-                extrema_info.get('bottom_right',
-                                 list(extrema_info.values())[0]))
+            X_pca_game = X_pca_combined[mask]
+            extrema_info = find_extrema(X_pca_game, metadata)
             plot_extrema(extrema_info, ax)
 
         plt.tight_layout()
@@ -1225,160 +1321,55 @@ if __name__ == "__main__":
                       pca_combined, output_dir)
 
     # ==========================================================================
-    # PHASE 4: Compute and display metrics (base attitudes)
+    # PHASE 4: Main metrics table
     # ==========================================================================
-    logger.info(f"\n{'='*60}")
-    logger.info("DIVERSITY METRICS (Within-set)")
-    logger.info(f"{'='*60}")
+    logger.info(f"\n{'='*60}\nMAIN METRICS (aggregated by base family)\n{'='*60}")
 
-    for game_name in args.games:
-        logger.info(f"\n  {game_name}:")
-        mask = game_labels == game_name
-        for gene in pca_data[game_name]['genes']:
-            gene_mask = mask & (labels_all == str(gene))
-            X_gene = X_all[gene_mask]
-            coop_rate = float(X_gene.mean()) if len(X_gene) > 0 else 0.0
-            mpd, mpd_norm = compute_within_set_metrics(X_gene,
-                                                       random_baseline_dist)
-            pr = compute_participation_ratio(X_gene)
-            logger.info(
-                f"    {gene}: coop={coop_rate:.3f}, MPD={mpd:.3f} (norm={mpd_norm:.2f}), PR={pr:.2f}")
+    df_main = build_main_dataframe(
+        X_all, labels_all, game_labels, pca_data,
+        args.games, random_baseline_dist,
+    )
+    if not df_main.empty:
+        with pd.option_context('display.max_rows', None,
+                               'display.max_columns', None,
+                               'display.width', 200,
+                               'display.float_format', '{:.2f}'.format):
+            logger.info("\n" + df_main.to_string())
+        df_main.to_csv(output_dir / "main_metrics.csv")
+        write_main_latex(df_main, output_dir / "main_metrics.tex")
 
-    logger.info(f"\n{'='*60}")
-    logger.info("VARIANCE EXPLAINED BY GAME MEMBERSHIP")
-    logger.info(f"{'='*60}")
+    # Variance explained by game membership (per model)
+    logger.info(f"\n{'='*60}\nVARIANCE EXPLAINED BY GAME MEMBERSHIP\n{'='*60}")
+    all_genes_flat = []
+    for g in args.games:
+        all_genes_flat.extend(pca_data[g]['genes'])
+    models_all = sorted(set(g.model for g in all_genes_flat))
+    for model in models_all:
+        model_mask = np.array([f"({model}," in label or label.startswith(f"{model},")
+                               or model in label for label in labels_all])
+        if model_mask.sum() == 0:
+            continue
+        eta_sq = compute_game_variance_explained(X_all[model_mask],
+                                                 game_labels[model_mask])
+        logger.info(f"  {pretty_model(model)}: η² = {eta_sq:.3f}")
 
-    # Per model (do strategies from the same model behave similarly across games?)
-    models = sorted(set(g.model for g in pca_data[args.games[0]]['genes']))
-    for model in models:
-        model_mask = np.array([model in label for label in labels_all])
-        eta_sq_model = compute_game_variance_explained(X_all[model_mask],
-                                                       game_labels[model_mask])
-        logger.info(f"  {model}: η² = {eta_sq_model:.3f}")
-
-    logger.info(f"\n{'='*60}")
-    logger.info("CENTROID-NEAREST STRATEGIES")
-    logger.info(f"{'='*60}")
-
+    logger.info(f"\n{'='*60}\nCENTROID-NEAREST STRATEGIES\n{'='*60}")
     find_centroid_strategies(X_all, labels_all, game_labels, pca_data, args.games)
 
-    logger.info(f"\n{'='*60}")
-    logger.info("BETWEEN-SET METRICS (Collective vs Selfish)")
-    logger.info(f"{'='*60}")
-
-    for game_name in args.games:
-        logger.info(f"\n  {game_name}:")
-        genes = pca_data[game_name]['genes']
-
-        # Group genes by model
-        models = set(gene.model for gene in genes)
-
-        for model in sorted(models):
-            # Get genes for this model, split by attitude
-            collective_genes = [
-                g for g in genes
-                if g.model == model and g.attitude == Attitude.COLLECTIVE
-            ]
-            selfish_genes = [
-                g for g in genes
-                if g.model == model and g.attitude == Attitude.SELFISH
-            ]
-
-            if not collective_genes or not selfish_genes:
-                continue
-
-            # Get corresponding feature vectors
-            mask = game_labels == game_name
-            X_collective = X_all[
-                mask & np.isin(labels_all, [str(g) for g in collective_genes])]
-            X_selfish = X_all[
-                mask &
-                np.isin(labels_all, [str(g) for g in selfish_genes])]
-
-            if len(X_collective) == 0 or len(X_selfish) == 0:
-                continue
-
-            centroid_dist, cohens_d = compute_between_set_metrics(
-                X_collective, X_selfish)
-            metrics = BetweenSetMetrics(game=game_name,
-                                        model=model,
-                                        centroid_distance=centroid_dist,
-                                        cohens_d=cohens_d)
-            logger.info(f"    {metrics}")
-
     # ==========================================================================
-    # PHASE 5: Non-base attitude comparison
+    # PHASE 5: Appendix synonym comparison
     # ==========================================================================
-    non_base_attitudes = [a for a in Attitude if a not in Attitude.base_attitudes()]
-
-    if not non_base_attitudes:
-        logger.info("No non-base attitudes found, skipping Phase 5")
+    logger.info(f"\n{'='*60}\nAPPENDIX: SYNONYM PLACEMENT\n{'='*60}")
+    df_appendix = build_appendix_dataframe(
+        X_all, labels_all, game_labels, pca_data, args.games,
+    )
+    if not df_appendix.empty:
+        with pd.option_context('display.max_rows', None,
+                               'display.max_columns', None,
+                               'display.width', 200,
+                               'display.float_format', '{:.2f}'.format):
+            logger.info("\n" + df_appendix.to_string())
+        df_appendix.to_csv(output_dir / "appendix_synonyms.csv")
+        write_appendix_latex(df_appendix, output_dir / "appendix_synonyms.tex")
     else:
-        logger.info(f"\n{'='*60}")
-        logger.info("NON-BASE ATTITUDE COMPARISON (Cohen's d to base attitudes)")
-        logger.info(f"{'='*60}")
-
-        all_comparisons: list[AttitudeComparisonMetrics] = []
-
-        for game_name in args.games:
-            logger.info(f"\n  {game_name}:")
-            genes = pca_data[game_name]['genes']
-            models_in_game = sorted(set(g.model for g in genes))
-
-            for model in models_in_game:
-                # Get base attitude feature vectors
-                X_collective = get_feature_vectors_for_gene(
-                    X_all, labels_all, game_labels, game_name,
-                    pca_data, model, Attitude.COLLECTIVE,
-                )
-                X_selfish = get_feature_vectors_for_gene(
-                    X_all, labels_all, game_labels, game_name,
-                    pca_data, model, Attitude.SELFISH,
-                )
-
-                if len(X_collective) == 0 or len(X_selfish) == 0:
-                    continue
-
-                for attitude in non_base_attitudes:
-                    X_nb = get_feature_vectors_for_gene(
-                        X_all, labels_all, game_labels, game_name,
-                        pca_data, model, attitude,
-                    )
-                    if len(X_nb) < 2:
-                        continue
-
-                    metrics = compute_attitude_comparison(
-                        X_nb, X_collective, X_selfish,
-                        game_name, model, attitude,
-                        n_bootstrap=1000,
-                    )
-                    all_comparisons.append(metrics)
-                    logger.info(f"    {metrics}")
-
-        # Summary table
-        if all_comparisons:
-            logger.info(f"\n{'='*60}")
-            logger.info("ATTITUDE COMPARISON SUMMARY")
-            logger.info(f"{'='*60}")
-
-            # Group by attitude, average across games and models
-            by_attitude: dict[Attitude, list[AttitudeComparisonMetrics]] = defaultdict(list)
-            for m in all_comparisons:
-                by_attitude[m.attitude].append(m)
-
-            for attitude, metrics_list in sorted(by_attitude.items(), key=lambda x: x[0].value):
-                own_base = attitude.to_base_attitude()
-                d_own = np.mean([
-                    m.d_vs_collective if own_base == Attitude.COLLECTIVE else m.d_vs_selfish
-                    for m in metrics_list
-                ])
-                d_other = np.mean([
-                    m.d_vs_selfish if own_base == Attitude.COLLECTIVE else m.d_vs_collective
-                    for m in metrics_list
-                ])
-                ratio = np.mean([m.proximity_ratio for m in metrics_list if not np.isnan(m.proximity_ratio)])
-                logger.info(
-                    f"  {attitude.value} (base={own_base.value}): "
-                    f"d_to_own_base={d_own:.2f}, d_to_other_base={d_other:.2f}, "
-                    f"mean_ratio={ratio:.2f}"
-                )
+        logger.info("No non-base synonyms found in data.")
