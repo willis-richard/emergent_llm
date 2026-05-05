@@ -770,7 +770,7 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
     fig.legend(handles=legend_handles,
                loc='upper center',
                frameon=False,
-               bbox_to_anchor=(0.4, 1.05 if len(legend_handles) <= 4 else (0.4, 1.1),
+               bbox_to_anchor=(0.4, 1.05) if len(legend_handles) <= 4 else (0.4, 1.1),
                ncol=ncol)
 
     plt.tight_layout(rect=[0, 0, 0.95, 1])  # Leave space for legend
