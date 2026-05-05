@@ -24,8 +24,10 @@ RetentionMap = dict[tuple[Gene, str], int]
 
 
 class CulturalEvolution:
-    """Simulate cultural evolution with proportional imitation (Schlag, 1998),
-    per-gene mutation, and strategy refresh on change."""
+    """Cultural evolution under Fermi pairwise-comparison imitation
+    (Traulsen, Nowak, Pacheco, 2006), per-gene mutation, and strategy refresh on
+    genotype change. Runs for a fixed number of generations and reports
+    genotype-frequency statistics over the final window."""
 
     def __init__(self, config: CulturalEvolutionConfig,
                  strategy_registry: StrategyRegistry):
@@ -33,7 +35,7 @@ class CulturalEvolution:
         self.registry = strategy_registry
         self.logger = logging.getLogger(__name__)
 
-        # Require all model × base-attitude combinations to be present.
+        # Require all model x base-attitude combinations to be present.
         for model in self.registry.available_models:
             for attitude in Attitude.base_attitudes():
                 gene = Gene(model, attitude)
@@ -72,28 +74,28 @@ class CulturalEvolution:
 
     def run_tournament(self) -> CulturalEvolutionResults:
         self.logger.info(
-            "Starting cultural evolution: pop=%d, beta=%g, mu=%g, threshold=%.2f, max_gen=%d",
-            self.config.population_size,
-            self.config.beta,
-            self.config.mutation_rate,
-            self.config.threshold_pct,
-            self.config.max_generations)
+            "Starting cultural evolution: pop=%d, beta=%g, mu=%g, "
+            "n_generations=%d, final_window=%d",
+            self.config.population_size, self.config.beta,
+            self.config.mutation_rate, self.config.n_generations,
+            self.config.final_window)
 
-        while self.generation < self.config.max_generations:
+        for _ in range(self.config.n_generations):
             frequencies = self._calculate_gene_frequencies()
             self.gene_frequencies.append(frequencies)
             self.logger.info("Generation %d: %s", self.generation,
                              self._format_frequencies(frequencies))
-
-            if self._check_threshold(frequencies):
-                self.logger.info("Threshold reached - terminating")
-                break
-
             self._run_generation()
             self.generation += 1
-        else:
-            frequencies = self._calculate_gene_frequencies()
-            self.gene_frequencies.append(frequencies)
+
+        # Record post-final-update frequencies so the history covers the entire
+        # trajectory, including the state after the last generation's update.
+        final_frequencies = self._calculate_gene_frequencies()
+        self.gene_frequencies.append(final_frequencies)
+        self.logger.info("Generation %d (final): %s", self.generation,
+                         self._format_frequencies(final_frequencies))
+
+        window_mean, window_std = self._compute_window_statistics()
 
         summary = CulturalEvolutionSummary.from_raw_data(
             self.gene_frequencies, self.generation_results,
@@ -101,13 +103,36 @@ class CulturalEvolution:
 
         return CulturalEvolutionResults(
             config=self.config,
-            final_generation=self.generation,
-            final_gene_frequencies=frequencies,
+            final_window_mean_frequencies=window_mean,
+            final_window_std_frequencies=window_std,
             gene_frequency_history=self.gene_frequencies,
             retention_history=self.retention_history,
             summary=summary,
             generation_results=self.generation_results,
         )
+
+    def _compute_window_statistics(
+            self) -> tuple[dict[Gene, float], dict[Gene, float]]:
+        """Mean and (population) standard deviation of genotype frequencies
+        across the final `final_window` recorded states."""
+        window = self.gene_frequencies[-self.config.final_window:]
+        all_genes: set[Gene] = set()
+        for gen_freqs in window:
+            all_genes.update(gen_freqs.keys())
+
+        means: dict[Gene, float] = {}
+        stds: dict[Gene, float] = {}
+        for gene in all_genes:
+            values = np.array(
+                [gen_freqs.get(gene, 0.0) for gen_freqs in window],
+                dtype=np.float64)
+            means[gene] = float(values.mean())
+            stds[gene] = float(values.std(ddof=0))
+
+        # Sort by mean descending for readability.
+        means = dict(sorted(means.items(), key=lambda kv: kv[1], reverse=True))
+        stds = {g: stds[g] for g in means}
+        return means, stds
 
     def _run_generation(self):
         """Play, then synchronously imitate, mutate, and refresh strategies."""
@@ -123,7 +148,6 @@ class CulturalEvolution:
         results = FairTournament(players, fair_config).run_tournament()
         self.generation_results.append(results)
 
-        # Fitness = total reward across the agent's games (per the spec).
         scores_by_name = results.results_df.set_index(
             'player_name')['total_payoff'].to_dict()
         fitnesses = np.array(
@@ -139,9 +163,10 @@ class CulturalEvolution:
         # 3. Mutation (per-gene independent)
         new_genes, mutated = self._mutate(new_genes)
 
-        # 4. Strategy refresh + retention bookkeeping.
-        # An agent is "retained" this generation iff it neither imitated nor mutated.
-        # Retained agents keep their existing StrategySpec; everyone else draws fresh.
+        # 4. Strategy refresh + retention bookkeeping. An agent is retained
+        # this generation iff its genotype did not change. Same-genotype
+        # imitation copies (which Fermi produces with prob ~0.5 at zero
+        # delta) are deliberately NOT treated as refresh events.
         changed = imitated | mutated
         new_population = [
             self.registry.sample_spec(new_genes[i]) if changed[i] else spec
@@ -149,8 +174,7 @@ class CulturalEvolution:
         ]
         retention = Counter(
             (spec.gene, spec.strategy_class.__name__)
-            for i, spec in enumerate(self.population) if not changed[i]
-        )
+            for i, spec in enumerate(self.population) if not changed[i])
 
         self.population = new_population
         self.retention_history.append(retention)
@@ -161,29 +185,40 @@ class CulturalEvolution:
             len(self.population) - int(changed.sum()))
 
     def _imitate(self, fitnesses: np.ndarray) -> tuple[list[Gene], np.ndarray]:
-        """Proportional imitation rule (Schlag, 1998).
+        """Fermi pairwise-comparison rule (Traulsen, Nowak, Pacheco, 2006).
 
-        Each agent samples one other agent uniformly at random and adopts their
-        genotype with probability max(0, beta * (pi_partner - pi_self)). With
-        fitnesses normalised to [0, 1], beta in (0, 1] keeps probabilities valid;
-        beta = 1 is the maximally selective admissible value.
+        Each agent samples one other agent uniformly at random and adopts the
+        partner's genotype with probability
 
-        Returns (new_genes, imitated_mask).
+            p = 1 / (1 + exp(-beta * (pi_partner - pi_self))).
+
+        Larger beta -> more deterministic imitation of the fitter peer.
+        Returns (new_genes, imitated_mask), where the mask flags only agents
+        whose genotype actually changed (same-genotype copies are no-ops and
+        do not trigger strategy refresh).
         """
         n = len(fitnesses)
         partners = (np.arange(n) + np.random.randint(1, n, size=n)) % n
         deltas = fitnesses[partners] - fitnesses
-        probs = np.clip(self.config.beta * deltas, 0.0, 1.0)
-        imitate_mask = np.random.random(n) < probs
-        new_genes = [
-            self.population[partners[i]].gene if imitate_mask[i] else spec.gene
-            for i, spec in enumerate(self.population)
-        ]
+        probs = 1.0 / (1.0 + np.exp(-self.config.beta * deltas))
+        copy_decision = np.random.random(n) < probs
+
+        current_genes = [spec.gene for spec in self.population]
+        new_genes: list[Gene] = []
+        imitate_mask = np.zeros(n, dtype=bool)
+        for i in range(n):
+            if copy_decision[i]:
+                partner_gene = current_genes[partners[i]]
+                new_genes.append(partner_gene)
+                if partner_gene != current_genes[i]:
+                    imitate_mask[i] = True
+            else:
+                new_genes.append(current_genes[i])
         return new_genes, imitate_mask
 
     def _mutate(self, genes: list[Gene]) -> tuple[list[Gene], np.ndarray]:
-        """Each gene independently replaced with prob μ by a uniformly random
-        alternative. Restricted to base attitudes."""
+        """Each gene independently replaced with prob mu by a uniformly
+        random alternative. Restricted to base attitudes."""
         mu = self.config.mutation_rate
         models = sorted(self.registry.available_models)
         attitudes = list(Attitude.base_attitudes())
@@ -214,9 +249,6 @@ class CulturalEvolution:
         return dict(
             sorted(((g, c / total) for g, c in counts.items()),
                    key=lambda kv: kv[1], reverse=True))
-
-    def _check_threshold(self, frequencies: dict[Gene, float]) -> bool:
-        return any(f >= self.config.threshold_pct for f in frequencies.values())
 
     @staticmethod
     def _format_frequencies(frequencies: dict[Gene, float]) -> str:

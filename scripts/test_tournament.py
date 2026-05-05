@@ -169,8 +169,8 @@ def create_ce_config(game_description : GameDescription):
                                    population_size=18,
                                    mutation_rate=0.1,
                                    beta=1,
-                                   threshold_pct=0.8,
-                                   max_generations=5,
+                                   n_generations=5,
+                                   final_window=2,
                                    games_per_agent=2)
 
 def run_cultural_evolution(game_description: GameDescription):
@@ -276,7 +276,7 @@ def main():
     print(bce_results)
     bce_results.save()
 
-    check = BatchCulturalEvolutionResults.load("./test/cultural_evolution/public_goods/n6_r20_pop18_mut0.1_beta1_thr0.8_gen5_games2")
+    check = BatchCulturalEvolutionResults.load("./test/cultural_evolution/public_goods/n6_r20_pop18_mut0.1_beta1_gen5_win2_games2")
     print(check)
 
 if __name__ == "__main__":

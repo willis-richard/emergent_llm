@@ -69,7 +69,7 @@ for pm in "${PROVIDER_MODELS[@]}"; do
     done
 done
 wait
-#
+
 # for game in "${GAMES[@]}"; do
 #     for n_players in "${EVOLUTION_PLAYERS[@]}"; do
 #         python scripts/run_cultural_evolution.py \
@@ -78,9 +78,9 @@ wait
 #                --n_rounds 20 \
 #                --population_size 512 \
 #                --mutation_rate 0.0025 \
-#                --beta 1 \
-#                --threshold_pct 0.75 \
-#                --max_generations 200 \
+#                --beta 10 \
+#                --n_generations 200 \
+#                --final_window 50 \
 #                --repetitions 10 \
 #                --n_runs 100 \
 #                --n_processes $N_PROCESSES \

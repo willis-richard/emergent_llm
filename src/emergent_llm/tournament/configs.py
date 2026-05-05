@@ -96,8 +96,8 @@ class CulturalEvolutionConfig:
     population_size: int
     mutation_rate: float
     beta: float
-    threshold_pct: float
-    max_generations: int
+    n_generations: int
+    final_window: int
     games_per_agent: int
 
     def __post_init__(self):
@@ -110,15 +110,15 @@ class CulturalEvolutionConfig:
         if not (0 <= self.mutation_rate <= 1):
             raise ValueError(
                 f"mutation_rate must be in [0, 1], got {self.mutation_rate}")
-        if not (0 < self.beta <= 1):
+        if self.beta <= 0:
             raise ValueError(
-                f"beta (beta) must be in (0, 1] for proportional "
-                f"imitation, got {self.beta}")
-        if not (0 < self.threshold_pct <= 1):
+                f"beta (selection intensity) must be positive, got {self.beta}")
+        if self.n_generations <= 0:
+            raise ValueError("n_generations must be positive")
+        if not (0 < self.final_window <= self.n_generations):
             raise ValueError(
-                f"threshold_pct must be in (0, 1], got {self.threshold_pct}")
-        if self.max_generations <= 0:
-            raise ValueError("max_generations must be positive")
+                f"final_window must be in (0, n_generations], got "
+                f"{self.final_window} (n_generations={self.n_generations})")
         if self.games_per_agent <= 0:
             raise ValueError("games_per_agent must be positive")
 
@@ -138,8 +138,8 @@ class CulturalEvolutionConfig:
             population_size=data['population_size'],
             mutation_rate=data['mutation_rate'],
             beta=data['beta'],
-            threshold_pct=data['threshold_pct'],
-            max_generations=data['max_generations'],
+            n_generations=data['n_generations'],
+            final_window=data['final_window'],
             games_per_agent=data['games_per_agent'],
         )
 
@@ -182,8 +182,8 @@ class BatchCulturalEvolutionConfig:
             f"pop{cfg.population_size}",
             f"mut{cfg.mutation_rate}",
             f"beta{cfg.beta}",
-            f"thr{cfg.threshold_pct}",
-            f"gen{cfg.max_generations}",
+            f"gen{cfg.n_generations}",
+            f"win{cfg.final_window}",
             f"games{cfg.games_per_agent}",
         ]
         if self.models:
