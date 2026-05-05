@@ -607,7 +607,7 @@ def write_main_latex(df_pivot: pd.DataFrame, output_path: Path):
             else:
                 cells.append('')
             # Attitude column
-            cells.append(attitude)
+            cells.append(attitude.value.capitalize())
             # Per-game metrics
             for g in games:
                 coop = sub.loc[attitude, (g, 'coop')] if (g, 'coop') in sub.columns else np.nan
