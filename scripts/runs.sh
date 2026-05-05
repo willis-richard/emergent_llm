@@ -57,15 +57,22 @@ for pm in "${PROVIDER_MODELS[@]}"; do
     read provider model <<< "$pm"
 
     for game in "${GAMES[@]}"; do
+        # Enums cannot be pickled - don't parallelise the script,
+        pids=( $(for p in "${pids[@]}"; do kill -0 "$p" 2>/dev/null && echo "$p"; done) )
+        while [ ${#pids[@]} -ge $N_PROCESSES ]; do
+            sleep 2
+            pids=( $(for p in "${pids[@]}"; do kill -0 "$p" 2>/dev/null && echo "$p"; done) )
+        done
         python scripts/run_tournament.py \
                 --strategies "$STRATEGIES_DIR/$game/${model}.py" \
                 --game "$game" \
                 --matches 200 \
                 --group-sizes 4 16 64 256 \
-                --n_processes $n_proc \
-                --results_dir "$N_PROCESSES" \
+                --n_processes 1 \
+                --results_dir "$RESULTS_DIR" \
                 --output_style summary \
-                --verbose
+                --verbose &
+        pids+=($!)
     done
 done
 wait

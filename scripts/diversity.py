@@ -50,7 +50,7 @@ GAME_MAPPING = {
 }
 
 MODELS_MAPPING = {
-    "gpt-5-mini": "GPT 5 Mini",
+    "gpt-5-mini": "GPT-5 Mini",
     "gpt-5.4-mini": "GPT 5.4 Mini",
     "gemini-2.5-flash": "Gemini 2.5 Flash",
     "gemini-3.1-flash-lite-preview": "Gemini 3.1 Flash Lite",
