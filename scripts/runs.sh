@@ -46,51 +46,51 @@ EVOLUTION_PLAYERS=(4 64)
 #     wait
 # done
 
-python scripts/diversity.py \
-        --strategies_dir "$STRATEGIES_DIR" \
-        --n_rounds 7 \
-        --n_games 30 \
-        --n_processes $N_PROCESSES \
-        --results_dir "$RESULTS_DIR"
+# python scripts/diversity.py \
+#         --strategies_dir "$STRATEGIES_DIR" \
+#         --n_rounds 7 \
+#         --n_games 30 \
+#         --n_processes $N_PROCESSES \
+#         --results_dir "$RESULTS_DIR"
 
-for pm in "${PROVIDER_MODELS[@]}"; do
-    read provider model <<< "$pm"
+# for pm in "${PROVIDER_MODELS[@]}"; do
+#     read provider model <<< "$pm"
 
-    for game in "${GAMES[@]}"; do
-        # Enums cannot be pickled - don't parallelise the script,
-        pids=( $(for p in "${pids[@]}"; do kill -0 "$p" 2>/dev/null && echo "$p"; done) )
-        while [ ${#pids[@]} -ge $N_PROCESSES ]; do
-            sleep 2
-            pids=( $(for p in "${pids[@]}"; do kill -0 "$p" 2>/dev/null && echo "$p"; done) )
-        done
-        python scripts/run_tournament.py \
-                --strategies "$STRATEGIES_DIR/$game/${model}.py" \
-                --game "$game" \
-                --matches 200 \
-                --group-sizes 4 16 64 256 \
-                --n_processes 1 \
-                --results_dir "$RESULTS_DIR" \
-                --output_style summary &
-        pids+=($!)
-    done
-done
-wait
-
-# for game in "${GAMES[@]}"; do
-#     for n_players in "${EVOLUTION_PLAYERS[@]}"; do
-#         python scripts/run_cultural_evolution.py \
-#                --game ${game} \
-#                --n_players $n_players \
-#                --n_rounds 20 \
-#                --population_size 512 \
-#                --beta 10 \
-#                --mutation_rate 0.0025 \
-#                --n_generations 200 \
-#                --final_window 50 \
-#                --games_per_agent 10 \
-#                --n_runs 100 \
-#                --n_processes $N_PROCESSES \
-#                --results_dir "$RESULTS_DIR" \
-#                --output_style summary
+#     for game in "${GAMES[@]}"; do
+#         # Enums cannot be pickled - don't parallelise the script,
+#         pids=( $(for p in "${pids[@]}"; do kill -0 "$p" 2>/dev/null && echo "$p"; done) )
+#         while [ ${#pids[@]} -ge $N_PROCESSES ]; do
+#             sleep 2
+#             pids=( $(for p in "${pids[@]}"; do kill -0 "$p" 2>/dev/null && echo "$p"; done) )
+#         done
+#         python scripts/run_tournament.py \
+#                 --strategies "$STRATEGIES_DIR/$game/${model}.py" \
+#                 --game "$game" \
+#                 --matches 200 \
+#                 --group-sizes 4 16 64 256 \
+#                 --n_processes 1 \
+#                 --results_dir "$RESULTS_DIR" \
+#                 --output_style summary &
+#         pids+=($!)
 #     done
 # done
+# wait
+
+for game in "${GAMES[@]}"; do
+    for n_players in "${EVOLUTION_PLAYERS[@]}"; do
+        python scripts/run_cultural_evolution.py \
+               --game ${game} \
+               --n_players $n_players \
+               --n_rounds 20 \
+               --population_size 512 \
+               --beta 1 \
+               --mutation_rate 0.0025 \
+               --n_generations 1000 \
+               --final_window 100 \
+               --games_per_agent 4 \
+               --n_runs 100 \
+               --n_processes $N_PROCESSES \
+               --results_dir "$RESULTS_DIR" \
+               --output_style summary
+    done
+done
