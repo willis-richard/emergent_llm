@@ -94,8 +94,8 @@ class CulturalEvolutionConfig:
     """Configuration for cultural evolution under Fermi pairwise-comparison dynamics."""
     game_description: GameDescription
     population_size: int
-    mutation_rate: float
     beta: float
+    mutation_rate: float
     n_generations: int
     final_window: int
     games_per_agent: int
@@ -107,12 +107,12 @@ class CulturalEvolutionConfig:
             raise ValueError(
                 f"population_size ({self.population_size}) must be divisible by "
                 f"n_players ({self.game_description.n_players})")
-        if not (0 <= self.mutation_rate <= 1):
-            raise ValueError(
-                f"mutation_rate must be in [0, 1], got {self.mutation_rate}")
         if self.beta <= 0:
             raise ValueError(
                 f"beta (selection intensity) must be positive, got {self.beta}")
+        if not (0 <= self.mutation_rate <= 1):
+            raise ValueError(
+                f"mutation_rate must be in [0, 1], got {self.mutation_rate}")
         if self.n_generations <= 0:
             raise ValueError("n_generations must be positive")
         if not (0 < self.final_window <= self.n_generations):

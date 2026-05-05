@@ -61,19 +61,19 @@ def parse_args():
                         help="Selection strength")
     parser.add_argument("--mutation_rate",
                         type=float,
-                        default=0.02,
+                        default=0.0025,
                         help="Probability of mutation")
-    parser.add_argument("--threshold_pct",
-                        type=float,
-                        default=0.75,
-                        help="Termination threshold (0-1)")
-    parser.add_argument("--max_generations",
+    parser.add_argument("--n_generations",
                         type=int,
-                        default=100,
+                        default=200,
                         help="Maximum number of generations")
-    parser.add_argument("--repetitions",
+    parser.add_argument("--final_window",
                         type=int,
-                        default=5,
+                        default=50,
+                        help="Number of generations to average over")
+    parser.add_argument("--games_per_agent",
+                        type=int,
+                        default=10,
                         help="Games per player per generation")
 
     # Parallel execution parameters
@@ -111,11 +111,11 @@ if __name__ == "__main__":
     evolution_config = CulturalEvolutionConfig(
         game_description=game_description,
         population_size=args.population_size,
-        mutation_rate=args.mutation_rate,
         beta=args.beta,
-        threshold_pct=args.threshold_pct,
-        max_generations=args.max_generations,
-        games_per_agent=args.repetitions)
+        mutation_rate=args.mutation_rate,
+        n_generations=args.n_generations,
+        final_window=args.final_window,
+        games_per_agent=args.games_per_agent)
 
     batch_config = BatchCulturalEvolutionConfig(
         evolution_config=evolution_config,

@@ -70,8 +70,7 @@ for pm in "${PROVIDER_MODELS[@]}"; do
                 --group-sizes 4 16 64 256 \
                 --n_processes 1 \
                 --results_dir "$RESULTS_DIR" \
-                --output_style summary \
-                --verbose &
+                --output_style summary &
         pids+=($!)
     done
 done
@@ -84,11 +83,11 @@ wait
 #                --n_players $n_players \
 #                --n_rounds 20 \
 #                --population_size 512 \
-#                --mutation_rate 0.0025 \
 #                --beta 10 \
+#                --mutation_rate 0.0025 \
 #                --n_generations 200 \
 #                --final_window 50 \
-#                --repetitions 10 \
+#                --games_per_agent 10 \
 #                --n_runs 100 \
 #                --n_processes $N_PROCESSES \
 #                --results_dir "$RESULTS_DIR" \
