@@ -820,13 +820,13 @@ def plot_pca_single_game(
                        linewidths=1.5,
                        zorder=5)
 
-            if len(points) > 2:
-                cov = np.cov(points.T)
-                plot_covariance_ellipse(
-                    ax, mean_pt, cov, n_std=1.0,
-                    facecolor=color, alpha=0.25,
-                    edgecolor=color, linewidth=1.5,
-                )
+            # if len(points) > 2:
+            #     cov = np.cov(points.T)
+            #     plot_covariance_ellipse(
+            #         ax, mean_pt, cov, n_std=1.0,
+            #         facecolor=color, alpha=0.45,
+            #         edgecolor=color, linewidth=1.5,
+            #     )
 
             if model not in seen_models:
                 handles.append(plt.Line2D(
@@ -883,20 +883,20 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
 
                 color = model_colors[model]
                 ax.scatter(points[:, 0], points[:, 1],
-                           alpha=0.3, s=10, color=color)
+                           alpha=0.5, s=10, color=color)
 
                 mean_pt = points.mean(axis=0)
                 ax.scatter(mean_pt[0], mean_pt[1],
-                           marker='o', s=100, color=color,
+                           marker='o', s=70, color=color, alpha=0.7,
                            edgecolors='black', linewidths=1.5, zorder=5)
 
-                if len(points) > 2:
-                    cov = np.cov(points.T)
-                    plot_covariance_ellipse(
-                        ax, mean_pt, cov, n_std=1.0,
-                        facecolor=color, alpha=0.25,
-                        edgecolor=color, linewidth=1.5,
-                    )
+                # if len(points) > 2:
+                #     cov = np.cov(points.T)
+                #     plot_covariance_ellipse(
+                #         ax, mean_pt, cov, n_std=1.0,
+                #         facecolor=color, alpha=0.45,
+                #         edgecolor=color, linewidth=1.5,
+                #     )
 
             plot_baselines(ax, baseline_pca, baseline_labels, marker_size=60)
 
@@ -908,6 +908,16 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
                 )
             if row == 1:
                 ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
+
+    # Pad shared axes once (sharex/sharey propagates)
+    ax0 = axes[0, 0]
+    xlim = ax0.get_xlim()
+    ylim = ax0.get_ylim()
+    x_pad_0 = 0.05 * (xlim[1] - xlim[0])
+    x_pad_1 = 0.09 * (xlim[1] - xlim[0])
+    y_pad = 0.03 * (ylim[1] - ylim[0])
+    ax0.set_xlim(xlim[0] - x_pad_0, xlim[1] + x_pad_1)
+    ax0.set_ylim(ylim[0] - y_pad, ylim[1] + y_pad)
 
     legend_handles = [
         plt.Line2D([0], [0], marker='o', color='w',
@@ -977,16 +987,16 @@ def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
                     continue
                 marker = attitude_markers[base_att]
                 ax.scatter(points[:, 0], points[:, 1],
-                           alpha=0.3, s=10, color=color, marker=marker)
+                           alpha=0.5, s=10, color=color, marker=marker)
                 mean_pt = points.mean(axis=0)
                 ax.scatter(mean_pt[0], mean_pt[1],
-                           marker=marker, s=100, color=color,
+                           marker=marker, s=70, color=color, alpha=0.7,
                            edgecolors='black', linewidths=1.5, zorder=5)
                 if len(points) > 2:
                     cov = np.cov(points.T)
                     plot_covariance_ellipse(
                         ax, mean_pt, cov, n_std=1.0,
-                        facecolor=color, alpha=0.25,
+                        facecolor=color, alpha=0.45,
                         edgecolor=color, linewidth=1.5,
                     )
 
@@ -1000,6 +1010,16 @@ def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
     for idx in range(n_models, n_rows * n_cols):
         row, col = divmod(idx, n_cols)
         axes[row, col].set_visible(False)
+
+    # Pad shared axes once
+    ax0 = axes[0, 0]
+    xlim = ax0.get_xlim()
+    ylim = ax0.get_ylim()
+    x_pad_0 = 0.05 * (xlim[1] - xlim[0])
+    x_pad_1 = 0.09 * (xlim[1] - xlim[0])
+    y_pad = 0.03 * (ylim[1] - ylim[0])
+    ax0.set_xlim(xlim[0] - x_pad_0, xlim[1] + x_pad_1)
+    ax0.set_ylim(ylim[0] - y_pad, ylim[1] + y_pad)
 
     legend_handles = []
     for game in games:
@@ -1218,7 +1238,7 @@ if __name__ == "__main__":
         n_players=args.n_players, n_rounds=args.n_rounds)
 
     baseline_features = compute_baselines(args.n_players, args.n_rounds)
-    baseline_labels = list(baseline_features.keys()) + ['Rnd(0.5)']
+    baseline_labels = list(baseline_features.keys()) + ['Rnd']
     baseline_X = [list(d.values()) for d in baseline_features.values()]
     n_features = len(baseline_X[0])
     baseline_X = np.array(baseline_X + [[0.5] * n_features])
