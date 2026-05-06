@@ -29,19 +29,16 @@ def find_experiment_dir(results_dir: Path, game: str, group_size: int) -> Path:
 
 
 def compute_metrics(summary: BatchCulturalEvolutionSummary):
-    wins: dict = {}
-    per_gene_freqs: dict = {}
-    for run_freqs in summary.final_window_mean_frequencies:
-        collapsed = collapse_to_base(run_freqs)
-        winner = max(collapsed.items(), key=lambda x: x[1])[0]
-        wins[winner] = wins.get(winner, 0) + 1
-        for gene, freq in collapsed.items():
-            per_gene_freqs.setdefault(gene, []).append(freq)
+    per_run_collapsed = [
+        collapse_to_base(run) for run in summary.final_window_mean_frequencies
+    ]
+    n_runs = len(per_run_collapsed)
+    all_genes = set().union(*per_run_collapsed)
 
-    gene_stats = {
-        gene: (float(np.mean(freqs)), float(np.std(freqs)))
-        for gene, freqs in per_gene_freqs.items()
-    }
+    gene_stats = {}
+    for gene in all_genes:
+        freqs = [run.get(gene, 0.0) for run in per_run_collapsed]
+        gene_stats[gene] = (float(np.mean(freqs)), float(np.std(freqs)))
 
     gd = summary.config.evolution_config.game_description
     n_rounds = gd.n_rounds
@@ -49,10 +46,28 @@ def compute_metrics(summary: BatchCulturalEvolutionSummary):
     min_w = gd.min_player_welfare() / n_rounds
     sw = float(np.mean(summary.normalised_social_welfares))
     eff = (sw - min_w) / (max_w - min_w) if max_w > min_w else float('nan')
-    return wins, gene_stats, eff
+
+    cf_stats = (float(np.mean(summary.collective_frequencies)),
+                float(np.std(summary.collective_frequencies)))
+    return gene_stats, eff, cf_stats, n_runs
 
 
-def build_table(games: list[str], group_sizes: list[int], data: dict, ordered_genes: list) -> str:
+def select_bolded(gene_stats: dict, n_runs: int) -> set:
+    if not gene_stats:
+        return set()
+    leader_gene, (leader_mean, leader_std) = max(gene_stats.items(),
+                                                 key=lambda x: x[1][0])
+    leader_se = leader_std / np.sqrt(n_runs)
+    bolded = set()
+    for gene, (mean, std) in gene_stats.items():
+        se = std / np.sqrt(n_runs)
+        combined_se = np.sqrt(leader_se**2 + se**2)
+        if abs(leader_mean - mean) < 2 * combined_se:
+            bolded.add(gene)
+    return bolded
+
+
+def build_table(games: list[str], group_sizes: list[int], data: dict, ordered_models: list[str]) -> str:
     n_games = len(games)
     n_groups = len(group_sizes)
     col_spec = "ll" + ("|" + "c" * n_games) * n_groups
@@ -78,27 +93,51 @@ def build_table(games: list[str], group_sizes: list[int], data: dict, ordered_ge
     lines.append(h2 + r" \\")
     lines.append(r"\midrule")
 
-    for gene in ordered_genes:
-        attitude = gene.attitude.value.capitalize()
-        row = f"{pretty_model(gene.model)} & {attitude}"
-        for gs in group_sizes:
-            for game in games:
-                wins, gene_stats, _ = data[(game, gs)]
-                n = wins.get(gene, 0)
-                if gene in gene_stats:
-                    m, s = gene_stats[gene]
-                    cell = rf"{n} ({m*100:.0f}$\pm${s*100:.0f})"
-                else:
-                    cell = "-"
-                row += f" & {cell}"
-        lines.append(row + r" \\")
+    bolded_per_col = {
+        (game, gs): select_bolded(data[(game, gs)][0], data[(game, gs)][3])
+        for gs in group_sizes for game in games
+    }
+
+    attitudes = [Attitude.COLLECTIVE, Attitude.SELFISH]
+    for model_idx, model in enumerate(ordered_models):
+        for att_idx, attitude in enumerate(attitudes):
+            model_cell = (rf"\multirow{{2}}{{*}}{{{pretty_model(model)}}}"
+                          if att_idx == 0 else "")
+            row = f"{model_cell} & {attitude.value.capitalize()}"
+            for gs in group_sizes:
+                for game in games:
+                    gene_stats, _, _, _ = data[(game, gs)]
+                    gene = next(
+                        (g for g in gene_stats
+                         if g.model == model and g.attitude == attitude),
+                        None)
+                    if gene is not None:
+                        m, s = gene_stats[gene]
+                        body = rf"{m*100:.0f} \pm {s*100:.0f}"
+                        if gene in bolded_per_col[(game, gs)]:
+                            cell = rf"$\mathbf{{{body}}}$"
+                        else:
+                            cell = rf"${body}$"
+                    else:
+                        cell = "-"
+                    row += f" & {cell}"
+            lines.append(row + r" \\")
+        if model_idx < len(ordered_models) - 1:
+            lines.append(r"\midrule")
     lines.append(r"\midrule")
 
-    row = "Welfare efficiency &"
+    row = r"\multicolumn{2}{l|}{Welfare efficiency}"
     for gs in group_sizes:
         for game in games:
-            _, _, eff = data[(game, gs)]
+            _, eff, _, _ = data[(game, gs)]
             row += f" & {eff*100:.0f}\\%"
+    lines.append(row + r" \\")
+
+    row = r"\multicolumn{2}{l|}{Collective frequency}"
+    for gs in group_sizes:
+        for game in games:
+            _, _, (cf_m, cf_s), _ = data[(game, gs)]
+            row += rf" & ${cf_m*100:.0f} \pm {cf_s*100:.0f}$"
     lines.append(row + r" \\")
 
     lines += [r"\bottomrule", r"\end{tabular}", r"\label{table:ce}", r"\end{table*}"]
@@ -115,22 +154,17 @@ def main():
     args = parser.parse_args()
 
     data = {}
-    all_genes = set()
+    all_models = set()
     for gs in args.group_sizes:
         for game in args.games:
             exp_dir = find_experiment_dir(args.results_dir, game, gs)
             summary = BatchCulturalEvolutionSummary.load(exp_dir)
-            wins, gene_stats, eff = compute_metrics(summary)
-            data[(game, gs)] = (wins, gene_stats, eff)
-            all_genes.update(gene_stats.keys())
+            gene_stats, eff, cf_stats, n_runs = compute_metrics(summary)
+            data[(game, gs)] = (gene_stats, eff, cf_stats, n_runs)
+            all_models.update(g.model for g in gene_stats)
 
-    selfish = sorted([g for g in all_genes if g.attitude == Attitude.SELFISH],
-                     key=lambda g: g.model)
-    collective = sorted([g for g in all_genes if g.attitude == Attitude.COLLECTIVE],
-                        key=lambda g: g.model)
-    ordered = selfish + collective
-
-    table = build_table(args.games, args.group_sizes, data, ordered)
+    ordered_models = sorted(all_models)
+    table = build_table(args.games, args.group_sizes, data, ordered_models)
     print(table)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
