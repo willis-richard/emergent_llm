@@ -333,6 +333,83 @@ class CulturalEvolutionSummary:
             })
         return pd.DataFrame(rows)
 
+@dataclass
+class BatchCulturalEvolutionSummary:
+    """Compact per-batch summary for downstream analysis."""
+    FILENAME = "batch_summary"
+
+    config: BatchCulturalEvolutionConfig
+    final_window_mean_frequencies: list[dict[Gene, float]]
+    normalised_social_welfares: list[float]
+    collective_frequencies: list[float]
+    cooperation_rates: list[float]
+
+    @classmethod
+    def from_results(
+            cls, results: 'BatchCulturalEvolutionResults'
+    ) -> 'BatchCulturalEvolutionSummary':
+        cfg = results.config.evolution_config
+        n_rounds = cfg.game_description.n_rounds
+        window = cfg.final_window
+
+        freqs = [run.final_window_mean_frequencies for run in results.runs]
+        sw, cf, cr = [], [], []
+        for run in results.runs:
+            ws = run.generation_stats_df.iloc[-window:]
+            sw.append(float(ws['overall_mean_payoff'].mean() / n_rounds))
+            cf.append(float(ws['collective_frequency'].mean()))
+            cr.append(float(ws['cooperation_rate'].mean()))
+        return cls(
+            config=results.config,
+            final_window_mean_frequencies=freqs,
+            normalised_social_welfares=sw,
+            collective_frequencies=cf,
+            cooperation_rates=cr,
+        )
+
+    def serialise(self) -> dict:
+        return {
+            'config': self.config.serialise(),
+            'final_window_mean_frequencies': [
+                [{'gene': asdict(g), 'frequency': f} for g, f in run.items()]
+                for run in self.final_window_mean_frequencies
+            ],
+            'normalised_social_welfares': self.normalised_social_welfares,
+            'collective_frequencies': self.collective_frequencies,
+            'cooperation_rates': self.cooperation_rates,
+            'result_type': 'BatchCulturalEvolutionSummary',
+        }
+
+    def save(self) -> Path:
+        self.config.output_dir.mkdir(parents=True, exist_ok=True)
+        filepath = self.config.output_dir / f"{self.FILENAME}.json"
+        _save_json(filepath, self.serialise())
+        return filepath
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'BatchCulturalEvolutionSummary':
+        config = BatchCulturalEvolutionConfig.from_dict(data['config'])
+        freqs = [
+            {Gene.from_dict(item['gene']): item['frequency'] for item in run}
+            for run in data['final_window_mean_frequencies']
+        ]
+        return cls(
+            config=config,
+            final_window_mean_frequencies=freqs,
+            normalised_social_welfares=data['normalised_social_welfares'],
+            collective_frequencies=data['collective_frequencies'],
+            cooperation_rates=data['cooperation_rates'],
+        )
+
+    @classmethod
+    def load(cls, output_dir: Path) -> 'BatchCulturalEvolutionSummary':
+        filepath = _find_file(Path(output_dir), cls.FILENAME)
+        data = _load_json(filepath)
+        if data.get('result_type') != 'BatchCulturalEvolutionSummary':
+            raise ValueError(
+                f"Expected BatchCulturalEvolutionSummary, got {data.get('result_type')}")
+        return cls.from_dict(data)
+
 
 # --- Helper Classes ---
 
@@ -1426,6 +1503,7 @@ class BatchCulturalEvolutionResults:
         output_dir = self.config.output_dir
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "results.txt").write_text(str(self))
+        BatchCulturalEvolutionSummary.from_results(self).save()
         filepath = output_dir / f"{self.FILENAME}{self.config.output_style.get_suffix()}"
         _save_json(filepath, self.serialise())
         return filepath
