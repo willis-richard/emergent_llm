@@ -416,6 +416,14 @@ def build_main_dataframe(
                 if len(X_set) == 0:
                     continue
                 coop = float(X_set.mean())
+                # SE of the family mean coop rate, treating each strategy as
+                # one observation (its mean over the feature vector). This
+                # collapses within-strategy correlation between features and
+                # also absorbs Monte Carlo noise from the n_games-sample
+                # estimates, since both end up in the per-strategy mean.
+                strategy_means = X_set.mean(axis=1)
+                coop_se = (float(strategy_means.std(ddof=1) / np.sqrt(len(strategy_means)))
+                           if len(strategy_means) > 1 else np.nan)
                 _, mpd_norm = compute_within_set_metrics(X_set, random_baseline_dist)
                 pr = compute_participation_ratio(X_set)
                 rows.append({
@@ -423,6 +431,7 @@ def build_main_dataframe(
                     'model': model,
                     'attitude': base_att.value,
                     'coop': coop,
+                    'coop_se': coop_se,
                     'mpd_norm': mpd_norm,
                     'delta': delta,
                     'pr': pr,
@@ -436,13 +445,13 @@ def build_main_dataframe(
     df_pivot = df.pivot_table(
         index=['model', 'attitude'],
         columns='game',
-        values=['coop', 'mpd_norm', 'delta', 'pr'],
+        values=['coop', 'coop_se', 'mpd_norm', 'delta', 'pr'],
         aggfunc='first',
     )
     # Reorder columns: (game, metric) instead of (metric, game)
     df_pivot = df_pivot.swaplevel(axis=1)
     # Reorder games and metrics
-    metric_order = ['coop', 'mpd_norm', 'delta', 'pr']
+    metric_order = ['coop', 'coop_se', 'mpd_norm', 'delta', 'pr']
     game_order = [g for g in games if g in df_pivot.columns.get_level_values(0).unique()]
     new_cols = [(g, m) for g in game_order for m in metric_order
                 if (g, m) in df_pivot.columns]
@@ -547,6 +556,14 @@ def _fmt(x, precision=1):
         return '--'
     return f"{x:.{precision}f}"
 
+def _fmt_pm(val, se, _precision=None):
+    """Compact uncertainty notation in percent: '68(1)\\%' = 0.68 ± 0.01."""
+    if pd.isna(val):
+        return '--'
+    pct = round(val * 100)
+    if pd.isna(se):
+        return f"{pct}\\%"
+    return f"{pct}({round(se * 100)})\\%"
 
 def write_main_latex(df_pivot: pd.DataFrame, output_path: Path):
     """
@@ -607,15 +624,16 @@ def write_main_latex(df_pivot: pd.DataFrame, output_path: Path):
             else:
                 cells.append('')
             # Attitude column
-            cells.append(attitude.value.capitalize())
+            cells.append(attitude.capitalize())
             # Per-game metrics
             for g in games:
                 coop = sub.loc[attitude, (g, 'coop')] if (g, 'coop') in sub.columns else np.nan
+                coop_se = sub.loc[attitude, (g, 'coop_se')] if (g, 'coop_se') in sub.columns else np.nan
                 mpd = sub.loc[attitude, (g, 'mpd_norm')] if (g, 'mpd_norm') in sub.columns else np.nan
                 delta = sub.loc[attitude, (g, 'delta')] if (g, 'delta') in sub.columns else np.nan
                 pr = sub.loc[attitude, (g, 'pr')] if (g, 'pr') in sub.columns else np.nan
 
-                cells.append(_fmt(coop, 2))
+                cells.append(_fmt_pm(coop, coop_se, 2))
                 cells.append(_fmt(mpd, 1))
                 # Delta: multirow on first row, blank otherwise
                 if row_idx == 0:
