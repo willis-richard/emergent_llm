@@ -40,7 +40,7 @@ from emergent_llm.players import (
 )
 from emergent_llm.tournament import pretty_model
 
-FIGSIZE, FORMAT = setup('fullscreen')
+FIGSIZE, FORMAT = setup('diversity')
 
 GAME_MAPPING = {
     'public_goods': 'Public Goods Game',
@@ -116,6 +116,9 @@ def parse_args():
     parser.add_argument("--plot_extrema",
                         action='store_true',
                         help="Label the corner strategies")
+    parser.add_argument("--plot_baselines",
+                        action='store_true',
+                        help="Label the baseline strategies")
     parser.add_argument("--results_dir", type=str, default="results")
 
     return parser.parse_args()
@@ -795,21 +798,24 @@ def _aggregate_points_for_family(
     mask = game_mask & np.isin(labels_all, gene_strs)
     return X_pca_combined[mask, :2]
 
-
 def plot_pca_single_game(
-    ax, X_pca_combined, labels_all, game_mask, genes_for_game,
-    baseline_pca, baseline_labels, title, pca,
+    axes, X_pca_combined, labels_all, game_mask, genes_for_game,
+    baseline_pca, baseline_labels, pca,
 ):
-    """Single-game PCA plot: aggregate by (model, base_attitude_family)."""
+    """Single-game PCA plot: 1 row × 2 cols (Collective | Selfish).
+
+    Mirrors the aggregation in plot_pca_by_game. Returns legend handles
+    for the caller to place a figure-level legend.
+    """
     models = sorted(set(g.model for g in genes_for_game))
     cmap = plt.colormaps.get_cmap('tab10')
     model_colors = {m: cmap(i) for i, m in enumerate(models)}
-    attitude_markers = {Attitude.COLLECTIVE: 'o', Attitude.SELFISH: 's'}
 
     handles = []
     seen_models = set()
-    for model in models:
-        for base_att in Attitude.base_attitudes():
+    for col, base_att in enumerate(Attitude.base_attitudes()):
+        ax = axes[col]
+        for model in models:
             points = _aggregate_points_for_family(
                 X_pca_combined, labels_all, game_mask,
                 genes_for_game, model, base_att,
@@ -818,27 +824,12 @@ def plot_pca_single_game(
                 continue
 
             color = model_colors[model]
-            marker = attitude_markers[base_att]
             ax.scatter(points[:, 0], points[:, 1],
-                       alpha=0.3, s=10, color=color, marker=marker)
-
+                       alpha=0.5, s=10, color=color)
             mean_pt = points.mean(axis=0)
-            ax.scatter(mean_pt[0],
-                       mean_pt[1],
-                       marker='o',
-                       s=100,
-                       color=color,
-                       edgecolors='black',
-                       linewidths=1.5,
-                       zorder=5)
-
-            # if len(points) > 2:
-            #     cov = np.cov(points.T)
-            #     plot_covariance_ellipse(
-            #         ax, mean_pt, cov, n_std=1.0,
-            #         facecolor=color, alpha=0.45,
-            #         edgecolor=color, linewidth=1.5,
-            #     )
+            ax.scatter(mean_pt[0], mean_pt[1],
+                       marker='o', s=100, color=color,
+                       edgecolors='black', linewidths=1.5, zorder=5)
 
             if model not in seen_models:
                 handles.append(plt.Line2D(
@@ -848,17 +839,11 @@ def plot_pca_single_game(
                 ))
                 seen_models.add(model)
 
-    handles.append(plt.Line2D([0], [0], marker='o', color='gray',
-                              markersize=8, label='Collective'))
-    handles.append(plt.Line2D([0], [0], marker='s', color='gray',
-                              markersize=8, label='Selfish'))
+        if args.plot_baselines:
+            plot_baselines(ax, baseline_pca, baseline_labels)
+        ax.set_title(base_att.capitalize())
 
-    plot_baselines(ax, baseline_pca, baseline_labels)
-    ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
-    ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})')
-    ax.set_title(title)
-    ax.legend(handles=handles, loc='upper center', frameon=False,
-              bbox_to_anchor=(0.4, 1.05), ncol=min(3, len(handles)))
+    return handles
 
 
 def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
@@ -910,26 +895,34 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
                 #         edgecolor=color, linewidth=1.5,
                 #     )
 
-            plot_baselines(ax, baseline_pca, baseline_labels, marker_size=60)
+            if args.plot_baselines:
+                plot_baselines(ax, baseline_pca, baseline_labels, marker_size=60)
 
             if row == 0:
                 ax.set_title(GAME_MAPPING[game])
             if col == 0:
-                ax.set_ylabel(
-                    f"{base_att.value}\nPC2 ({pca.explained_variance_ratio_[1]:.1%})"
-                )
-            if row == 1:
-                ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
+                ax.set_ylabel(f"{base_att.capitalize()}")
+            # if row == 1:
+            #     ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
+    fig.supxlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})', y=0.05)
+    fig.supylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})', x=0.03)
 
     # Pad shared axes once (sharex/sharey propagates)
-    ax0 = axes[0, 0]
-    xlim = ax0.get_xlim()
-    ylim = ax0.get_ylim()
-    x_pad_0 = 0.05 * (xlim[1] - xlim[0])
-    x_pad_1 = 0.09 * (xlim[1] - xlim[0])
-    y_pad = 0.03 * (ylim[1] - ylim[0])
-    ax0.set_xlim(xlim[0] - x_pad_0, xlim[1] + x_pad_1)
-    ax0.set_ylim(ylim[0] - y_pad, ylim[1] + y_pad)
+    if args.plot_baselines:
+        ax0 = axes[0, 0]
+        xlim = ax0.get_xlim()
+        ylim = ax0.get_ylim()
+        x_pad_0 = 0.15 * (xlim[1] - xlim[0])
+        x_pad_1 = 0.15 * (xlim[1] - xlim[0])
+        y_pad = 0.02 * (ylim[1] - ylim[0])
+        for ax in axes.flat:
+            ax.set_xlim(xlim[0] - x_pad_0, xlim[1] + x_pad_1)
+            ax.set_ylim(ylim[0] - y_pad, ylim[1] + y_pad)
+
+    for ax in axes[0, :]:
+        ax.tick_params(axis='x', which='both', bottom=False)
+    for ax in axes[:, 1:].flat:
+        ax.tick_params(axis='y', which='both', left=False)
 
     legend_handles = [
         plt.Line2D([0], [0], marker='o', color='w',
@@ -940,10 +933,10 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
     ncol = len(legend_handles) // 2 if len(legend_handles) > 4 else len(legend_handles)
     fig.legend(handles=legend_handles,
                loc='upper center', frameon=False,
-               bbox_to_anchor=(0.4, 1.05) if len(legend_handles) <= 4 else (0.4, 1.1),
+               bbox_to_anchor=(0.5, 1.05) if len(legend_handles) <= 4 else (0.5, 1.1),
                ncol=ncol)
 
-    plt.tight_layout(rect=[0, 0, 0.95, 1])
+    plt.tight_layout(w_pad=0.07, h_pad=0.07)
     plt.savefig(output_dir / f"pca_by_game.{FORMAT}",
                 format=FORMAT, bbox_inches='tight')
     plt.close()
@@ -1012,26 +1005,30 @@ def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
                         edgecolor=color, linewidth=1.5,
                     )
 
-        plot_baselines(ax, baseline_pca, baseline_labels, marker_size=60)
+        if args.plot_baselines:
+            plot_baselines(ax, baseline_pca, baseline_labels, marker_size=60)
         ax.set_title(pretty_model(model))
-        if col == 0:
-            ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})')
-        if row == n_rows - 1:
-            ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
+        # if col == 0:
+        #     ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})')
+        # if row == n_rows - 1:
+        #     ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
+    fig.supxlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})', y=0.05)
+    fig.supylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})', x=0.04)
 
     for idx in range(n_models, n_rows * n_cols):
         row, col = divmod(idx, n_cols)
         axes[row, col].set_visible(False)
 
     # Pad shared axes once
-    ax0 = axes[0, 0]
-    xlim = ax0.get_xlim()
-    ylim = ax0.get_ylim()
-    x_pad_0 = 0.05 * (xlim[1] - xlim[0])
-    x_pad_1 = 0.09 * (xlim[1] - xlim[0])
-    y_pad = 0.03 * (ylim[1] - ylim[0])
-    ax0.set_xlim(xlim[0] - x_pad_0, xlim[1] + x_pad_1)
-    ax0.set_ylim(ylim[0] - y_pad, ylim[1] + y_pad)
+    if args.plot_baselines:
+        ax0 = axes[0, 0]
+        xlim = ax0.get_xlim()
+        ylim = ax0.get_ylim()
+        x_pad_0 = 0.05 * (xlim[1] - xlim[0])
+        x_pad_1 = 0.09 * (xlim[1] - xlim[0])
+        y_pad = 0.03 * (ylim[1] - ylim[0])
+        ax0.set_xlim(xlim[0] - x_pad_0, xlim[1] + x_pad_1)
+        ax0.set_ylim(ylim[0] - y_pad, ylim[1] + y_pad)
 
     legend_handles = []
     for game in games:
@@ -1047,7 +1044,7 @@ def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
 
     ncol = len(games) + 2
     fig.legend(handles=legend_handles, loc='upper center', frameon=False,
-               bbox_to_anchor=(0.4, 1.02),
+               bbox_to_anchor=(0.5, 1.02),
                ncol=ncol, columnspacing=0.6, handletextpad=0.5)
 
     top = _legend_top_reservation(len(legend_handles), ncol)
@@ -1288,29 +1285,64 @@ if __name__ == "__main__":
     plt.savefig(output_dir / f"scree_combined.{FORMAT}", format=FORMAT)
     plt.close()
 
+    # Shared axis limits across individual game plots
+    all_xy = np.vstack([X_pca_combined[:, :2], baseline_pca_combined[:, :2]])
+    x_min, x_max = all_xy[:, 0].min(), all_xy[:, 0].max()
+    y_min, y_max = all_xy[:, 1].min(), all_xy[:, 1].max()
+    if args.plot_baselines:
+        x_pad = 0.08 * (x_max - x_min)
+        y_pad = 0.05 * (y_max - y_min)
+    else:
+        x_pad = 0
+        y_pad = 0
+    shared_xlim = (x_min - x_pad, x_max + x_pad)
+    shared_ylim = (y_min - y_pad, y_max + y_pad)
+
     # Per-game plots
     for game_name in args.games:
         mask = game_labels == game_name
-        labels_game = labels_all
         genes = pca_data[game_name]['genes']
         metadata = pca_data[game_name]['metadata']
 
-        fig, ax = plt.subplots(figsize=FIGSIZE)
-        plot_pca_single_game(
-            ax, X_pca_combined, labels_all, mask, genes,
-            baseline_pca_combined, baseline_labels,
-            GAME_MAPPING[game_name], pca_combined,
+        fig, axes = plt.subplots(1, 2, figsize=FIGSIZE, sharex=True, sharey=True)
+        handles = plot_pca_single_game(
+            axes, X_pca_combined, labels_all, mask, genes,
+            baseline_pca_combined, baseline_labels, pca_combined,
         )
+
+        # Apply shared limits (sharex/sharey propagates from axes[0])
+        axes[0].set_xlim(shared_xlim)
+        axes[0].set_ylim(shared_ylim)
 
         if args.plot_extrema:
             X_pca_game = X_pca_combined[mask]
             extrema_info = find_extrema(X_pca_game, metadata)
-            plot_extrema(extrema_info, ax)
+            # Route each extremum to its attitude's column
+            for position, info in extrema_info.items():
+                gene_obj, _, _ = metadata[info['idx']]
+                col = 0 if gene_obj.attitude.to_base_attitude() == Attitude.COLLECTIVE else 1
+                plot_extrema({position: info}, axes[col])
 
-        plt.tight_layout()
+        fig.supxlabel(f'PC1 ({pca_combined.explained_variance_ratio_[0]:.1%})', y=0.05)
+        fig.supylabel(f'PC2 ({pca_combined.explained_variance_ratio_[1]:.1%})', x=0.04)
+        fig.legend(handles=handles, loc='upper center', frameon=False,
+                   bbox_to_anchor=(0.5, 0.94),
+                   ncol=min(len(handles), 4))
+
+
+        # Pad shared axes once (sharex/sharey propagates)
+        ax0 = axes[0]
+        xlim = ax0.get_xlim()
+        ylim = ax0.get_ylim()
+        x_pad_0 = 0.05 * (xlim[1] - xlim[0])
+        x_pad_1 = 0.09 * (xlim[1] - xlim[0])
+        y_pad = 0.03 * (ylim[1] - ylim[0])
+        ax0.set_xlim(xlim[0] - x_pad_0, xlim[1] + x_pad_1)
+        ax0.set_ylim(ylim[0] - y_pad, ylim[1] + y_pad)
+
+        plt.tight_layout(rect=[0, 0, 1, 0.88])
         plt.savefig(output_dir / f"pca_{game_name}.{FORMAT}",
-                    format=FORMAT,
-                    bbox_inches='tight')
+                    format=FORMAT, bbox_inches='tight')
         plt.close()
 
     # Combined 2x3 grid plot (attitudes × games)
@@ -1321,6 +1353,8 @@ if __name__ == "__main__":
     plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
                       baseline_pca_combined, baseline_labels, args.games,
                       pca_combined, output_dir)
+
+    assert False
 
     # ==========================================================================
     # PHASE 4: Main metrics table

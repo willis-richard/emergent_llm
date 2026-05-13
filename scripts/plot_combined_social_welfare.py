@@ -51,7 +51,7 @@ def discover_models(game_dir: Path) -> list[str]:
 def plot_combined(results_list: list[BatchMixtureTournamentResults],
                   game_name: str,
                   output_path: Path) -> Path:
-    figsize, fmt = setup('3_col_paper')
+    figsize, fmt = setup('1_col_poster')
     n = len(results_list)
     fig, axes = plt.subplots(1, n, figsize=(figsize[0] * n, figsize[1]),
                              facecolor='white', sharey=True)
@@ -80,7 +80,7 @@ def plot_combined(results_list: list[BatchMixtureTournamentResults],
                     lw=1.5,
                     marker='o')
 
-        ax.set_xlabel('Proportion of collective prompts (%)')
+        # ax.set_xlabel('Proportion of collective prompts (%)')
         ax.set_xlim(0, 100)
         ax.set_ylim(0, 1)
         ax.set_title(pretty_model(results.config.model_name))
@@ -91,6 +91,8 @@ def plot_combined(results_list: list[BatchMixtureTournamentResults],
     axes[0].set_ylabel('Welfare efficiency (%)')
     axes[0].yaxis.set_major_locator(MultipleLocator(0.2))
     axes[0].yaxis.set_major_formatter(PercentFormatter(xmax=1))
+    # fig.supxlabel('Proportion of collective prompts (%)')
+    axes[1].set_xlabel('Proportion of collective prompts (%)')
 
     if game_name == "public_goods":
         fig.legend(handles, labels,

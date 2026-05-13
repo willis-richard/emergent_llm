@@ -91,6 +91,7 @@ for game in "${GAMES[@]}"; do
                --n_runs 100 \
                --n_processes $N_PROCESSES \
                --results_dir "$RESULTS_DIR" \
+               --plot_baselines \
                --output_style summary
     done
 done
