@@ -472,7 +472,7 @@ def build_appendix_dataframe(
     games: list[str],
 ) -> pd.DataFrame:
     """
-    Appendix table: each non-canonical synonym vs its own family (LOO) and the other family.
+    Appendix table: each synonym vs its own family (LOO) and the other family.
 
     For synonym X with base family F_X:
         own_family   = F_X excluding X (leave-one-out, avoids self-inclusion bias)
@@ -481,18 +481,12 @@ def build_appendix_dataframe(
         d_other = Delta(X, other_family)
         ratio   = d_own / d_other  (< 1 means X clusters with its semantic family)
     """
-    non_base_attitudes = [
-        a for a in Attitude if a not in Attitude.base_attitudes()
-    ]
-    if not non_base_attitudes:
-        return pd.DataFrame()
-
     rows = []
     for game in games:
         genes = pca_data[game]['genes']
         models_in_game = sorted(set(g.model for g in genes))
         for model in models_in_game:
-            for synonym in non_base_attitudes:
+            for synonym in Attitude:
                 X_syn = get_feature_vectors_for_synonym(
                     X_all, labels_all, game_labels, pca_data,
                     game, model, synonym,
@@ -680,7 +674,7 @@ def write_appendix_latex(df_pivot: pd.DataFrame, output_path: Path):
     for i, g in enumerate(games):
         sep = '|' if i < n_games - 1 else ''
         header_groups.append(f'\\multicolumn{{{cols_per_game}}}{{c{sep}}}{{{GAME_SHORT[g]}}}')
-    lines.append('Family & Synonym & Model & ' + ' & '.join(header_groups[3:]) + ' \\\\')
+    lines.append('Attitude & Synonym & Model & ' + ' & '.join(header_groups[3:]) + ' \\\\')
 
     metric_headers = ['', '', '']
     for _ in games:
@@ -699,7 +693,7 @@ def write_appendix_latex(df_pivot: pd.DataFrame, output_path: Path):
                 lines.append('\\hline')
             last_family = family
             last_synonym = None
-            cells.append(family)
+            cells.append(family.capitalize())
         else:
             cells.append('')
 
