@@ -51,7 +51,7 @@ def discover_models(game_dir: Path) -> list[str]:
 def plot_combined(results_list: list[BatchMixtureTournamentResults],
                   game_name: str,
                   output_path: Path) -> Path:
-    figsize, fmt = setup('1_col_poster')
+    figsize, fmt, _ = setup('1_col_poster')
     n = len(results_list)
     fig, axes = plt.subplots(1, n, figsize=(figsize[0] * n, figsize[1]),
                              facecolor='white', sharey=True)

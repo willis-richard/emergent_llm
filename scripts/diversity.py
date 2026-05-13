@@ -40,7 +40,7 @@ from emergent_llm.players import (
 )
 from emergent_llm.tournament import pretty_model
 
-FIGSIZE, FORMAT = setup('diversity')
+FIGSIZE, FORMAT, FONTSIZE = setup('diversity_poster')
 
 GAME_MAPPING = {
     'public_goods': 'Public Goods Game',
@@ -825,10 +825,10 @@ def plot_pca_single_game(
 
             color = model_colors[model]
             ax.scatter(points[:, 0], points[:, 1],
-                       alpha=0.5, s=10, color=color)
+                       alpha=0.5, s=FONTSIZE*1.25, color=color)
             mean_pt = points.mean(axis=0)
             ax.scatter(mean_pt[0], mean_pt[1],
-                       marker='o', s=100, color=color,
+                       marker='o', s=FONTSIZE*12.5, color=color,
                        edgecolors='black', linewidths=1.5, zorder=5)
 
             if model not in seen_models:
@@ -1323,12 +1323,11 @@ if __name__ == "__main__":
                 col = 0 if gene_obj.attitude.to_base_attitude() == Attitude.COLLECTIVE else 1
                 plot_extrema({position: info}, axes[col])
 
-        fig.supxlabel(f'PC1 ({pca_combined.explained_variance_ratio_[0]:.1%})', y=0.05)
-        fig.supylabel(f'PC2 ({pca_combined.explained_variance_ratio_[1]:.1%})', x=0.04)
+        fig.supxlabel(f'PC1 ({pca_combined.explained_variance_ratio_[0]:.1%})', y=0.09)
+        fig.supylabel(f'PC2 ({pca_combined.explained_variance_ratio_[1]:.1%})', x=0.06)
         fig.legend(handles=handles, loc='upper center', frameon=False,
                    bbox_to_anchor=(0.5, 0.94),
                    ncol=min(len(handles), 4))
-
 
         # Pad shared axes once (sharex/sharey propagates)
         ax0 = axes[0]
