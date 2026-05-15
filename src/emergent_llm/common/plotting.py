@@ -15,7 +15,7 @@ def setup(configuration: str) -> tuple[tuple[float, float], str]:
     elif configuration == 'diversity':
         FIGSIZE, SIZE, FORMAT = (7, 4), 8, 'svg'
     elif configuration == 'diversity_poster':
-        FIGSIZE, SIZE, FORMAT = (13, 7), 27, 'svg'
+        FIGSIZE, SIZE, FORMAT = (13.5, 7.5), 27, 'svg'
     else:
         assert False, f"Unknown configuration: {configuration}"
 

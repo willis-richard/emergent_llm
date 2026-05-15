@@ -54,7 +54,7 @@ def plot_combined(results_list: list[BatchMixtureTournamentResults],
     figsize, fmt, _ = setup('1_col_poster')
     n = len(results_list)
     fig, axes = plt.subplots(1, n, figsize=(figsize[0] * n, figsize[1]),
-                             facecolor='white', sharey=True)
+                             facecolor='white', sharey=True, gridspec_kw={'wspace': 0.15})
     if n == 1:
         axes = [axes]
 
@@ -80,7 +80,7 @@ def plot_combined(results_list: list[BatchMixtureTournamentResults],
                     lw=1.5,
                     marker='o')
 
-        # ax.set_xlabel('Proportion of collective prompts (%)')
+        # ax.set_xlabel('Proportion of Collective prompts (%)')
         ax.set_xlim(0, 100)
         ax.set_ylim(0, 1)
         ax.set_title(pretty_model(results.config.model_name))
@@ -88,24 +88,26 @@ def plot_combined(results_list: list[BatchMixtureTournamentResults],
         if handles is None:
             handles, labels = ax.get_legend_handles_labels()
 
+    axes[0].xaxis.set_major_locator(MultipleLocator(25))
     axes[0].set_ylabel('Welfare efficiency (%)')
-    axes[0].yaxis.set_major_locator(MultipleLocator(0.2))
+    axes[0].yaxis.set_major_locator(MultipleLocator(0.25))
     axes[0].yaxis.set_major_formatter(PercentFormatter(xmax=1))
-    # fig.supxlabel('Proportion of collective prompts (%)')
-    axes[1].set_xlabel('Proportion of collective prompts (%)')
+    # fig.supxlabel('Proportion of Collective prompts (%)')
+    axes[1].set_xlabel('Proportion of Collective prompts (%)')
 
-    if game_name == "public_goods":
-        fig.legend(handles, labels,
-                loc='upper center',
-                bbox_to_anchor=(0.5, 1.31),
-                ncol=len(handles),
-                frameon=False,
-                handletextpad=0.4,
-                columnspacing=0.6)
+    # if game_name == "public_goods":
+    fig.legend(handles, labels,
+            loc='upper center',
+            bbox_to_anchor=(0.5, 1.2),
+            ncol=len(handles),
+            frameon=False,
+            handletextpad=0.4,
+            columnspacing=0.6)
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_file = (output_path / f"{game_name}").with_suffix(f".{fmt}")
+    # plt.tight_layout(pad=1.05)
     fig.savefig(output_file, format=fmt, bbox_inches='tight')
     plt.close(fig)
     return output_file

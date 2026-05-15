@@ -233,11 +233,13 @@ def create_baseline_players(n_players: int,
     ]
     baseline_players += [
         SimplePlayer(f"CC({i})", ConditionalCooperator(C, i))
-        for i in range(1, args.n_players)
+        # for i in range(1, args.n_players)
+        for i in range(2, 3)
     ]
     baseline_players += [
         SimplePlayer(f"CD({i})", ConditionalDefector(D, i))
-        for i in range(1, args.n_players)
+        # for i in range(1, args.n_players)
+        for i in range(2, 3)
     ]
     return baseline_players
 
@@ -747,7 +749,8 @@ def fit_pca_on_all(X_all: np.ndarray) -> tuple[PCA, np.ndarray]:
 # PLOTTING HELPERS
 # =============================================================================
 
-BASELINE_LABELS_LEFT = {"A-D", "A-D,LR-C", "CD(1)", "CC(3)"}
+BASELINE_LABELS_LEFT = {"A-D", "CD(1)", "CC(3)"}
+BASELINE_LABELS_RIGHT = {"CD(2)", "CC(2)"}
 
 
 def plot_covariance_ellipse(ax, mean, cov, n_std=1.0, **kwargs):
@@ -770,11 +773,14 @@ def plot_baselines(ax, baseline_pca, baseline_labels, marker_size=120):
                    edgecolors='black',
                    linewidths=1,
                    zorder=6)
-        ha = 'right' if name in BASELINE_LABELS_LEFT else 'left'
-        offset = -5 if name in BASELINE_LABELS_LEFT else 5
+        # ha = 'right' if name in BASELINE_LABELS_LEFT else 'left'
+        # offset = -5 if name in BASELINE_LABELS_LEFT else 5
+        ha = 'right' if name in BASELINE_LABELS_RIGHT else 'center'
+        x_offset = -5 if name in BASELINE_LABELS_RIGHT else 0
+        y_offset = -7 if name in BASELINE_LABELS_RIGHT else 7
         ax.annotate(name, (baseline_pca[i, 0], baseline_pca[i, 1]),
                     ha=ha,
-                    xytext=(offset, 0),
+                    xytext=(x_offset, y_offset),
                     textcoords='offset points')
 
 
@@ -827,7 +833,7 @@ def plot_pca_single_game(
             ax.scatter(points[:, 0], points[:, 1],
                        alpha=0.5, s=FONTSIZE*1.25, color=color)
             mean_pt = points.mean(axis=0)
-            ax.scatter(mean_pt[0], mean_pt[1],
+            ax.scatter(mean_pt[0], mean_pt[1], alpha=0.7,
                        marker='o', s=FONTSIZE*12.5, color=color,
                        edgecolors='black', linewidths=1.5, zorder=5)
 
@@ -1247,10 +1253,11 @@ if __name__ == "__main__":
         n_players=args.n_players, n_rounds=args.n_rounds)
 
     baseline_features = compute_baselines(args.n_players, args.n_rounds)
-    baseline_labels = list(baseline_features.keys()) + ['Rnd']
+    # baseline_labels = list(baseline_features.keys()) + ['Rnd']
+    baseline_labels = list(baseline_features.keys())
     baseline_X = [list(d.values()) for d in baseline_features.values()]
     n_features = len(baseline_X[0])
-    baseline_X = np.array(baseline_X + [[0.5] * n_features])
+    # baseline_X = np.array(baseline_X + [[0.5] * n_features])
 
     logger.info(
         f"Features: {len(unique_combos)} unique opponent action combinations "
@@ -1290,13 +1297,18 @@ if __name__ == "__main__":
     x_min, x_max = all_xy[:, 0].min(), all_xy[:, 0].max()
     y_min, y_max = all_xy[:, 1].min(), all_xy[:, 1].max()
     if args.plot_baselines:
-        x_pad = 0.08 * (x_max - x_min)
-        y_pad = 0.05 * (y_max - y_min)
+        x_pad_0 = 0.12 * (x_max - x_min)
+        x_pad_1 = 0.08 * (x_max - x_min)
+        y_pad_0 = 0.05 * (y_max - y_min)
+        y_pad_1 = 0.05 * (y_max - y_min)
     else:
-        x_pad = 0
-        y_pad = 0
-    shared_xlim = (x_min - x_pad, x_max + x_pad)
-    shared_ylim = (y_min - y_pad, y_max + y_pad)
+        x_pad_0 = 0
+        x_pad_1 = 0
+        y_pad_0 = 0
+        y_pad_1 = 0
+    shared_xlim = (x_min - x_pad_0, x_max + x_pad_1)
+    shared_ylim = (y_min - y_pad_0, y_max + y_pad_1)
+
 
     # Per-game plots
     for game_name in args.games:
@@ -1326,23 +1338,14 @@ if __name__ == "__main__":
         fig.supxlabel(f'PC1 ({pca_combined.explained_variance_ratio_[0]:.1%})', y=0.09)
         fig.supylabel(f'PC2 ({pca_combined.explained_variance_ratio_[1]:.1%})', x=0.06)
         fig.legend(handles=handles, loc='upper center', frameon=False,
-                   bbox_to_anchor=(0.5, 0.94),
+                   bbox_to_anchor=(0.5, 1.05),
                    ncol=min(len(handles), 4))
 
-        # Pad shared axes once (sharex/sharey propagates)
-        ax0 = axes[0]
-        xlim = ax0.get_xlim()
-        ylim = ax0.get_ylim()
-        x_pad_0 = 0.05 * (xlim[1] - xlim[0])
-        x_pad_1 = 0.09 * (xlim[1] - xlim[0])
-        y_pad = 0.03 * (ylim[1] - ylim[0])
-        ax0.set_xlim(xlim[0] - x_pad_0, xlim[1] + x_pad_1)
-        ax0.set_ylim(ylim[0] - y_pad, ylim[1] + y_pad)
-
-        plt.tight_layout(rect=[0, 0, 1, 0.88])
+        plt.tight_layout(w_pad=0.07, h_pad=0.07)
         plt.savefig(output_dir / f"pca_{game_name}.{FORMAT}",
                     format=FORMAT, bbox_inches='tight')
         plt.close()
+
 
     # Combined 2x3 grid plot (attitudes × games)
     plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,

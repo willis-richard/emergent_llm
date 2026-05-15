@@ -1235,7 +1235,7 @@ class BatchMixtureTournamentResults:
                     lw=1.5,
                     marker='o')
 
-        ax.set_xlabel('Proportion of collective prompts (%)')
+        ax.set_xlabel('Proportion of Collective prompts (%)')
         ax.set_ylabel('Welfare efficiency (%)')
         ax.set_xlim(0, 100)
         ax.set_ylim(0, 1)
