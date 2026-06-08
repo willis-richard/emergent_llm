@@ -56,7 +56,7 @@ def parse_args():
                         default=128,
                         help="Total population size")
     parser.add_argument("--beta",
-                        type=int,
+                        type=float,
                         default=1,
                         help="Selection strength")
     parser.add_argument("--mutation_rate",

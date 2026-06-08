@@ -53,6 +53,7 @@ EVOLUTION_PLAYERS=(4 64)
 #         --n_rounds 7 \
 #         --n_games 30 \
 #         --n_processes $N_PROCESSES \
+#         --plot_baselines \
 #         --results_dir "$RESULTS_DIR"
 
 # for pm in "${PROVIDER_MODELS[@]}"; do
@@ -93,7 +94,6 @@ for game in "${GAMES[@]}"; do
                --n_runs 100 \
                --n_processes $N_PROCESSES \
                --results_dir "$RESULTS_DIR" \
-               --plot_baselines \
                --output_style summary
     done
 done
