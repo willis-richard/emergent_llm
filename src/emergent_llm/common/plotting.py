@@ -6,6 +6,8 @@ def setup(configuration: str) -> tuple[tuple[float, float], str]:
 
     if configuration == '3_col_paper':
         FIGSIZE, SIZE, FORMAT = (2.2, 0.9), 7, 'svg'
+    elif configuration == 'aamas':
+        FIGSIZE, SIZE, FORMAT = (2.65, 1.15), 6.33, 'svg'
     elif configuration == '2_col_paper':
         FIGSIZE, SIZE, FORMAT = (2.5, 0.9), 8, 'svg'
     elif configuration == '1_col_slide':

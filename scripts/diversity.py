@@ -1356,8 +1356,6 @@ if __name__ == "__main__":
                       baseline_pca_combined, baseline_labels, args.games,
                       pca_combined, output_dir)
 
-    assert False
-
     # ==========================================================================
     # PHASE 4: Main metrics table
     # ==========================================================================

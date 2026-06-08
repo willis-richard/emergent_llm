@@ -51,7 +51,7 @@ def discover_models(game_dir: Path) -> list[str]:
 def plot_combined(results_list: list[BatchMixtureTournamentResults],
                   game_name: str,
                   output_path: Path) -> Path:
-    figsize, fmt, _ = setup('1_col_poster')
+    figsize, fmt, _ = setup('aamas')
     n = len(results_list)
     fig, axes = plt.subplots(1, n, figsize=(figsize[0] * n, figsize[1]),
                              facecolor='white', sharey=True, gridspec_kw={'wspace': 0.15})
@@ -98,7 +98,7 @@ def plot_combined(results_list: list[BatchMixtureTournamentResults],
     # if game_name == "public_goods":
     fig.legend(handles, labels,
             loc='upper center',
-            bbox_to_anchor=(0.5, 1.2),
+            bbox_to_anchor=(0.5, 1.21),
             ncol=len(handles),
             frameon=False,
             handletextpad=0.4,
