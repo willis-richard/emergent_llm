@@ -4,11 +4,13 @@ RESULTS_DIR="results"
 STRATEGIES_DIR="strategies"
 N_PROCESSES=1
 
-while getopts "r:s:n:" opt; do
+while getopts "r:s:n:b:g:" opt; do
     case "$opt" in
         r) RESULTS_DIR="$OPTARG" ;;
         s) STRATEGIES_DIR="$OPTARG" ;;
         n) N_PROCESSES="$OPTARG" ;;
+        b) beta="$OPTARG" ;;
+        g) games="$OPTARG" ;;
         *) exit 1 ;;
     esac
 done
@@ -83,11 +85,11 @@ for game in "${GAMES[@]}"; do
                --n_players $n_players \
                --n_rounds 20 \
                --population_size 512 \
-               --beta 1 \
+               --beta $beta \
                --mutation_rate 0.0025 \
                --n_generations 1000 \
                --final_window 100 \
-               --games_per_agent 4 \
+               --games_per_agent $games \
                --n_runs 100 \
                --n_processes $N_PROCESSES \
                --results_dir "$RESULTS_DIR" \
