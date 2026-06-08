@@ -89,7 +89,7 @@ def parse_args():
     # Output
     parser.add_argument("--results_dir", type=str, default="results")
     parser.add_argument("--output_style", choices=["full", "compress", "summary"],
-                        default="full", help="What compression to apply to the results")
+                        default="summary", help="What compression to apply to the results")
     parser.add_argument("--log_level",
                         type=str,
                         default="INFO",

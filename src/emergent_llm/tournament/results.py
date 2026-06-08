@@ -807,7 +807,7 @@ class CulturalEvolutionResults:
                     f"{row['retention_count']} retentions")
         return "\n".join(lines)
 
-    def serialise(self, style: OutputStyle = OutputStyle.FULL) -> dict:
+    def serialise(self, style: OutputStyle) -> dict:
         data = {
             'config': self.config.serialise(),
             'final_window_mean_frequencies': [
