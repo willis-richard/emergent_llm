@@ -109,7 +109,6 @@ class CulturalEvolution:
             final_window_mean_frequencies=window_mean,
             final_window_std_frequencies=window_std,
             gene_frequency_history=self.gene_frequencies,
-            retention_history=self.retention_history,
             summary=summary,
             generation_results=self.generation_results,
         )

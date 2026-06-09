@@ -234,7 +234,8 @@ class CulturalEvolutionSummary:
             gene_frequency_df=cls._build_gene_frequency_df(gene_frequency_history),
             generation_stats_df=cls._build_generation_stats_df(
                 generation_results, gene_frequency_history, config),
-            strategy_summary_df=cls._build_strategy_summary_df(retention_history),
+            strategy_summary_df=cls._build_strategy_summary_df(
+                retention_history, config.final_window),
         )
 
     @staticmethod
@@ -306,18 +307,14 @@ class CulturalEvolutionSummary:
 
     @staticmethod
     def _build_strategy_summary_df(
-            retention_history: list[dict[tuple[Gene, str], int]]) -> pd.DataFrame:
-        """Aggregate retention counts across all generations of a single run.
-        Reports the true attitude so the strategy file/class can be located.
-
-        Two count columns:
-        - retention_count: total retentions across the run
-        - final_retention_count: retentions in the final recorded generation
-        """
+            retention_history: list[dict[tuple[Gene, str], int]],
+            final_window: int) -> pd.DataFrame:
         total: Counter[tuple[Gene, str]] = Counter()
         for gen_map in retention_history:
             total.update(gen_map)
-
+        window: Counter[tuple[Gene, str]] = Counter()
+        for gen_map in retention_history[-final_window:]:
+            window.update(gen_map)
         final_map = retention_history[-1] if retention_history else {}
 
         rows = []
@@ -330,6 +327,7 @@ class CulturalEvolutionSummary:
                 'base_attitude': gene.attitude.to_base_attitude().value,
                 'retention_count': count,
                 'final_retention_count': final_map.get((gene, strategy_name), 0),
+                'window_retention_count': window.get((gene, strategy_name), 0),
             })
         return pd.DataFrame(rows)
 
@@ -766,7 +764,6 @@ class CulturalEvolutionResults:
     final_window_mean_frequencies: dict[Gene, float]
     final_window_std_frequencies: dict[Gene, float]
     gene_frequency_history: list[dict[Gene, float]]
-    retention_history: list[dict[tuple[Gene, str], int]]
     summary: CulturalEvolutionSummary
     generation_results: list[FairTournamentResults] | None = None
 
@@ -819,23 +816,13 @@ class CulturalEvolutionResults:
                 for g, f in self.final_window_std_frequencies.items()
             ],
             'gene_frequency_history': [
-                [{'gene': asdict(g), 'frequency': f}
-                 for g, f in gen_freqs.items()]
+                [{'gene': asdict(g), 'frequency': f} for g, f in gen_freqs.items()]
                 for gen_freqs in self.gene_frequency_history
             ],
-            'retention_history': [
-                [{'gene': asdict(gene), 'strategy': strategy_name,
-                  'count': count}
-                 for (gene, strategy_name), count in gen_map.items()]
-                for gen_map in self.retention_history
-            ],
+            'summary': self.summary.to_dict(),
             'result_type': 'CulturalEvolutionResults',
         }
-
-        if style == OutputStyle.SUMMARY or self.generation_results is None:
-            data['generation_stats'] = self.summary.generation_stats_df.to_dict(
-                orient='records')
-        else:
+        if style != OutputStyle.SUMMARY and self.generation_results is not None:
             data['generation_results'] = [
                 r.serialise(style) for r in self.generation_results
             ]
@@ -851,56 +838,28 @@ class CulturalEvolutionResults:
     @classmethod
     def from_dict(cls, data: dict) -> 'CulturalEvolutionResults':
         config = CulturalEvolutionConfig.from_dict(data['config'])
-
         final_window_mean = {
-            Gene.from_dict(item['gene']): item['frequency']
-            for item in data['final_window_mean_frequencies']
+            Gene.from_dict(i['gene']): i['frequency']
+            for i in data['final_window_mean_frequencies']
         }
         final_window_std = {
-            Gene.from_dict(item['gene']): item['frequency']
-            for item in data['final_window_std_frequencies']
+            Gene.from_dict(i['gene']): i['frequency']
+            for i in data['final_window_std_frequencies']
         }
         gene_frequency_history = [
-            {Gene.from_dict(item['gene']): item['frequency']
-             for item in gen_freqs}
-            for gen_freqs in data['gene_frequency_history']
+            {Gene.from_dict(i['gene']): i['frequency'] for i in gen}
+            for gen in data['gene_frequency_history']
         ]
-        retention_history = [
-            {(Gene.from_dict(rec['gene']), rec['strategy']): rec['count']
-             for rec in gen_records}
-            for gen_records in data['retention_history']
-        ]
-
-        if 'generation_results' in data:
-            generation_results = [
-                FairTournamentResults.from_dict(r)
-                for r in data['generation_results']
-            ]
-            summary = CulturalEvolutionSummary.from_raw_data(
-                gene_frequency_history, generation_results,
-                retention_history, config)
-        else:
-            generation_results = None
-            gene_frequency_df = (
-                CulturalEvolutionSummary._build_gene_frequency_df(
-                    gene_frequency_history))
-            strategy_summary_df = (
-                CulturalEvolutionSummary._build_strategy_summary_df(
-                    retention_history))
-            generation_stats_df = pd.DataFrame.from_records(
-                data['generation_stats'])
-            generation_stats_df.index.name = 'generation'
-            summary = CulturalEvolutionSummary(
-                gene_frequency_df=gene_frequency_df,
-                generation_stats_df=generation_stats_df,
-                strategy_summary_df=strategy_summary_df)
-
+        summary = CulturalEvolutionSummary.from_dict(data['summary'])
+        generation_results = (
+            [FairTournamentResults.from_dict(r) for r in data['generation_results']]
+            if 'generation_results' in data else None
+        )
         return cls(
             config=config,
             final_window_mean_frequencies=final_window_mean,
             final_window_std_frequencies=final_window_std,
             gene_frequency_history=gene_frequency_history,
-            retention_history=retention_history,
             summary=summary,
             generation_results=generation_results,
         )
@@ -1377,29 +1336,16 @@ class BatchCulturalEvolutionResults:
                                                 ascending=False))
 
         # ---- Per-strategy retention summary across runs ----
-        total_retention: Counter[tuple[Gene, str]] = Counter()
-        window_retention: Counter[tuple[Gene, str]] = Counter()
-        for run in self.runs:
-            window = run.config.final_window
-            for gen_map in run.retention_history:
-                total_retention.update(gen_map)
-            for gen_map in run.retention_history[-window:]:
-                window_retention.update(gen_map)
-
-        strat_rows = []
-        for (gene, strategy_name), count in total_retention.most_common():
-            strat_rows.append({
-                'strategy': strategy_name,
-                'gene': str(gene),
-                'model': gene.model,
-                'attitude': gene.attitude.value,
-                'base_attitude': gene.attitude.to_base_attitude().value,
-                'total_retention_count': count,
-                'window_retention_count':
-                    window_retention.get((gene, strategy_name), 0),
-            })
-        object.__setattr__(self, '_strategy_summary_df',
-                        pd.DataFrame(strat_rows))
+        combined = pd.concat(
+            [run.strategy_summary_df for run in self.runs], ignore_index=True)
+        key_cols = ['strategy', 'gene', 'model', 'attitude', 'base_attitude']
+        strat_df = (combined
+                    .groupby(key_cols, as_index=False)
+                    [['retention_count', 'window_retention_count']].sum()
+                    .rename(columns={'retention_count': 'total_retention_count'})
+                    .sort_values('total_retention_count', ascending=False,
+                                 kind='stable'))
+        object.__setattr__(self, '_strategy_summary_df', strat_df)
 
     @property
     def run_summary_df(self) -> pd.DataFrame:
