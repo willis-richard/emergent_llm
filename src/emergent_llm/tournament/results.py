@@ -1492,33 +1492,24 @@ class BatchCulturalEvolutionResults:
         for idx, run in enumerate(self.runs):
             run.plots(individual_dir / f"run_{idx:03d}")
 
-    def serialise(self) -> dict:
-        return {
-            'config': self.config.serialise(),
-            'runs': [run.serialise(self.config.output_style) for run in self.runs],
-            'result_type': 'BatchCulturalEvolutionResults',
-        }
-
     def save(self) -> Path:
         output_dir = self.config.output_dir
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "results.txt").write_text(str(self))
-        BatchCulturalEvolutionSummary.from_results(self).save()
-        filepath = output_dir / f"{self.FILENAME}{self.config.output_style.get_suffix()}"
-        _save_json(filepath, self.serialise())
-        return filepath
-
-    @classmethod
-    def from_dict(cls, data: dict) -> 'BatchCulturalEvolutionResults':
-        config = BatchCulturalEvolutionConfig.from_dict(data['config'])
-        runs = [CulturalEvolutionResults.from_dict(rd) for rd in data['runs']]
-        return cls(config=config, runs=runs)
+        return BatchCulturalEvolutionSummary.from_results(self).save()
 
     @classmethod
     def load(cls, output_dir: Path) -> 'BatchCulturalEvolutionResults':
-        filepath = _find_file(Path(output_dir), cls.FILENAME)
-        data = _load_json(filepath)
-        if data.get('result_type') != 'BatchCulturalEvolutionResults':
-            raise ValueError(
-                f"Expected BatchCulturalEvolutionResults, got {data.get('result_type')}")
-        return cls.from_dict(data)
+        output_dir = Path(output_dir)
+        # Presence of the batch summary implies the batch ran to completion
+        # (it's written only after every run finishes), so we can load every
+        # run dir directly and let a missing/corrupt file raise.
+        config = BatchCulturalEvolutionSummary.load(output_dir).config
+
+        runs = [
+            CulturalEvolutionResults.load(run_dir)
+            for run_dir in sorted((output_dir / "runs").glob("run_*"))
+        ]
+        if not runs:
+            raise ValueError(f"No runs found in {output_dir / 'runs'}")
+        return cls(config=config, runs=runs)
