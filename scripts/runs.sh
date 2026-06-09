@@ -3,14 +3,16 @@
 RESULTS_DIR="results"
 STRATEGIES_DIR="strategies"
 N_PROCESSES=1
+BETA=1
+GAMES_PER_AGENT=4
 
 while getopts "r:s:n:b:g:" opt; do
     case "$opt" in
         r) RESULTS_DIR="$OPTARG" ;;
         s) STRATEGIES_DIR="$OPTARG" ;;
         n) N_PROCESSES="$OPTARG" ;;
-        b) beta="$OPTARG" ;;
-        g) games="$OPTARG" ;;
+        b) BETA="$OPTARG" ;;
+        g) GAMES_PER_AGENT="$OPTARG" ;;
         *) exit 1 ;;
     esac
 done
@@ -23,61 +25,61 @@ PROVIDER_MODELS=(
 )
 EVOLUTION_PLAYERS=(4 64)
 
-# for game in "${GAMES[@]}"; do
-#     for pm in "${PROVIDER_MODELS[@]}"; do
-#         read provider model <<< "$pm"
-#         (
-#             python src/emergent_llm/generation/create_strategies.py \
-#                    --llm_provider "$provider" \
-#                    --model_name "$model" \
-#                    --game "$game" \
-#                    --strategies_dir "$STRATEGIES_DIR" \
-#                    --full_attitudes \
-#                    descriptions \
-#                    --n 128
-#
-#             python src/emergent_llm/generation/create_strategies.py \
-#                    --llm_provider "$provider" \
-#                    --model_name "$model" \
-#                    --game "$game" \
-#                    --strategies_dir "$STRATEGIES_DIR" \
-#                    implementations \
-#                    --max_retries 5
-#         ) &
-#     done
-#     wait
-# done
+for game in "${GAMES[@]}"; do
+    for pm in "${PROVIDER_MODELS[@]}"; do
+        read provider model <<< "$pm"
+        (
+            python src/emergent_llm/generation/create_strategies.py \
+                   --llm_provider "$provider" \
+                   --model_name "$model" \
+                   --game "$game" \
+                   --strategies_dir "$STRATEGIES_DIR" \
+                   --full_attitudes \
+                   descriptions \
+                   --n 128
 
-# python scripts/diversity.py \
-#         --strategies_dir "$STRATEGIES_DIR" \
-#         --n_rounds 7 \
-#         --n_games 30 \
-#         --n_processes $N_PROCESSES \
-#         --plot_baselines \
-#         --results_dir "$RESULTS_DIR"
+            python src/emergent_llm/generation/create_strategies.py \
+                   --llm_provider "$provider" \
+                   --model_name "$model" \
+                   --game "$game" \
+                   --strategies_dir "$STRATEGIES_DIR" \
+                   implementations \
+                   --max_retries 5
+        ) &
+    done
+    wait
+done
 
-# for pm in "${PROVIDER_MODELS[@]}"; do
-#     read provider model <<< "$pm"
+python scripts/diversity.py \
+        --strategies_dir "$STRATEGIES_DIR" \
+        --n_rounds 7 \
+        --n_games 30 \
+        --n_processes $N_PROCESSES \
+        --plot_baselines \
+        --results_dir "$RESULTS_DIR"
 
-#     for game in "${GAMES[@]}"; do
-#         # Enums cannot be pickled - don't parallelise the script,
-#         pids=( $(for p in "${pids[@]}"; do kill -0 "$p" 2>/dev/null && echo "$p"; done) )
-#         while [ ${#pids[@]} -ge $N_PROCESSES ]; do
-#             sleep 2
-#             pids=( $(for p in "${pids[@]}"; do kill -0 "$p" 2>/dev/null && echo "$p"; done) )
-#         done
-#         python scripts/run_tournament.py \
-#                 --strategies "$STRATEGIES_DIR/$game/${model}.py" \
-#                 --game "$game" \
-#                 --matches 200 \
-#                 --group-sizes 4 16 64 256 \
-#                 --n_processes 1 \
-#                 --results_dir "$RESULTS_DIR" \
-#                 --output_style summary &
-#         pids+=($!)
-#     done
-# done
-# wait
+for pm in "${PROVIDER_MODELS[@]}"; do
+    read provider model <<< "$pm"
+
+    for game in "${GAMES[@]}"; do
+        # Enums cannot be pickled - don't parallelise the script,
+        pids=( $(for p in "${pids[@]}"; do kill -0 "$p" 2>/dev/null && echo "$p"; done) )
+        while [ ${#pids[@]} -ge $N_PROCESSES ]; do
+            sleep 2
+            pids=( $(for p in "${pids[@]}"; do kill -0 "$p" 2>/dev/null && echo "$p"; done) )
+        done
+        python scripts/run_tournament.py \
+                --strategies "$STRATEGIES_DIR/$game/${model}.py" \
+                --game "$game" \
+                --matches 200 \
+                --group-sizes 4 16 64 256 \
+                --n_processes 1 \
+                --results_dir "$RESULTS_DIR" \
+                --output_style summary &
+        pids+=($!)
+    done
+done
+wait
 
 for game in "${GAMES[@]}"; do
     for n_players in "${EVOLUTION_PLAYERS[@]}"; do
@@ -86,11 +88,11 @@ for game in "${GAMES[@]}"; do
                --n_players $n_players \
                --n_rounds 20 \
                --population_size 512 \
-               --beta $beta \
+               --beta $BETA \
                --mutation_rate 0.0025 \
                --n_generations 1000 \
                --final_window 100 \
-               --games_per_agent $games \
+               --games_per_agent $GAMES_PER_AGENT \
                --n_runs 100 \
                --n_processes $N_PROCESSES \
                --results_dir "$RESULTS_DIR" \

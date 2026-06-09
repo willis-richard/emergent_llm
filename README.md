@@ -41,7 +41,7 @@ conda activate emergent_llm
 export PYTHONPATH="${PYTHONPATH}:$(pwd)/src"
 ```
 
-## Strategy generation
+## Strategy Generation
 
 The generated strategies are in [strategies](./strategies). To generate new ones use:
 
@@ -49,6 +49,10 @@ The generated strategies are in [strategies](./strategies). To generate new ones
 python3 src/emergent_llm/generation/create_strategies.py --llm_provider <provider> --model_name <model_name> --game <game> descriptions --n <number_of_strategies>
 python3 src/emergent_llm/generation/create_strategies.py --llm_provider <provider> --model_name <model_name> --game <game> implementations --n <number_of_strategies>
 ```
+
+### Representative Strategies
+
+The strategies that are closest to the PCA centroid means are saved in [representative_strategies](./representative_strategies).
 
 ## Results
 
@@ -58,4 +62,4 @@ Results can be generated with:
 bash scripts/runs.sh
 ```
 
-The default output directory is ./results.
+The default output directory is ./results. You can configure this and other parameters with optional arguments. The most important would be `-n <int>` to set the number of processes.
