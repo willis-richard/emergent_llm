@@ -259,9 +259,7 @@ def main():
     check = BatchMixtureTournamentResults.load("./test/self_play/DummyGame/DummyModel/rep2")
     print(check)
 
-    b_cpr_results.create_schelling_diagrams()
-    b_cpr_results.create_relative_schelling_diagram()
-    b_cpr_results.create_social_welfare_diagram()
+    b_cpr_results.plots()
 
     print("\n=== CULTURAL EVOLUTION CPR ===")
     ce_results = run_cultural_evolution(cpr_description)
@@ -275,6 +273,7 @@ def main():
     bce_results = run_batch_cultural_evolution(pgg_description)
     print(bce_results)
     bce_results.save()
+    bce_results.plots()
 
     check = BatchCulturalEvolutionResults.load("./test/cultural_evolution/public_goods/n6_r20_pop18_mut0.1_beta1_gen5_win2_games2")
     print(check)

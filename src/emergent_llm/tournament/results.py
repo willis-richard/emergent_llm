@@ -40,9 +40,22 @@ _MODEL_DISPLAY = {
     "claude-haiku-4-5": "Claude Haiku 4.5",
 }
 
+_GENE_DISPLAY = {
+    "gpt-5.4-mini[collective]": "GPT[Collective]",
+    "gpt-5.4-mini[selfish]": "GPT[Selfish]",
+    "gemini-3.1-flash-lite-preview[collective]": "Gemini[Collective]",
+    "gemini-3.1-flash-lite-preview[selfish]": "Gemini[Selfish]",
+    "claude-haiku-4-5[collective]": "Claude[Collective]",
+    "claude-haiku-4-5[selfish]": "Claude[Selfish]",
+}
+
 
 def pretty_model(name: str) -> str:
     return _MODEL_DISPLAY.get(name, name)
+
+
+def pretty_gene(name: str) -> str:
+    return _GENE_DISPLAY.get(name, name)
 
 
 def _load_json(filepath: Path) -> dict:
@@ -876,8 +889,6 @@ class CulturalEvolutionResults:
     # --- Plotting (unchanged from previous version) -----------------------
 
     def plot_gene_frequencies(self, output_dir: Path):
-        figsize, _ = setup('1_col_slide')
-
         cmap = plt.cm.Paired
         colors = [cmap(i) for i in np.linspace(0, 1, len(self.gene_frequency_df.columns))]
 
@@ -887,20 +898,20 @@ class CulturalEvolutionResults:
         for i, col in enumerate(self.gene_frequency_df.columns):
             ax.plot(self.gene_frequency_df.index,
                     self.gene_frequency_df[col],
-                    marker='o', lw=0.75,
-                    label=pretty_model(col),
+                    marker=' ', lw=0.75,
+                    label=pretty_gene(col),
                     color=colors[i], clip_on=False)
 
         # Shade the averaging window.
-        window_start = max(0,
-            len(self.gene_frequency_df) - self.config.final_window)
-        ax.axvspan(window_start, len(self.gene_frequency_df) - 1,
-                   color='grey', alpha=0.15)
+        # window_start = max(0,
+        #     len(self.gene_frequency_df) - self.config.final_window)
+        # ax.axvspan(window_start, len(self.gene_frequency_df) - 1,
+        #            color='grey', alpha=0.15)
 
         ax.set_xlabel('Generation')
         ax.set_ylabel('Gene Frequency')
         ax.set_ylim(0, 1)
-        ax.legend(bbox_to_anchor=(1, -0.5), loc='lower left', frameon=False,
+        ax.legend(bbox_to_anchor=(1, 0.5), loc='center left', frameon=False,
                   ncols=1, handletextpad=0.4, columnspacing=0.6)
         ax.grid(True, alpha=0.3)
 
@@ -976,7 +987,7 @@ class CulturalEvolutionResults:
                    color='grey', alpha=0.3, linestyle='-')
 
         ax.set_ylim(math.floor(gd.normalised_min_payoff()),
-                    math.ceil(gd.normalised_max_payoff() / 10 + 1) * 10)
+                    math.ceil(gd.normalised_max_payoff()))
         ax.yaxis.set_major_locator(MultipleLocator(1))
 
         ax.set_xlabel('Generation')
@@ -1001,7 +1012,6 @@ class CulturalEvolutionResults:
 
 
 # --- Batch Results Classes ---
-
 
 @dataclass(frozen=True)
 class BatchFairTournamentResults:
@@ -1266,6 +1276,12 @@ class BatchMixtureTournamentResults:
         fig.savefig(output_file, format=FORMAT, bbox_inches='tight')
         plt.close(fig)
 
+    def plots(self):
+        self.create_schelling_diagrams()
+        self.create_relative_schelling_diagram()
+        self.create_social_welfare_diagram()
+
+
 
 @dataclass
 class BatchCulturalEvolutionResults:
@@ -1432,11 +1448,10 @@ class BatchCulturalEvolutionResults:
 
     def plots(self, output_dir: Path | None = None):
         savepath = self.config.output_dir if output_dir is None else Path(output_dir)
+        savepath = savepath / "runs"
         savepath.mkdir(parents=True, exist_ok=True)
-        individual_dir = savepath / "individual_runs"
-        individual_dir.mkdir(exist_ok=True)
         for idx, run in enumerate(self.runs):
-            run.plots(individual_dir / f"run_{idx:03d}")
+            run.plots(savepath / f"run_{idx:04d}")
 
     def save(self) -> Path:
         output_dir = self.config.output_dir
