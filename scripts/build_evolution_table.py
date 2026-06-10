@@ -167,8 +167,6 @@ def build_table(games: list[str], group_sizes: list[int],
                                 cell = body
                     row += f" & {cell}"
             lines.append(row + r" \\")
-        if model_idx < len(ordered_models) - 1:
-            lines.append(r"\midrule")
     lines.append(r"\midrule")
 
     row = r"\multicolumn{2}{l|}{Welfare efficiency}"
