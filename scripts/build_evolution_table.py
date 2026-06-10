@@ -1,5 +1,10 @@
-"""Build a LaTeX table summarising batch cultural evolution results."""
+"""Build LaTeX tables summarising batch cultural evolution results.
+
+Produces one table per (beta, games_per_agent) combination found on disk,
+with games x group sizes as columns within each table.
+"""
 import argparse
+from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -17,6 +22,9 @@ GAME_SHORT = {
     "common_pool": "CPR",
 }
 
+# (beta, games_per_agent)
+ComboKey = tuple[float, int]
+
 
 def _fmt_pm(val, se=None):
     """Compact uncertainty notation in percent: '68(1)\\%' = 0.68 +/- 0.01."""
@@ -28,14 +36,18 @@ def _fmt_pm(val, se=None):
     return f"{pct}({round(se * 100)})\\%"
 
 
-def find_experiment_dir(results_dir: Path, game: str, group_size: int) -> Path:
+def _fmt_param(x: float | int) -> str:
+    """Compact parameter formatting for captions/labels/filenames."""
+    return f"{x:g}"
+
+
+def find_experiment_dirs(results_dir: Path, game: str, group_size: int) -> list[Path]:
+    """All experiment directories for this game and group size."""
     parent = results_dir / "cultural_evolution" / game
     matches = sorted(parent.glob(f"n{group_size}_*"))
     if not matches:
-        raise FileNotFoundError(f"No experiment for {game} n={group_size} in {parent}")
-    if len(matches) > 1:
-        raise ValueError(f"Multiple experiments for {game} n={group_size}: {matches}")
-    return matches[0]
+        raise FileNotFoundError(f"No experiments for {game} n={group_size} in {parent}")
+    return matches
 
 
 def compute_metrics(summary: BatchCulturalEvolutionSummary):
@@ -86,14 +98,26 @@ def select_bolded(gene_stats: dict, n_runs: int) -> set:
     return bolded
 
 
-def build_table(games: list[str], group_sizes: list[int], data: dict, ordered_models: list[str]) -> str:
+def build_table(games: list[str], group_sizes: list[int],
+                data: dict, ordered_models: list[str],
+                combo: ComboKey) -> str:
+    """Build one table for a single (beta, games_per_agent) combination.
+
+    `data` maps (game, group_size) -> (gene_stats, eff_stats, cf_stats, n_runs)
+    and may be missing entries; those columns are filled with '--'.
+    """
+    beta, games_per_agent = combo
     n_games = len(games)
     n_groups = len(group_sizes)
     col_spec = "ll" + ("|" + "c" * n_games) * n_groups
 
+    beta_str = _fmt_param(beta)
+    games_str = _fmt_param(games_per_agent)
+
     lines = [
         r"\begin{table*}[t]",
-        r"\caption{Cultural evolution results}",
+        rf"\caption{{Cultural evolution results "
+        rf"($\beta={beta_str}$, {games_str} games per agent)}}",
         r"\centering",
         r"\begin{tabular}{" + col_spec + "}",
         r"\toprule",
@@ -113,7 +137,8 @@ def build_table(games: list[str], group_sizes: list[int], data: dict, ordered_mo
     lines.append(r"\midrule")
 
     bolded_per_col = {
-        (game, gs): select_bolded(data[(game, gs)][0], data[(game, gs)][3])
+        (game, gs): (select_bolded(data[(game, gs)][0], data[(game, gs)][3])
+                     if (game, gs) in data else set())
         for gs in group_sizes for game in games
     }
 
@@ -125,20 +150,21 @@ def build_table(games: list[str], group_sizes: list[int], data: dict, ordered_mo
             row = f"{model_cell} & {attitude.value.capitalize()}"
             for gs in group_sizes:
                 for game in games:
-                    gene_stats, _, _, _ = data[(game, gs)]
-                    gene = next(
-                        (g for g in gene_stats
-                         if g.model == model and g.attitude == attitude),
-                        None)
-                    if gene is not None:
-                        m, se = gene_stats[gene]
-                        body = _fmt_pm(m, se)
-                        if gene in bolded_per_col[(game, gs)]:
-                            cell = rf"\textbf{{{body}}}"
-                        else:
-                            cell = body
-                    else:
-                        cell = "--"
+                    entry = data.get((game, gs))
+                    cell = "--"
+                    if entry is not None:
+                        gene_stats = entry[0]
+                        gene = next(
+                            (g for g in gene_stats
+                             if g.model == model and g.attitude == attitude),
+                            None)
+                        if gene is not None:
+                            m, se = gene_stats[gene]
+                            body = _fmt_pm(m, se)
+                            if gene in bolded_per_col[(game, gs)]:
+                                cell = rf"\textbf{{{body}}}"
+                            else:
+                                cell = body
                     row += f" & {cell}"
             lines.append(row + r" \\")
         if model_idx < len(ordered_models) - 1:
@@ -148,19 +174,54 @@ def build_table(games: list[str], group_sizes: list[int], data: dict, ordered_mo
     row = r"\multicolumn{2}{l|}{Welfare efficiency}"
     for gs in group_sizes:
         for game in games:
-            _, (eff_m, eff_se), _, _ = data[(game, gs)]
-            row += f" & {_fmt_pm(eff_m, eff_se)}"
+            entry = data.get((game, gs))
+            row += f" & {_fmt_pm(*entry[1]) if entry else '--'}"
     lines.append(row + r" \\")
 
     row = r"\multicolumn{2}{l|}{Collective frequency}"
     for gs in group_sizes:
         for game in games:
-            _, _, (cf_m, cf_se), _ = data[(game, gs)]
-            row += f" & {_fmt_pm(cf_m, cf_se)}"
+            entry = data.get((game, gs))
+            row += f" & {_fmt_pm(*entry[2]) if entry else '--'}"
     lines.append(row + r" \\")
 
-    lines += [r"\bottomrule", r"\end{tabular}", r"\label{table:ce}", r"\end{table*}"]
+    lines += [
+        r"\bottomrule",
+        r"\end{tabular}",
+        rf"\label{{table:ce_beta{beta_str}_games{games_str}}}",
+        r"\end{table*}",
+    ]
     return "\n".join(lines)
+
+
+def collect_data(results_dir: Path, games: list[str], group_sizes: list[int]):
+    """Load all experiments, grouped by (beta, games_per_agent).
+
+    Returns:
+        data: {combo: {(game, group_size): metrics}}
+        models: {combo: set of model names}
+    """
+    data: dict[ComboKey, dict] = defaultdict(dict)
+    models: dict[ComboKey, set] = defaultdict(set)
+
+    for gs in group_sizes:
+        for game in games:
+            for exp_dir in find_experiment_dirs(results_dir, game, gs):
+                summary = BatchCulturalEvolutionSummary.load(exp_dir)
+                cfg = summary.config.evolution_config
+                combo = (cfg.beta, cfg.games_per_agent)
+
+                if (game, gs) in data[combo]:
+                    raise ValueError(
+                        f"Duplicate experiment for {game} n={gs} with "
+                        f"beta={cfg.beta}, games_per_agent={cfg.games_per_agent}: "
+                        f"{exp_dir}")
+
+                metrics = compute_metrics(summary)
+                data[combo][(game, gs)] = metrics
+                models[combo].update(g.model for g in metrics[0])
+
+    return data, models
 
 
 def main():
@@ -169,25 +230,34 @@ def main():
     parser.add_argument("--games", nargs="+",
                         default=["public_goods", "collective_risk", "common_pool"])
     parser.add_argument("--group_sizes", nargs="+", type=int, required=True)
-    parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument("--output_dir", type=Path, default=None,
+                        help="If given, write one .tex file per "
+                             "(beta, games_per_agent) combination here.")
     args = parser.parse_args()
 
-    data = {}
-    all_models = set()
-    for gs in args.group_sizes:
-        for game in args.games:
-            exp_dir = find_experiment_dir(args.results_dir, game, gs)
-            summary = BatchCulturalEvolutionSummary.load(exp_dir)
-            gene_stats, eff_stats, cf_stats, n_runs = compute_metrics(summary)
-            data[(game, gs)] = (gene_stats, eff_stats, cf_stats, n_runs)
-            all_models.update(g.model for g in gene_stats)
+    data, models = collect_data(args.results_dir, args.games, args.group_sizes)
 
-    ordered_models = sorted(all_models)
-    table = build_table(args.games, args.group_sizes, data, ordered_models)
-    print(table)
-    if args.output:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(table)
+    for combo in sorted(data):
+        beta, games_per_agent = combo
+        combo_data = data[combo]
+
+        missing = [(game, gs) for gs in args.group_sizes for game in args.games
+                   if (game, gs) not in combo_data]
+        if missing:
+            print(f"% WARNING: beta={beta:g}, games_per_agent={games_per_agent}: "
+                  f"missing {missing}")
+
+        ordered_models = sorted(models[combo])
+        table = build_table(args.games, args.group_sizes, combo_data,
+                            ordered_models, combo)
+        print(table)
+        print()
+
+        if args.output_dir:
+            args.output_dir.mkdir(parents=True, exist_ok=True)
+            filename = (f"evolution_table_beta{_fmt_param(beta)}"
+                        f"_games{_fmt_param(games_per_agent)}.tex")
+            (args.output_dir / filename).write_text(table)
 
 
 if __name__ == "__main__":
