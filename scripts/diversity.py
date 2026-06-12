@@ -40,7 +40,7 @@ from emergent_llm.players import (
 )
 from emergent_llm.tournament import pretty_model
 
-FIGSIZE, FORMAT, FONTSIZE = setup('diversity_poster')
+FIGSIZE, FORMAT, FONTSIZE = setup('1_col_slide')
 
 GAME_MAPPING = {
     'public_goods': 'Public Goods Game',
@@ -178,16 +178,18 @@ def load_features(game_name: str, gene: Gene,
 
 
 def compute_features(player: BasePlayer, n_games: int) -> dict[CooperatorCounts, float]:
-    features: dict[CooperatorCounts, float] = {}
+    sums: dict[CooperatorCounts, float] = {}
+    counts: dict[CooperatorCounts, int] = {}
     for combo, opponents in zip(unique_combos, fixed_opponents):
         players = [player] + opponents
         game = game_class(players, description)
         histories = [game.play_game().history for _ in range(n_games)]
-        # stack once, slice per round
         player_actions = np.array([h.actions[:, 0] for h in histories])
         for r in range(args.n_rounds):
-            features[combo[:r]] = float(player_actions[:, r].mean())
-    return features
+            key = combo[:r]
+            sums[key] = sums.get(key, 0.0) + float(player_actions[:, r].mean())
+            counts[key] = counts.get(key, 0) + 1
+    return {k: sums[k] / counts[k] for k in sums}
 
 
 def chunk_indices(n_items: int, n_chunks: int) -> list[list[int]]:
@@ -316,10 +318,9 @@ def get_feature_vectors_for_synonym(
 
 def compute_random_baseline_distance(n_features: int,
                                      n_samples: int = 500) -> float:
-    """Mean pairwise Euclidean distance for uniform [0,1] random vectors."""
-    random_X = np.random.uniform(0, 1, (n_samples, n_features))
-    distances = pdist(random_X, metric='euclidean')
-    return float(np.mean(distances))
+    rng = np.random.default_rng(0)
+    random_X = rng.uniform(0, 1, (n_samples, n_features))
+    return float(np.mean(pdist(random_X, metric='euclidean')))
 
 
 def compute_within_set_metrics(X: np.ndarray,
@@ -464,7 +465,8 @@ def build_main_dataframe(
 
     # Reorder index: attitude in Attitude.base_attitudes() order
     df_pivot = df_pivot.reindex(
-        sorted(df_pivot.index, key=lambda x: (x[0], 0 if x[1] == 'Collective' else 1))
+        sorted(df_pivot.index,
+               key=lambda x: (x[0], 0 if x[1] == Attitude.COLLECTIVE.value else 1))
     )
     return df_pivot
 
@@ -543,6 +545,108 @@ def build_appendix_dataframe(
                 if (g, m) in df_pivot.columns]
     df_pivot = df_pivot[new_cols]
     return df_pivot
+
+def build_per_round_cooperation_df(pca_data: dict, games: list[str],
+                                   n_rounds: int) -> pd.DataFrame:
+    """
+    Per-round cooperation rate for each (game, model, attitude) gene.
+
+    The value for round r is the mean cooperation probability over all
+    strategies of that gene and over all opponent-history prefixes of
+    length r. NOTE: prefixes are weighted uniformly, not by their
+    likelihood under any opponent distribution — consistent with how
+    `coop` is computed in the main table, but it is *not* an empirical
+    in-play cooperation rate.
+    """
+    rows = []
+    for game in games:
+        for gene, _strategy_name, feature_dict in pca_data[game]['metadata']:
+            sums = np.zeros(n_rounds)
+            counts = np.zeros(n_rounds, dtype=int)
+            for key, value in feature_dict.items():
+                r = len(key)
+                sums[r] += value
+                counts[r] += 1
+            rows.append({
+                'game': game,
+                'model': gene.model,
+                'attitude': gene.attitude.value,
+                **{f'round_{r}': sums[r] / counts[r] for r in range(n_rounds)},
+            })
+
+    df = pd.DataFrame(rows)
+    round_cols = [f'round_{r}' for r in range(n_rounds)]
+    # Mean over strategies; every strategy contributes the same number of
+    # prefixes per round, so this equals the flat mean over (strategy, prefix).
+    return df.groupby(['game', 'model', 'attitude'])[round_cols].mean()
+
+
+def plot_per_round_cooperation(df_rounds: pd.DataFrame, games: list[str],
+                               n_rounds: int, output_dir: Path):
+    """One subplot per game; colour = model, linestyle = base attitude.
+
+    Synonym genes are collapsed to their base family by averaging the
+    gene-level curves. This weights each gene equally, which equals
+    per-strategy weighting as long as every gene has the same number of
+    strategies (true by construction of the generation pipeline).
+    """
+    round_cols = [f'round_{r}' for r in range(n_rounds)]
+    rounds = range(n_rounds)
+
+    # Collapse synonyms to base attitude
+    df = df_rounds.reset_index()
+    df['base_attitude'] = df['attitude'].map(
+        lambda a: Attitude(a).to_base_attitude().value)
+    df_base = df.groupby(['game', 'model', 'base_attitude'])[round_cols].mean()
+
+    models = sorted(df['model'].unique())
+    cmap = plt.colormaps.get_cmap('tab10')
+    model_colors = {m: cmap(i) for i, m in enumerate(models)}
+    linestyles = {Attitude.COLLECTIVE: '-', Attitude.SELFISH: '--'}
+
+    fig, axes = plt.subplots(1, len(games), figsize=FIGSIZE,
+                             sharex=True, sharey=True)
+    axes = np.atleast_1d(axes)
+
+    for ax, game in zip(axes, games):
+        sub = df_base.loc[game]
+        for (model, base_value), row in sub.iterrows():
+            base = Attitude(base_value)
+            ax.plot(rounds, row[round_cols].to_numpy(dtype=float),
+                    color=model_colors[model], linestyle=linestyles[base],
+                    lw=1.25, marker='o', alpha=0.8)
+        ax.set_title(GAME_MAPPING.get(game, game))
+        ax.set_ylim(0, 1)
+        ax.set_xticks(list(rounds))
+
+    fig.supxlabel('Round', y=0.02)
+    fig.supylabel('Cooperation rate', x=0.03)
+
+    # Single two-row legend: row 1 = models, row 2 = attitudes.
+    # Matplotlib fills legends column-major (down, then across), so with
+    # ncol = n_models we interleave (model_i, attitude_or_blank_i) pairs.
+    model_handles = [plt.Line2D([0], [0], color=model_colors[m], lw=2,
+                                label=pretty_model(m)) for m in models]
+    attitude_handles = [plt.Line2D([0], [0], color='gray', lw=2, linestyle=ls,
+                                   label=att.value.capitalize())
+                        for att, ls in linestyles.items()]
+    blank = lambda: plt.Line2D([0], [0], color='none', label=' ')
+
+    n_cols = max(len(model_handles), len(attitude_handles))
+    model_handles += [blank() for _ in range(n_cols - len(model_handles))]
+    attitude_handles += [blank() for _ in range(n_cols - len(attitude_handles))]
+
+    interleaved = [h for pair in zip(model_handles, attitude_handles)
+                   for h in pair]
+
+    fig.legend(handles=interleaved, loc='upper center', frameon=False,
+               bbox_to_anchor=(0.5, 1.22), ncol=n_cols)
+
+    plt.tight_layout()
+    plt.savefig(output_dir / f"per_round_cooperation.{FORMAT}",
+                format=FORMAT, bbox_inches='tight')
+    plt.close()
+    logger.info(f"Saved per_round_cooperation.{FORMAT}")
 
 
 # =============================================================================
@@ -1120,10 +1224,10 @@ def find_extrema(X_pca, metadata):
         'top_right': np.argmax(X_pca[:, 0] + X_pca[:, 1]),
         'bottom_left': np.argmin(X_pca[:, 0] + X_pca[:, 1]),
         'bottom_right': np.argmax(X_pca[:, 0] - X_pca[:, 1]),
-        'top': np.argmin(X_pca[:, 0]),
-        'right': np.argmax(X_pca[:, 1]),
-        'bottom': np.argmin(X_pca[:, 0]),
-        'left': np.argmin(X_pca[:, 1]),
+        'top': np.argmax(X_pca[:, 1]),
+        'right': np.argmax(X_pca[:, 0]),
+        'bottom': np.argmin(X_pca[:, 1]),
+        'left': np.argmin(X_pca[:, 0]),
     }
     results = {}
     for position, idx in extrema_indices.items():
@@ -1374,6 +1478,15 @@ if __name__ == "__main__":
         df_main.to_csv(output_dir / "main_metrics.csv")
         write_main_latex(df_main, output_dir / "main_metrics.tex")
 
+    # Per-round cooperation per gene × game
+    logger.info(f"\n{'='*60}\nPER-ROUND COOPERATION\n{'='*60}")
+    df_rounds = build_per_round_cooperation_df(pca_data, args.games, args.n_rounds)
+    with pd.option_context('display.max_rows', None, 'display.width', 200,
+                           'display.float_format', '{:.3f}'.format):
+        logger.info("\n" + df_rounds.to_string())
+    df_rounds.to_csv(output_dir / "per_round_cooperation.csv")
+    plot_per_round_cooperation(df_rounds, args.games, args.n_rounds, output_dir)
+
     # Variance explained by game membership (per model)
     logger.info(f"\n{'='*60}\nVARIANCE EXPLAINED BY GAME MEMBERSHIP\n{'='*60}")
     all_genes_flat = []
@@ -1381,8 +1494,8 @@ if __name__ == "__main__":
         all_genes_flat.extend(pca_data[g]['genes'])
     models_all = sorted(set(g.model for g in all_genes_flat))
     for model in models_all:
-        model_mask = np.array([f"({model}," in label or label.startswith(f"{model},")
-                               or model in label for label in labels_all])
+        model_mask = np.array([label.startswith(f"{model}[")
+                               for label in labels_all])
         if model_mask.sum() == 0:
             continue
         eta_sq = compute_game_variance_explained(X_all[model_mask],
