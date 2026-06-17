@@ -51,10 +51,10 @@ def discover_models(game_dir: Path) -> list[str]:
 def plot_combined(results_list: list[BatchMixtureTournamentResults],
                   game_name: str,
                   output_path: Path) -> Path:
-    figsize, fmt, _ = setup('aamas')
+    figsize, fmt, _ = setup('aamas_self_play')
     n = len(results_list)
-    fig, axes = plt.subplots(1, n, figsize=(figsize[0] * n, figsize[1]),
-                             facecolor='white', sharey=True, gridspec_kw={'wspace': 0.15})
+    fig, axes = plt.subplots(1, n, figsize=figsize, facecolor='white',
+                             sharey=True, gridspec_kw={'wspace': 0.08})
     if n == 1:
         axes = [axes]
 
@@ -88,7 +88,8 @@ def plot_combined(results_list: list[BatchMixtureTournamentResults],
         if handles is None:
             handles, labels = ax.get_legend_handles_labels()
 
-    axes[0].xaxis.set_major_locator(MultipleLocator(25))
+    for ax in axes:
+        ax.xaxis.set_major_locator(MultipleLocator(25))
     axes[0].set_ylabel('Welfare efficiency (%)')
     axes[0].yaxis.set_major_locator(MultipleLocator(0.25))
     axes[0].yaxis.set_major_formatter(PercentFormatter(xmax=1))
@@ -98,7 +99,7 @@ def plot_combined(results_list: list[BatchMixtureTournamentResults],
     # if game_name == "public_goods":
     fig.legend(handles, labels,
             loc='upper center',
-            bbox_to_anchor=(0.5, 1.21),
+            bbox_to_anchor=(0.5, 1.15),
             ncol=len(handles),
             frameon=False,
             handletextpad=0.4,
@@ -108,7 +109,7 @@ def plot_combined(results_list: list[BatchMixtureTournamentResults],
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_file = (output_path / f"{game_name}").with_suffix(f".{fmt}")
     # plt.tight_layout(pad=1.05)
-    fig.savefig(output_file, format=fmt, bbox_inches='tight')
+    fig.savefig(output_file, format=fmt)
     plt.close(fig)
     return output_file
 

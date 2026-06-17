@@ -21,7 +21,7 @@ from emergent_llm.tournament.configs import (
     OutputStyle,
 )
 
-FIGSIZE, FORMAT, _ = setup('3_col_paper')
+FIGSIZE, FORMAT, _ = setup('viewing')
 
 def collapse_to_base(gen_freqs: dict[Gene, float]) -> dict[Gene, float]:
     """Aggregate fine-grained (model, attitude) frequencies into

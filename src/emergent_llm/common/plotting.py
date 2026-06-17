@@ -1,23 +1,19 @@
 import matplotlib
 import matplotlib.pyplot as plt
 
-def setup(configuration: str) -> tuple[tuple[float, float], str]:
+def setup(configuration: str) -> tuple[tuple[float, float], str, float]:
     matplotlib.use('Agg')
 
-    if configuration == '3_col_paper':
-        FIGSIZE, SIZE, FORMAT = (2.2, 0.9), 7, 'svg'
-    elif configuration == 'aamas':
-        FIGSIZE, SIZE, FORMAT = (2.65, 1.15), 6.33, 'svg'
-    elif configuration == '2_col_paper':
-        FIGSIZE, SIZE, FORMAT = (2.5, 0.9), 8, 'svg'
-    elif configuration == '1_col_slide':
-        FIGSIZE, SIZE, FORMAT = (5, 1.2), 8, 'svg'
-    elif configuration == '1_col_poster':
-        FIGSIZE, SIZE, FORMAT = (5, 3.5), 27, 'svg'
-    elif configuration == 'diversity':
-        FIGSIZE, SIZE, FORMAT = (7, 4), 8, 'svg'
-    elif configuration == 'diversity_poster':
+    if configuration == 'aamas_self_play':
+        FIGSIZE, SIZE, FORMAT = (8.2, 1.5), 7, 'svg'
+    elif configuration == 'aamas_diversity':
+        FIGSIZE, SIZE, FORMAT = (8.2, 4), 7, 'svg'
+    elif configuration == 'aamas_cooperation':
+        FIGSIZE, SIZE, FORMAT = (7, 1.5), 7, 'svg'
+    elif configuration == 'poster_diversity':
         FIGSIZE, SIZE, FORMAT = (13.5, 7.5), 27, 'svg'
+    elif configuration == 'viewing':
+        FIGSIZE, SIZE, FORMAT = (7, 4), 8, 'svg'
     else:
         assert False, f"Unknown configuration: {configuration}"
 
@@ -33,7 +29,10 @@ def setup(configuration: str) -> tuple[tuple[float, float], str]:
         'legend.columnspacing': 0.3,
         'legend.handletextpad' : 0.1,
         'lines.markersize': SIZE / 4,
-        'axes.linewidth': 0.1
+        'axes.linewidth': 0.5,
+        'savefig.bbox': 'tight',
+        'figure.constrained_layout.use': True,
+        'savefig.pad_inches': 0.02,
     })
 
     return FIGSIZE, FORMAT, SIZE

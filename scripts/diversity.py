@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.patches import Ellipse
+from matplotlib.ticker import MultipleLocator, PercentFormatter
 from scipy.spatial.distance import cdist, pdist
 from sklearn.decomposition import PCA
 
@@ -40,7 +41,7 @@ from emergent_llm.players import (
 )
 from emergent_llm.tournament import pretty_model
 
-FIGSIZE, FORMAT, FONTSIZE = setup('1_col_slide')
+FIGSIZE, FORMAT, FONTSIZE = setup('aamas_diversity')
 
 GAME_MAPPING = {
     'public_goods': 'Public Goods Game',
@@ -235,13 +236,11 @@ def create_baseline_players(n_players: int,
     ]
     baseline_players += [
         SimplePlayer(f"CC({i})", ConditionalCooperator(C, i))
-        # for i in range(1, args.n_players)
-        for i in range(2, 3)
+        for i in range(1, args.n_players)
     ]
     baseline_players += [
         SimplePlayer(f"CD({i})", ConditionalDefector(D, i))
-        # for i in range(1, args.n_players)
-        for i in range(2, 3)
+        for i in range(1, args.n_players)
     ]
     return baseline_players
 
@@ -604,7 +603,8 @@ def plot_per_round_cooperation(df_rounds: pd.DataFrame, games: list[str],
     model_colors = {m: cmap(i) for i, m in enumerate(models)}
     linestyles = {Attitude.COLLECTIVE: '-', Attitude.SELFISH: '--'}
 
-    fig, axes = plt.subplots(1, len(games), figsize=FIGSIZE,
+    figsize, _, _ = setup('aamas_cooperation')
+    fig, axes = plt.subplots(1, len(games), figsize=figsize,
                              sharex=True, sharey=True)
     axes = np.atleast_1d(axes)
 
@@ -619,8 +619,11 @@ def plot_per_round_cooperation(df_rounds: pd.DataFrame, games: list[str],
         ax.set_ylim(0, 1)
         ax.set_xticks(list(rounds))
 
-    fig.supxlabel('Round', y=0.02)
-    fig.supylabel('Cooperation rate', x=0.03)
+
+    ax.yaxis.set_major_locator(MultipleLocator(0.25))
+    ax.yaxis.set_major_formatter(PercentFormatter(xmax=1))
+    fig.supxlabel('Round')
+    fig.supylabel('Cooperation rate (%)')
 
     # Single two-row legend: row 1 = models, row 2 = attitudes.
     # Matplotlib fills legends column-major (down, then across), so with
@@ -642,9 +645,8 @@ def plot_per_round_cooperation(df_rounds: pd.DataFrame, games: list[str],
     fig.legend(handles=interleaved, loc='upper center', frameon=False,
                bbox_to_anchor=(0.5, 1.22), ncol=n_cols)
 
-    plt.tight_layout()
     plt.savefig(output_dir / f"per_round_cooperation.{FORMAT}",
-                format=FORMAT, bbox_inches='tight')
+                format=FORMAT)
     plt.close()
     logger.info(f"Saved per_round_cooperation.{FORMAT}")
 
@@ -1051,7 +1053,7 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
                 format=FORMAT, bbox_inches='tight')
     plt.close()
     logger.info(
-        f"Saved combined PCA grid to {output_dir / f'pca_by_game.{FORMAT}'}")
+        f"Saved pca_by_game {output_dir / f'pca_by_game.{FORMAT}'}")
 
 
 def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
@@ -1162,7 +1164,6 @@ def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
     plt.savefig(output_dir / f"pca_by_model.{FORMAT}",
                 format=FORMAT, bbox_inches='tight')
     plt.close()
-    logger.info(f"Saved pca_by_model.{FORMAT}")
 
 
 # =============================================================================
@@ -1357,11 +1358,10 @@ if __name__ == "__main__":
         n_players=args.n_players, n_rounds=args.n_rounds)
 
     baseline_features = compute_baselines(args.n_players, args.n_rounds)
-    # baseline_labels = list(baseline_features.keys()) + ['Rnd']
-    baseline_labels = list(baseline_features.keys())
+    baseline_labels = list(baseline_features.keys()) + ['Rnd']
     baseline_X = [list(d.values()) for d in baseline_features.values()]
     n_features = len(baseline_X[0])
-    # baseline_X = np.array(baseline_X + [[0.5] * n_features])
+    baseline_X = np.array(baseline_X + [[0.5] * n_features])
 
     logger.info(
         f"Features: {len(unique_combos)} unique opponent action combinations "
@@ -1447,7 +1447,7 @@ if __name__ == "__main__":
 
         plt.tight_layout(w_pad=0.07, h_pad=0.07)
         plt.savefig(output_dir / f"pca_{game_name}.{FORMAT}",
-                    format=FORMAT, bbox_inches='tight')
+                    format=FORMAT)
         plt.close()
 
 
@@ -1465,6 +1465,15 @@ if __name__ == "__main__":
     # ==========================================================================
     logger.info(f"\n{'='*60}\nMAIN METRICS (aggregated by base family)\n{'='*60}")
 
+    # Per-round cooperation per gene × game
+    logger.info(f"\n{'='*60}\nPER-ROUND COOPERATION\n{'='*60}")
+    df_rounds = build_per_round_cooperation_df(pca_data, args.games, args.n_rounds)
+    with pd.option_context('display.max_rows', None, 'display.width', 200,
+                           'display.float_format', '{:.3f}'.format):
+        logger.info("\n" + df_rounds.to_string())
+    df_rounds.to_csv(output_dir / "per_round_cooperation.csv")
+    plot_per_round_cooperation(df_rounds, args.games, args.n_rounds, output_dir)
+
     df_main = build_main_dataframe(
         X_all, labels_all, game_labels, pca_data,
         args.games, random_baseline_dist,
@@ -1477,15 +1486,6 @@ if __name__ == "__main__":
             logger.info("\n" + df_main.to_string())
         df_main.to_csv(output_dir / "main_metrics.csv")
         write_main_latex(df_main, output_dir / "main_metrics.tex")
-
-    # Per-round cooperation per gene × game
-    logger.info(f"\n{'='*60}\nPER-ROUND COOPERATION\n{'='*60}")
-    df_rounds = build_per_round_cooperation_df(pca_data, args.games, args.n_rounds)
-    with pd.option_context('display.max_rows', None, 'display.width', 200,
-                           'display.float_format', '{:.3f}'.format):
-        logger.info("\n" + df_rounds.to_string())
-    df_rounds.to_csv(output_dir / "per_round_cooperation.csv")
-    plot_per_round_cooperation(df_rounds, args.games, args.n_rounds, output_dir)
 
     # Variance explained by game membership (per model)
     logger.info(f"\n{'='*60}\nVARIANCE EXPLAINED BY GAME MEMBERSHIP\n{'='*60}")
