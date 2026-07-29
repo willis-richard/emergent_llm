@@ -193,7 +193,7 @@ def get_missing_implementations(
 def generate_strategy_description(config: LLMConfig,
                                   attitude: Attitude,
                                   game_name: str,
-                                  logger: logging.Logger = None) -> str:
+                                  logger: logging.Logger | None = None) -> str:
     """Generate natural language strategy description."""
     system_prompt = """You are an AI assistant with expertise in strategic thinking.
 
@@ -752,7 +752,7 @@ def parse_arguments() -> argparse.Namespace:
                         default="low")
     parser.add_argument(
         "--game_name",
-        choices=["public_goods", "public_goods_prompt", "collective_risk", "common_pool"],
+        choices=["public_goods", "collective_risk", "common_pool"],
         required=True)
     parser.add_argument("--strategies_dir", type=str, default="strategies")
     parser.add_argument(

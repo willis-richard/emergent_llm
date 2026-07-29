@@ -11,8 +11,6 @@ import random"""
 
 def format_game_description(game_name: str) -> str:
     """Format game description for prompts."""
-    if game_name == "public_goods_prompt":
-        game_name = "public_goods"
     if game_name == "public_goods":
         return """GAME SPECIFICATION: N-Player Public Goods Game
 
@@ -23,7 +21,7 @@ PARAMETERS:
 
 GAME STRUCTURE:
 - Type: Simultaneous-move, repeated game
-- Rounds: r identical rounds
+- Rounds: r identical rounds, indexed t ∈ {0, 1, ..., r-1}
 - Players: n players, indexed i ∈ {1, 2, ..., n}
 
 ACTIONS PER ROUND:
@@ -51,7 +49,7 @@ EXAMPLE CALCULATIONS (n=6, k=2):
    - If player i played D: π_i = 1 + (2/6) × 3 = 2
 
 TOTAL GAME PAYOFF:
-Total payoff for player i over r rounds = Σ(t=1 to r) π_i,t"""
+Total payoff for player i over r rounds = Σ(t=0 to r-1) π_i,t"""
 
     if game_name == "collective_risk":
         return """GAME SPECIFICATION: Collective Risk Dilemma
@@ -64,7 +62,7 @@ PARAMETERS:
 
 GAME STRUCTURE:
 - Type: Simultaneous-move, repeated game
-- Rounds: r identical rounds
+- Rounds: r identical rounds, indexed t ∈ {0, 1, ..., r-1}
 - Players: n players, indexed i ∈ {1, 2, ..., n}
 
 ACTIONS PER ROUND:
@@ -92,7 +90,7 @@ EXAMPLE CALCULATIONS (n=6, m=3, k=2):
    - If player i played D: π_i = 1 + 2 = 3
 
 TOTAL GAME PAYOFF:
-Total payoff for player i over r rounds = Σ(t=1 to r) π_i,t"""
+Total payoff for player i over r rounds = Σ(t=0 to r-1) π_i,t"""
 
     if game_name == "common_pool":
         return """GAME SPECIFICATION: Common Pool Resource Game
@@ -105,8 +103,8 @@ STATE:
 - stock: current stock level (float, 0 ≤ stock ≤ 2n)
 
 GAME STRUCTURE:
-- Type: Simultaneous-move, repeated game with dynamic state
-- Rounds: r identical rounds
+- Type: Simultaneous-move, repeated game
+- Rounds: r identical rounds, indexed t ∈ {0, 1, ..., r-1}
 - Players: n players, indexed i ∈ {1, 2, ..., n}
 - State: Common pool stock (initially = capacity)
 
@@ -151,62 +149,14 @@ EXAMPLE CALCULATIONS (n=4, capacity=100, initial stock=100):
    - New stock: min(25 + 37.5, 100) = 62.5
 
 TOTAL GAME PAYOFF:
-Total payoff for player i over r rounds = Σ(t=1 to r) π_i,t
+Total payoff for player i over r rounds = Σ(t=0 to r-1) π_i,t
 Note: Payoffs depend on both current actions and accumulated stock depletion from previous rounds."""
 
     assert False, "GameDescription not recognised"
 
 
-def create_piedrahita_pgg_prompt(attitude: Attitude) -> str:
-    return f"""PUBLIC GOODS GAME (PGG) - STRATEGY DESCRIPTION
-
-OVERVIEW
-Public goods games capture the tension between individual incentives and
-collective welfare. Each player decides whether to contribute a private
-endowment to a shared project that benefits all players.
-
-GAME RULES (STANDARD PGG)
-- n players, r rounds, multiplier k with 1 < k < n
-- Each round has a single stage with simultaneous actions
-- Action set: C (contribute 1 token) or D (contribute 0 tokens and keep it)
-- There is no institution choice and no reward/punishment stage
-
-PAYOFF (PER ROUND)
-Let c_i in {{0,1}} be player i's contribution (1 if C, 0 if D).
-Total contributions = sum_j c_j.
-Each player receives (k / n) * total_contributions.
-So player i's payoff is:
-  pi_i = (1 - c_i) + (k / n) * sum_j c_j
-
-INFORMATION AVAILABLE
-- After each round, each player observes how many of the other players cooperated that round
-- Players are anonymous: you cannot tell which specific player cooperated
-- No communication, no signaling, and no coordination channel
-
-TASK
-Design a {attitude} strategy for this repeated game that depends only on the
-game parameters and history. Your strategy should be adaptive and robust to a
-wide range of opponent behaviors.
-
-1. Specify decision rules - When do you cooperate vs defect?
-2. Handle edge cases - What do you do in the first round, last round, etc.?
-3. Be {attitude} - Clearly align with the {attitude} mindset
-
-Your strategy will play in a tournament against independent strategies
-developed by other AI systems. Do not assume shared norms or coordination.
-
-OUTPUT FORMAT
-- Return only a natural language strategy description (pseudocode is OK)
-- Do not output JSON or code
-"""
-
-
-def create_strategy_user_prompt(
-        attitude: Attitude, game_name: str) -> str:
+def create_strategy_user_prompt(attitude: Attitude, game_name: str) -> str:
     """Create user prompt for strategy description generation."""
-
-    if game_name == "public_goods_prompt":
-        return create_piedrahita_pgg_prompt(attitude)
 
     state = ", history and state" if game_name == "common_pool" else " and history"
 
