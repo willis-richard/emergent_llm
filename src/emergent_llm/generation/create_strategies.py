@@ -833,7 +833,7 @@ def main():
     else:
         raise ValueError(f"Unknown client {args.llm_provider}")
 
-    config = LLMConfig(client, args.model_name)
+    config = LLMConfig(client, args.model_name, args.reasoning_effort)
 
     # Run appropriate phase
     if args.phase == 'descriptions':
