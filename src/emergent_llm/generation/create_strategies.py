@@ -108,6 +108,30 @@ def parse_strategy_description_file(
 
     return strategy_descriptions
 
+_DESCRIPTION_RE = re.compile(
+    r"^description_([A-Z]+)_(\d+) = '''\n(.*?)\n'''$",
+    re.DOTALL | re.MULTILINE)
+
+
+def parse_strategy_description_file_raw(
+        strategy_description_file: Path) -> dict[tuple[str, int], str]:
+    """Descriptions exactly as the model emitted them.
+
+    `parse_strategy_description_file` evaluates the file as Python, so every
+    backslash sequence that is a valid escape is consumed: "\\frac" becomes
+    FF + "rac", "\\times" becomes TAB + "imes", and so on. The bytes on disk
+    are intact, so slicing the raw source recovers the original.
+
+    NOTE: `generate_implementations` reads through the *evaluated* parser, so
+    the code generator saw the corrupted text. Use this only when you
+    deliberately want to break that parity.
+    """
+    source = strategy_description_file.read_text(encoding="utf-8")
+    return {
+        (attitude, int(index)): body.replace("\\'\\'\\'", "'''")
+        for attitude, index, body in _DESCRIPTION_RE.findall(source)
+    }
+
 
 def parse_strategy_implementation_file(
         strategy_implementation_file: Path) -> set[str]:
@@ -151,8 +175,7 @@ def write_description_to_file(strategy_description_file: Path,
     var_name = f"description_{attitude.name}_{n}"
 
     # Create description entry
-    strategy_description = strategy_description.replace("'''", "\\'\\'\\'")
-    description_entry = f"\n{var_name} = '''\n{strategy_description}\n'''\n"
+    description_entry = f"\n{var_name} = {json.dumps(strategy_description)}\n"
 
     # Append to file
     with open(strategy_description_file, 'a', encoding='utf-8') as f:
@@ -213,7 +236,7 @@ Use natural language with optional pseudocode. Be precise about decision rules a
         logger.info(f"System prompt: {system_prompt}")
         logger.info(f"User prompt: {user_prompt}")
 
-    response = get_llm_response(config, system_prompt, user_prompt)
+    response = get_llm_response(config, system_prompt, user_prompt).text
 
     if logger:
         logger.info(f"Strategy description: {response}")
@@ -233,7 +256,7 @@ def generate_strategy_code(config: LLMConfig,
         logger.info("Generating strategy code")
         logger.info(f"Code user prompt: {user_prompt}")
 
-    response = get_llm_response(config, system_prompt, user_prompt)
+    response = get_llm_response(config, system_prompt, user_prompt).text
 
     if logger:
         logger.info(f"Generated code: {response}")
@@ -442,36 +465,72 @@ def test_generated_strategy(class_code: str, game_name: str):
         os.unlink(temp_file)
 
 
-def get_llm_response(config: LLMConfig, system_prompt: str,
-                     user_prompt: str) -> str:
-    """Get response from LLM client."""
+@dataclass
+class LLMResponse:
+    """Uniform response across providers.
+
+    `reasoning` is whatever the provider exposes natively, which is NOT
+    comparable across providers: Anthropic returns verbatim thinking blocks,
+    Gemini and OpenAI return sanitised summaries only, Ollama varies by model.
+    For cross-model comparison use the visible reasoning in `text`.
+    """
+    text: str
+    reasoning: str = ""
+    usage: dict | None = None
+    stop_reason: str | None = None
+
+
+_ANTHROPIC_BUDGETS = {"minimal": 1024, "low": 1024, "medium": 4096, "high": 12000}
+
+
+def get_llm_response(config: LLMConfig,
+                     system_prompt: str,
+                     user_prompt: str,
+                     *,
+                     max_tokens: int = 8192,
+                     thinking: bool = True) -> LLMResponse:
+    """Get response from LLM client, with native reasoning where available."""
 
     def handle_retry(attempt, max_retries, error):
-        """Helper function to handle retry logic consistently"""
         if attempt < max_retries - 1:
             wait_time = 2**attempt
             logging.warning(
-                f"Attempt {attempt + 1} failed: {error}. Retrying in {wait_time}s..."
-            )
+                f"Attempt {attempt + 1} failed: {error}. Retrying in {wait_time}s...")
             time.sleep(wait_time)
             return True
-        logging.error(
-            f"All {max_retries} attempts failed. Final error: {error}")
+        logging.error(f"All {max_retries} attempts failed. Final error: {error}")
         return False
 
     for attempt in range(config.max_retries):
         if isinstance(config.client, openai.OpenAI):
             try:
-                response = config.client.chat.completions.create(
+                kwargs = dict(
                     model=config.model_name,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    reasoning_effort=config.reasoning_effort,
-                    max_completion_tokens=8192,
+                    instructions=system_prompt,
+                    input=user_prompt,
+                    max_output_tokens=max_tokens,
                 )
-                return response.choices[0].message.content
+                if thinking:
+                    # OpenAI never exposes raw traces; "auto" gives a summary.
+                    kwargs["reasoning"] = {"effort": config.reasoning_effort,
+                                           "summary": "auto"}
+                response = config.client.responses.create(**kwargs)
+
+                summaries = []
+                for item in response.output:
+                    if getattr(item, "type", None) != "reasoning":
+                        continue
+                    for part in (getattr(item, "summary", None) or []):
+                        text = getattr(part, "text", None)
+                        if text:
+                            summaries.append(text)
+
+                return LLMResponse(
+                    text=response.output_text,
+                    reasoning="\n\n".join(summaries),
+                    usage=response.usage.model_dump() if response.usage else None,
+                    stop_reason=getattr(response, "status", None),
+                )
             except (openai.InternalServerError, openai.RateLimitError,
                     openai.APITimeoutError, openai.APIConnectionError) as e:
                 if not handle_retry(attempt, config.max_retries, e):
@@ -479,23 +538,33 @@ def get_llm_response(config: LLMConfig, system_prompt: str,
                 continue
 
         elif isinstance(config.client, anthropic.Anthropic):
-            # Map effort to budget_tokens; Anthropic's minimum is 1024.
-            budget_map = {"minimal": 1024, "low": 1024, "medium": 4096, "high": 12000}
-            budget_tokens = budget_map[config.reasoning_effort]
+            budget = _ANTHROPIC_BUDGETS[config.reasoning_effort]
             try:
-                response = config.client.messages.create(
+                kwargs = dict(
                     model=config.model_name,
                     system=system_prompt,
-                    max_tokens=budget_tokens + 8192,
-                    temperature=1.0,
-                    thinking={"type": "enabled", "budget_tokens": budget_tokens},
+                    max_tokens=(budget + max_tokens) if thinking else max_tokens,
                     messages=[{"role": "user", "content": user_prompt}],
                 )
+                if thinking:
+                    # Anthropic requires temperature=1 when thinking is enabled.
+                    kwargs["temperature"] = 1.0
+                    kwargs["thinking"] = {"type": "enabled",
+                                          "budget_tokens": budget}
+                response = config.client.messages.create(**kwargs)
+
                 if response.stop_reason == "max_tokens":
-                    raise RuntimeError("Anthropic response truncated; raise max_tokens")
-                # Skip thinking blocks — they're separate content blocks.
-                text_parts = [b.text for b in response.content if b.type == "text"]
-                return "".join(text_parts)
+                    raise RuntimeError(
+                        "Anthropic response truncated; raise max_tokens")
+
+                return LLMResponse(
+                    text="".join(b.text for b in response.content
+                                 if b.type == "text"),
+                    reasoning="\n\n".join(b.thinking for b in response.content
+                                          if b.type == "thinking"),
+                    usage=response.usage.model_dump(),
+                    stop_reason=response.stop_reason,
+                )
             except (anthropic.InternalServerError, anthropic.RateLimitError,
                     anthropic.APITimeoutError, anthropic.APIConnectionError) as e:
                 if not handle_retry(attempt, config.max_retries, e):
@@ -504,36 +573,53 @@ def get_llm_response(config: LLMConfig, system_prompt: str,
 
         elif isinstance(config.client, ollama.Client):
             try:
-                response = config.client.chat(model=config.model_name,
-                                              messages=[{
-                                                  "role": "system",
-                                                  "content": system_prompt
-                                              }, {
-                                                  "role": "user",
-                                                  "content": user_prompt
-                                              }])
-                return response['message']['content']
+                response = config.client.chat(
+                    model=config.model_name,
+                    think=thinking,
+                    messages=[{"role": "system", "content": system_prompt},
+                              {"role": "user", "content": user_prompt}])
+                message = response["message"]
+                return LLMResponse(text=message["content"],
+                                   reasoning=message.get("thinking", "") or "")
             except ollama.ResponseError as e:
                 if e.status_code == 404:
                     logging.error(
-                        f"Ollama model '{config.model_name}' not found. Use 'ollama pull {config.model_name}' to download it."
-                    )
+                        f"Ollama model '{config.model_name}' not found. "
+                        f"Use 'ollama pull {config.model_name}'.")
                 raise
 
         elif isinstance(config.client, genai.Client):
             full_prompt = f"System: {system_prompt}\n\nUser: {user_prompt}"
             try:
+                thinking_config = genai.types.ThinkingConfig(
+                    thinking_level=genai.types.ThinkingLevel(
+                        config.reasoning_effort),
+                    include_thoughts=thinking,
+                )
                 response = config.client.models.generate_content(
                     model=config.model_name,
                     contents=full_prompt,
                     config=genai.types.GenerateContentConfig(
-                        thinking_config=genai.types.ThinkingConfig(
-                            thinking_level=genai.types.ThinkingLevel(config.reasoning_effort),
-                        ),
-                        # Don't set temperature — Google recommends default for Gemini 3.
+                        thinking_config=thinking_config,
+                        max_output_tokens=max_tokens,
+                        # Don't set temperature — Google recommends the default.
                     ),
                 )
-                return response.text
+                # Iterate parts: response.text can raise when thought parts
+                # are present, and we need them separated anyway.
+                texts, thoughts = [], []
+                for part in response.candidates[0].content.parts:
+                    if not getattr(part, "text", None):
+                        continue
+                    (thoughts if getattr(part, "thought", False)
+                     else texts).append(part.text)
+
+                return LLMResponse(
+                    text="".join(texts),
+                    reasoning="\n\n".join(thoughts),
+                    usage=(response.usage_metadata.model_dump()
+                           if response.usage_metadata else None),
+                )
             except genai_errors.APIError as e:
                 if not handle_retry(attempt, config.max_retries, e):
                     raise
