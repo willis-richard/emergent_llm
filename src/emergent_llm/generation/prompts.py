@@ -57,7 +57,7 @@ Total payoff for player i over r rounds = Σ(t=0 to r-1) π_i,t"""
 PARAMETERS:
 - n: number of players (integer, n ≥ 2)
 - r: number of rounds (integer, r > 1)
-- m: minimum cooperators needed (integer, 1 < m < n)
+- m: minimum cooperators needed (integer, 1 < m ≤ n)
 - k: reward if threshold met factor (float, k > 1)
 
 GAME STRUCTURE:
@@ -97,10 +97,10 @@ Total payoff for player i over r rounds = Σ(t=0 to r-1) π_i,t"""
 PARAMETERS:
 - n: number of players (integer, n ≥ 2)
 - r: number of rounds (integer, r > 1)
-- capacity: maximum sustainable stock level (float, capacity ≥ 2n)
+- capacity: maximum sustainable stock level (float, capacity)
 
 STATE:
-- stock: current stock level (float, 0 ≤ stock ≤ 2n)
+- stock: current stock level (float, 0 ≤ stock ≤ capacity)
 
 GAME STRUCTURE:
 - Type: Simultaneous-move, repeated game
