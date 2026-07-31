@@ -1,16 +1,26 @@
 """Does an LLM given a strategy description reproduce its algorithmic implementation?
 
 For each episode: sample a strategy uniformly from all attitudes for one
-(game, model), verify the implementation is deterministic, sample a trajectory
-of opponent cooperator-counts, play the algorithm against it, then ask the LLM
-what it would do in each round — feeding it the ALGORITHM's past actions so the
-paths cannot diverge. Each query is independent; no prior reasoning is carried.
+(game, model), sample a trajectory of opponent cooperator-counts, play the
+algorithm against it, then ask the LLM what it would do in each round — feeding
+it the ALGORITHM's past actions so the paths cannot diverge. Each query is
+independent; no prior reasoning is carried.
+
+Both conditions (`description` and `code`) run against the same episode plan, so
+their rows are paired on (strategy_class, trajectory, round) and divergences can
+be read off directly. Round labels differ by condition — 1-based for
+descriptions, 0-based for code — because the descriptions were generated against
+the old 1-based convention. This is a known, unavoidable confound.
+
+Strategies must be proved deterministic by a prior diversity.py sweep at exactly
+these parameters; there is no live determinism check and no fallback.
+
+Results are appended per episode, so an aborted run resumes by re-running with
+the same --seed and output directory.
 """
-# pylint: disable=missing-function-docstring
+# pylint: disable=missing-function-docstring,broad-except
 import argparse
 import ast
-import hashlib
-import json
 import logging
 import os
 import pickle
@@ -29,13 +39,9 @@ import openai
 import pandas as pd
 from google import genai
 
-from emergent_llm.common import Attitude, Gene
+from emergent_llm.common import Gene
 from emergent_llm.games import STANDARD_GENERATORS, get_game_type
-from emergent_llm.generation import (
-    FixedCooperatorCount,
-    StrategyRegistry,
-    make_fixed_opponents,
-)
+from emergent_llm.generation import FixedCooperatorCount, StrategyRegistry
 from emergent_llm.generation.create_strategies import (
     LLMConfig,
     get_llm_response,
@@ -51,11 +57,16 @@ from emergent_llm.generation.replication_prompts import (
 )
 from emergent_llm.players import LLMPlayer, SimplePlayer
 
+# Generated strategies occasionally recurse deeply.
 sys.setrecursionlimit(10000)
 
 ACTION_RE = re.compile(r"<action>\s*([CD])\s*</action>", re.IGNORECASE)
 DETERMINATE_RE = re.compile(r"<determinate>\s*(yes|no)\s*</determinate>",
                             re.IGNORECASE)
+CLASS_NAME_RE = re.compile(r"^Strategy_([A-Z_]+)_(\d+)$")
+
+EPISODE_KEYS = ["strategy_class", "trajectory"]
+TAGS = {"description": "desc", "code": "code"}
 
 
 class ParseFailure(Exception):
@@ -73,6 +84,14 @@ class StrategyPair:
     @property
     def name(self) -> str:
         return self.strategy_class.__name__
+
+    def text_for(self, source: str) -> str:
+        return self.description if source == "description" else self.source
+
+
+def trajectory_key(combo) -> str:
+    """Separator matters: counts reach 10+ once n_players > 10."""
+    return "-".join(str(c) for c in combo)
 
 
 # =============================================================================
@@ -98,8 +117,11 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--reasoning_effort", default="medium",
                         choices=["minimal", "low", "medium", "high"])
 
-    parser.add_argument("--source", default="description", choices=SOURCES,
-                        help="Give the model the description or the code")
+    parser.add_argument("--sources", nargs="+", default=list(SOURCES),
+                        choices=SOURCES,
+                        help="Conditions run per episode. Both by default; "
+                             "each sees the same strategy and trajectory, so "
+                             "the rows are paired.")
     parser.add_argument("--history_format", default="jsonl",
                         choices=HISTORY_FORMATS)
     parser.add_argument("--description_source", default="parsed",
@@ -109,8 +131,8 @@ def parse_arguments() -> argparse.Namespace:
                              "(preserves parity); 'raw' recovers the model's "
                              "original text")
     parser.add_argument("--strip_docstring", action="store_true",
-                        help="Drop class docstrings in --source code; they "
-                             "can restate the attitude")
+                        help="Drop class docstrings in the code condition; "
+                             "they can restate the attitude")
     parser.add_argument("--include_derived", action="store_true",
                         help="Add total_cooperators and cumulative aggregates")
 
@@ -120,18 +142,23 @@ def parse_arguments() -> argparse.Namespace:
                              "a self-consistency figure")
     parser.add_argument("--n_players", type=int, default=4)
     parser.add_argument("--n_rounds", type=int, default=7)
-    parser.add_argument("--determinism_games", type=int, default=30)
-    parser.add_argument("--skip_determinism_check", action="store_true")
+    parser.add_argument("--diversity_games", type=int, default=50,
+                        help="Selects which diversity.py cache to require: "
+                             "results/diversity/cache/{game}_{gene}"
+                             "_p{n_players}_r{n_rounds}_g{diversity_games}.pkl")
 
     parser.add_argument("--strategies_dir", type=str, default="strategies")
     parser.add_argument("--results_dir", type=str, default="results")
-    parser.add_argument("--no_cache", action="store_true")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max_retries", type=int, default=3)
 
     args = parser.parse_args()
     if args.inference_model is None:
         args.inference_model = args.strategy_model
+    if args.n_samples < 1 or args.max_retries < 1:
+        parser.error("--n_samples and --max_retries must be >= 1")
+    # Fixed order so column layout and logs are stable.
+    args.sources = [s for s in SOURCES if s in args.sources]
     return args
 
 
@@ -148,6 +175,55 @@ def create_client(provider: str):
     if provider == "google":
         return genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     raise ValueError(f"Unknown provider {provider}")
+
+
+# =============================================================================
+# LOGGING
+# =============================================================================
+
+
+class Report:
+    """Human-facing narrative: stdout and report.log. No API payloads."""
+
+    def __init__(self, path: Path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.handle = open(path, "a", encoding="utf-8")
+
+    def __call__(self, text: str = ""):
+        print(text)
+        self.handle.write(text + "\n")
+        self.handle.flush()
+
+    def close(self):
+        self.handle.close()
+
+
+class QueryLogger:
+    """Every API call, with real newlines."""
+
+    def __init__(self, path: Path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.handle = open(path, "a", encoding="utf-8")
+
+    def write(self, header: dict, system_prompt: str, user_prompt: str,
+              native_reasoning: str, raw: str, note: str = ""):
+        rule = "=" * 79
+        self.handle.write(f"\n{rule}\n")
+        for key, value in header.items():
+            self.handle.write(f"{key}: {value}\n")
+        if note:
+            self.handle.write(f"note: {note}\n")
+        for title, body in (("SYSTEM PROMPT", system_prompt),
+                            ("USER PROMPT", user_prompt),
+                            ("NATIVE REASONING", native_reasoning),
+                            ("VISIBLE RESPONSE", raw)):
+            self.handle.write(f"\n{'-' * 79}\n{title}\n{'-' * 79}\n")
+            self.handle.write((body or "(none)") + "\n")
+        self.handle.write(f"{rule}\n")
+        self.handle.flush()
+
+    def close(self):
+        self.handle.close()
 
 
 # =============================================================================
@@ -227,20 +303,23 @@ def load_pairs(strategies_dir: Path, game_name: str, model: str,
     pairs, unmatched = [], []
     for gene in sorted(registry.available_genes, key=str):
         for spec in registry.get_all_specs(gene):
-            parts = spec.strategy_class.__name__.split("_")
-            attitude_name, index = parts[1], int(parts[2])
-            key = (attitude_name, index)
-            if key not in descriptions:
-                unmatched.append(spec.strategy_class.__name__)
+            class_name = spec.strategy_class.__name__
+            match = CLASS_NAME_RE.match(class_name)
+            if match is None:
+                unmatched.append(class_name)
                 continue
-            if need_source and spec.strategy_class.__name__ not in sources:
-                unmatched.append(spec.strategy_class.__name__)
+            key = (match.group(1), int(match.group(2)))
+            if key not in descriptions:
+                unmatched.append(class_name)
+                continue
+            if need_source and class_name not in sources:
+                unmatched.append(class_name)
                 continue
             pairs.append(StrategyPair(
-                gene=spec.gene, index=index,
+                gene=spec.gene, index=key[1],
                 description=descriptions[key].strip(),
                 strategy_class=spec.strategy_class,
-                source=sources.get(spec.strategy_class.__name__, "")))
+                source=sources.get(class_name, "")))
 
     if unmatched:
         logging.warning("No description/source for %d implementations: %s",
@@ -249,70 +328,108 @@ def load_pairs(strategies_dir: Path, game_name: str, model: str,
         raise ValueError(f"No description/implementation pairs for {model}")
     return pairs
 
+
 # =============================================================================
-# DETERMINISM
+# DETERMINISM (from diversity.py's sweep; nothing is computed here)
 # =============================================================================
 
 
-def _actions_for_combo(strategy_class, gene, game_class, description,
-                       opponents, n_games) -> set[tuple]:
-    """Distinct action vectors over `n_games` runs. Fresh player and game each
-    run, so state cannot leak via reset()."""
-    seen = set()
-    for _ in range(n_games):
-        player = LLMPlayer("determinism", gene, description, strategy_class,
-                           max_errors=0)
-        result = game_class([player] + opponents, description).play_game()
-        seen.add(tuple(bool(a) for a in result.history.actions[:, 0]))
-        if len(seen) > 1:
-            return seen
-    return seen
+def _deterministic_from_features(features: dict) -> bool:
+    """A strategy is deterministic iff every stored mean is exactly 0 or 1.
 
-
-def is_deterministic(strategy_class, gene, game_name: str, n_players: int,
-                     n_rounds: int, n_games: int) -> bool:
-    """Exhaustive over all opponent cooperator-count histories, two-stage.
-
-    Checked directly per (combo, run) rather than via diversity.py's
-    prefix-averaged features: at n_games=1 the length-(n_rounds-1) prefixes
-    have a single sample each, so final-round stochasticity would be invisible.
+    diversity.py keys each feature on `combo[:r]` and stores the mean round-r
+    action over n_games runs and over every combo sharing that prefix. Round r
+    can only depend on opponent counts from rounds 0..r-1, i.e. on the key
+    itself, so under determinism every summand is identical and the mean is
+    exactly 0.0 or 1.0. Sums of exact 0.0/1.0 divide exactly, so no tolerance
+    is needed.
     """
-    game_class, _ = get_game_type(game_name)
-    description = STANDARD_GENERATORS[game_name + "_default"](
-        n_players=n_players, n_rounds=n_rounds)
-    combos = list(make_fixed_opponents(n_players - 1, n_rounds))
-
-    for stage_games in (2, n_games):
-        for _, opponents in combos:
-            if len(_actions_for_combo(strategy_class, gene, game_class,
-                                      description, opponents,
-                                      stage_games)) > 1:
-                return False
-        if stage_games >= n_games:
-            break
-    return True
+    return all(value in (0.0, 1.0) for value in features.values())
 
 
-class DeterminismCache:
-    """class_name -> bool, keyed also on the game parameters."""
+def load_diversity_verdicts(results_dir: Path, game_name: str, genes,
+                            n_players: int, n_rounds: int, n_games: int,
+                            report) -> dict[str, bool]:
+    """Reuse diversity.py's exhaustive sweep as a determinism oracle.
 
-    def __init__(self, path: Path, enabled: bool):
-        self.path, self.enabled = path, enabled
-        self.data = {}
-        if enabled and path.exists():
-            with open(path, "rb") as handle:
-                self.data = pickle.load(handle)
+    Exact parameters only: the filename must be
+    `{game}_{gene}_p{n_players}_r{n_rounds}_g{n_games}.pkl`. A sweep at other
+    p/r says nothing about this geometry — endgame logic keyed on n_rounds is
+    invisible at a shorter horizon — and a different g is a different strength
+    of evidence. Files with an `_s{n}` suffix cover only the first n strategies
+    per gene and are never built, so they are never read.
 
-    def get(self, key):
-        return self.data.get(key) if self.enabled else None
+    Caveat: diversity.py builds players with the default max_errors=2, so a
+    strategy that raises has its exception swallowed and replaced by a
+    deterministic attitude-based fallback. Such a strategy looks deterministic
+    here and then raises under max_errors=0 in play_algorithm; the episode is
+    discarded and logged rather than trusted.
+    """
+    cache_dir = Path(results_dir) / "diversity" / "cache"
+    verdicts, used = {}, []
 
-    def put(self, key, value):
-        if not self.enabled:
-            return
-        self.data[key] = value
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.path, "wb") as handle:
-            pickle.dump(self.data, handle)
+    if cache_dir.is_dir():
+        for gene in genes:
+            path = cache_dir / (f"{game_name}_{gene}_p{n_players}_r{n_rounds}"
+                                f"_g{n_games}.pkl")
+            if not path.exists():
+                continue
+            try:
+                with open(path, "rb") as handle:
+                    features = pickle.load(handle)
+            except Exception as error:
+                logging.warning("Could not read %s: %s: %s", path.name,
+                                type(error).__name__, error)
+                continue
+            for class_name, feature_dict in features.items():
+                verdicts[class_name] = _deterministic_from_features(feature_dict)
+            used.append(f"{path.name} ({len(features)} strategies)")
+
+    if used:
+        report(f"Diversity cache: {len(verdicts)} verdicts "
+               f"({sum(verdicts.values())} deterministic) from {len(used)} "
+               f"files")
+        for name in used:
+            logging.info("  %s", name)
+        return verdicts
+
+    others = (sorted(p.name for p in cache_dir.glob("*.pkl")
+                     if p.name.startswith(f"{game_name}_"))
+              if cache_dir.is_dir() else [])
+    for name in others:
+        logging.info("ignored (wrong parameters): %s", name)
+    raise FileNotFoundError(
+        f"No diversity cache at p{n_players}_r{n_rounds}_g{n_games} for "
+        f"{game_name}. {len(others)} file(s) exist for this game at other "
+        f"parameters and were ignored; see run.log. Run diversity.py with "
+        f"--n_players {n_players} --n_rounds {n_rounds} --n_games {n_games} "
+        f"and no --n_strategies.")
+
+
+def select_deterministic(pairs, verdicts, report):
+    """Keep only the strategies the diversity sweep proved deterministic.
+
+    There is no live fallback: a strategy absent from the cache cannot be
+    screened, so it is excluded rather than assumed safe.
+    """
+    kept, stochastic, unknown = [], [], []
+    for pair in pairs:
+        verdict = verdicts.get(pair.name)
+        if verdict is None:
+            unknown.append(pair.name)
+        elif verdict:
+            kept.append(pair)
+        else:
+            stochastic.append(pair.name)
+
+    report(f"Deterministic: {len(kept)}/{len(pairs)} strategies "
+           f"({len(stochastic)} stochastic, {len(unknown)} absent from cache)")
+    if unknown:
+        logging.warning("Absent from diversity cache (%d): %s",
+                        len(unknown), unknown[:5])
+    if not kept:
+        raise ValueError("No deterministic strategies to sample from")
+    return kept, len(stochastic), len(unknown)
 
 
 # =============================================================================
@@ -327,6 +444,9 @@ def play_algorithm(pair: StrategyPair, game_name: str, description,
     Returns (my_actions, my_payoffs, opponent_cooperators) as full-length
     arrays; prompt histories are prefix slices of these. Opponents are
     non-reactive, so the prefixes are exactly what the strategy saw live.
+
+    Called once per episode and shared by every source condition, so the
+    conditions are guaranteed to see byte-identical histories.
     """
     game_class, _ = get_game_type(game_name)
     n_opponents = description.n_players - 1
@@ -343,84 +463,14 @@ def play_algorithm(pair: StrategyPair, game_name: str, description,
     opponent_cooperators = (history.actions.sum(axis=1)
                             - history.actions[:, 0].astype(np.int_))
 
-    assert tuple(int(c) for c in opponent_cooperators[:len(combo)]) == combo, \
-        "trajectory not reproduced by the game engine"
+    if tuple(int(c) for c in opponent_cooperators[:len(combo)]) != combo:
+        raise RuntimeError("trajectory not reproduced by the game engine")
     return my_actions, my_payoffs, opponent_cooperators
 
 
 # =============================================================================
 # QUERYING
 # =============================================================================
-
-
-class PromptCache:
-    """One JSON file per (prompt, model, source, sample). Crash-safe."""
-
-    def __init__(self, directory: Path, enabled: bool):
-        self.directory, self.enabled = directory, enabled
-        if enabled:
-            directory.mkdir(parents=True, exist_ok=True)
-
-    def _path(self, key: str) -> Path:
-        return self.directory / f"{key}.json"
-
-    @staticmethod
-    def key(*parts) -> str:
-        return hashlib.sha256("\x00".join(map(str, parts)).encode()).hexdigest()
-
-    def get(self, key):
-        if not self.enabled or not self._path(key).exists():
-            return None
-        with open(self._path(key), encoding="utf-8") as handle:
-            return json.load(handle)
-
-    def put(self, key, value):
-        if not self.enabled:
-            return
-        with open(self._path(key), "w", encoding="utf-8") as handle:
-            json.dump(value, handle)
-
-
-class QueryLogger:
-    """Human-readable per-query log with real newlines."""
-
-    def __init__(self, path: Path):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.handle = open(path, "a", encoding="utf-8")
-
-    def write(self, header: dict, system_prompt: str, user_prompt: str,
-              reasoning: str, native_reasoning: str, raw: str, note: str = ""):
-        rule = "=" * 79
-        self.handle.write(f"\n{rule}\n")
-        for key, value in header.items():
-            self.handle.write(f"{key}: {value}\n")
-        if note:
-            self.handle.write(f"note: {note}\n")
-        for title, body in (("SYSTEM PROMPT", system_prompt),
-                            ("USER PROMPT", user_prompt),
-                            ("NATIVE REASONING", native_reasoning),
-                            ("VISIBLE RESPONSE", raw)):
-            self.handle.write(f"\n{'-' * 79}\n{title}\n{'-' * 79}\n")
-            self.handle.write((body or "(none)") + "\n")
-        self.handle.write(f"{rule}\n")
-        self.handle.flush()
-
-    def close(self):
-        self.handle.close()
-
-
-def query_once(config, system_prompt, user_prompt, cache, cache_key):
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached, 0.0, True
-
-    started = time.time()
-    response = get_llm_response(config, system_prompt, user_prompt,
-                                max_tokens=4096, thinking=True)
-    payload = {"text": response.text, "reasoning": response.reasoning,
-               "usage": response.usage}
-    cache.put(cache_key, payload)
-    return payload, time.time() - started, False
 
 
 def parse_response(text: str) -> tuple[str, str]:
@@ -433,28 +483,26 @@ def parse_response(text: str) -> tuple[str, str]:
     return action_matches[-1].upper(), determinate
 
 
-def ask_round(config, args, cache, query_logger, header, system_prompt,
-              user_prompt):
+def ask_round(config, args, query_logger, header, system_prompt, user_prompt):
     """Returns (action, determinate, agreement, n_retries, latency, usage)."""
     votes, determinates, retries, latency, usage = [], [], 0, 0.0, None
 
     for sample in range(args.n_samples):
         for attempt in range(args.max_retries):
-            cache_key = PromptCache.key(system_prompt, user_prompt,
-                                        args.inference_model, args.source,
-                                        sample, attempt)
-            payload, elapsed, was_cached = query_once(
-                config, system_prompt, user_prompt, cache, cache_key)
-            latency += elapsed
-            usage = payload.get("usage") or usage
+            started = time.time()
+            response = get_llm_response(config, system_prompt, user_prompt,
+                                        max_tokens=4096, thinking=True)
+            latency += time.time() - started
+            usage = response.usage or usage
+
             try:
-                action, determinate = parse_response(payload["text"])
+                action, determinate = parse_response(response.text)
             except ParseFailure as failure:
                 retries += 1
                 query_logger.write({**header, "sample": sample,
                                     "attempt": attempt}, system_prompt,
-                                   user_prompt, "", payload["reasoning"],
-                                   payload["text"],
+                                   user_prompt, response.reasoning,
+                                   response.text,
                                    note=f"PARSE FAILURE: {failure}")
                 if attempt == args.max_retries - 1:
                     raise
@@ -462,10 +510,8 @@ def ask_round(config, args, cache, query_logger, header, system_prompt,
 
             query_logger.write(
                 {**header, "sample": sample, "attempt": attempt,
-                 "llm_action": action, "determinate": determinate,
-                 "cached": was_cached},
-                system_prompt, user_prompt, "", payload["reasoning"],
-                payload["text"])
+                 "llm_action": action, "determinate": determinate},
+                system_prompt, user_prompt, response.reasoning, response.text)
             votes.append(action)
             determinates.append(determinate)
             break
@@ -482,14 +528,12 @@ def ask_round(config, args, cache, query_logger, header, system_prompt,
 # =============================================================================
 
 
-def run_episode(episode: int, pair: StrategyPair, combo, args, config,
-                description, cache, query_logger) -> pd.DataFrame:
-    my_actions, my_payoffs, opponent_cooperators = play_algorithm(
-        pair, args.game, description, combo)
-
-    strategy_text = (pair.description if args.source == "description"
-                     else pair.source)
-    system_prompt = create_replication_system_prompt(args.source)
+def run_episode(episode: int, pair: StrategyPair, combo, source: str, args,
+                config, description, played, query_logger) -> pd.DataFrame:
+    my_actions, my_payoffs, opponent_cooperators = played
+    strategy_text = pair.text_for(source)
+    system_prompt = create_replication_system_prompt(source)
+    trajectory = trajectory_key(combo)
 
     rows = []
     for round_index in range(args.n_rounds):
@@ -497,7 +541,7 @@ def run_episode(episode: int, pair: StrategyPair, combo, args, config,
             game_name=args.game,
             game_description=description,
             strategy_text=strategy_text,
-            source=args.source,
+            source=source,
             my_actions=my_actions,
             my_payoffs=my_payoffs,
             opponent_cooperators=opponent_cooperators,
@@ -505,33 +549,31 @@ def run_episode(episode: int, pair: StrategyPair, combo, args, config,
             history_format=args.history_format,
             include_derived=args.include_derived,
         )
+        algo_action = "C" if my_actions[round_index] else "D"
         header = {
             "episode": episode, "game": args.game,
             "strategy_model": args.strategy_model,
             "inference_model": args.inference_model,
-            "source": args.source, "gene": str(pair.gene),
-            "strategy_class": pair.name, "trajectory": combo,
-            "round": round_index,
-            "algo_action": "C" if my_actions[round_index] else "D",
+            "source": source, "gene": str(pair.gene),
+            "strategy_class": pair.name, "trajectory": trajectory,
+            "round": round_index, "algo_action": algo_action,
         }
         action, determinate, agreement, retries, latency, usage = ask_round(
-            config, args, cache, query_logger, header, system_prompt,
-            user_prompt)
+            config, args, query_logger, header, system_prompt, user_prompt)
 
-        algo_action = "C" if my_actions[round_index] else "D"
         rows.append({
             "episode": episode,
             "game": args.game,
             "strategy_model": args.strategy_model,
             "inference_model": args.inference_model,
-            "source": args.source,
+            "source": source,
             "history_format": args.history_format,
             "description_source": args.description_source,
             "include_derived": args.include_derived,
             "gene": str(pair.gene),
             "attitude": pair.gene.attitude.name,
             "strategy_class": pair.name,
-            "trajectory": "".join(str(c) for c in combo),
+            "trajectory": trajectory,
             "round": round_index,
             "opp_coops_prev": (int(opponent_cooperators[round_index - 1])
                                if round_index else None),
@@ -549,26 +591,166 @@ def run_episode(episode: int, pair: StrategyPair, combo, args, config,
     return pd.DataFrame(rows)
 
 
-def print_episode(episode: int, pair: StrategyPair, combo, frame: pd.DataFrame,
-                  args):
-    print("\n" + "=" * 79)
-    print(f"EPISODE {episode}  |  {args.game}  |  source={args.source}  "
-          f"|  {args.strategy_model} -> {args.inference_model}")
-    print(f"gene:       {pair.gene}")
-    print(f"strategy:   {pair.name}")
-    print(f"trajectory: {combo}   (opponent cooperators, rounds 1..n-1)")
-    print("-" * 79)
-    print("STRATEGY DESCRIPTION")
-    print(pair.description)
-    print("-" * 79)
-    columns = ["round", "opp_coops_prev", "algo", "llm", "match",
-               "determinate", "agreement"]
+def print_episode(episode: int, pair: StrategyPair, combo,
+                  frames: dict[str, pd.DataFrame], args, report: Report):
+    order = [s for s in SOURCES if s in frames]
+
+    report("\n" + "=" * 79)
+    report(f"EPISODE {episode}  |  {args.game}  |  "
+           f"{args.strategy_model} -> {args.inference_model}")
+    report(f"gene:       {pair.gene}")
+    report(f"strategy:   {pair.name}")
+    report(f"trajectory: {trajectory_key(combo)}   "
+           f"(opponent cooperators, rounds 1..n-1)")
+
+    for source in order:
+        report("-" * 79)
+        report(f"TEXT SHOWN TO THE MODEL — {source}")
+        report(pair.text_for(source))
+
+    report("-" * 79)
+    table = frames[order[0]][["round", "opp_coops_prev", "algo"]].copy()
+    for source in order:
+        indexed = frames[source].set_index("round")
+        tag = TAGS[source]
+        table[f"llm_{tag}"] = table["round"].map(indexed["llm"])
+        table[f"ok_{tag}"] = table["round"].map(indexed["match"])
+        table[f"det_{tag}"] = table["round"].map(indexed["determinate"])
     with pd.option_context("display.width", 200):
-        print(frame[columns].to_string(index=False))
-    matched = int(frame["match"].sum())
-    print(f"\naccuracy: {matched}/{len(frame)} = "
-          f"{matched / len(frame):.1%}")
-    print("=" * 79)
+        report(table.to_string(index=False))
+
+    report("")
+    for source in order:
+        frame = frames[source]
+        matched = int(frame["match"].astype(bool).sum())
+        report(f"{source:>12} accuracy: {matched}/{len(frame)} = "
+               f"{matched / len(frame):.1%}")
+    if len(order) == 2:
+        left, right = (frames[s].set_index("round")["llm"] for s in order)
+        report(f"{'divergence':>12}: {int((left != right).sum())}/{len(left)} "
+               f"rounds where the conditions disagree")
+    report("=" * 79)
+
+
+# =============================================================================
+# CHECKPOINTING
+# =============================================================================
+
+
+def load_partial(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame()
+    return pd.read_csv(path, dtype={"trajectory": str, "gene": str})
+
+
+def append_rows(frame: pd.DataFrame, path: Path):
+    frame.to_csv(path, mode="a", header=not path.exists(), index=False)
+
+
+# =============================================================================
+# PLAN
+# =============================================================================
+
+
+def build_plan(pairs, args, rng, report):
+    """(pair, combo) per episode. Fixed by --seed, so a resumed run continues
+    the identical sequence without any RNG state on disk."""
+    plan, seen, attempts = [], set(), 0
+    max_attempts = 10 * args.n_episodes + 50
+
+    while len(plan) < args.n_episodes and attempts < max_attempts:
+        attempts += 1
+        pair = pairs[rng.randrange(len(pairs))]
+        combo = tuple(rng.randrange(args.n_players)
+                      for _ in range(args.n_rounds - 1))
+        if (pair.name, combo) in seen:
+            continue
+        seen.add((pair.name, combo))
+        plan.append((pair, combo))
+
+    if len(plan) < args.n_episodes:
+        report(f"WARNING: planned {len(plan)}/{args.n_episodes} episodes "
+               f"after {attempts} attempts")
+    return plan
+
+
+# =============================================================================
+# SUMMARY
+# =============================================================================
+
+
+def print_summary(results: pd.DataFrame, n_stochastic: int, n_unknown: int,
+                  discarded: int, results_path: Path, report: Report):
+    results = results.copy()
+    results["match"] = results["match"].astype(bool)
+    fmt = lambda v: f"{v:.3f}"  # noqa: E731
+
+    report("\n" + "=" * 79)
+    report(f"SUMMARY  ({results.groupby(EPISODE_KEYS).ngroups} episodes, "
+           f"{len(results)} decisions)")
+    report(f"excluded: {n_stochastic} stochastic, {n_unknown} uncached   "
+           f"discarded (error): {discarded}")
+
+    report("-" * 79)
+    report("PER CONDITION")
+    per_source = []
+    for source, frame in results.groupby("source"):
+        trajectories = frame.groupby(EPISODE_KEYS)["match"].all()
+        per_source.append({
+            "source": source,
+            "episodes": len(trajectories),
+            "decisions": len(frame),
+            "action_match": frame["match"].mean(),
+            "trajectory_match": trajectories.mean(),
+            "algo_C": (frame["algo"] == "C").mean(),
+            "llm_C": (frame["llm"] == "C").mean(),
+        })
+    report(pd.DataFrame(per_source).to_string(index=False, float_format=fmt))
+
+    report("\nAction match by round:")
+    report(results.pivot_table(index="round", columns="source",
+                               values="match", aggfunc="mean")
+           .to_string(float_format=fmt))
+
+    report("\nAction match by self-reported determinacy:")
+    report(results.pivot_table(index="determinate", columns="source",
+                               values="match", aggfunc=["mean", "size"])
+           .to_string(float_format=fmt))
+
+    report("\nConfusion (rows algo, cols llm):")
+    report(pd.crosstab([results["source"], results["algo"]],
+                       results["llm"]).to_string())
+
+    if results["source"].nunique() > 1:
+        wide = (results.pivot_table(
+            index=EPISODE_KEYS + ["round", "algo"], columns="source",
+            values="llm", aggfunc="first").dropna().reset_index())
+        report("-" * 79)
+        report(f"PAIRED  ({len(wide)} decisions present in both conditions)")
+        report("conditions agree with each other: "
+               f"{(wide['description'] == wide['code']).mean():.1%}")
+        report("\nCorrectness cross-tab:")
+        report(pd.crosstab(wide["description"] == wide["algo"],
+                           wide["code"] == wide["algo"],
+                           rownames=["description correct"],
+                           colnames=["code correct"]).to_string())
+
+    ranking = results.assign(error=~results["match"]).pivot_table(
+        index="strategy_class", columns="source", values="error",
+        aggfunc="sum", fill_value=0)
+    ranking.columns = [f"errors_{c}" for c in ranking.columns]
+    ranking["errors_total"] = ranking.sum(axis=1)
+    ranking = ranking.join(
+        results.groupby("strategy_class").size().rename("decisions"))
+    ranking["error_rate"] = ranking["errors_total"] / ranking["decisions"]
+    ranking = ranking.sort_values(["errors_total", "error_rate"],
+                                  ascending=False)
+    report("-" * 79)
+    report("STRATEGIES BY DESCENDING ERRORS")
+    report(ranking.to_string(float_format=fmt))
+
+    report(f"\nWrote {results_path}")
+    report("=" * 79)
 
 
 # =============================================================================
@@ -580,10 +762,12 @@ def main():
     args = parse_arguments()
     rng = random.Random(args.seed)
 
-    output_dir = (Path(args.results_dir) / "replication" / args.game /
-                  make_safe(args.strategy_model) /
-                  f"{args.source}_{args.history_format}"
-                  f"_{args.description_source}"
+    model_dir = (Path(args.results_dir) / "replication" / args.game /
+                 make_safe(args.strategy_model))
+    output_dir = (model_dir / make_safe(args.inference_model) /
+                  f"n{args.n_players}x{args.n_rounds}_g{args.diversity_games}"
+                  f"_{args.history_format}_{args.description_source}"
+                  f"_{args.reasoning_effort}_seed{args.seed}"
                   f"{'_derived' if args.include_derived else ''}"
                   f"{'_nodoc' if args.strip_docstring else ''}")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -593,9 +777,11 @@ def main():
         format="%(asctime)s - %(levelname)s - %(message)s",
         handlers=[logging.FileHandler(output_dir / "run.log"),
                   logging.StreamHandler()])
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("openai._base_client").setLevel(logging.WARNING)
-    logging.getLogger("anthropic").setLevel(logging.WARNING)
+    for noisy in ("httpx", "openai._base_client", "anthropic"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
+    report = Report(output_dir / "report.log")
+    query_logger = QueryLogger(output_dir / "queries.log")
 
     config = LLMConfig(create_client(args.llm_provider), args.inference_model,
                        reasoning_effort=args.reasoning_effort)
@@ -605,83 +791,72 @@ def main():
     pairs = load_pairs(Path(args.strategies_dir), args.game,
                        args.strategy_model,
                        description_source=args.description_source,
-                       need_source=(args.source == "code"),
+                       need_source=("code" in args.sources),
                        strip_docstring=args.strip_docstring)
     logging.info("Loaded %d description/implementation pairs across %d genes",
                  len(pairs), len({p.gene for p in pairs}))
 
-    cache = PromptCache(output_dir / "prompt_cache", not args.no_cache)
-    determinism_cache = DeterminismCache(
-        output_dir.parent / "determinism_cache.pkl", not args.no_cache)
-    query_logger = QueryLogger(output_dir / "queries.log")
+    verdicts = load_diversity_verdicts(
+        Path(args.results_dir), args.game,
+        sorted({p.gene for p in pairs}, key=str),
+        args.n_players, args.n_rounds, args.diversity_games, report)
+    pairs, n_stochastic, n_unknown = select_deterministic(pairs, verdicts,
+                                                          report)
 
-    frames, rejected, discarded, attempts = [], 0, 0, 0
-    max_attempts = 3 * args.n_episodes + 10
+    results_path = output_dir / "results.csv"
+    done = load_partial(results_path)
+    completed = (set(zip(done["strategy_class"], done["trajectory"],
+                         done["source"])) if not done.empty else set())
+    if completed:
+        report(f"Resuming: {len(completed)} episode-conditions already in "
+               f"{results_path}")
 
-    while len(frames) < args.n_episodes and attempts < max_attempts:
-        attempts += 1
-        pair = pairs[rng.randrange(len(pairs))]
+    plan = build_plan(pairs, args, rng, report)
 
-        if not args.skip_determinism_check:
-            key = (pair.name, args.n_players, args.n_rounds,
-                   args.determinism_games)
-            verdict = determinism_cache.get(key)
-            if verdict is None:
-                logging.info("Determinism check: %s", pair.name)
-                verdict = is_deterministic(pair.strategy_class, pair.gene,
-                                           args.game, args.n_players,
-                                           args.n_rounds,
-                                           args.determinism_games)
-                determinism_cache.put(key, verdict)
-            if not verdict:
-                rejected += 1
-                logging.info("Rejected %s (stochastic)", pair.name)
-                continue
-
-        combo = tuple(rng.randrange(args.n_players)
-                      for _ in range(args.n_rounds - 1))
-        episode = len(frames) + 1
-
-        try:
-            frame = run_episode(episode, pair, combo, args, config,
-                                description, cache, query_logger)
-        except ParseFailure as failure:
-            discarded += 1
-            logging.warning("Discarded episode (%s / %s): %s",
-                            pair.name, combo, failure)
+    discarded = 0
+    for episode, (pair, combo) in enumerate(plan, 1):
+        trajectory = trajectory_key(combo)
+        pending = [s for s in args.sources
+                   if (pair.name, trajectory, s) not in completed]
+        if not pending:
             continue
 
-        frames.append(frame)
-        print_episode(episode, pair, combo, frame, args)
+        frames = {
+            source: done[(done["strategy_class"] == pair.name)
+                         & (done["trajectory"] == trajectory)
+                         & (done["source"] == source)]
+            for source in args.sources if source not in pending
+        }
+
+        try:
+            played = play_algorithm(pair, args.game, description, combo)
+            for source in pending:
+                frames[source] = run_episode(
+                    episode, pair, combo, source, args, config, description,
+                    played, query_logger)
+        except Exception as failure:
+            # One broken strategy or one unparseable response must not kill the
+            # run. Written all-or-nothing so paired rows are never half-present;
+            # with no prompt cache, a discard re-pays for the completed half.
+            discarded += 1
+            logging.warning("Discarded episode %d (%s / %s): %s: %s",
+                            episode, pair.name, trajectory,
+                            type(failure).__name__, failure)
+            continue
+
+        for source in pending:
+            append_rows(frames[source], results_path)
+        print_episode(episode, pair, combo, frames, args, report)
 
     query_logger.close()
 
-    if not frames:
-        logging.error("No episodes completed after %d attempts", attempts)
-        return
-
-    results = pd.concat(frames, ignore_index=True)
-    results.to_csv(output_dir / "results.csv", index=False)
-
-    print("\n" + "=" * 79)
-    print(f"SUMMARY  ({len(frames)} episodes, {len(results)} decisions)")
-    print(f"attempts: {attempts}   rejected (stochastic): {rejected}   "
-          f"discarded (parse): {discarded}")
-    print("-" * 79)
-    print("Overall accuracy: "
-          f"{results['match'].mean():.1%}")
-    print(f"Algorithm C-rate: {(results['algo'] == 'C').mean():.1%}   "
-          f"LLM C-rate: {(results['llm'] == 'C').mean():.1%}")
-    print("\nBy round:")
-    print(results.groupby("round")["match"].agg(["mean", "count"]).to_string())
-    print("\nBy determinacy:")
-    print(results.groupby("determinate")["match"]
-          .agg(["mean", "count"]).to_string())
-    print("\nConfusion (rows algo, cols llm):")
-    print(pd.crosstab(results["algo"], results["llm"]).to_string())
-    print(f"\nWrote {output_dir / 'results.csv'}")
-    print(f"Wrote {output_dir / 'queries.log'}")
-    print("=" * 79)
+    results = load_partial(results_path)
+    if results.empty:
+        report("No episodes completed.")
+    else:
+        print_summary(results, n_stochastic, n_unknown, discarded,
+                      results_path, report)
+    report.close()
 
 
 if __name__ == "__main__":
