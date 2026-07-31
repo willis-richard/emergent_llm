@@ -12,6 +12,9 @@ from emergent_llm.games import (
     PublicGoodsDescription,
 )
 
+# Joins model names when strategies from several models are pooled into one
+# cross-play run. Not '-': model names contain hyphens.
+POOL_SEPARATOR = "+"
 
 class OutputStyle(StrEnum):
     FULL = "full"
@@ -63,6 +66,7 @@ class BatchTournamentConfig:
     output_style: OutputStyle
     game_name: str
     model_name: str
+    play_mode: str = "self_play"  # "cross_play" when strategies are pooled
 
     def __post_init__(self):
         if isinstance(self.output_style, str):
@@ -78,15 +82,15 @@ class BatchTournamentConfig:
         return STANDARD_GENERATORS[self.generator_name]
 
     @property
-    def output_dir(self) -> Path:
-        """Full output directory including experiment subdirectory."""
-        return (Path(self.results_dir) / "self_play" / self.game_name /
-                self.model_name / self._experiment_dir_name)
-
-    @property
     def _experiment_dir_name(self) -> str:
         """Generate unique experiment directory name from config."""
         return f"rep{self.repetitions}"
+
+    @property
+    def output_dir(self) -> Path:
+        """Full output directory including experiment subdirectory."""
+        return (Path(self.results_dir) / self.play_mode / self.game_name /
+                self.model_name / self._experiment_dir_name)
 
 
 @dataclass

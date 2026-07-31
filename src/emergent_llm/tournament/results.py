@@ -19,6 +19,7 @@ from emergent_llm.tournament.configs import (
     CulturalEvolutionConfig,
     MixtureKey,
     OutputStyle,
+    POOL_SEPARATOR,
 )
 
 FIGSIZE, FORMAT, _ = setup('viewing')
@@ -51,7 +52,9 @@ _GENE_DISPLAY = {
 
 
 def pretty_model(name: str) -> str:
-    return _MODEL_DISPLAY.get(name, name)
+    """Display name. Pooled cross-play names are split and prettified part-wise."""
+    return " + ".join(_MODEL_DISPLAY.get(part, part)
+                      for part in name.split(POOL_SEPARATOR))
 
 
 def pretty_gene(name: str) -> str:

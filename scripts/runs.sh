@@ -19,9 +19,10 @@ done
 
 GAMES=("public_goods" "collective_risk" "common_pool")
 PROVIDER_MODELS=(
-    "openai gpt-5.4-mini"
-    "google gemini-3.1-flash-lite-preview"
-    "anthropic claude-haiku-4-5"
+    # "openai gpt-5.4-mini"
+    # "google gemini-3.1-flash-lite-preview"
+    # "anthropic claude-haiku-4-5"
+    "anthropic claude-fable-5"
 )
 EVOLUTION_PLAYERS=(4 64)
 
@@ -98,4 +99,17 @@ for game in "${GAMES[@]}"; do
                --results_dir "$RESULTS_DIR" \
                --output_style summary
     done
+done
+
+for game in "${GAMES[@]}"; do
+    for pm in "${PROVIDER_MODELS[@]}"; do
+        read provider model <<< "$pm"
+        python scripts/replicate_strategies.py \
+               --game ${game} \
+               --llm_provider ${provider} \
+               --strategy_model ${model} \
+               --inference_model ${model} \
+               --n_episodes 100 &
+    done
+    wait
 done

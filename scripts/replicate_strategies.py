@@ -142,7 +142,7 @@ def parse_arguments() -> argparse.Namespace:
                              "a self-consistency figure")
     parser.add_argument("--n_players", type=int, default=4)
     parser.add_argument("--n_rounds", type=int, default=7)
-    parser.add_argument("--diversity_games", type=int, default=50,
+    parser.add_argument("--diversity_games", type=int, default=30,
                         help="Selects which diversity.py cache to require: "
                              "results/diversity/cache/{game}_{gene}"
                              "_p{n_players}_r{n_rounds}_g{diversity_games}.pkl")
