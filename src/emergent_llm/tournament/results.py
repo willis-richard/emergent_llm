@@ -39,6 +39,8 @@ _MODEL_DISPLAY = {
     "gpt-5.4-mini": "GPT-5.4 Mini",
     "gemini-3.1-flash-lite-preview": "Gemini 3.1 Flash Lite",
     "claude-haiku-4-5": "Claude Haiku 4.5",
+    "claude-opus-5": "Claude Opus 5",
+    "claude-fable-5": "Claude Fable 5",
 }
 
 _GENE_DISPLAY = {
@@ -48,6 +50,10 @@ _GENE_DISPLAY = {
     "gemini-3.1-flash-lite-preview[selfish]": "Gemini[Selfish]",
     "claude-haiku-4-5[collective]": "Claude[Collective]",
     "claude-haiku-4-5[selfish]": "Claude[Selfish]",
+    "claude-opus-5[collective]": "Opus[Collective]",
+    "claude-opus-5[selfish]": "Opus[Selfish]",
+    "claude-fable-5[collective]": "Fable[Collective]",
+    "claude-fable-5[selfish]": "Fable[Selfish]",
 }
 
 

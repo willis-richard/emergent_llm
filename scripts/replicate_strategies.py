@@ -47,7 +47,7 @@ from emergent_llm.generation.create_strategies import (
     get_llm_response,
     make_safe,
     parse_strategy_description_file,
-    parse_strategy_description_file_raw,
+    EFFORT_LEVELS,
 )
 from emergent_llm.generation.replication_prompts import (
     HISTORY_FORMATS,
@@ -115,7 +115,7 @@ def parse_arguments() -> argparse.Namespace:
                         choices=["openai", "anthropic", "ollama", "google",
                                  "openrouter"])
     parser.add_argument("--reasoning_effort", default="medium",
-                        choices=["minimal", "low", "medium", "high"])
+                        choices=list(EFFORT_LEVELS))
 
     parser.add_argument("--sources", nargs="+", default=list(SOURCES),
                         choices=SOURCES,
@@ -278,7 +278,6 @@ def _strategy_sources(strategy_file: Path,
 
 
 def load_pairs(strategies_dir: Path, game_name: str, model: str,
-               description_source: str = "parsed",
                need_source: bool = False,
                strip_docstring: bool = False) -> list[StrategyPair]:
     """Join `description_{ATTITUDE}_{n}` to `Strategy_{ATTITUDE}_{n}`."""
@@ -287,10 +286,7 @@ def load_pairs(strategies_dir: Path, game_name: str, model: str,
     description_file = game_dir / f"{safe_model}_descriptions.py"
     strategy_file = game_dir / f"{safe_model}.py"
 
-    parser = (parse_strategy_description_file_raw
-              if description_source == "raw"
-              else parse_strategy_description_file)
-    descriptions = parser(description_file)
+    descriptions = parse_strategy_description_file(description_file)
     if not descriptions:
         raise ValueError(f"No descriptions found in {description_file}")
 
@@ -491,7 +487,7 @@ def ask_round(config, args, query_logger, header, system_prompt, user_prompt):
         for attempt in range(args.max_retries):
             started = time.time()
             response = get_llm_response(config, system_prompt, user_prompt,
-                                        max_tokens=4096, thinking=True)
+                                        thinking=True)
             latency += time.time() - started
             usage = response.usage or usage
 
@@ -568,7 +564,6 @@ def run_episode(episode: int, pair: StrategyPair, combo, source: str, args,
             "inference_model": args.inference_model,
             "source": source,
             "history_format": args.history_format,
-            "description_source": args.description_source,
             "include_derived": args.include_derived,
             "gene": str(pair.gene),
             "attitude": pair.gene.attitude.name,
@@ -766,7 +761,7 @@ def main():
                  make_safe(args.strategy_model))
     output_dir = (model_dir / make_safe(args.inference_model) /
                   f"n{args.n_players}x{args.n_rounds}_g{args.diversity_games}"
-                  f"_{args.history_format}_{args.description_source}"
+                  f"_{args.history_format}"
                   f"_{args.reasoning_effort}_seed{args.seed}"
                   f"{'_derived' if args.include_derived else ''}"
                   f"{'_nodoc' if args.strip_docstring else ''}")
@@ -790,7 +785,6 @@ def main():
 
     pairs = load_pairs(Path(args.strategies_dir), args.game,
                        args.strategy_model,
-                       description_source=args.description_source,
                        need_source=("code" in args.sources),
                        strip_docstring=args.strip_docstring)
     logging.info("Loaded %d description/implementation pairs across %d genes",

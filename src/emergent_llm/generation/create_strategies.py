@@ -7,6 +7,7 @@ import argparse
 import ast
 import importlib.util
 import inspect
+import json
 import logging
 import os
 import re
@@ -36,6 +37,28 @@ LOCAL_IMPORTS = """from emergent_llm.players import BaseStrategy
 from emergent_llm.games import PublicGoodsDescription, CollectiveRiskDescription, CommonPoolDescription
 from emergent_llm.common import Action, C, D, PlayerHistory"""
 
+EFFORT_LEVELS = ("low", "medium", "high")
+
+# Anthropic models on adaptive thinking: budget_tokens is a 400 on these, and
+# thinking depth is set with output_config.effort instead.
+_ANTHROPIC_ADAPTIVE = {
+    "claude-opus-5", "claude-fable-5",
+}
+
+# Adaptive models that additionally reject thinking={"type": "disabled"}.
+_ANTHROPIC_ALWAYS_THINKING = {"claude-fable-5"}
+
+# Legacy extended-thinking-only models (claude-haiku-4-5).
+_ANTHROPIC_BUDGETS = {"low": 1024, "medium": 4096, "high": 12000}
+
+
+class RefusalError(RuntimeError):
+    """A safety classifier declined the request (Claude Fable 5).
+
+    Returned as HTTP 200 with stop_reason "refusal", so it must be checked
+    explicitly or the refusal text gets parsed as a strategy.
+    """
+
 
 def setup_logging(log_file: Path) -> logging.Logger:
     """Setup logging configuration."""
@@ -63,74 +86,53 @@ class LLMConfig:
     model_name: str
     reasoning_effort: str = "low"
     max_retries: int = 3
+    max_tokens: int = 32000
+
+    def __post_init__(self):
+        if self.reasoning_effort not in EFFORT_LEVELS:
+            raise ValueError(
+                f"reasoning_effort must be one of {EFFORT_LEVELS}, "
+                f"got {self.reasoning_effort!r}")
 
 
 def parse_strategy_description_file(
         strategy_description_file: Path) -> dict[tuple[str, int], str]:
     """Parse existing strategy description file and extract existing descriptions.
 
+    Descriptions are written by `write_description_to_file` as JSON-escaped
+    Python string literals, so evaluating the assignment recovers the model's
+    text exactly, backslashes included.
+
     Returns dict mapping (attitude_name, n) tuple to strategy description string.
     """
     if not strategy_description_file.exists():
         return {}
 
+    source = strategy_description_file.read_text(encoding="utf-8")
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as e:
+        raise RuntimeError(
+            f"{strategy_description_file} is not valid Python: {e}") from e
+
     strategy_descriptions = {}
 
-    try:
-        with open(strategy_description_file, 'r', encoding='utf-8') as f:
-            content = f.read()
-
-        # Parse the file as Python AST
-        tree = ast.parse(content)
-
-        # Extract string assignments that match our pattern
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign) and len(node.targets) == 1:
-                target = node.targets[0]
-                if isinstance(target, ast.Name) and isinstance(
-                        node.value, ast.Constant):
-                    var_name = target.id
-
-                    # Check if it matches our description variable pattern
-                    match = re.match(r'description_([A-Z]+)_(\d+)', var_name)
-                    if match:
-                        attitude_name = match.group(1)
-                        n = int(match.group(2))
-                        strategy_description = node.value.value
-                        strategy_descriptions[(attitude_name,
-                                               n)] = strategy_description
-
-    except Exception as e:
-        logging.warning(
-            f"Error parsing strategy description file {strategy_description_file}: {e}"
-        )
-        return {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if not isinstance(target, ast.Name):
+            continue
+        if not isinstance(node.value, ast.Constant):
+            continue
+        match = re.match(r'description_([A-Z]+)_(\d+)$', target.id)
+        if match is None:
+            continue
+        value = node.value.value
+        if isinstance(value, str):
+            strategy_descriptions[(match.group(1), int(match.group(2)))] = value
 
     return strategy_descriptions
-
-_DESCRIPTION_RE = re.compile(
-    r"^description_([A-Z]+)_(\d+) = '''\n(.*?)\n'''$",
-    re.DOTALL | re.MULTILINE)
-
-
-def parse_strategy_description_file_raw(
-        strategy_description_file: Path) -> dict[tuple[str, int], str]:
-    """Descriptions exactly as the model emitted them.
-
-    `parse_strategy_description_file` evaluates the file as Python, so every
-    backslash sequence that is a valid escape is consumed: "\\frac" becomes
-    FF + "rac", "\\times" becomes TAB + "imes", and so on. The bytes on disk
-    are intact, so slicing the raw source recovers the original.
-
-    NOTE: `generate_implementations` reads through the *evaluated* parser, so
-    the code generator saw the corrupted text. Use this only when you
-    deliberately want to break that parity.
-    """
-    source = strategy_description_file.read_text(encoding="utf-8")
-    return {
-        (attitude, int(index)): body.replace("\\'\\'\\'", "'''")
-        for attitude, index, body in _DESCRIPTION_RE.findall(source)
-    }
 
 
 def parse_strategy_implementation_file(
@@ -171,7 +173,11 @@ def parse_strategy_implementation_file(
 def write_description_to_file(strategy_description_file: Path,
                               attitude: Attitude, n: int,
                               strategy_description: str):
-    """Append a new description using triple single quotes."""
+    """Append a description as a JSON-escaped Python string literal.
+
+    json.dumps escapes backslashes, so `parse_strategy_description_file`
+    reads back exactly what the model emitted.
+    """
     var_name = f"description_{attitude.name}_{n}"
 
     # Create description entry
@@ -271,8 +277,6 @@ def generate_strategy_code(config: LLMConfig,
 
 def clean_generated_code(response: str) -> str:
     """Clean LLM response to extract just the Python code."""
-    import re
-
     # Extract from code blocks with proper multiline matching
     code_block_pattern = r'```(?:python)?\s*\n(.*?)```'
     code_blocks = re.findall(code_block_pattern, response, re.DOTALL)
@@ -469,9 +473,10 @@ def test_generated_strategy(class_code: str, game_name: str):
 class LLMResponse:
     """Uniform response across providers.
 
-    `reasoning` is whatever the provider exposes natively, which is NOT
-    comparable across providers: Anthropic returns verbatim thinking blocks,
-    Gemini and OpenAI return sanitised summaries only, Ollama varies by model.
+    `reasoning` is a provider-generated summary, and is not
+    comparable across providers. Anthropic summarises with a separate
+    model and returns nothing unless display is "summarized"; Gemini and
+    OpenAI return their own sanitised summaries; Ollama varies by model.
     For cross-model comparison use the visible reasoning in `text`.
     """
     text: str
@@ -480,16 +485,19 @@ class LLMResponse:
     stop_reason: str | None = None
 
 
-_ANTHROPIC_BUDGETS = {"minimal": 1024, "low": 1024, "medium": 4096, "high": 12000}
-
-
 def get_llm_response(config: LLMConfig,
                      system_prompt: str,
                      user_prompt: str,
                      *,
-                     max_tokens: int = 8192,
+                     max_tokens: int | None = None,
                      thinking: bool = True) -> LLMResponse:
-    """Get response from LLM client, with native reasoning where available."""
+    """Get response from LLM client, with native reasoning where available.
+
+    `max_tokens` defaults to config.max_tokens. On adaptive-thinking models it
+    is a hard ceiling on thinking plus response text combined, so it must be
+    generous or responses truncate mid-answer.
+    """
+    max_tokens = config.max_tokens if max_tokens is None else max_tokens
 
     def handle_retry(attempt, max_retries, error):
         if attempt < max_retries - 1:
@@ -538,20 +546,45 @@ def get_llm_response(config: LLMConfig,
                 continue
 
         elif isinstance(config.client, anthropic.Anthropic):
-            budget = _ANTHROPIC_BUDGETS[config.reasoning_effort]
+            adaptive = config.model_name in _ANTHROPIC_ADAPTIVE
+            always_thinks = config.model_name in _ANTHROPIC_ALWAYS_THINKING
             try:
                 kwargs = dict(
                     model=config.model_name,
                     system=system_prompt,
-                    max_tokens=(budget + max_tokens) if thinking else max_tokens,
+                    max_tokens=max_tokens,
                     messages=[{"role": "user", "content": user_prompt}],
                 )
-                if thinking:
+                if adaptive:
+                    # budget_tokens is a 400 here; effort sets thinking depth.
+                    # Sampler params (temperature/top_p/top_k) are also 400s.
+                    kwargs["output_config"] = {"effort": config.reasoning_effort}
+                    if thinking or always_thinks:
+                        # display defaults to "omitted": opt in or log blanks.
+                        kwargs["thinking"] = {"type": "adaptive",
+                                              "display": "summarized"}
+                    else:
+                        kwargs["thinking"] = {"type": "disabled"}
+                elif thinking:
+                    budget = _ANTHROPIC_BUDGETS[config.reasoning_effort]
+                    kwargs["max_tokens"] = budget + max_tokens
                     # Anthropic requires temperature=1 when thinking is enabled.
                     kwargs["temperature"] = 1.0
                     kwargs["thinking"] = {"type": "enabled",
                                           "budget_tokens": budget}
-                response = config.client.messages.create(**kwargs)
+
+                # Stream unconditionally: the SDK refuses non-streaming calls
+                # above max_tokens 21,333, and thinking pushes us over.
+                with config.client.messages.stream(**kwargs) as stream:
+                    response = stream.get_final_message()
+
+                if response.stop_reason == "refusal":
+                    category = getattr(
+                        getattr(response, "stop_details", None),
+                        "category", None)
+                    raise RefusalError(
+                        f"{config.model_name} refused the request "
+                        f"(category={category})")
 
                 if response.stop_reason == "max_tokens":
                     raise RuntimeError(
@@ -561,7 +594,7 @@ def get_llm_response(config: LLMConfig,
                     text="".join(b.text for b in response.content
                                  if b.type == "text"),
                     reasoning="\n\n".join(b.thinking for b in response.content
-                                          if b.type == "thinking"),
+                                          if b.type == "thinking" and b.thinking),
                     usage=response.usage.model_dump(),
                     stop_reason=response.stop_reason,
                 )
@@ -573,6 +606,8 @@ def get_llm_response(config: LLMConfig,
 
         elif isinstance(config.client, ollama.Client):
             try:
+                # NOTE: Ollama has no effort equivalent; reasoning_effort is
+                # ignored here, so it is not comparable with the other rows.
                 response = config.client.chat(
                     model=config.model_name,
                     think=thinking,
@@ -672,6 +707,7 @@ Strategy descriptions for {game_name}.
 Generated with:
 - Provider: {config.client.__class__.__name__}
 - Model: {config.model_name}
+- Effort: {config.reasoning_effort}
 """
 
 '''
@@ -742,6 +778,7 @@ Each strategy is a callable class that implements a specific approach to the gam
 Generated with:
 - Provider: {config.client.__class__.__name__}
 - Model: {config.model_name}
+- Effort: {config.reasoning_effort}
 - Game: {game_name}
 """
 
@@ -790,7 +827,6 @@ def create_single_strategy_implementation(config: LLMConfig,
                                           logger: logging.Logger,
                                           max_retries: int = 3) -> str:
     """Create a single strategy implementation from description."""
-
     # Code generation with retry logic
     for attempt in range(max_retries):
         try:
@@ -807,6 +843,11 @@ def create_single_strategy_implementation(config: LLMConfig,
             test_generated_strategy(class_code, game_name)
 
             return class_code
+
+        except RefusalError:
+            # A classifier refusal will not resolve on retry.
+            logger.error(f"Refused for {attitude.name}_{n}; not retrying")
+            raise
 
         except Exception as e:
             logger.warning(
@@ -834,8 +875,12 @@ def parse_arguments() -> argparse.Namespace:
                         required=True)
     parser.add_argument("--model_name", type=str, required=True)
     parser.add_argument("--reasoning_effort",
-                        choices=["minimal", "low", "medium", "high"],
-                        default="low")
+                        choices=list(EFFORT_LEVELS),
+                        default="low",
+                        help="Provider specific")
+    parser.add_argument("--max_tokens", type=int, default=32000,
+                        help="Hard ceiling on output. On adaptive-thinking "
+                             "models this covers thinking AND response text.")
     parser.add_argument(
         "--game_name",
         choices=["public_goods", "collective_risk", "common_pool"],
@@ -919,7 +964,8 @@ def main():
     else:
         raise ValueError(f"Unknown client {args.llm_provider}")
 
-    config = LLMConfig(client, args.model_name, args.reasoning_effort)
+    config = LLMConfig(client, args.model_name, args.reasoning_effort,
+                       max_tokens=args.max_tokens)
 
     # Run appropriate phase
     if args.phase == 'descriptions':
