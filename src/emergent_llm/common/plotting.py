@@ -4,7 +4,9 @@ import matplotlib.pyplot as plt
 def setup(configuration: str) -> tuple[tuple[float, float], str, float]:
     matplotlib.use('Agg')
 
-    if configuration == 'aamas_self_play':
+    if configuration == 'aamas_self_play_single':
+        FIGSIZE, SIZE, FORMAT = (2.7, 1.5), 7, 'svg'
+    elif configuration == 'aamas_self_play':
         FIGSIZE, SIZE, FORMAT = (8.2, 1.5), 7, 'svg'
     elif configuration == 'aamas_diversity':
         FIGSIZE, SIZE, FORMAT = (8.2, 4), 7, 'svg'

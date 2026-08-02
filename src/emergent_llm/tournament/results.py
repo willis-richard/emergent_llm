@@ -22,7 +22,7 @@ from emergent_llm.tournament.configs import (
     POOL_SEPARATOR,
 )
 
-FIGSIZE, FORMAT, _ = setup('viewing')
+FIGSIZE, FORMAT, _ = setup('aamas_self_play_single')
 
 def collapse_to_base(gen_freqs: dict[Gene, float]) -> dict[Gene, float]:
     """Aggregate fine-grained (model, attitude) frequencies into
