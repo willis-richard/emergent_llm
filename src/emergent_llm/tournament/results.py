@@ -1220,7 +1220,7 @@ class BatchMixtureTournamentResults:
         ax.yaxis.set_major_locator(MultipleLocator(0.2))
         ax.yaxis.set_major_formatter(PercentFormatter(xmax=1))
 
-        ax.legend(bbox_to_anchor=(-0.13, 1.4),
+        ax.legend(bbox_to_anchor=(-0.13, 1.25),
                 loc='upper left',
                 ncol=len(group_sizes),
                 frameon=False,
