@@ -67,6 +67,63 @@ def pretty_gene(name: str) -> str:
     return _GENE_DISPLAY.get(name, name)
 
 
+def plot_welfare_curves(ax,
+                        results: 'BatchMixtureTournamentResults',
+                        band: str | None = 'percentile',
+                        n_se: float = 1.96) -> None:
+    """Draw welfare-efficiency curves for every group size onto `ax`.
+
+    band: 'percentile' shades the 5-95th percentile of per-match welfare,
+          'sd' shades +/- 1 SD, None omits it. This is match-level spread,
+          NOT an uncertainty interval on the mean.
+    n_se: half-width of the error bars, in standard errors of the mean. At
+          high repetition counts these are typically smaller than the markers.
+
+    Silently omits bars/bands whose columns are absent, so results predating
+    the summary-schema change still plot.
+    """
+    for group_size in sorted(results.mixture_results.keys()):
+        gd = results.mixture_results[group_size].config.game_description
+        min_w = gd.min_player_welfare()
+        w_range = gd.max_player_welfare() - min_w
+
+        group_data = results.combined_df[
+            results.combined_df['group_size'] == group_size
+        ].sort_values('collective_ratio')
+
+        def location(column):
+            """Map a welfare *location* into efficiency units."""
+            return (group_data[column] - min_w) / w_range
+
+        def scale(column):
+            """Map a welfare *scale* into efficiency units — no offset."""
+            return group_data[column] / w_range
+
+        x = group_data['collective_ratio'] * 100
+        efficiency = location('mean_player_welfare')
+
+        yerr = None
+        if 'sem_player_welfare' in group_data.columns:
+            yerr = (n_se * scale('sem_player_welfare')).fillna(0.0).values
+
+        container = ax.errorbar(x, efficiency, yerr=yerr,
+                                label=f'n={group_size}',
+                                lw=1.5, marker='o',
+                                capsize=2, elinewidth=0.8, capthick=0.8)
+        colour = container.lines[0].get_color()
+
+        lo = hi = None
+        if band == 'percentile' and 'p05_player_welfare' in group_data.columns:
+            lo = location('p05_player_welfare')
+            hi = location('p95_player_welfare')
+        elif band == 'sd' and 'std_player_welfare' in group_data.columns:
+            half = scale('std_player_welfare')
+            lo, hi = efficiency - half, efficiency + half
+
+        if lo is not None:
+            ax.fill_between(x, lo, hi, color=colour, alpha=0.15, lw=0)
+
+
 def _load_json(filepath: Path) -> dict:
     """Load JSON from gzipped or plain file based on extension."""
     filepath = Path(filepath)
@@ -201,6 +258,7 @@ class MixtureTournamentSummary:
                     stats.collective_scores.append(total_payoff)
                 elif player_id.attitude.to_base_attitude() == Attitude.SELFISH:
                     stats.selfish_scores.append(total_payoff)
+            stats.match_welfares.append(float(np.mean(match_result.total_payoffs)))
             stats.matches_played += 1
 
         rows = []
@@ -214,6 +272,10 @@ class MixtureTournamentSummary:
                 'mean_collective_score': result.mean_collective_score,
                 'mean_selfish_score': result.mean_selfish_score,
                 'mean_player_welfare': result.mean_player_welfare,
+                'std_player_welfare': result.std_player_welfare,
+                'sem_player_welfare': result.sem_player_welfare,
+                'p05_player_welfare': result.welfare_percentile(5),
+                'p95_player_welfare': result.welfare_percentile(95),
                 'matches_played': result.matches_played,
             })
         return cls(results_df=pd.DataFrame(rows))
@@ -503,6 +565,7 @@ class MixtureResult:
     collective_scores: list[float]
     selfish_scores: list[float]
     matches_played: int
+    match_welfares: list[float] = field(default_factory=list)
 
     def __post_init__(self):
         if not (self.n_collective + self.n_selfish == self.group_size):
@@ -532,6 +595,34 @@ class MixtureResult:
     def mean_player_welfare(self) -> float:
         all_scores = self.collective_scores + self.selfish_scores
         return float(np.mean(all_scores)) if all_scores else np.nan
+
+    @property
+    def std_player_welfare(self) -> float:
+        """SD of per-match mean player welfare, across matches.
+
+        Describes match-to-match heterogeneity in the system. Does not shrink
+        with more repetitions.
+        """
+        if len(self.match_welfares) < 2:
+            return np.nan
+        return float(np.std(self.match_welfares, ddof=1))
+
+    @property
+    def sem_player_welfare(self) -> float:
+        """Standard error of `mean_player_welfare`.
+
+        The match is the unit of replication: players within a match share a
+        realised game, so pooling their payoffs as independent observations
+        would understate the error by ~sqrt(group_size).
+        """
+        if len(self.match_welfares) < 2:
+            return np.nan
+        return self.std_player_welfare / np.sqrt(len(self.match_welfares))
+
+    def welfare_percentile(self, q: float) -> float:
+        if not self.match_welfares:
+            return np.nan
+        return float(np.percentile(self.match_welfares, q))
 
 
 # --- Results Classes ---
@@ -1186,32 +1277,39 @@ class BatchMixtureTournamentResults:
             )
         return cls.from_dict(data)
 
+    def max_welfare_se(self) -> float:
+        """Largest SE across all mixtures, in efficiency units."""
+        worst = 0.0
+        for group_size, result in self.mixture_results.items():
+            gd = result.config.game_description
+            welfare_range = gd.max_player_welfare() - gd.min_player_welfare()
+            df = result.summary.results_df
+            if 'sem_player_welfare' not in df.columns:
+                return float('nan')
+            worst = max(worst, float((df['sem_player_welfare'] / welfare_range).max()))
+        return worst
+
     def create_schelling_diagrams(self):
         for group_size, mixture_result in self.mixture_results.items():
             mixture_result.create_schelling_diagram(self.config.output_dir)
 
-    def create_social_welfare_diagram(self):
+    def create_social_welfare_diagram(self,
+                                      band: str | None = 'percentile',
+                                      n_se: float = 1.96):
+        """Welfare efficiency against collective ratio.
+
+        band: 'percentile' shades the 5-95th percentile across matches, 'sd'
+              shades +/- 1 SD, None omits it. This is match-level spread, NOT
+              an uncertainty interval on the mean.
+        n_se: half-width of the error bars in standard errors. These are
+              uncertainty on the mean and will usually be smaller than the
+              markers at high repetition counts.
+        """
         fig, ax = plt.subplots(figsize=FIGSIZE, facecolor='white')
 
         group_sizes = sorted(self.mixture_results.keys())
 
-        for group_size in group_sizes:
-            gd = self.mixture_results[group_size].config.game_description
-            min_welfare = gd.min_player_welfare()
-            max_welfare = gd.max_player_welfare()
-
-            group_data = self.combined_df[self.combined_df['group_size'] ==
-                                        group_size]
-            group_data = group_data.sort_values('collective_ratio')
-
-            efficiency = ((group_data['mean_player_welfare'] - min_welfare) /
-                        (max_welfare - min_welfare))
-
-            ax.plot(group_data['collective_ratio'] * 100,
-                    efficiency,
-                    label=f'n={group_size}',
-                    lw=1.5,
-                    marker='o')
+        plot_welfare_curves(ax, self, band=band, n_se=n_se)
 
         ax.set_xlabel('Proportion of Collective prompts (%)')
         ax.set_ylabel('Welfare efficiency (%)')

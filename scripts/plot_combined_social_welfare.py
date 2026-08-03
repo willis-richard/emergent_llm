@@ -11,6 +11,7 @@ from matplotlib.ticker import MultipleLocator, PercentFormatter
 from emergent_llm.common import setup
 from emergent_llm.tournament.results import (
     BatchMixtureTournamentResults,
+    plot_welfare_curves,
     pretty_model,
 )
 
@@ -24,7 +25,13 @@ def parse_arguments():
                         help="Games to include; defaults to all subdirs")
     parser.add_argument("--models", nargs="+", default=None,
                         help="Model order; defaults to alphabetical discovery")
-    parser.add_argument("--output_dir")
+    parser.add_argument("--output_dir", type=Path, default=Path("figures"))
+    parser.add_argument("--band", choices=["percentile", "sd", "none"],
+                        default="percentile",
+                        help="Match-level spread to shade behind the means. "
+                             "NOT an uncertainty interval; label it as such.")
+    parser.add_argument("--n_se", type=float, default=1.96,
+                        help="Error bar half-width in SEs of the mean")
     return parser.parse_args()
 
 
@@ -50,7 +57,9 @@ def discover_models(game_dir: Path) -> list[str]:
 
 def plot_combined(results_list: list[BatchMixtureTournamentResults],
                   game_name: str,
-                  output_path: Path) -> Path:
+                  output_path: Path,
+                  band: str | None = 'percentile',
+                  n_se: float = 1.96) -> Path:
     figsize, fmt, _ = setup('aamas_self_play')
     n = len(results_list)
     fig, axes = plt.subplots(1, n, figsize=figsize, facecolor='white',
@@ -60,27 +69,8 @@ def plot_combined(results_list: list[BatchMixtureTournamentResults],
 
     handles, labels = None, None
     for ax, results in zip(axes, results_list):
-        group_sizes = sorted(results.mixture_results.keys())
+        plot_welfare_curves(ax, results, band=band, n_se=n_se)
 
-        for group_size in group_sizes:
-            gd = results.mixture_results[group_size].config.game_description
-            min_w = gd.min_player_welfare()
-            max_w = gd.max_player_welfare()
-
-            group_data = results.combined_df[
-                results.combined_df['group_size'] == group_size
-            ].sort_values('collective_ratio')
-
-            efficiency = ((group_data['mean_player_welfare'] - min_w) /
-                          (max_w - min_w))
-
-            ax.plot(group_data['collective_ratio'] * 100,
-                    efficiency,
-                    label=f'n={group_size}',
-                    lw=1.5,
-                    marker='o')
-
-        # ax.set_xlabel('Proportion of Collective prompts (%)')
         ax.set_xlim(0, 100)
         ax.set_ylim(0, 1)
         ax.set_title(pretty_model(results.config.model_name))
@@ -93,10 +83,9 @@ def plot_combined(results_list: list[BatchMixtureTournamentResults],
     axes[0].set_ylabel('Welfare efficiency (%)')
     axes[0].yaxis.set_major_locator(MultipleLocator(0.25))
     axes[0].yaxis.set_major_formatter(PercentFormatter(xmax=1))
-    # fig.supxlabel('Proportion of Collective prompts (%)')
-    axes[1].set_xlabel('Proportion of Collective prompts (%)')
+    # Middle panel; axes[1] IndexErrors when only one model is discovered.
+    axes[len(axes) // 2].set_xlabel('Proportion of Collective prompts (%)')
 
-    # if game_name == "public_goods":
     fig.legend(handles, labels,
             loc='upper center',
             bbox_to_anchor=(0.5, 1.15),
@@ -108,7 +97,6 @@ def plot_combined(results_list: list[BatchMixtureTournamentResults],
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_file = (output_path / f"{game_name}").with_suffix(f".{fmt}")
-    # plt.tight_layout(pad=1.05)
     fig.savefig(output_file, format=fmt)
     plt.close(fig)
     return output_file
@@ -116,6 +104,7 @@ def plot_combined(results_list: list[BatchMixtureTournamentResults],
 
 def main():
     args = parse_arguments()
+    band = None if args.band == "none" else args.band
 
     if args.games is not None:
         games = args.games
@@ -142,9 +131,12 @@ def main():
             results_list.append(BatchMixtureTournamentResults.load(rdir))
         if not results_list:
             continue
-        output_file = plot_combined(results_list, game,
-                                    args.output_dir)
-        print(f"Saved {game}: {output_file}")
+
+        output_file = plot_combined(results_list, game, args.output_dir,
+                                    band=band, n_se=args.n_se)
+        # Quote this in the caption / response to reviewers.
+        worst = max(r.max_welfare_se() for r in results_list)
+        print(f"Saved {game}: {output_file}  (max SE = {worst:.4f})")
 
 
 if __name__ == "__main__":
