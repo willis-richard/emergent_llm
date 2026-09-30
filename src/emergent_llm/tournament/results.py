@@ -69,20 +69,15 @@ def pretty_gene(name: str) -> str:
 
 def plot_welfare_curves(ax,
                         results: 'BatchMixtureTournamentResults',
-                        band: str | None = 'percentile',
                         n_se: float = 1.96) -> None:
     """Draw welfare-efficiency curves for every group size onto `ax`.
 
-    band: 'percentile' shades the 5-95th percentile of per-match welfare,
-          'sd' shades +/- 1 SD, None omits it. This is match-level spread,
-          NOT an uncertainty interval on the mean.
-    n_se: half-width of the error bars, in standard errors of the mean. At
-          high repetition counts these are typically smaller than the markers.
-
-    Silently omits bars/bands whose columns are absent, so results predating
-    the summary-schema change still plot.
+    Error bars are +/- n_se standard errors of the mean. Smaller group sizes
+    are drawn on top.
     """
-    for group_size in sorted(results.mixture_results.keys()):
+    group_sizes = sorted(results.mixture_results.keys())
+
+    for rank, group_size in enumerate(group_sizes):
         gd = results.mixture_results[group_size].config.game_description
         min_w = gd.min_player_welfare()
         w_range = gd.max_player_welfare() - min_w
@@ -91,37 +86,13 @@ def plot_welfare_curves(ax,
             results.combined_df['group_size'] == group_size
         ].sort_values('collective_ratio')
 
-        def location(column):
-            """Map a welfare *location* into efficiency units."""
-            return (group_data[column] - min_w) / w_range
-
-        def scale(column):
-            """Map a welfare *scale* into efficiency units — no offset."""
-            return group_data[column] / w_range
-
         x = group_data['collective_ratio'] * 100
-        efficiency = location('mean_player_welfare')
+        efficiency = (group_data['mean_player_welfare'] - min_w) / w_range
+        half = n_se * group_data['sem_player_welfare'] / w_range
 
-        yerr = None
-        if 'sem_player_welfare' in group_data.columns:
-            yerr = (n_se * scale('sem_player_welfare')).fillna(0.0).values
-
-        container = ax.errorbar(x, efficiency, yerr=yerr,
-                                label=f'n={group_size}',
-                                lw=1.5, marker='o',
-                                capsize=2, elinewidth=0.8, capthick=0.8)
-        colour = container.lines[0].get_color()
-
-        lo = hi = None
-        if band == 'percentile' and 'p05_player_welfare' in group_data.columns:
-            lo = location('p05_player_welfare')
-            hi = location('p95_player_welfare')
-        elif band == 'sd' and 'std_player_welfare' in group_data.columns:
-            half = scale('std_player_welfare')
-            lo, hi = efficiency - half, efficiency + half
-
-        if lo is not None:
-            ax.fill_between(x, lo, hi, color=colour, alpha=0.15, lw=0)
+        ax.errorbar(x, efficiency, yerr=half, label=f'n={group_size}',
+                    lw=1.5, marker='o', capsize=1.5, elinewidth=0.8,
+                    capthick=0.7) # , zorder=len(group_sizes) - rank)
 
 
 def _load_json(filepath: Path) -> dict:
@@ -1293,14 +1264,9 @@ class BatchMixtureTournamentResults:
         for group_size, mixture_result in self.mixture_results.items():
             mixture_result.create_schelling_diagram(self.config.output_dir)
 
-    def create_social_welfare_diagram(self,
-                                      band: str | None = 'percentile',
-                                      n_se: float = 1.96):
+    def create_social_welfare_diagram(self, n_se: float = 1.96):
         """Welfare efficiency against collective ratio.
 
-        band: 'percentile' shades the 5-95th percentile across matches, 'sd'
-              shades +/- 1 SD, None omits it. This is match-level spread, NOT
-              an uncertainty interval on the mean.
         n_se: half-width of the error bars in standard errors. These are
               uncertainty on the mean and will usually be smaller than the
               markers at high repetition counts.
@@ -1309,7 +1275,7 @@ class BatchMixtureTournamentResults:
 
         group_sizes = sorted(self.mixture_results.keys())
 
-        plot_welfare_curves(ax, self, band=band, n_se=n_se)
+        plot_welfare_curves(ax, self, n_se=n_se)
 
         ax.set_xlabel('Proportion of Collective prompts (%)')
         ax.set_ylabel('Welfare efficiency (%)')

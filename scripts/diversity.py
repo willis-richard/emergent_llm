@@ -41,7 +41,7 @@ from emergent_llm.players import (
 )
 from emergent_llm.tournament import pretty_model
 
-FIGSIZE, FORMAT, FONTSIZE = setup('aamas_diversity')
+FIGSIZE, FORMAT, FONTSIZE = setup('royal_pca')
 
 GAME_MAPPING = {
     'public_goods': 'Public Goods Game',
@@ -231,15 +231,15 @@ def compute_strategy_chunk(
 def create_baseline_players(n_players: int,
                             n_rounds: int) -> list[SimplePlayer]:
     baseline_players = [
-        SimplePlayer("A-D", Defector),
-        SimplePlayer("A-C", Cooperator),
+        SimplePlayer("AD", Defector),
+        SimplePlayer("AC", Cooperator),
     ]
     baseline_players += [
-        SimplePlayer(f"CC({i})", ConditionalCooperator(C, i))
+        SimplePlayer(f"CC:{i}", ConditionalCooperator(C, i))
         for i in range(1, args.n_players)
     ]
     baseline_players += [
-        SimplePlayer(f"CD({i})", ConditionalDefector(D, i))
+        SimplePlayer(f"CD:{i}", ConditionalDefector(D, i))
         for i in range(1, args.n_players)
     ]
     return baseline_players
@@ -570,11 +570,11 @@ def build_per_round_cooperation_df(pca_data: dict, games: list[str],
                 'game': game,
                 'model': gene.model,
                 'attitude': gene.attitude.value,
-                **{f'round_{r}': sums[r] / counts[r] for r in range(n_rounds)},
+                **{f'round_{r+1}': sums[r] / counts[r] for r in range(n_rounds)},
             })
 
     df = pd.DataFrame(rows)
-    round_cols = [f'round_{r}' for r in range(n_rounds)]
+    round_cols = [f'round_{r+1}' for r in range(n_rounds)]
     # Mean over strategies; every strategy contributes the same number of
     # prefixes per round, so this equals the flat mean over (strategy, prefix).
     return df.groupby(['game', 'model', 'attitude'])[round_cols].mean()
@@ -589,7 +589,7 @@ def plot_per_round_cooperation(df_rounds: pd.DataFrame, games: list[str],
     per-strategy weighting as long as every gene has the same number of
     strategies (true by construction of the generation pipeline).
     """
-    round_cols = [f'round_{r}' for r in range(n_rounds)]
+    round_cols = [f'round_{r+1}' for r in range(n_rounds)]
     rounds = range(n_rounds)
 
     # Collapse synonyms to base attitude
@@ -603,7 +603,7 @@ def plot_per_round_cooperation(df_rounds: pd.DataFrame, games: list[str],
     model_colors = {m: cmap(i) for i, m in enumerate(models)}
     linestyles = {Attitude.COLLECTIVE: '-', Attitude.SELFISH: '--'}
 
-    figsize, _, _ = setup('aamas_cooperation')
+    figsize, _, _ = setup('royal_cooperation')
     fig, axes = plt.subplots(1, len(games), figsize=figsize,
                              sharex=True, sharey=True)
     axes = np.atleast_1d(axes)
@@ -642,8 +642,8 @@ def plot_per_round_cooperation(df_rounds: pd.DataFrame, games: list[str],
     interleaved = [h for pair in zip(model_handles, attitude_handles)
                    for h in pair]
 
-    fig.legend(handles=interleaved, loc='upper center', frameon=False,
-               bbox_to_anchor=(0.5, 1.22), ncol=n_cols)
+    fig.legend(handles=interleaved, loc='outside upper center',
+               frameon=False, ncol=ncol, borderpad=0, borderaxespad=0.3)
 
     plt.savefig(output_dir / f"per_round_cooperation.{FORMAT}",
                 format=FORMAT)
@@ -855,8 +855,9 @@ def fit_pca_on_all(X_all: np.ndarray) -> tuple[PCA, np.ndarray]:
 # PLOTTING HELPERS
 # =============================================================================
 
-BASELINE_LABELS_LEFT = {"A-D", "CD(1)", "CC(3)"}
-BASELINE_LABELS_RIGHT = {"CD(2)", "CC(2)"}
+BASELINE_LABELS_LEFT = {"CC:2", "CC:3", "CD:1"}
+BASELINE_LABELS_RIGHT = {"CD:3", "CC:1", "CD:2"}
+BASELINE_LABELS_ABOVE = {"Rnd", "AD", "AC"}
 
 
 def plot_covariance_ellipse(ax, mean, cov, n_std=1.0, **kwargs):
@@ -868,7 +869,7 @@ def plot_covariance_ellipse(ax, mean, cov, n_std=1.0, **kwargs):
     return ellipse
 
 
-def plot_baselines(ax, baseline_pca, baseline_labels, marker_size=120):
+def plot_baselines(ax, baseline_pca, baseline_labels, marker_size=100):
     """Plot baseline strategies with positioned labels."""
     for i, name in enumerate(baseline_labels):
         ax.scatter(baseline_pca[i, 0],
@@ -879,14 +880,31 @@ def plot_baselines(ax, baseline_pca, baseline_labels, marker_size=120):
                    edgecolors='black',
                    linewidths=1,
                    zorder=6)
-        # ha = 'right' if name in BASELINE_LABELS_LEFT else 'left'
-        # offset = -5 if name in BASELINE_LABELS_LEFT else 5
-        ha = 'right' if name in BASELINE_LABELS_RIGHT else 'center'
-        x_offset = -5 if name in BASELINE_LABELS_RIGHT else 0
-        y_offset = -7 if name in BASELINE_LABELS_RIGHT else 7
+        # note that ha says where the point is relative to the text!
+        # aka, the ha and va edge of the text touches the point
+        if name in BASELINE_LABELS_RIGHT:
+            ha = 'left'
+            va = 'center'
+            xy = (5, 0)
+        if name in BASELINE_LABELS_LEFT:
+            ha = 'right'
+            va = 'center'
+            xy = (-5, 0)
+        if name in BASELINE_LABELS_ABOVE:
+            ha = 'center'
+            va = 'bottom'
+            xy = (0, 5)
+        # if name == "AC":
+        #     ha = 'center'
+        #     va = 'bottom'
+        #     xy = (5, 5)
+        # if name == "AD":
+        #     ha = 'center'
+        #     va = 'top'
+        #     xy = (-5, -5)
+
         ax.annotate(name, (baseline_pca[i, 0], baseline_pca[i, 1]),
-                    ha=ha,
-                    xytext=(x_offset, y_offset),
+                    ha=ha, va=va, xytext=xy,
                     textcoords='offset points')
 
 
@@ -958,6 +976,7 @@ def plot_pca_single_game(
     return handles
 
 
+
 def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
                      baseline_pca, baseline_labels, games, pca, output_dir):
     """2×3 grid: rows=base attitude family, columns=games. One ellipse per model.
@@ -972,7 +991,14 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
     cmap = plt.colormaps.get_cmap('tab10')
     model_colors = {m: cmap(i) for i, m in enumerate(models)}
 
-    fig, axes = plt.subplots(2, 3, figsize=FIGSIZE, sharex=True, sharey=True)
+    # Reserve the top strip of the figure for the legend.
+    legend_rows = 2 if len(models) > 4 else 1
+    legend_top = 0.92 if legend_rows == 1 else 0.86   # tune by eye
+
+    fig, axes = plt.subplots(2, 3, figsize=FIGSIZE, sharex=True, sharey=True,
+                             layout='constrained')
+    fig.get_layout_engine().set(w_pad=0.01, h_pad=0.01, wspace=0, hspace=0,
+                                rect=(0, 0, 1, legend_top))
 
     for col, game in enumerate(games):
         game_mask = game_labels == game
@@ -980,6 +1006,10 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
 
         for row, base_att in enumerate(Attitude.base_attitudes()):
             ax = axes[row, col]
+            ax.spines[['top', 'right']].set_visible(False)
+            ax.spines['left'].set_visible(col == 0)
+            ax.spines['bottom'].set_visible(row == axes.shape[0] - 1)
+            ax.patch.set_visible(False)
 
             for model in models:
                 # Aggregate all synonyms whose base attitude == base_att
@@ -1009,27 +1039,19 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
 
             if args.plot_baselines:
                 plot_baselines(ax, baseline_pca, baseline_labels, marker_size=60)
+                # Let labels overhang into neighbouring panels without the
+                # layout making room for them.
+                for t in ax.texts:
+                    t.set_in_layout(False)
+                    t.set_clip_on(False)
 
             if row == 0:
                 ax.set_title(GAME_MAPPING[game])
             if col == 0:
                 ax.set_ylabel(f"{base_att.capitalize()}")
-            # if row == 1:
-            #     ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
-    fig.supxlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})', y=0.05)
-    fig.supylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})', x=0.03)
 
-    # Pad shared axes once (sharex/sharey propagates)
-    if args.plot_baselines:
-        ax0 = axes[0, 0]
-        xlim = ax0.get_xlim()
-        ylim = ax0.get_ylim()
-        x_pad_0 = 0.15 * (xlim[1] - xlim[0])
-        x_pad_1 = 0.15 * (xlim[1] - xlim[0])
-        y_pad = 0.02 * (ylim[1] - ylim[0])
-        for ax in axes.flat:
-            ax.set_xlim(xlim[0] - x_pad_0, xlim[1] + x_pad_1)
-            ax.set_ylim(ylim[0] - y_pad, ylim[1] + y_pad)
+    fig.supxlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
+    fig.supylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})')
 
     for ax in axes[0, :]:
         ax.tick_params(axis='x', which='both', bottom=False)
@@ -1042,15 +1064,11 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
                    label=pretty_model(m))
         for m in models
     ]
-    ncol = len(legend_handles) // 2 if len(legend_handles) > 4 else len(legend_handles)
-    fig.legend(handles=legend_handles,
-               loc='upper center', frameon=False,
-               bbox_to_anchor=(0.5, 1.05) if len(legend_handles) <= 4 else (0.5, 1.1),
-               ncol=ncol)
+    ncol = len(legend_handles) // 2 if legend_rows == 2 else len(legend_handles)
+    fig.legend(handles=legend_handles, loc='outside upper center',
+               frameon=False, ncol=ncol, borderpad=0, borderaxespad=0.3)
 
-    plt.tight_layout(w_pad=0.07, h_pad=0.07)
-    plt.savefig(output_dir / f"pca_by_game.{FORMAT}",
-                format=FORMAT, bbox_inches='tight')
+    plt.savefig(output_dir / f"pca_by_game.{FORMAT}", format=FORMAT)
     plt.close()
     logger.info(
         f"Saved pca_by_game {output_dir / f'pca_by_game.{FORMAT}'}")

@@ -19,17 +19,13 @@ from emergent_llm.tournament.results import (
 def parse_arguments():
     parser = argparse.ArgumentParser(
         description="Combine social welfare diagrams across models, per game")
-    parser.add_argument("results_dir", type=Path,
+    parser.add_argument("--results_dir", type=Path,
                         help="Top-level dir containing <game>/<model> subdirs")
     parser.add_argument("--games", nargs="+", default=None,
                         help="Games to include; defaults to all subdirs")
     parser.add_argument("--models", nargs="+", default=None,
                         help="Model order; defaults to alphabetical discovery")
     parser.add_argument("--output_dir", type=Path, default=Path("figures"))
-    parser.add_argument("--band", choices=["percentile", "sd", "none"],
-                        default="percentile",
-                        help="Match-level spread to shade behind the means. "
-                             "NOT an uncertainty interval; label it as such.")
     parser.add_argument("--n_se", type=float, default=1.96,
                         help="Error bar half-width in SEs of the mean")
     return parser.parse_args()
@@ -58,9 +54,8 @@ def discover_models(game_dir: Path) -> list[str]:
 def plot_combined(results_list: list[BatchMixtureTournamentResults],
                   game_name: str,
                   output_path: Path,
-                  band: str | None = 'percentile',
                   n_se: float = 1.96) -> Path:
-    figsize, fmt, _ = setup('aamas_self_play')
+    figsize, fmt, _ = setup('royal_self_play')
     n = len(results_list)
     fig, axes = plt.subplots(1, n, figsize=figsize, facecolor='white',
                              sharey=True, gridspec_kw={'wspace': 0.08})
@@ -69,7 +64,7 @@ def plot_combined(results_list: list[BatchMixtureTournamentResults],
 
     handles, labels = None, None
     for ax, results in zip(axes, results_list):
-        plot_welfare_curves(ax, results, band=band, n_se=n_se)
+        plot_welfare_curves(ax, results, n_se=n_se)
 
         ax.set_xlim(0, 100)
         ax.set_ylim(0, 1)
@@ -87,12 +82,13 @@ def plot_combined(results_list: list[BatchMixtureTournamentResults],
     axes[len(axes) // 2].set_xlabel('Proportion of Collective prompts (%)')
 
     fig.legend(handles, labels,
-            loc='upper center',
-            bbox_to_anchor=(0.5, 1.15),
+            loc='outside upper center',
             ncol=len(handles),
             frameon=False,
             handletextpad=0.4,
-            columnspacing=0.6)
+            columnspacing=0.6,
+            borderpad=0,
+            borderaxespad=0.3)
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -104,7 +100,6 @@ def plot_combined(results_list: list[BatchMixtureTournamentResults],
 
 def main():
     args = parse_arguments()
-    band = None if args.band == "none" else args.band
 
     if args.games is not None:
         games = args.games
@@ -133,8 +128,7 @@ def main():
             continue
 
         output_file = plot_combined(results_list, game, args.output_dir,
-                                    band=band, n_se=args.n_se)
-        # Quote this in the caption / response to reviewers.
+                                    n_se=args.n_se)
         worst = max(r.max_welfare_se() for r in results_list)
         print(f"Saved {game}: {output_file}  (max SE = {worst:.4f})")
 

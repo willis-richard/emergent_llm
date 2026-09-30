@@ -32,6 +32,7 @@ Thumbs.db
 
 # Project specific
 results/
+results2/
 results_*/
 cache/
 fair_tournament_results.csv
