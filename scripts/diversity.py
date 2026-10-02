@@ -101,6 +101,12 @@ def parse_args():
                         type=int,
                         default=30,
                         help="Number of games for each trajectory")
+    parser.add_argument("--weighting",
+                        choices=["history", "round"],
+                        default="history",
+                        help="history: every history weighted equally (original). "
+                             "round: every round weighted equally, histories "
+                             "equally within a round")
 
     # Execution parameters
     parser.add_argument("--log_level",
@@ -200,6 +206,30 @@ def chunk_indices(n_items: int, n_chunks: int) -> list[list[int]]:
         list(range(i, min(i + chunk_size, n_items)))
         for i in range(0, n_items, chunk_size)
     ]
+
+
+def build_feature_keys(unique_combos, n_rounds) -> list[CooperatorCounts]:
+    """Canonical feature order; matches the insertion order of compute_features."""
+    keys = {}
+    for combo in unique_combos:
+        for r in range(n_rounds):
+            keys.setdefault(combo[:r], None)
+    return list(keys)
+
+
+def feature_sqrt_weights(keys, n_rounds, n_opponents, weighting) -> np.ndarray:
+    """sqrt of per-feature weights (weights sum to 1). Scaling features by this
+    makes Euclidean geometry, and hence PCA, Delta, MPD and PR, use the weighting."""
+    if weighting == "history":
+        w = np.full(len(keys), 1.0 / len(keys))
+    else:
+        w = np.array([1.0 / (n_rounds * (n_opponents + 1) ** len(k)) for k in keys])
+    assert np.isclose(w.sum(), 1.0)
+    return np.sqrt(w)
+
+
+def weighted_coop(feature_dict) -> float:
+    return float(sum(feature_dict[k] * w for k, w in zip(FEATURE_KEYS, SQRT_W**2)))
 
 
 def compute_strategy_chunk(
@@ -318,7 +348,7 @@ def get_feature_vectors_for_synonym(
 def compute_random_baseline_distance(n_features: int,
                                      n_samples: int = 500) -> float:
     rng = np.random.default_rng(0)
-    random_X = rng.uniform(0, 1, (n_samples, n_features))
+    random_X = rng.uniform(0, 1, (n_samples, n_features)) * SQRT_W
     return float(np.mean(pdist(random_X, metric='euclidean')))
 
 
@@ -420,13 +450,8 @@ def build_main_dataframe(
                 X_set = X_by_attitude[base_att]
                 if len(X_set) == 0:
                     continue
-                coop = float(X_set.mean())
-                # SE of the family mean coop rate, treating each strategy as
-                # one observation (its mean over the feature vector). This
-                # collapses within-strategy correlation between features and
-                # also absorbs Monte Carlo noise from the n_games-sample
-                # estimates, since both end up in the per-strategy mean.
-                strategy_means = X_set.mean(axis=1)
+                strategy_means = X_set @ SQRT_W
+                coop = float(strategy_means.mean())
                 coop_se = (float(strategy_means.std(ddof=1) / np.sqrt(len(strategy_means)))
                            if len(strategy_means) > 1 else np.nan)
                 _, mpd_norm = compute_within_set_metrics(X_set, random_baseline_dist)
@@ -590,7 +615,7 @@ def plot_per_round_cooperation(df_rounds: pd.DataFrame, games: list[str],
     strategies (true by construction of the generation pipeline).
     """
     round_cols = [f'round_{r+1}' for r in range(n_rounds)]
-    rounds = range(n_rounds)
+    rounds = range(1, n_rounds + 1)
 
     # Collapse synonyms to base attitude
     df = df_rounds.reset_index()
@@ -643,7 +668,7 @@ def plot_per_round_cooperation(df_rounds: pd.DataFrame, games: list[str],
                    for h in pair]
 
     fig.legend(handles=interleaved, loc='outside upper center',
-               frameon=False, ncol=ncol, borderpad=0, borderaxespad=0.3)
+               frameon=False, ncol=n_cols, borderpad=0, borderaxespad=0.3)
 
     plt.savefig(output_dir / f"per_round_cooperation.{FORMAT}",
                 format=FORMAT)
@@ -1224,7 +1249,7 @@ def find_centroid_strategies(X, labels, game_labels, pca_data, games):
                 game_local_indices = np.where(gene_mask)[0]
                 metadata_idx = game_local_indices[local_idx]
                 gene, strategy_name, feature_dict = metadata[metadata_idx]
-                coop_rate = np.mean(list(feature_dict.values()))
+                coop_rate = weighted_coop(feature_dict)
                 logger.info(
                     f"    {model}/{base_att.value} "
                     f"(actual: {gene}): {strategy_name} "
@@ -1262,7 +1287,7 @@ def find_extrema(X_pca, metadata):
         logger.info(f"  Gene: {gene}")
         logger.info(f"  Strategy: {strategy_name}")
         logger.info(f"  PC1: {X_pca[idx, 0]:.3f}, PC2: {X_pca[idx, 1]:.3f}")
-        coop_rate = np.mean(list(feature_dict.values()))
+        coop_rate = weighted_coop(feature_dict)
         logger.info(f"  Overall cooperation rate: {coop_rate:.2%}")
     return results
 
@@ -1301,6 +1326,11 @@ if __name__ == "__main__":
     fixed_opponents: tuple[tuple[SimplePlayer]] = tuple(
         opponents for _, opponents in make_fixed_opponents(n_opponents, args.n_rounds)
     )
+    FEATURE_KEYS = build_feature_keys(unique_combos, args.n_rounds)
+    SQRT_W = feature_sqrt_weights(FEATURE_KEYS, args.n_rounds, n_opponents,
+                                  args.weighting)
+    output_dir = output_dir / args.weighting
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # ==========================================================================
     # PHASE 1: Load/compute features
@@ -1356,7 +1386,7 @@ if __name__ == "__main__":
         metadata_game = []
         for gene, strategy_features in results_dict.items():
             for strategy_name, feature_dict in strategy_features.items():
-                X_game.append(list(feature_dict.values()))
+                X_game.append([feature_dict[k] for k in FEATURE_KEYS])
                 labels_game.append(str(gene))
                 metadata_game.append((gene, strategy_name, feature_dict))
 
@@ -1377,9 +1407,9 @@ if __name__ == "__main__":
 
     baseline_features = compute_baselines(args.n_players, args.n_rounds)
     baseline_labels = list(baseline_features.keys()) + ['Rnd']
-    baseline_X = [list(d.values()) for d in baseline_features.values()]
-    n_features = len(baseline_X[0])
-    baseline_X = np.array(baseline_X + [[0.5] * n_features])
+    baseline_X = [[d[k] for k in FEATURE_KEYS] for d in baseline_features.values()]
+    n_features = len(FEATURE_KEYS)
+    baseline_X = np.array(baseline_X + [[0.5] * n_features]) * SQRT_W
 
     logger.info(
         f"Features: {len(unique_combos)} unique opponent action combinations "
@@ -1392,7 +1422,7 @@ if __name__ == "__main__":
     # ==========================================================================
     logger.info(f"\n{'='*60}\nCOMBINED PCA (fitted on all attitudes)\n{'='*60}")
 
-    X_all = np.vstack([pca_data[g]['X'] for g in args.games])
+    X_all = np.vstack([pca_data[g]['X'] for g in args.games]) * SQRT_W
     labels_all = np.concatenate([pca_data[g]['labels'] for g in args.games])
     game_labels = np.concatenate(
         [[g] * len(pca_data[g]['X']) for g in args.games])

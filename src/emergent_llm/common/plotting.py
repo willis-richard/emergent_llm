@@ -22,7 +22,7 @@ def setup(configuration: str) -> tuple[tuple[float, float], str, float]:
     elif configuration == 'aamas_cooperation':
         FIGSIZE, SIZE, FORMAT = (7, 1.5), 7., 'svg'
     elif configuration == 'royal_cooperation':
-        FIGSIZE, SIZE, FORMAT = (royal_width, 1.5), royal_font, royal_format
+        FIGSIZE, SIZE, FORMAT = (royal_width, 1.7), royal_font, royal_format
     elif configuration == 'viewing':
         FIGSIZE, SIZE, FORMAT = (7, 4), 8., 'svg'
     else:
