@@ -38,10 +38,13 @@ conda activate emergent_llm
 
 The generated strategies are in [strategies](./strategies). To generate new ones use:
 
+
 ```bash
 python3 src/emergent_llm/generation/create_strategies.py --llm_provider <provider> --model_name <model_name> --game <game> descriptions --n <number_of_strategies>
 python3 src/emergent_llm/generation/create_strategies.py --llm_provider <provider> --model_name <model_name> --game <game> implementations --n <number_of_strategies>
 ```
+
+You will need LLM APIs. Set the relevant keys: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, or `OLLAMA_HOST`.
 
 ### Representative Strategies
 
@@ -52,7 +55,18 @@ The strategies that are closest to the PCA centroid means are saved in [represen
 Results can be generated with:
 
 ```bash
-bash scripts/runs.sh
+bash scripts/analyse.sh
 ```
 
 The default output directory is ./results. You can configure this and other parameters with optional arguments. The most important would be `-n <int>` to set the number of processes.
+
+## Contents
+
+| Path | Description |
+|---|---|
+| `src/emergent_llm/` | Games, strategy generation, tournaments, cultural evolution |
+| `src/emergent_llm/generation/prompts.py` | All prompts used for strategy generation |
+| `strategies/<game>/<model>_descriptions.py` | Natural-language strategy descriptions (LLM output) |
+| `strategies/<game>/<model>.py` | Python implementations (LLM output) |
+| `representative_strategies/` | Strategies closest to each PCA centroid, for quick inspection |
+| `scripts/` | Experiment and plotting scripts |
