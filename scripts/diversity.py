@@ -9,24 +9,14 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.patches import Ellipse
 from matplotlib.ticker import MultipleLocator, PercentFormatter
-from scipy.spatial.distance import cdist, pdist
+from scipy.spatial.distance import cdist
 from sklearn.decomposition import PCA
 
-from emergent_llm.common import (
-    Action,
-    Attitude,
-    C,
-    D,
-    GameHistory,
-    Gene,
-    setup,
-)
+from emergent_llm.common import Attitude, C, D, Gene, setup
 from emergent_llm.games import STANDARD_GENERATORS, get_game_type
 from emergent_llm.generation import (
     CooperatorCounts,
-    FixedCooperatorCount,
     StrategyRegistry,
     make_fixed_opponents,
 )
@@ -41,7 +31,7 @@ from emergent_llm.players import (
 )
 from emergent_llm.tournament import pretty_model
 
-FIGSIZE, FORMAT, FONTSIZE = setup('royal_pca')
+FIGSIZE, FORMAT, _ = setup('royal_pca')
 
 GAME_MAPPING = {
     'public_goods': 'Public Goods Game',
@@ -49,6 +39,7 @@ GAME_MAPPING = {
     'common_pool': 'Common Pool Resource',
 }
 
+# Also defines the column order of the LaTeX tables.
 GAME_SHORT = {
     'public_goods': 'PGG',
     'collective_risk': 'CRD',
@@ -83,10 +74,7 @@ def parse_args():
                         nargs='*',
                         default=None,
                         help="List of models to use, filter out all others")
-    parser.add_argument("--n_strategies",
-                        type=int,
-                        default=None,
-                        help="Limit the analysis to this many strategies")
+    parser.add_argument("--results_dir", type=str, default="results")
 
     # Game parameters
     parser.add_argument("--n_players",
@@ -117,16 +105,21 @@ def parse_args():
                         type=int,
                         default=1,
                         help="Number of parallel processes")
+    parser.add_argument("--n_strategies",
+                        type=int,
+                        default=None,
+                        help="Limit the analysis to this many strategies")
     parser.add_argument("--recompute",
                         action='store_true',
                         help="Force recomputation of features even if cached")
-    parser.add_argument("--plot_extrema",
-                        action='store_true',
-                        help="Label the corner strategies")
+
+    # Plotting parameters
     parser.add_argument("--plot_baselines",
                         action='store_true',
                         help="Label the baseline strategies")
-    parser.add_argument("--results_dir", type=str, default="results")
+    parser.add_argument("--plot_extrema",
+                        action='store_true',
+                        help="Label the corner strategies")
 
     return parser.parse_args()
 
@@ -180,7 +173,10 @@ def load_features(game_name: str, gene: Gene,
 
 
 # =============================================================================
-# FEATURE COMPUTATION (uses globals set per-game in main)
+# FEATURE COMPUTATION
+# Relies on module globals set in main (game_class, description, gene,
+# game_name, unique_combos, fixed_opponents) so that worker processes
+# inherit them via fork rather than pickling (Gene/Attitude enums).
 # =============================================================================
 
 
@@ -219,7 +215,7 @@ def build_feature_keys(unique_combos, n_rounds) -> list[CooperatorCounts]:
 
 def feature_sqrt_weights(keys, n_rounds, n_opponents, weighting) -> np.ndarray:
     """sqrt of per-feature weights (weights sum to 1). Scaling features by this
-    makes Euclidean geometry, and hence PCA, Delta, MPD and PR, use the weighting."""
+    makes Euclidean geometry, and hence PCA and Delta, use the weighting."""
     if weighting == "history":
         w = np.full(len(keys), 1.0 / len(keys))
     else:
@@ -258,32 +254,28 @@ def compute_strategy_chunk(
 # =============================================================================
 
 
-def create_baseline_players(n_players: int,
-                            n_rounds: int) -> list[SimplePlayer]:
+def create_baseline_players(n_players: int) -> list[SimplePlayer]:
     baseline_players = [
         SimplePlayer("AD", Defector),
         SimplePlayer("AC", Cooperator),
     ]
     baseline_players += [
         SimplePlayer(f"CC:{i}", ConditionalCooperator(C, i))
-        for i in range(1, args.n_players)
+        for i in range(1, n_players)
     ]
     baseline_players += [
         SimplePlayer(f"CD:{i}", ConditionalDefector(D, i))
-        for i in range(1, args.n_players)
+        for i in range(1, n_players)
     ]
     return baseline_players
 
 
-def compute_baselines(n_players: int,
-                      n_rounds: int) -> dict[str, dict[CooperatorCounts, float]]:
-    baseline_players = create_baseline_players(n_players, n_rounds)
+def compute_baselines(n_players: int) -> dict[str, dict[CooperatorCounts, float]]:
     baseline_features = {}
-    for player in baseline_players:
+    for player in create_baseline_players(n_players):
         features = compute_features(player, 1)
         baseline_features[player.id.name] = features
-        mean = np.mean(list(features.values()))
-        logger.info(f"{player.id.name}: {mean:.3f}")
+        logger.info(f"{player.id.name}: {np.mean(list(features.values())):.3f}")
     return baseline_features
 
 
@@ -345,36 +337,6 @@ def get_feature_vectors_for_synonym(
 # =============================================================================
 
 
-def compute_random_baseline_distance(n_features: int,
-                                     n_samples: int = 500) -> float:
-    rng = np.random.default_rng(0)
-    random_X = rng.uniform(0, 1, (n_samples, n_features)) * SQRT_W
-    return float(np.mean(pdist(random_X, metric='euclidean')))
-
-
-def compute_within_set_metrics(X: np.ndarray,
-                               random_baseline: float) -> tuple[float, float]:
-    """Returns (mean_pairwise_distance, normalised_distance)."""
-    if len(X) < 2:
-        return 0.0, 0.0
-    distances = pdist(X, metric='euclidean')
-    mpd = float(np.mean(distances))
-    return mpd, mpd / random_baseline
-
-
-def compute_participation_ratio(X: np.ndarray) -> float:
-    """PR = (sum of eigenvalues)^2 / sum of eigenvalues^2."""
-    if len(X) < 2:
-        return 1.0
-    X_centered = X - X.mean(axis=0)
-    cov = np.cov(X_centered.T)
-    eigenvalues = np.linalg.eigvalsh(cov)
-    eigenvalues = eigenvalues[eigenvalues > 1e-10]
-    if len(eigenvalues) == 0:
-        return 1.0
-    return (eigenvalues.sum()**2) / (eigenvalues**2).sum()
-
-
 def compute_delta(X_a: np.ndarray, X_b: np.ndarray) -> float:
     """
     Standardised centroid distance:
@@ -397,15 +359,13 @@ def compute_delta(X_a: np.ndarray, X_b: np.ndarray) -> float:
 def compute_game_variance_explained(X: np.ndarray,
                                     game_labels: np.ndarray) -> float:
     """Multivariate η² = trace(S_between) / trace(S_total)."""
-    games = np.unique(game_labels)
     global_centroid = X.mean(axis=0)
     ss_total = np.sum((X - global_centroid)**2)
     ss_between = 0.0
-    for game in games:
+    for game in np.unique(game_labels):
         mask = game_labels == game
-        n_game = mask.sum()
         game_centroid = X[mask].mean(axis=0)
-        ss_between += n_game * np.sum((game_centroid - global_centroid)**2)
+        ss_between += mask.sum() * np.sum((game_centroid - global_centroid)**2)
     return ss_between / ss_total if ss_total > 0 else 0.0
 
 
@@ -420,51 +380,43 @@ def build_main_dataframe(
     game_labels: np.ndarray,
     pca_data: dict,
     games: list[str],
-    random_baseline_dist: float,
 ) -> pd.DataFrame:
     """
     Main metrics table: aggregated by base attitude family.
 
-    Columns: (game, metric) where metric in {coop, mpd_norm, delta, pr}.
+    Columns: (game, metric) where metric in {coop, coop_se, delta}.
     Rows: (model, attitude_family).
     Delta is per (model, game) and repeated across both attitude rows.
     """
     rows = []
     for game in games:
-        genes = pca_data[game]['genes']
-        models = sorted(set(g.model for g in genes))
+        models = sorted(set(g.model for g in pca_data[game]['genes']))
         for model in models:
-            X_by_attitude = {}
-            for base_att in Attitude.base_attitudes():
-                X_by_attitude[base_att] = aggregate_by_base_family(
+            X_by_attitude = {
+                base_att: aggregate_by_base_family(
                     X_all, labels_all, game_labels, pca_data,
                     game, model, base_att,
                 )
+                for base_att in Attitude.base_attitudes()
+            }
+            delta = compute_delta(X_by_attitude[Attitude.COLLECTIVE],
+                                  X_by_attitude[Attitude.SELFISH])
 
-            # Between-set Delta (shared across both attitude rows for this model+game)
-            X_c = X_by_attitude[Attitude.COLLECTIVE]
-            X_s = X_by_attitude[Attitude.SELFISH]
-            delta = compute_delta(X_c, X_s) if len(X_c) > 0 and len(X_s) > 0 else np.nan
-
-            for base_att in Attitude.base_attitudes():
-                X_set = X_by_attitude[base_att]
+            for base_att, X_set in X_by_attitude.items():
                 if len(X_set) == 0:
                     continue
+                # X_set is already scaled by SQRT_W, so this is sum_k w_k x_k.
                 strategy_means = X_set @ SQRT_W
                 coop = float(strategy_means.mean())
                 coop_se = (float(strategy_means.std(ddof=1) / np.sqrt(len(strategy_means)))
                            if len(strategy_means) > 1 else np.nan)
-                _, mpd_norm = compute_within_set_metrics(X_set, random_baseline_dist)
-                pr = compute_participation_ratio(X_set)
                 rows.append({
                     'game': game,
                     'model': model,
                     'attitude': base_att.value,
                     'coop': coop,
                     'coop_se': coop_se,
-                    'mpd_norm': mpd_norm,
                     'delta': delta,
-                    'pr': pr,
                 })
 
     df = pd.DataFrame(rows)
@@ -475,24 +427,20 @@ def build_main_dataframe(
     df_pivot = df.pivot_table(
         index=['model', 'attitude'],
         columns='game',
-        values=['coop', 'coop_se', 'mpd_norm', 'delta', 'pr'],
+        values=['coop', 'coop_se', 'delta'],
         aggfunc='first',
-    )
-    # Reorder columns: (game, metric) instead of (metric, game)
-    df_pivot = df_pivot.swaplevel(axis=1)
-    # Reorder games and metrics
-    metric_order = ['coop', 'coop_se', 'mpd_norm', 'delta', 'pr']
-    game_order = [g for g in games if g in df_pivot.columns.get_level_values(0).unique()]
-    new_cols = [(g, m) for g in game_order for m in metric_order
+    ).swaplevel(axis=1)
+    metric_order = ['coop', 'coop_se', 'delta']
+    present = set(df_pivot.columns.get_level_values(0))
+    new_cols = [(g, m) for g in games if g in present for m in metric_order
                 if (g, m) in df_pivot.columns]
     df_pivot = df_pivot[new_cols]
 
-    # Reorder index: attitude in Attitude.base_attitudes() order
-    df_pivot = df_pivot.reindex(
+    # Collective before selfish within each model
+    return df_pivot.reindex(
         sorted(df_pivot.index,
                key=lambda x: (x[0], 0 if x[1] == Attitude.COLLECTIVE.value else 1))
     )
-    return df_pivot
 
 
 def build_appendix_dataframe(
@@ -514,8 +462,7 @@ def build_appendix_dataframe(
     """
     rows = []
     for game in games:
-        genes = pca_data[game]['genes']
-        models_in_game = sorted(set(g.model for g in genes))
+        models_in_game = sorted(set(g.model for g in pca_data[game]['genes']))
         for model in models_in_game:
             for synonym in Attitude:
                 X_syn = get_feature_vectors_for_synonym(
@@ -561,14 +508,13 @@ def build_appendix_dataframe(
         columns='game',
         values=['d_own', 'd_other', 'ratio'],
         aggfunc='first',
-    )
-    df_pivot = df_pivot.swaplevel(axis=1)
+    ).swaplevel(axis=1)
     metric_order = ['d_own', 'd_other', 'ratio']
-    game_order = [g for g in games if g in df_pivot.columns.get_level_values(0).unique()]
-    new_cols = [(g, m) for g in game_order for m in metric_order
+    present = set(df_pivot.columns.get_level_values(0))
+    new_cols = [(g, m) for g in games if g in present for m in metric_order
                 if (g, m) in df_pivot.columns]
-    df_pivot = df_pivot[new_cols]
-    return df_pivot
+    return df_pivot[new_cols]
+
 
 def build_per_round_cooperation_df(pca_data: dict, games: list[str],
                                    n_rounds: int) -> pd.DataFrame:
@@ -605,77 +551,6 @@ def build_per_round_cooperation_df(pca_data: dict, games: list[str],
     return df.groupby(['game', 'model', 'attitude'])[round_cols].mean()
 
 
-def plot_per_round_cooperation(df_rounds: pd.DataFrame, games: list[str],
-                               n_rounds: int, output_dir: Path):
-    """One subplot per game; colour = model, linestyle = base attitude.
-
-    Synonym genes are collapsed to their base family by averaging the
-    gene-level curves. This weights each gene equally, which equals
-    per-strategy weighting as long as every gene has the same number of
-    strategies (true by construction of the generation pipeline).
-    """
-    round_cols = [f'round_{r+1}' for r in range(n_rounds)]
-    rounds = range(1, n_rounds + 1)
-
-    # Collapse synonyms to base attitude
-    df = df_rounds.reset_index()
-    df['base_attitude'] = df['attitude'].map(
-        lambda a: Attitude(a).to_base_attitude().value)
-    df_base = df.groupby(['game', 'model', 'base_attitude'])[round_cols].mean()
-
-    models = sorted(df['model'].unique())
-    cmap = plt.colormaps.get_cmap('tab10')
-    model_colors = {m: cmap(i) for i, m in enumerate(models)}
-    linestyles = {Attitude.COLLECTIVE: '-', Attitude.SELFISH: '--'}
-
-    figsize, _, _ = setup('royal_cooperation')
-    fig, axes = plt.subplots(1, len(games), figsize=figsize,
-                             sharex=True, sharey=True)
-    axes = np.atleast_1d(axes)
-
-    for ax, game in zip(axes, games):
-        sub = df_base.loc[game]
-        for (model, base_value), row in sub.iterrows():
-            base = Attitude(base_value)
-            ax.plot(rounds, row[round_cols].to_numpy(dtype=float),
-                    color=model_colors[model], linestyle=linestyles[base],
-                    lw=1.25, marker='o', alpha=0.8)
-        ax.set_title(GAME_MAPPING.get(game, game))
-        ax.set_ylim(0, 1)
-        ax.set_xticks(list(rounds))
-
-
-    ax.yaxis.set_major_locator(MultipleLocator(0.25))
-    ax.yaxis.set_major_formatter(PercentFormatter(xmax=1))
-    fig.supxlabel('Round')
-    fig.supylabel('Cooperation rate (%)')
-
-    # Single two-row legend: row 1 = models, row 2 = attitudes.
-    # Matplotlib fills legends column-major (down, then across), so with
-    # ncol = n_models we interleave (model_i, attitude_or_blank_i) pairs.
-    model_handles = [plt.Line2D([0], [0], color=model_colors[m], lw=2,
-                                label=pretty_model(m)) for m in models]
-    attitude_handles = [plt.Line2D([0], [0], color='gray', lw=2, linestyle=ls,
-                                   label=att.value.capitalize())
-                        for att, ls in linestyles.items()]
-    blank = lambda: plt.Line2D([0], [0], color='none', label=' ')
-
-    n_cols = max(len(model_handles), len(attitude_handles))
-    model_handles += [blank() for _ in range(n_cols - len(model_handles))]
-    attitude_handles += [blank() for _ in range(n_cols - len(attitude_handles))]
-
-    interleaved = [h for pair in zip(model_handles, attitude_handles)
-                   for h in pair]
-
-    fig.legend(handles=interleaved, loc='outside upper center',
-               frameon=False, ncol=n_cols, borderpad=0, borderaxespad=0.3)
-
-    plt.savefig(output_dir / f"per_round_cooperation.{FORMAT}",
-                format=FORMAT)
-    plt.close()
-    logger.info(f"Saved per_round_cooperation.{FORMAT}")
-
-
 # =============================================================================
 # LATEX WRITERS
 # =============================================================================
@@ -686,7 +561,8 @@ def _fmt(x, precision=1):
         return '--'
     return f"{x:.{precision}f}"
 
-def _fmt_pm(val, se, _precision=None):
+
+def _fmt_pm(val, se):
     """Compact uncertainty notation in percent: '68(1)\\%' = 0.68 ± 0.01."""
     if pd.isna(val):
         return '--'
@@ -695,88 +571,52 @@ def _fmt_pm(val, se, _precision=None):
         return f"{pct}\\%"
     return f"{pct}({round(se * 100)})\\%"
 
+
 def write_main_latex(df_pivot: pd.DataFrame, output_path: Path):
     """
-    Main metrics table with multirow for Model and Δ.
+    Main table as a bare booktabs tabular (requires booktabs, multirow, makecell).
 
-    Layout: per game we show Coop, MPD, Δ, PR; Δ spans both attitude rows.
+    Per game: Coop for each attitude row, and Δ spanning both attitude rows.
     """
     if df_pivot.empty:
         logger.warning("Main DataFrame empty; skipping LaTeX write.")
         return
 
-    games = sorted(set(df_pivot.columns.get_level_values(0)))
-    games = [g for g in ['public_goods', 'collective_risk', 'common_pool'] if g in games]
-    n_games = len(games)
-    cols_per_game = 4  # Coop, MPD, Δ, PR
-
-    # column spec
-    inner = '|'.join(['cccc'] * n_games)
-    col_spec = 'll|' + inner
-
-    # Group rows by model
+    present = set(df_pivot.columns.get_level_values(0))
+    games = [g for g in GAME_SHORT if g in present]
+    n_cols = 2 + 2 * len(games)
     models = list(dict.fromkeys(df_pivot.index.get_level_values(0)))
 
-    lines = []
-    lines.append('% Auto-generated; copy into paper.')
-    lines.append('\\begin{table*}[t]')
-    lines.append('\\caption{Strategic variation in the generated algorithms.}')
-    lines.append('\\centering')
-    lines.append('\\setlength{\\tabcolsep}{2pt}')
-    lines.append(f'\\begin{{tabular}}{{{col_spec}}}')
-    lines.append('\\hline')
+    lines = [
+        f'\\begin{{tabular}}{{ll{"cc" * len(games)}}}',
+        '\\toprule',
+        'Model & Attitude & '
+        + ' & '.join(f'\\multicolumn{{2}}{{c}}{{{GAME_SHORT[g]}}}' for g in games)
+        + ' \\\\',
+        ' & '.join(['', ''] + ['Coop', '$\\Delta$'] * len(games)) + ' \\\\',
+        '\\midrule',
+    ]
 
-    # Header row 1: game group names
-    header_groups = ['', '']  # Model, Attitude
-    for i, g in enumerate(games):
-        sep = '|' if i < n_games - 1 else ''
-        header_groups.append(f'\\multicolumn{{{cols_per_game}}}{{c{sep}}}{{{GAME_MAPPING[g]}}}')
-    lines.append('Model & Attitude & ' + ' & '.join(header_groups[2:]) + ' \\\\')
-
-    # Header row 2: metric names
-    metric_headers = ['', '']
-    for _ in games:
-        metric_headers += ['Coop', 'MPD', '$\\Delta$', 'PR']
-    lines.append(' & '.join(metric_headers) + ' \\\\')
-    lines.append('\\hline')
-
-    # Body
-    for model in models:
+    for model_idx, model in enumerate(models):
         sub = df_pivot.loc[model]
-        attitudes = list(sub.index)
-        n_att = len(attitudes)
-
-        for row_idx, attitude in enumerate(attitudes):
-            cells = []
-            # Model column (multirow on first row)
-            if row_idx == 0:
-                cells.append(f'\\multirow{{{n_att}}}{{*}}{{{pretty_model(model)}}}')
-            else:
-                cells.append('')
-            # Attitude column
-            cells.append(attitude.capitalize())
-            # Per-game metrics
+        n_att = len(sub)
+        for row_idx, (attitude, row) in enumerate(sub.iterrows()):
+            first = row_idx == 0
+            cells = [
+                f'\\multirowcell{{{n_att}}}[0pt][l]{{{pretty_model(model)}}}'
+                if first else '',
+                attitude.capitalize(),
+            ]
             for g in games:
-                coop = sub.loc[attitude, (g, 'coop')] if (g, 'coop') in sub.columns else np.nan
-                coop_se = sub.loc[attitude, (g, 'coop_se')] if (g, 'coop_se') in sub.columns else np.nan
-                mpd = sub.loc[attitude, (g, 'mpd_norm')] if (g, 'mpd_norm') in sub.columns else np.nan
-                delta = sub.loc[attitude, (g, 'delta')] if (g, 'delta') in sub.columns else np.nan
-                pr = sub.loc[attitude, (g, 'pr')] if (g, 'pr') in sub.columns else np.nan
-
-                cells.append(_fmt_pm(coop, coop_se, 2))
-                cells.append(_fmt(mpd, 1))
-                # Delta: multirow on first row, blank otherwise
-                if row_idx == 0:
-                    cells.append(f'\\multirow{{{n_att}}}{{*}}{{{_fmt(delta, 1)}}}')
-                else:
-                    cells.append('')
-                cells.append(_fmt(pr, 1))
+                cells.append(_fmt_pm(row.get((g, 'coop')), row.get((g, 'coop_se'))))
+                cells.append(
+                    f'\\multirow{{{n_att}}}{{*}}{{{_fmt(row.get((g, "delta")), 1)}}}'
+                    if first else '')
             lines.append(' & '.join(cells) + ' \\\\')
-        lines.append('\\hline')
+        is_last = model_idx == len(models) - 1
+        lines.append('\\bottomrule' if is_last else f'\\cmidrule(lr){{1-{n_cols}}}')
 
     lines.append('\\end{tabular}')
-    lines.append('\\label{tab:pca}')
-    lines.append('\\end{table*}')
 
     output_path.write_text('\n'.join(lines) + '\n')
     logger.info(f"Wrote main LaTeX table to {output_path}")
@@ -788,42 +628,37 @@ def write_appendix_latex(df_pivot: pd.DataFrame, output_path: Path):
         logger.warning("Appendix DataFrame empty; skipping LaTeX write.")
         return
 
-    games = sorted(set(df_pivot.columns.get_level_values(0)))
-    games = [g for g in ['public_goods', 'collective_risk', 'common_pool'] if g in games]
+    present = set(df_pivot.columns.get_level_values(0))
+    games = [g for g in GAME_SHORT if g in present]
     n_games = len(games)
-    cols_per_game = 3
 
-    inner = '|'.join(['ccc'] * n_games)
-    col_spec = 'lll|' + inner
+    col_spec = 'lll|' + '|'.join(['ccc'] * n_games)
 
-    lines = []
-    lines.append('% Auto-generated synonym comparison table.')
-    lines.append('\\begin{table*}[t]')
-    lines.append('\\caption{Synonym placement relative to base-attitude families. '
-                 '$d_{\\text{own}}$ uses leave-one-out (synonym excluded from own family centroid).}')
-    lines.append('\\centering')
-    lines.append('\\setlength{\\tabcolsep}{3pt}')
-    lines.append(f'\\begin{{tabular}}{{{col_spec}}}')
-    lines.append('\\hline')
+    lines = [
+        '% Auto-generated synonym comparison table.',
+        '\\begin{table*}[t]',
+        '\\caption{Synonym placement relative to base-attitude families. '
+        '$d_{\\text{own}}$ uses leave-one-out (synonym excluded from own family centroid).}',
+        '\\centering',
+        '\\setlength{\\tabcolsep}{3pt}',
+        f'\\begin{{tabular}}{{{col_spec}}}',
+        '\\hline',
+    ]
 
-    header_groups = ['', '', '']
-    for i, g in enumerate(games):
-        sep = '|' if i < n_games - 1 else ''
-        header_groups.append(f'\\multicolumn{{{cols_per_game}}}{{c{sep}}}{{{GAME_SHORT[g]}}}')
-    lines.append('Attitude & Synonym & Model & ' + ' & '.join(header_groups[3:]) + ' \\\\')
-
-    metric_headers = ['', '', '']
-    for _ in games:
-        metric_headers += ['$d_{\\text{own}}$', '$d_{\\text{other}}$', 'ratio']
+    header_groups = [
+        f'\\multicolumn{{3}}{{c{"|" if i < n_games - 1 else ""}}}{{{GAME_SHORT[g]}}}'
+        for i, g in enumerate(games)
+    ]
+    lines.append('Attitude & Synonym & Model & ' + ' & '.join(header_groups) + ' \\\\')
+    metric_headers = ['', '', ''] + [
+        '$d_{\\text{own}}$', '$d_{\\text{other}}$', 'ratio'] * n_games
     lines.append(' & '.join(metric_headers) + ' \\\\')
     lines.append('\\hline')
 
-    # Group by (family, synonym)
     last_family = None
     last_synonym = None
     for (family, synonym, model), row in df_pivot.iterrows():
         cells = []
-        # Family with horizontal rule on change
         if family != last_family:
             if last_family is not None:
                 lines.append('\\hline')
@@ -842,25 +677,23 @@ def write_appendix_latex(df_pivot: pd.DataFrame, output_path: Path):
         cells.append(pretty_model(model))
 
         for g in games:
-            d_own = row.get((g, 'd_own'), np.nan)
-            d_other = row.get((g, 'd_other'), np.nan)
-            ratio = row.get((g, 'ratio'), np.nan)
-            cells.append(_fmt(d_own, 2))
-            cells.append(_fmt(d_other, 2))
-            cells.append(_fmt(ratio, 2))
+            for metric in ('d_own', 'd_other', 'ratio'):
+                cells.append(_fmt(row.get((g, metric), np.nan), 2))
         lines.append(' & '.join(cells) + ' \\\\')
 
-    lines.append('\\hline')
-    lines.append('\\end{tabular}')
-    lines.append('\\label{tab:synonyms}')
-    lines.append('\\end{table*}')
+    lines += [
+        '\\hline',
+        '\\end{tabular}',
+        '\\label{tab:synonyms}',
+        '\\end{table*}',
+    ]
 
     output_path.write_text('\n'.join(lines) + '\n')
     logger.info(f"Wrote appendix LaTeX table to {output_path}")
 
 
 # =============================================================================
-# PCA HELPERS
+# PCA
 # =============================================================================
 
 
@@ -877,66 +710,31 @@ def fit_pca_on_all(X_all: np.ndarray) -> tuple[PCA, np.ndarray]:
 
 
 # =============================================================================
-# PLOTTING HELPERS
+# PLOTTING
 # =============================================================================
 
 BASELINE_LABELS_LEFT = {"CC:2", "CC:3", "CD:1"}
-BASELINE_LABELS_RIGHT = {"CD:3", "CC:1", "CD:2"}
 BASELINE_LABELS_ABOVE = {"Rnd", "AD", "AC"}
 
 
-def plot_covariance_ellipse(ax, mean, cov, n_std=1.0, **kwargs):
-    eigenvalues, eigenvectors = np.linalg.eigh(cov)
-    angle = np.degrees(np.arctan2(eigenvectors[1, 0], eigenvectors[0, 0]))
-    width, height = 2 * n_std * np.sqrt(np.maximum(eigenvalues, 0))
-    ellipse = Ellipse(mean, width, height, angle=angle, **kwargs)
-    ax.add_patch(ellipse)
-    return ellipse
-
-
 def plot_baselines(ax, baseline_pca, baseline_labels, marker_size=100):
-    """Plot baseline strategies with positioned labels."""
+    """Plot baseline strategies with positioned labels.
+
+    ha/va give where the point sits relative to the text. Labels not in
+    LEFT/ABOVE are placed to the right.
+    """
     for i, name in enumerate(baseline_labels):
-        ax.scatter(baseline_pca[i, 0],
-                   baseline_pca[i, 1],
-                   marker='X',
-                   s=marker_size,
-                   color='gray',
-                   edgecolors='black',
-                   linewidths=1,
-                   zorder=6)
-        # note that ha says where the point is relative to the text!
-        # aka, the ha and va edge of the text touches the point
-        if name in BASELINE_LABELS_RIGHT:
-            ha = 'left'
-            va = 'center'
-            xy = (5, 0)
+        ax.scatter(baseline_pca[i, 0], baseline_pca[i, 1],
+                   marker='X', s=marker_size, color='gray',
+                   edgecolors='black', linewidths=1, zorder=6)
         if name in BASELINE_LABELS_LEFT:
-            ha = 'right'
-            va = 'center'
-            xy = (-5, 0)
-        if name in BASELINE_LABELS_ABOVE:
-            ha = 'center'
-            va = 'bottom'
-            xy = (0, 5)
-        # if name == "AC":
-        #     ha = 'center'
-        #     va = 'bottom'
-        #     xy = (5, 5)
-        # if name == "AD":
-        #     ha = 'center'
-        #     va = 'top'
-        #     xy = (-5, -5)
-
+            ha, va, xy = 'right', 'center', (-5, 0)
+        elif name in BASELINE_LABELS_ABOVE:
+            ha, va, xy = 'center', 'bottom', (0, 5)
+        else:
+            ha, va, xy = 'left', 'center', (5, 0)
         ax.annotate(name, (baseline_pca[i, 0], baseline_pca[i, 1]),
-                    ha=ha, va=va, xytext=xy,
-                    textcoords='offset points')
-
-
-def _legend_top_reservation(n_handles: int, ncol: int) -> float:
-    """Return the `top` value for tight_layout rect to leave room for legend above."""
-    n_rows = max(1, (n_handles + ncol - 1) // ncol)
-    return max(0.80, 1.0 - 0.05 * n_rows - 0.03)
+                    ha=ha, va=va, xytext=xy, textcoords='offset points')
 
 
 def _aggregate_points_for_family(
@@ -953,65 +751,15 @@ def _aggregate_points_for_family(
     mask = game_mask & np.isin(labels_all, gene_strs)
     return X_pca_combined[mask, :2]
 
-def plot_pca_single_game(
-    axes, X_pca_combined, labels_all, game_mask, genes_for_game,
-    baseline_pca, baseline_labels, pca,
-):
-    """Single-game PCA plot: 1 row × 2 cols (Collective | Selfish).
-
-    Mirrors the aggregation in plot_pca_by_game. Returns legend handles
-    for the caller to place a figure-level legend.
-    """
-    models = sorted(set(g.model for g in genes_for_game))
-    cmap = plt.colormaps.get_cmap('tab10')
-    model_colors = {m: cmap(i) for i, m in enumerate(models)}
-
-    handles = []
-    seen_models = set()
-    for col, base_att in enumerate(Attitude.base_attitudes()):
-        ax = axes[col]
-        for model in models:
-            points = _aggregate_points_for_family(
-                X_pca_combined, labels_all, game_mask,
-                genes_for_game, model, base_att,
-            )
-            if len(points) == 0:
-                continue
-
-            color = model_colors[model]
-            ax.scatter(points[:, 0], points[:, 1],
-                       alpha=0.5, s=FONTSIZE*1.25, color=color)
-            mean_pt = points.mean(axis=0)
-            ax.scatter(mean_pt[0], mean_pt[1], alpha=0.7,
-                       marker='o', s=FONTSIZE*12.5, color=color,
-                       edgecolors='black', linewidths=1.5, zorder=5)
-
-            if model not in seen_models:
-                handles.append(plt.Line2D(
-                    [0], [0], marker='o', color='w',
-                    markerfacecolor=color, markersize=10,
-                    label=pretty_model(model),
-                ))
-                seen_models.add(model)
-
-        if args.plot_baselines:
-            plot_baselines(ax, baseline_pca, baseline_labels)
-        ax.set_title(base_att.capitalize())
-
-    return handles
-
-
 
 def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
                      baseline_pca, baseline_labels, games, pca, output_dir):
-    """2×3 grid: rows=base attitude family, columns=games. One ellipse per model.
+    """2×3 grid: rows = base attitude family, columns = games.
 
     For each (model, base_attitude) cell, aggregates all synonyms in that
-    base-attitude family (matches plot_pca_single_game / plot_pca_by_model).
+    base-attitude family.
     """
-    all_genes = []
-    for g in games:
-        all_genes.extend(pca_data[g]['genes'])
+    all_genes = [g for game in games for g in pca_data[game]['genes']]
     models = sorted(set(g.model for g in all_genes))
     cmap = plt.colormaps.get_cmap('tab10')
     model_colors = {m: cmap(i) for i, m in enumerate(models)}
@@ -1037,7 +785,6 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
             ax.patch.set_visible(False)
 
             for model in models:
-                # Aggregate all synonyms whose base attitude == base_att
                 points = _aggregate_points_for_family(
                     X_pca_combined, labels_all, game_mask,
                     genes_for_game, model, base_att,
@@ -1048,19 +795,10 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
                 color = model_colors[model]
                 ax.scatter(points[:, 0], points[:, 1],
                            alpha=0.5, s=10, color=color)
-
                 mean_pt = points.mean(axis=0)
                 ax.scatter(mean_pt[0], mean_pt[1],
                            marker='o', s=70, color=color, alpha=0.7,
                            edgecolors='black', linewidths=1.5, zorder=5)
-
-                # if len(points) > 2:
-                #     cov = np.cov(points.T)
-                #     plot_covariance_ellipse(
-                #         ax, mean_pt, cov, n_std=1.0,
-                #         facecolor=color, alpha=0.45,
-                #         edgecolor=color, linewidth=1.5,
-                #     )
 
             if args.plot_baselines:
                 plot_baselines(ax, baseline_pca, baseline_labels, marker_size=60)
@@ -1074,6 +812,18 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
                 ax.set_title(GAME_MAPPING[game])
             if col == 0:
                 ax.set_ylabel(f"{base_att.capitalize()}")
+
+        if args.plot_extrema:
+            metadata = pca_data[game]['metadata']
+            extrema_info = find_extrema(X_pca_combined[game_mask], metadata)
+            base_order = list(Attitude.base_attitudes())
+            for position, info in extrema_info.items():
+                base = metadata[info['idx']][0].attitude.to_base_attitude()
+                ax = axes[base_order.index(base), col]
+                plot_extrema({position: info}, ax)
+                # Keep constrained layout from shrinking panels to fit labels
+                for t in ax.texts:
+                    t.set_in_layout(False)
 
     fig.supxlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
     fig.supylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})')
@@ -1093,120 +843,80 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
     fig.legend(handles=legend_handles, loc='outside upper center',
                frameon=False, ncol=ncol, borderpad=0, borderaxespad=0.3)
 
-    plt.savefig(output_dir / f"pca_by_game.{FORMAT}", format=FORMAT)
+    out_path = output_dir / f"pca_by_game.{FORMAT}"
+    plt.savefig(out_path, format=FORMAT)
     plt.close()
-    logger.info(
-        f"Saved pca_by_game {output_dir / f'pca_by_game.{FORMAT}'}")
+    logger.info(f"Saved {out_path}")
 
 
-def plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
-                      baseline_pca, baseline_labels, games, pca, output_dir):
+def plot_per_round_cooperation(df_rounds: pd.DataFrame, games: list[str],
+                               n_rounds: int, output_dir: Path):
+    """One subplot per game; colour = model, linestyle = base attitude.
+
+    Synonym genes are collapsed to their base family by averaging the
+    gene-level curves. This weights each gene equally, which equals
+    per-strategy weighting as long as every gene has the same number of
+    strategies (true by construction of the generation pipeline).
     """
-    Create a grid with one subplot per model.
-    Each subplot shows all games and attitudes for that model.
-    """
-    # Extract unique models
-    all_genes = []
-    for g in games:
-        all_genes.extend(pca_data[g]['genes'])
-    models = sorted(set(gene.model for gene in all_genes))
+    round_cols = [f'round_{r+1}' for r in range(n_rounds)]
+    rounds = range(1, n_rounds + 1)
 
-    # Grid layout based on number of models
-    n_models = len(models)
-    n_cols = 3
-    n_rows = (n_models + n_cols - 1) // n_cols
+    # Collapse synonyms to base attitude
+    df = df_rounds.reset_index()
+    df['base_attitude'] = df['attitude'].map(
+        lambda a: Attitude(a).to_base_attitude().value)
+    df_base = df.groupby(['game', 'model', 'base_attitude'])[round_cols].mean()
 
-    # Color by game, marker style by attitude
-    game_colors = dict(
-        zip(games,
-            plt.colormaps.get_cmap('Set1')(np.linspace(0, 1, len(games)))))
-    attitude_markers = {Attitude.COLLECTIVE: 'o', Attitude.SELFISH: 's'}
+    models = sorted(df['model'].unique())
+    cmap = plt.colormaps.get_cmap('tab10')
+    model_colors = {m: cmap(i) for i, m in enumerate(models)}
+    linestyles = {Attitude.COLLECTIVE: '-', Attitude.SELFISH: '--'}
 
-    fig, axes = plt.subplots(n_rows,
-                             n_cols,
-                             figsize=FIGSIZE,
-                             sharex=True,
-                             sharey=True)
-    axes = np.atleast_2d(axes)
+    # NOTE: resets global rcParams; call after the PCA plot.
+    figsize, _, _ = setup('royal_cooperation')
+    fig, axes = plt.subplots(1, len(games), figsize=figsize,
+                             sharex=True, sharey=True)
+    axes = np.atleast_1d(axes)
 
-    for idx, model in enumerate(models):
-        row, col = divmod(idx, n_cols)
-        ax = axes[row, col]
+    for ax, game in zip(axes, games):
+        for (model, base_value), row in df_base.loc[game].iterrows():
+            ax.plot(rounds, row[round_cols].to_numpy(dtype=float),
+                    color=model_colors[model],
+                    linestyle=linestyles[Attitude(base_value)],
+                    lw=1.25, marker='o', alpha=0.8)
+        ax.set_title(GAME_MAPPING.get(game, game))
+        ax.set_ylim(0, 1)
+        ax.set_xticks(list(rounds))
 
-        for game in games:
-            game_mask = game_labels == game
-            genes_for_game = pca_data[game]['genes']
-            color = game_colors[game]
+    # sharey: setting on one axis applies to all
+    axes[0].yaxis.set_major_locator(MultipleLocator(0.25))
+    axes[0].yaxis.set_major_formatter(PercentFormatter(xmax=1))
+    fig.supxlabel('Round')
+    fig.supylabel('Cooperation rate (%)')
 
-            for base_att in Attitude.base_attitudes():
-                points = _aggregate_points_for_family(
-                    X_pca_combined, labels_all, game_mask,
-                    genes_for_game, model, base_att,
-                )
-                if len(points) == 0:
-                    continue
-                marker = attitude_markers[base_att]
-                ax.scatter(points[:, 0], points[:, 1],
-                           alpha=0.5, s=10, color=color, marker=marker)
-                mean_pt = points.mean(axis=0)
-                ax.scatter(mean_pt[0], mean_pt[1],
-                           marker=marker, s=70, color=color, alpha=0.7,
-                           edgecolors='black', linewidths=1.5, zorder=5)
-                if len(points) > 2:
-                    cov = np.cov(points.T)
-                    plot_covariance_ellipse(
-                        ax, mean_pt, cov, n_std=1.0,
-                        facecolor=color, alpha=0.45,
-                        edgecolor=color, linewidth=1.5,
-                    )
+    # Single two-row legend: row 1 = models, row 2 = attitudes.
+    # Matplotlib fills legends column-major (down, then across), so with
+    # ncol = n_models we interleave (model_i, attitude_or_blank_i) pairs.
+    model_handles = [plt.Line2D([0], [0], color=model_colors[m], lw=2,
+                                label=pretty_model(m)) for m in models]
+    attitude_handles = [plt.Line2D([0], [0], color='gray', lw=2, linestyle=ls,
+                                   label=att.value.capitalize())
+                        for att, ls in linestyles.items()]
+    blank = lambda: plt.Line2D([0], [0], color='none', label=' ')
 
-        if args.plot_baselines:
-            plot_baselines(ax, baseline_pca, baseline_labels, marker_size=60)
-        ax.set_title(pretty_model(model))
-        # if col == 0:
-        #     ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})')
-        # if row == n_rows - 1:
-        #     ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})')
-    fig.supxlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})', y=0.05)
-    fig.supylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})', x=0.04)
+    n_cols = max(len(model_handles), len(attitude_handles))
+    model_handles += [blank() for _ in range(n_cols - len(model_handles))]
+    attitude_handles += [blank() for _ in range(n_cols - len(attitude_handles))]
+    interleaved = [h for pair in zip(model_handles, attitude_handles)
+                   for h in pair]
 
-    for idx in range(n_models, n_rows * n_cols):
-        row, col = divmod(idx, n_cols)
-        axes[row, col].set_visible(False)
+    fig.legend(handles=interleaved, loc='outside upper center',
+               frameon=False, ncol=n_cols, borderpad=0, borderaxespad=0.3)
 
-    # Pad shared axes once
-    if args.plot_baselines:
-        ax0 = axes[0, 0]
-        xlim = ax0.get_xlim()
-        ylim = ax0.get_ylim()
-        x_pad_0 = 0.05 * (xlim[1] - xlim[0])
-        x_pad_1 = 0.09 * (xlim[1] - xlim[0])
-        y_pad = 0.03 * (ylim[1] - ylim[0])
-        ax0.set_xlim(xlim[0] - x_pad_0, xlim[1] + x_pad_1)
-        ax0.set_ylim(ylim[0] - y_pad, ylim[1] + y_pad)
-
-    legend_handles = []
-    for game in games:
-        legend_handles.append(plt.Line2D(
-            [0], [0], marker='o', color='w',
-            markerfacecolor=game_colors[game], markersize=10,
-            label=GAME_MAPPING[game],
-        ))
-    legend_handles.append(plt.Line2D([0], [0], marker='o', color='gray',
-                                     markersize=8, label='Collective'))
-    legend_handles.append(plt.Line2D([0], [0], marker='s', color='gray',
-                                     markersize=8, label='Selfish'))
-
-    ncol = len(games) + 2
-    fig.legend(handles=legend_handles, loc='upper center', frameon=False,
-               bbox_to_anchor=(0.5, 1.02),
-               ncol=ncol, columnspacing=0.6, handletextpad=0.5)
-
-    top = _legend_top_reservation(len(legend_handles), ncol)
-    plt.tight_layout(rect=[0, 0, 1, top])
-    plt.savefig(output_dir / f"pca_by_model.{FORMAT}",
-                format=FORMAT, bbox_inches='tight')
+    out_path = output_dir / f"per_round_cooperation.{FORMAT}"
+    plt.savefig(out_path, format=FORMAT)
     plt.close()
+    logger.info(f"Saved {out_path}")
 
 
 # =============================================================================
@@ -1223,20 +933,14 @@ def find_centroid_strategies(X, labels, game_labels, pca_data, games):
         metadata = pca_data[game_name]['metadata']
         X_game = X[mask]
         labels_game = labels[mask]
-        game_indices = np.where(mask)[0]
 
-        models = sorted(set(g.model for g in genes))
-        for model in models:
+        for model in sorted(set(g.model for g in genes)):
             for base_att in Attitude.base_attitudes():
-                matching_genes = [
-                    g for g in genes
+                gene_strs = [
+                    str(g) for g in genes
                     if g.model == model
                     and g.attitude.to_base_attitude() == base_att
                 ]
-                if not matching_genes:
-                    continue
-
-                gene_strs = [str(g) for g in matching_genes]
                 gene_mask = np.isin(labels_game, gene_strs)
                 X_group = X_game[gene_mask]
                 if len(X_group) == 0:
@@ -1246,14 +950,13 @@ def find_centroid_strategies(X, labels, game_labels, pca_data, games):
                 dists = cdist(centroid, X_group, metric='euclidean')[0]
                 local_idx = np.argmin(dists)
 
-                game_local_indices = np.where(gene_mask)[0]
-                metadata_idx = game_local_indices[local_idx]
+                metadata_idx = np.where(gene_mask)[0][local_idx]
                 gene, strategy_name, feature_dict = metadata[metadata_idx]
-                coop_rate = weighted_coop(feature_dict)
                 logger.info(
                     f"    {model}/{base_att.value} "
                     f"(actual: {gene}): {strategy_name} "
-                    f"(dist={dists[local_idx]:.3f}, coop={coop_rate:.2%})"
+                    f"(dist={dists[local_idx]:.3f}, "
+                    f"coop={weighted_coop(feature_dict):.2%})"
                 )
 
 
@@ -1287,13 +990,12 @@ def find_extrema(X_pca, metadata):
         logger.info(f"  Gene: {gene}")
         logger.info(f"  Strategy: {strategy_name}")
         logger.info(f"  PC1: {X_pca[idx, 0]:.3f}, PC2: {X_pca[idx, 1]:.3f}")
-        coop_rate = weighted_coop(feature_dict)
-        logger.info(f"  Overall cooperation rate: {coop_rate:.2%}")
+        logger.info(f"  Overall cooperation rate: {weighted_coop(feature_dict):.2%}")
     return results
 
 
 def plot_extrema(extrema_info, ax):
-    for position, info in extrema_info.items():
+    for info in extrema_info.values():
         ax.annotate(f"{info['strategy']}\n({info['gene']})",
                     xy=info['coords'], xytext=(10, 10),
                     textcoords='offset points',
@@ -1303,29 +1005,37 @@ def plot_extrema(extrema_info, ax):
                                     connectionstyle='arc3,rad=0', lw=1.5),
                     fontsize=8, zorder=10)
 
-
 # =============================================================================
 # MAIN
 # =============================================================================
+
+
+def log_df(df: pd.DataFrame, float_format: str):
+    with pd.option_context('display.max_rows', None,
+                           'display.max_columns', None,
+                           'display.width', 200,
+                           'display.float_format', float_format.format):
+        logger.info("\n" + df.to_string())
+
+
+def log_section(title: str):
+    logger.info(f"\n{'='*60}\n{title}\n{'='*60}")
+
 
 if __name__ == "__main__":
     args = parse_args()
     output_dir = get_output_dir(args)
 
-    log_file = output_dir / "logs" / "diversity.log"
-    setup_logging(log_file, args.log_level)
+    setup_logging(output_dir / "logs" / "diversity.log", args.log_level)
     logger = logging.getLogger(__name__)
 
     logger.info(f"Running diversity.py for games: {args.games}")
 
     # Globals shared across all games
     n_opponents = args.n_players - 1
-    unique_combos: tuple[CooperatorCounts] = tuple(
-        combo for combo, _ in make_fixed_opponents(n_opponents, args.n_rounds)
-    )
-    fixed_opponents: tuple[tuple[SimplePlayer]] = tuple(
-        opponents for _, opponents in make_fixed_opponents(n_opponents, args.n_rounds)
-    )
+    fixed = list(make_fixed_opponents(n_opponents, args.n_rounds))
+    unique_combos: tuple[CooperatorCounts] = tuple(combo for combo, _ in fixed)
+    fixed_opponents: tuple[tuple[SimplePlayer]] = tuple(opps for _, opps in fixed)
     FEATURE_KEYS = build_feature_keys(unique_combos, args.n_rounds)
     SQRT_W = feature_sqrt_weights(FEATURE_KEYS, args.n_rounds, n_opponents,
                                   args.weighting)
@@ -1343,7 +1053,7 @@ if __name__ == "__main__":
         registry = StrategyRegistry(strategies_dir=args.strategies_dir,
                                     game_name=game_name,
                                     models=args.models)
-        genes = sorted(list(registry.available_genes), key=str)
+        genes = sorted(registry.available_genes, key=str)
         results_dict = {}
 
         for gene in genes:
@@ -1354,10 +1064,9 @@ if __name__ == "__main__":
                     continue
 
             all_specs = registry.get_all_specs(gene)
-            n_strategies = len(all_specs) if args.n_strategies is None else min(
-                len(all_specs), args.n_strategies)
+            n_strategies = (len(all_specs) if args.n_strategies is None
+                            else min(len(all_specs), args.n_strategies))
             chunks = chunk_indices(n_strategies, args.n_processes)
-
             logger.info(
                 f"Computing {n_strategies} strategies for {gene} in {len(chunks)} chunks"
             )
@@ -1368,12 +1077,11 @@ if __name__ == "__main__":
                 with Pool(processes=args.n_processes) as pool:
                     chunk_results = pool.map(compute_strategy_chunk, chunks)
 
-            # Aggregate results
-            strategy_features = {}
-            for chunk_result in chunk_results:
-                for strategy_name, features in chunk_result:
-                    strategy_features[strategy_name] = features
-
+            strategy_features = {
+                strategy_name: features
+                for chunk_result in chunk_results
+                for strategy_name, features in chunk_result
+            }
             save_features(strategy_features, game_name, gene, args)
             results_dict[gene] = strategy_features
 
@@ -1381,9 +1089,7 @@ if __name__ == "__main__":
                     f"{sum(len(v) for v in results_dict.values())} strategies "
                     f"in total for {game_name}")
 
-        X_game = []
-        labels_game = []
-        metadata_game = []
+        X_game, labels_game, metadata_game = [], [], []
         for gene, strategy_features in results_dict.items():
             for strategy_name, feature_dict in strategy_features.items():
                 X_game.append([feature_dict[k] for k in FEATURE_KEYS])
@@ -1400,16 +1106,18 @@ if __name__ == "__main__":
     # ==========================================================================
     # PHASE 2: Baselines
     # ==========================================================================
-    logger.info(f"\n{'='*60}\nCOMPUTING BASELINES\n{'='*60}")
+    log_section("COMPUTING BASELINES")
     game_class, _ = get_game_type(args.games[0])
     description = STANDARD_GENERATORS[args.games[0] + "_default"](
         n_players=args.n_players, n_rounds=args.n_rounds)
 
-    baseline_features = compute_baselines(args.n_players, args.n_rounds)
+    baseline_features = compute_baselines(args.n_players)
     baseline_labels = list(baseline_features.keys()) + ['Rnd']
-    baseline_X = [[d[k] for k in FEATURE_KEYS] for d in baseline_features.values()]
     n_features = len(FEATURE_KEYS)
-    baseline_X = np.array(baseline_X + [[0.5] * n_features]) * SQRT_W
+    baseline_X = np.array(
+        [[d[k] for k in FEATURE_KEYS] for d in baseline_features.values()]
+        + [[0.5] * n_features]
+    ) * SQRT_W
 
     logger.info(
         f"Features: {len(unique_combos)} unique opponent action combinations "
@@ -1420,7 +1128,7 @@ if __name__ == "__main__":
     # ==========================================================================
     # PHASE 3: PCA on all data
     # ==========================================================================
-    logger.info(f"\n{'='*60}\nCOMBINED PCA (fitted on all attitudes)\n{'='*60}")
+    log_section("COMBINED PCA (fitted on all attitudes)")
 
     X_all = np.vstack([pca_data[g]['X'] for g in args.games]) * SQRT_W
     labels_all = np.concatenate([pca_data[g]['labels'] for g in args.games])
@@ -1430,117 +1138,33 @@ if __name__ == "__main__":
     pca_combined, X_pca_combined = fit_pca_on_all(X_all)
     baseline_pca_combined = pca_combined.transform(baseline_X)
 
-    random_baseline_dist = compute_random_baseline_distance(X_all.shape[1])
-
-    # Scree plot
-    cumulative = np.cumsum(pca_combined.explained_variance_ratio_)
-    plt.figure()
-    plt.plot(range(1, len(cumulative) + 1), cumulative, 'o-')
-    plt.axhline(y=0.9, color='r', linestyle='--', label='90% threshold')
-    plt.xlabel('Component')
-    plt.ylabel('Cumulative Explained Variance')
-    plt.title('Combined PCA Scree Plot')
-    plt.legend()
-    plt.savefig(output_dir / f"scree_combined.{FORMAT}", format=FORMAT)
-    plt.close()
-
-    # Shared axis limits across individual game plots
-    all_xy = np.vstack([X_pca_combined[:, :2], baseline_pca_combined[:, :2]])
-    x_min, x_max = all_xy[:, 0].min(), all_xy[:, 0].max()
-    y_min, y_max = all_xy[:, 1].min(), all_xy[:, 1].max()
-    if args.plot_baselines:
-        x_pad_0 = 0.12 * (x_max - x_min)
-        x_pad_1 = 0.08 * (x_max - x_min)
-        y_pad_0 = 0.05 * (y_max - y_min)
-        y_pad_1 = 0.05 * (y_max - y_min)
-    else:
-        x_pad_0 = 0
-        x_pad_1 = 0
-        y_pad_0 = 0
-        y_pad_1 = 0
-    shared_xlim = (x_min - x_pad_0, x_max + x_pad_1)
-    shared_ylim = (y_min - y_pad_0, y_max + y_pad_1)
-
-
-    # Per-game plots
-    for game_name in args.games:
-        mask = game_labels == game_name
-        genes = pca_data[game_name]['genes']
-        metadata = pca_data[game_name]['metadata']
-
-        fig, axes = plt.subplots(1, 2, figsize=FIGSIZE, sharex=True, sharey=True)
-        handles = plot_pca_single_game(
-            axes, X_pca_combined, labels_all, mask, genes,
-            baseline_pca_combined, baseline_labels, pca_combined,
-        )
-
-        # Apply shared limits (sharex/sharey propagates from axes[0])
-        axes[0].set_xlim(shared_xlim)
-        axes[0].set_ylim(shared_ylim)
-
-        if args.plot_extrema:
-            X_pca_game = X_pca_combined[mask]
-            extrema_info = find_extrema(X_pca_game, metadata)
-            # Route each extremum to its attitude's column
-            for position, info in extrema_info.items():
-                gene_obj, _, _ = metadata[info['idx']]
-                col = 0 if gene_obj.attitude.to_base_attitude() == Attitude.COLLECTIVE else 1
-                plot_extrema({position: info}, axes[col])
-
-        fig.supxlabel(f'PC1 ({pca_combined.explained_variance_ratio_[0]:.1%})', y=0.09)
-        fig.supylabel(f'PC2 ({pca_combined.explained_variance_ratio_[1]:.1%})', x=0.06)
-        fig.legend(handles=handles, loc='upper center', frameon=False,
-                   bbox_to_anchor=(0.5, 1.05),
-                   ncol=min(len(handles), 4))
-
-        plt.tight_layout(w_pad=0.07, h_pad=0.07)
-        plt.savefig(output_dir / f"pca_{game_name}.{FORMAT}",
-                    format=FORMAT)
-        plt.close()
-
-
-    # Combined 2x3 grid plot (attitudes × games)
     plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels,
                      baseline_pca_combined, baseline_labels, args.games,
                      pca_combined, output_dir)
 
-    plot_pca_by_model(pca_data, X_pca_combined, labels_all, game_labels,
-                      baseline_pca_combined, baseline_labels, args.games,
-                      pca_combined, output_dir)
-
     # ==========================================================================
-    # PHASE 4: Main metrics table
+    # PHASE 4: Per-round cooperation
     # ==========================================================================
-    logger.info(f"\n{'='*60}\nMAIN METRICS (aggregated by base family)\n{'='*60}")
-
-    # Per-round cooperation per gene × game
-    logger.info(f"\n{'='*60}\nPER-ROUND COOPERATION\n{'='*60}")
+    log_section("PER-ROUND COOPERATION")
     df_rounds = build_per_round_cooperation_df(pca_data, args.games, args.n_rounds)
-    with pd.option_context('display.max_rows', None, 'display.width', 200,
-                           'display.float_format', '{:.3f}'.format):
-        logger.info("\n" + df_rounds.to_string())
+    log_df(df_rounds, '{:.3f}')
     df_rounds.to_csv(output_dir / "per_round_cooperation.csv")
     plot_per_round_cooperation(df_rounds, args.games, args.n_rounds, output_dir)
 
-    df_main = build_main_dataframe(
-        X_all, labels_all, game_labels, pca_data,
-        args.games, random_baseline_dist,
-    )
+    # ==========================================================================
+    # PHASE 5: Main metrics table
+    # ==========================================================================
+    log_section("MAIN METRICS (aggregated by base family)")
+    df_main = build_main_dataframe(X_all, labels_all, game_labels, pca_data,
+                                   args.games)
     if not df_main.empty:
-        with pd.option_context('display.max_rows', None,
-                               'display.max_columns', None,
-                               'display.width', 200,
-                               'display.float_format', '{:.2f}'.format):
-            logger.info("\n" + df_main.to_string())
+        log_df(df_main, '{:.2f}')
         df_main.to_csv(output_dir / "main_metrics.csv")
         write_main_latex(df_main, output_dir / "main_metrics.tex")
 
-    # Variance explained by game membership (per model)
-    logger.info(f"\n{'='*60}\nVARIANCE EXPLAINED BY GAME MEMBERSHIP\n{'='*60}")
-    all_genes_flat = []
-    for g in args.games:
-        all_genes_flat.extend(pca_data[g]['genes'])
-    models_all = sorted(set(g.model for g in all_genes_flat))
+    log_section("VARIANCE EXPLAINED BY GAME MEMBERSHIP")
+    models_all = sorted(set(g.model for game in args.games
+                            for g in pca_data[game]['genes']))
     for model in models_all:
         model_mask = np.array([label.startswith(f"{model}[")
                                for label in labels_all])
@@ -1550,22 +1174,18 @@ if __name__ == "__main__":
                                                  game_labels[model_mask])
         logger.info(f"  {pretty_model(model)}: η² = {eta_sq:.3f}")
 
-    logger.info(f"\n{'='*60}\nCENTROID-NEAREST STRATEGIES\n{'='*60}")
+    log_section("CENTROID-NEAREST STRATEGIES")
     find_centroid_strategies(X_all, labels_all, game_labels, pca_data, args.games)
 
     # ==========================================================================
-    # PHASE 5: Appendix synonym comparison
+    # PHASE 6: Appendix synonym comparison
     # ==========================================================================
-    logger.info(f"\n{'='*60}\nAPPENDIX: SYNONYM PLACEMENT\n{'='*60}")
+    log_section("APPENDIX: SYNONYM PLACEMENT")
     df_appendix = build_appendix_dataframe(
         X_all, labels_all, game_labels, pca_data, args.games,
     )
     if not df_appendix.empty:
-        with pd.option_context('display.max_rows', None,
-                               'display.max_columns', None,
-                               'display.width', 200,
-                               'display.float_format', '{:.2f}'.format):
-            logger.info("\n" + df_appendix.to_string())
+        log_df(df_appendix, '{:.2f}')
         df_appendix.to_csv(output_dir / "appendix_synonyms.csv")
         write_appendix_latex(df_appendix, output_dir / "appendix_synonyms.tex")
     else:
