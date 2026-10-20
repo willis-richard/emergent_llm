@@ -12,6 +12,10 @@ be read off directly. Round labels differ by condition — 1-based for
 descriptions, 0-based for code — because the descriptions were generated against
 the old 1-based convention. This is a known, unavoidable confound.
 
+For common_pool the stock each strategy was passed is recorded during the
+algorithm's play and shown to the model in both conditions (per past round in
+the history, and for the current round).
+
 Strategies must be proved deterministic by a prior diversity.py sweep at exactly
 these parameters; there is no live determinism check and no fallback.
 
@@ -69,6 +73,18 @@ EPISODE_KEYS = ["strategy_class", "trajectory"]
 TAGS = {"description": "desc", "code": "code"}
 
 
+class StockRecorder(LLMPlayer):
+    """Records the stock passed to the strategy each round (common_pool)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.stocks: list[float] = []
+
+    def __call__(self, history, current_stock=None):
+        self.stocks.append(current_stock)
+        return super().__call__(history, current_stock)
+
+
 class ParseFailure(Exception):
     """Model output could not be parsed after all retries."""
 
@@ -103,9 +119,8 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
 
     parser.add_argument("--game", default="public_goods",
-                        choices=["public_goods", "collective_risk"],
-                        help="common_pool is unsupported: it exposes stock to "
-                             "strategies, which this harness does not render")
+                        choices=["public_goods", "collective_risk",
+                                 "common_pool"])
     parser.add_argument("--strategy_model", required=True,
                         help="Model whose strategies/descriptions are loaded")
     parser.add_argument("--inference_model", default=None,
@@ -437,8 +452,8 @@ def play_algorithm(pair: StrategyPair, game_name: str, description,
                    combo: tuple[int, ...]):
     """Run the implementation against one trajectory.
 
-    Returns (my_actions, my_payoffs, opponent_cooperators) as full-length
-    arrays; prompt histories are prefix slices of these. Opponents are
+    Returns (my_actions, my_payoffs, opponent_cooperators, stocks) as
+    full-length arrays (stocks is None for games without stock); prompt histories are prefix slices of these. Opponents are
     non-reactive, so the prefixes are exactly what the strategy saw live.
 
     Called once per episode and shared by every source condition, so the
@@ -450,7 +465,7 @@ def play_algorithm(pair: StrategyPair, game_name: str, description,
     opponents = [SimplePlayer(f"opp_{i}", FixedCooperatorCount(i, counts))
                  for i in range(n_opponents)]
 
-    player = LLMPlayer("focal", pair.gene, description, pair.strategy_class,
+    player = StockRecorder("focal", pair.gene, description, pair.strategy_class,
                        max_errors=0)
     history = game_class([player] + opponents, description).play_game().history
 
@@ -461,7 +476,11 @@ def play_algorithm(pair: StrategyPair, game_name: str, description,
 
     if tuple(int(c) for c in opponent_cooperators[:len(combo)]) != combo:
         raise RuntimeError("trajectory not reproduced by the game engine")
-    return my_actions, my_payoffs, opponent_cooperators
+    stocks = (np.array(player.stocks, dtype=float)
+              if description.has_stock() else None)
+    if stocks is not None and len(stocks) != len(my_actions):
+        raise RuntimeError("stock not recorded every round")
+    return my_actions, my_payoffs, opponent_cooperators, stocks
 
 
 # =============================================================================
@@ -526,7 +545,7 @@ def ask_round(config, args, query_logger, header, system_prompt, user_prompt):
 
 def run_episode(episode: int, pair: StrategyPair, combo, source: str, args,
                 config, description, played, query_logger) -> pd.DataFrame:
-    my_actions, my_payoffs, opponent_cooperators = played
+    my_actions, my_payoffs, opponent_cooperators, stocks = played
     strategy_text = pair.text_for(source)
     system_prompt = create_replication_system_prompt(source)
     trajectory = trajectory_key(combo)
@@ -541,6 +560,7 @@ def run_episode(episode: int, pair: StrategyPair, combo, source: str, args,
             my_actions=my_actions,
             my_payoffs=my_payoffs,
             opponent_cooperators=opponent_cooperators,
+            stocks=stocks,
             n_played=round_index,
             history_format=args.history_format,
             include_derived=args.include_derived,
@@ -572,6 +592,8 @@ def run_episode(episode: int, pair: StrategyPair, combo, source: str, args,
             "round": round_index,
             "opp_coops_prev": (int(opponent_cooperators[round_index - 1])
                                if round_index else None),
+            "stock": (round(float(stocks[round_index]), 4)
+                      if stocks is not None else None),
             "algo": algo_action,
             "llm": action,
             "match": action == algo_action,

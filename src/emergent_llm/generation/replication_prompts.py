@@ -56,18 +56,29 @@ def fence(body: str, tag: str = STRATEGY_TAG) -> str:
 # =============================================================================
 
 
+def _fmt_stock(value: float) -> float:
+    return round(float(value), 4)
+
+
 def _round_records(my_actions: np.ndarray,
                    my_payoffs: np.ndarray,
                    opponent_cooperators: np.ndarray,
                    n_played: int,
                    base: int,
-                   include_derived: bool) -> list[dict]:
-    """One record per completed round, in the order they were played."""
+                   include_derived: bool,
+                   stocks: np.ndarray | None = None) -> list[dict]:
+    """One record per completed round, in the order they were played.
+
+    `stock` (common_pool only) is the stock at the start of that round, i.e.
+    the value the strategy was passed as `current_stock`.
+    """
     records = []
     for j in range(n_played):
         cooperated = bool(my_actions[j])
-        record = {
-            "round": j + base,
+        record = {"round": j + base}
+        if stocks is not None:
+            record["stock"] = _fmt_stock(stocks[j])
+        record |= {
             "my_action": "C" if cooperated else "D",
             "opponent_cooperators": int(opponent_cooperators[j]),
             "my_payoff": round(float(my_payoffs[j]), 4),
@@ -120,11 +131,12 @@ def render_history(my_actions: np.ndarray,
                    n_played: int,
                    base: int,
                    history_format: str,
-                   include_derived: bool) -> str:
+                   include_derived: bool,
+                   stocks: np.ndarray | None = None) -> str:
     if n_played == 0:
         return "No rounds have been played yet."
     records = _round_records(my_actions, my_payoffs, opponent_cooperators,
-                             n_played, base, include_derived)
+                             n_played, base, include_derived, stocks)
     return _RENDERERS[history_format](records)
 
 
@@ -146,8 +158,18 @@ def render_summary(my_actions: np.ndarray,
     ])
 
 
-def render_round_header(n_played: int, n_rounds: int, source: str) -> str:
+def render_round_header(n_played: int, n_rounds: int, source: str,
+                        current_stock: float | None = None) -> str:
     """`n_played` is the 0-indexed round about to be played."""
+    header = _round_position(n_played, n_rounds, source)
+    if current_stock is None:
+        return header
+    if source == "code":
+        return header + f" current_stock == {_fmt_stock(current_stock)}."
+    return header + f" The current stock is {_fmt_stock(current_stock)}."
+
+
+def _round_position(n_played: int, n_rounds: int, source: str) -> str:
     remaining = n_rounds - n_played - 1
 
     if source == "code":
@@ -234,6 +256,7 @@ def create_replication_user_prompt(
     n_played: int,
     history_format: str,
     include_derived: bool,
+    stocks: np.ndarray | None = None,
 ) -> str:
     n_players = game_description.n_players
     n_rounds = game_description.n_rounds
@@ -253,6 +276,12 @@ def create_replication_user_prompt(
         f"{n_opponents}.",
         "",
     ]
+    if stocks is not None:
+        blocks += [
+            "In the history, `stock` is the common pool stock at the start of "
+            "that round, before anyone consumed from it.",
+            "",
+        ]
 
     if source == "code":
         blocks += [
@@ -273,7 +302,8 @@ def create_replication_user_prompt(
     blocks += [
         "HISTORY SO FAR",
         render_history(my_actions, my_payoffs, opponent_cooperators,
-                       n_played, base, history_format, include_derived),
+                       n_played, base, history_format, include_derived,
+                       stocks),
         "",
     ]
 
@@ -286,7 +316,8 @@ def create_replication_user_prompt(
 
     blocks += [
         "CURRENT ROUND",
-        render_round_header(n_played, n_rounds, source),
+        render_round_header(n_played, n_rounds, source,
+                            None if stocks is None else stocks[n_played]),
         "",
         "What action does the strategy prescribe for this round?"
         if source == "description" else
