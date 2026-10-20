@@ -2,20 +2,20 @@
 import importlib.util
 import inspect
 import logging
-import random
 from pathlib import Path
+import random
 
-from emergent_llm.common import Attitude, Gene
-from emergent_llm.players import BaseStrategy, StrategySpec
+from emergent_llm.common import Attitude
+from emergent_llm.common import Gene
+from emergent_llm.players import BaseStrategy
+from emergent_llm.players import StrategySpec
+
 from .create_strategies import make_safe
 
 
 class StrategyRegistry:
 
-    def __init__(self,
-                 strategies_dir: Path,
-                 game_name: str,
-                 models: list[str] | None = None):
+    def __init__(self, strategies_dir: Path, game_name: str, models: list[str] | None = None):
         """
         Args:
             strategies_dir: Base directory containing strategy files
@@ -37,8 +37,7 @@ class StrategyRegistry:
     def _load_all_strategies(self):
         """Load all strategy files in the game directory."""
         for strategy_file in self.game_dir.glob("*.py"):
-            if "description" in strategy_file.name or strategy_file.name.startswith(
-                    "__"):
+            if "description" in strategy_file.name or strategy_file.name.startswith("__"):
                 continue
 
             # Filter by model if specified
@@ -48,8 +47,7 @@ class StrategyRegistry:
             try:
                 specs = self._load_specs_from_file(strategy_file)
             except Exception as exc:
-                logging.warning("Skipping invalid strategy file %s: %s",
-                                strategy_file, exc)
+                logging.warning("Skipping invalid strategy file %s: %s", strategy_file, exc)
                 continue
 
             # Group by gene
@@ -88,14 +86,11 @@ class StrategyRegistry:
 
         return [
             cls for name, cls in inspect.getmembers(module)
-            if inspect.isclass(cls) and issubclass(cls, BaseStrategy) and
-            cls != BaseStrategy
+            if inspect.isclass(cls) and issubclass(cls, BaseStrategy) and cls != BaseStrategy
         ]
 
     @classmethod
-    def load_file(
-            cls,
-            filepath: Path) -> tuple[list[StrategySpec], list[StrategySpec]]:
+    def load_file(cls, filepath: Path) -> tuple[list[StrategySpec], list[StrategySpec]]:
         """
         Load strategies from a single file, split by attitude.
 
@@ -109,13 +104,9 @@ class StrategyRegistry:
         all_specs = cls._load_specs_from_file(safe_filepath)
 
         collective = [
-            s for s in all_specs
-            if s.gene.attitude.to_base_attitude() == Attitude.COLLECTIVE
+            s for s in all_specs if s.gene.attitude.to_base_attitude() == Attitude.COLLECTIVE
         ]
-        selfish = [
-            s for s in all_specs
-            if s.gene.attitude.to_base_attitude() == Attitude.SELFISH
-        ]
+        selfish = [s for s in all_specs if s.gene.attitude.to_base_attitude() == Attitude.SELFISH]
 
         return collective, selfish
 

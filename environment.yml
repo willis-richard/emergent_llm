@@ -1,6 +1,7 @@
 name: emergent_llm
 channels:
   - conda-forge
+  - nodefaults
 dependencies:
   - python=3.11
   - numpy
@@ -8,34 +9,17 @@ dependencies:
   - scikit-learn
   - matplotlib
   - seaborn
-  - jupyter
+  - ipykernel
   - openai
   - anthropic
   - transformers
-  - pytest
   - tqdm
   - pathos
   - pyyaml
   - python-dotenv
-  - ollama
   - ollama-python
   - google-genai
-  - json-rpc
-
-  # dev packages
-  - autoflake
-  - epc
-  - isort
-  - jedi>=0.18.0
-  - mypy
-  - pandas-stubs
-  - ptvsd>=4.2
-  - pylint
-  - yapf
 
   - pip
   - pip:
-    - -e .  # Install this package in development mode
-
-    # dev packages
-    - importmagic
+    - -e .

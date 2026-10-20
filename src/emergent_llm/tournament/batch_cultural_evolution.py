@@ -1,13 +1,14 @@
 """Batch cultural evolution tournament with incremental saving."""
 import logging
-import signal
 from multiprocessing import Pool
 from pathlib import Path
+import signal
 
 from emergent_llm.generation import StrategyRegistry
 from emergent_llm.tournament.configs import BatchCulturalEvolutionConfig
 from emergent_llm.tournament.cultural_evolution import CulturalEvolution
-from emergent_llm.tournament.results import BatchCulturalEvolutionResults, CulturalEvolutionResults
+from emergent_llm.tournament.results import BatchCulturalEvolutionResults
+from emergent_llm.tournament.results import CulturalEvolutionResults
 
 
 def _get_run_dir(output_dir: Path, run_id: int) -> Path:
@@ -60,9 +61,8 @@ class BatchCulturalEvolution:
         completed = self._get_completed_runs()
         pending = [i for i in range(self.config.n_runs) if i not in completed]
 
-        self.logger.info(
-            f"Batch status: {len(completed)}/{self.config.n_runs} complete, "
-            f"{len(pending)} pending")
+        self.logger.info(f"Batch status: {len(completed)}/{self.config.n_runs} complete, "
+                         f"{len(pending)} pending")
 
         if not pending:
             self.logger.info("All runs already completed, loading results")
@@ -84,15 +84,12 @@ class BatchCulturalEvolution:
                     CulturalEvolutionResults.load(run_dir)
                     completed.add(run_id)
                 except Exception as e:
-                    self.logger.warning(
-                        f"Run {run_id} dir exists but invalid: {e}")
+                    self.logger.warning(f"Run {run_id} dir exists but invalid: {e}")
         return completed
 
     def _run_pending(self, pending: list[int], completed: set[int]):
         """Run pending experiments in parallel."""
-        self.logger.info(
-            f"Starting {len(pending)} runs with {self.config.n_processes} processes"
-        )
+        self.logger.info(f"Starting {len(pending)} runs with {self.config.n_processes} processes")
 
         with Pool(self.config.n_processes, initializer=_worker_init) as pool:
             try:

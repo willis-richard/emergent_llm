@@ -1,5 +1,6 @@
 """Game history classes for tournament and player use."""
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from dataclasses import field
 
 import numpy as np
 from numpy.typing import NDArray
@@ -17,8 +18,8 @@ class PlayerHistory:
 
     On round 0, all arrays have length 0 (not None).
     """
-    my_actions: NDArray[np.bool_]           # [round] — this player's actions
-    my_payoffs: NDArray[np.float64]         # [round] — this player's payoffs
+    my_actions: NDArray[np.bool_]  # [round] — this player's actions
+    my_payoffs: NDArray[np.float64]  # [round] — this player's payoffs
     opponent_cooperators: NDArray[np.int_]  # [round] — count of cooperating opponents
 
     def __post_init__(self):
@@ -55,9 +56,7 @@ class GameHistory:
         self.payoffs = np.zeros((self.n_rounds, self.n_players), dtype=np.float64)
         self._round_coop_counts = np.zeros(self.n_rounds, dtype=np.int_)
 
-    def record(self,
-               actions_row: NDArray[np.bool_],
-               payoffs_row: NDArray[np.float64]) -> None:
+    def record(self, actions_row: NDArray[np.bool_], payoffs_row: NDArray[np.float64]) -> None:
         """Write the next round's results."""
         r = self.round_number
         assert r < self.n_rounds, f"Game already complete"

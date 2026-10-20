@@ -3,34 +3,30 @@ from .base_tournament import BaseTournament
 from .batch_cultural_evolution import BatchCulturalEvolution
 from .batch_fair_tournament import BatchFairTournament
 from .batch_mixture_tournament import BatchMixtureTournament
-from .configs import (
-    BaseTournamentConfig,
-    BatchCulturalEvolutionConfig,
-    BatchTournamentConfig,
-    CulturalEvolutionConfig,
-    MixtureKey,
-    OutputStyle,
-    POOL_SEPARATOR,
-)
+from .configs import BaseTournamentConfig
+from .configs import BatchCulturalEvolutionConfig
+from .configs import BatchTournamentConfig
+from .configs import CulturalEvolutionConfig
+from .configs import MixtureKey
+from .configs import OutputStyle
+from .configs import POOL_SEPARATOR
 from .cultural_evolution import CulturalEvolution
 from .fair_tournament import FairTournament
 from .mixture_tournament import MixtureTournament
-from .results import (
-    BatchCulturalEvolutionResults,
-    BatchFairTournamentResults,
-    BatchMixtureTournamentResults,
-    CulturalEvolutionResults,
-    CulturalEvolutionSummary,
-    FairTournamentResults,
-    FairTournamentSummary,
-    MatchResult,
-    MixtureResult,
-    MixtureTournamentResults,
-    MixtureTournamentSummary,
-    PlayerStats,
-    collapse_to_base,
-    pretty_model,
-)
+from .results import BatchCulturalEvolutionResults
+from .results import BatchFairTournamentResults
+from .results import BatchMixtureTournamentResults
+from .results import collapse_to_base
+from .results import CulturalEvolutionResults
+from .results import CulturalEvolutionSummary
+from .results import FairTournamentResults
+from .results import FairTournamentSummary
+from .results import MatchResult
+from .results import MixtureResult
+from .results import MixtureTournamentResults
+from .results import MixtureTournamentSummary
+from .results import PlayerStats
+from .results import pretty_model
 
 __all__ = [
     'BaseTournament',

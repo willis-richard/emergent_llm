@@ -1,6 +1,7 @@
 import matplotlib
 import matplotlib.pyplot as plt
 
+
 def setup(configuration: str) -> tuple[tuple[float, float], str, float]:
     matplotlib.use('Agg')
     royal_width = 384.1122 / 72.27
@@ -38,7 +39,7 @@ def setup(configuration: str) -> tuple[tuple[float, float], str, float]:
         'ytick.labelsize': 'small',
         'legend.fontsize': 'medium',
         'legend.columnspacing': 0.3,
-        'legend.handletextpad' : 0.1,
+        'legend.handletextpad': 0.1,
         'lines.markersize': SIZE / 4,
         'axes.linewidth': 0.5,
         'savefig.bbox': 'tight',
@@ -48,11 +49,11 @@ def setup(configuration: str) -> tuple[tuple[float, float], str, float]:
 
     if 'royal' in configuration:
         plt.rcParams.update({
-            'ps.fonttype': 42,          # no Type 3 fonts
+            'ps.fonttype': 42,  # no Type 3 fonts
             'pdf.fonttype': 42,
             'font.family': 'serif',
             'font.serif': ['Times New Roman', 'Times', 'STIXGeneral'],
-            'mathtext.fontset': 'stix', # Times-like maths
+            'mathtext.fontset': 'stix',  # Times-like maths
             "savefig.dpi": 600,
         })
 

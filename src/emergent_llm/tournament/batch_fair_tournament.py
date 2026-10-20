@@ -3,24 +3,23 @@ import logging
 from pathlib import Path
 
 from emergent_llm.players import StrategySpec
-from emergent_llm.tournament.configs import BaseTournamentConfig, BatchTournamentConfig
+from emergent_llm.tournament.configs import BaseTournamentConfig
+from emergent_llm.tournament.configs import BatchTournamentConfig
 from emergent_llm.tournament.fair_tournament import FairTournament
-from emergent_llm.tournament.results import BatchFairTournamentResults, FairTournamentResults
+from emergent_llm.tournament.results import BatchFairTournamentResults
+from emergent_llm.tournament.results import FairTournamentResults
 
 
 class BatchFairTournament:
     """Tournament that tests strategy generalization across multiple group sizes."""
 
-    def __init__(self, strategies: list[StrategySpec],
-                 config: BatchTournamentConfig):
+    def __init__(self, strategies: list[StrategySpec], config: BatchTournamentConfig):
 
         self.strategies = strategies
         self.config = config
 
         self.logger = logging.getLogger(__name__)
-        self.logger.info(
-            f"Initialised batch fair tournament with {len(strategies)} strategies"
-        )
+        self.logger.info(f"Initialised batch fair tournament with {len(strategies)} strategies")
 
         # Validate we have enough strategies for the largest group size to have diversity
         max_group_size = max(config.group_sizes)
@@ -51,8 +50,7 @@ class BatchFairTournament:
                 completed[group_size] = result
                 self.logger.info(f"Loaded existing results for group size {group_size}")
             except Exception as e:
-                self.logger.warning(
-                    f"Group {group_size} dir exists but invalid: {e}")
+                self.logger.warning(f"Group {group_size} dir exists but invalid: {e}")
 
         return completed
 
@@ -65,9 +63,8 @@ class BatchFairTournament:
         completed = set(self.results.keys())
         pending = [gs for gs in self.config.group_sizes if gs not in completed]
 
-        self.logger.info(
-            f"Batch status: {len(completed)}/{len(self.config.group_sizes)} complete, "
-            f"{len(pending)} pending")
+        self.logger.info(f"Batch status: {len(completed)}/{len(self.config.group_sizes)} complete, "
+                         f"{len(pending)} pending")
 
         if not pending:
             self.logger.info("All group sizes already completed")
@@ -94,10 +91,9 @@ class BatchFairTournament:
         """Run fair tournament for a single group size."""
         game_description = self.config.game_description_generator(group_size)
 
-        tournament_config = BaseTournamentConfig(
-            game_description=game_description,
-            repetitions=self.config.repetitions,
-            n_processes=self.config.n_processes)
+        tournament_config = BaseTournamentConfig(game_description=game_description,
+                                                 repetitions=self.config.repetitions,
+                                                 n_processes=self.config.n_processes)
 
         players = [
             spec.create_player(f"player_{i}", game_description)

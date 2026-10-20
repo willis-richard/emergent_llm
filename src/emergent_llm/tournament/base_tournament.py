@@ -1,5 +1,6 @@
+from abc import ABC
+from abc import abstractmethod
 import logging
-from abc import ABC, abstractmethod
 
 from emergent_llm.players import LLMPlayer
 from emergent_llm.tournament.configs import BaseTournamentConfig
@@ -13,8 +14,7 @@ class BaseTournament(ABC):
         self.config: BaseTournamentConfig = config
         self.logger = logging.getLogger(self.__class__.__name__)
 
-    def _run_match(self, players: list[LLMPlayer],
-                   match_id: str) -> MatchResult:
+    def _run_match(self, players: list[LLMPlayer], match_id: str) -> MatchResult:
         """Run a single match and record results."""
         # Create and run game
         game_class = self.config.game_description.game_type()

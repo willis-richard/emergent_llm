@@ -20,8 +20,7 @@ class PublicGoodsDescription(GameDescription):
     def __post_init__(self):
         super().__post_init__()
         if not (1 < self.k < self.n_players):
-            raise ValueError(
-                f"k must be between 1 and {self.n_players}, got {self.k}")
+            raise ValueError(f"k must be between 1 and {self.n_players}, got {self.k}")
 
     @classmethod
     def game_type(cls) -> type[PublicGoodsGame]:
@@ -50,13 +49,11 @@ class PublicGoodsGame(BaseGame):
     - If player defects while others cooperate, they get 1 + (cooperators * k/n)
     """
 
-    def __init__(self, players: Sequence[BasePlayer],
-                 description: PublicGoodsDescription):
+    def __init__(self, players: Sequence[BasePlayer], description: PublicGoodsDescription):
         """Initialize Public Goods Game with typed description."""
         super().__init__(players, description)
 
-    def _calculate_payoffs(self,
-                           actions: NDArray[np.bool_]) -> NDArray[np.float64]:
+    def _calculate_payoffs(self, actions: NDArray[np.bool_]) -> NDArray[np.float64]:
         """Calculate payoffs for a single round."""
         n_cooperators = np.sum(actions)
         cooperation_benefit = n_cooperators * self.description.k / self.description.n_players

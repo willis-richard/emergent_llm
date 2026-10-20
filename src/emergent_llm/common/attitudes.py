@@ -25,7 +25,9 @@ class Attitude(StrEnum):
         return [Attitude.COLLECTIVE, Attitude.SELFISH]
 
     def to_base_attitude(self) -> 'Attitude':
-        if self in {Attitude.COLLECTIVE, Attitude.PROSOCIAL, Attitude.ALTRUISTIC, Attitude.BENEVOLENT}:
+        if self in {
+                Attitude.COLLECTIVE, Attitude.PROSOCIAL, Attitude.ALTRUISTIC, Attitude.BENEVOLENT
+        }:
             return Attitude.COLLECTIVE
         return Attitude.SELFISH
 

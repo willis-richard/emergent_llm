@@ -1,9 +1,13 @@
 from typing import Callable
 
-from emergent_llm.games.base_game import BaseGame, GameDescription
-from emergent_llm.games.collective_risk import CollectiveRiskDescription, CollectiveRiskGame
-from emergent_llm.games.common_pool import CommonPoolDescription, CommonPoolGame
-from emergent_llm.games.public_goods import PublicGoodsDescription, PublicGoodsGame
+from emergent_llm.games.base_game import BaseGame
+from emergent_llm.games.base_game import GameDescription
+from emergent_llm.games.collective_risk import CollectiveRiskDescription
+from emergent_llm.games.collective_risk import CollectiveRiskGame
+from emergent_llm.games.common_pool import CommonPoolDescription
+from emergent_llm.games.common_pool import CommonPoolGame
+from emergent_llm.games.public_goods import PublicGoodsDescription
+from emergent_llm.games.public_goods import PublicGoodsGame
 
 
 def get_game_type(game_type: str) -> tuple[type[BaseGame], type[GameDescription]]:
@@ -34,10 +38,7 @@ STANDARD_GENERATORS: dict[str, Callable[..., GameDescription]] = {
             n_players=n_players, n_rounds=n_rounds, k=2.0),
     'collective_risk_default':
         lambda n_players, n_rounds=20: CollectiveRiskDescription(
-            n_players=n_players,
-            n_rounds=n_rounds,
-            m=max(2, n_players // 2),
-            k=2.0),
+            n_players=n_players, n_rounds=n_rounds, m=max(2, n_players // 2), k=2.0),
     'common_pool_default':
         lambda n_players, n_rounds=20: CommonPoolDescription(
             n_players=n_players, n_rounds=n_rounds, capacity=n_players * 4),

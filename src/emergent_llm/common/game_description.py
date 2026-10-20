@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from dataclasses import asdict, dataclass, fields
+from abc import ABC
+from abc import abstractmethod
+from dataclasses import asdict
+from dataclasses import dataclass
+from dataclasses import fields
 
 
 @dataclass(frozen=True)
@@ -24,8 +27,7 @@ class GameDescription(ABC):
         definition += f"class {cls.__name__}:\n"
 
         for field in fields(cls):
-            type_name = field.type.__name__ if hasattr(
-                field.type, '__name__') else str(field.type)
+            type_name = field.type.__name__ if hasattr(field.type, '__name__') else str(field.type)
             definition += f"    {field.name}: {type_name}\n"
 
         return definition

@@ -6,14 +6,14 @@ from emergent_llm.players import StrategySpec
 from emergent_llm.tournament.base_tournament import BaseTournamentConfig
 from emergent_llm.tournament.configs import BatchTournamentConfig
 from emergent_llm.tournament.mixture_tournament import MixtureTournament
-from emergent_llm.tournament.results import BatchMixtureTournamentResults, MixtureTournamentResults
+from emergent_llm.tournament.results import BatchMixtureTournamentResults
+from emergent_llm.tournament.results import MixtureTournamentResults
 
 
 class BatchMixtureTournament:
     """Tournament that runs mixture tournaments across multiple group sizes."""
 
-    def __init__(self, collective_specs: list[StrategySpec],
-                 selfish_specs: list[StrategySpec],
+    def __init__(self, collective_specs: list[StrategySpec], selfish_specs: list[StrategySpec],
                  config: BatchTournamentConfig):
 
         self.collective_specs = collective_specs
@@ -56,8 +56,7 @@ class BatchMixtureTournament:
                 completed[group_size] = result
                 self.logger.info(f"Loaded existing results for group size {group_size}")
             except Exception as e:
-                self.logger.warning(
-                    f"Group {group_size} dir exists but invalid: {e}")
+                self.logger.warning(f"Group {group_size} dir exists but invalid: {e}")
 
         return completed
 
@@ -70,9 +69,8 @@ class BatchMixtureTournament:
         completed = set(self.all_results.keys())
         pending = [gs for gs in self.config.group_sizes if gs not in completed]
 
-        self.logger.info(
-            f"Batch status: {len(completed)}/{len(self.config.group_sizes)} complete, "
-            f"{len(pending)} pending")
+        self.logger.info(f"Batch status: {len(completed)}/{len(self.config.group_sizes)} complete, "
+                         f"{len(pending)} pending")
 
         if not pending:
             self.logger.info("All group sizes already completed")
@@ -97,13 +95,11 @@ class BatchMixtureTournament:
 
     def _run_single_group(self, group_size: int) -> MixtureTournamentResults:
         """Run mixture tournament for a single group size."""
-        game_description = self.config.game_description_generator(
-            n_players=group_size)
+        game_description = self.config.game_description_generator(n_players=group_size)
 
-        mixture_config = BaseTournamentConfig(
-            game_description=game_description,
-            repetitions=self.config.repetitions,
-            n_processes=self.config.n_processes)
+        mixture_config = BaseTournamentConfig(game_description=game_description,
+                                              repetitions=self.config.repetitions,
+                                              n_processes=self.config.n_processes)
 
         collective_players = [
             spec.create_player(f"{spec.gene.attitude}_{i}", game_description)
@@ -114,9 +110,8 @@ class BatchMixtureTournament:
             for i, spec in enumerate(self.selfish_specs)
         ]
 
-        mixture_tournament = MixtureTournament(
-            collective_players=collective_players,
-            selfish_players=selfish_players,
-            config=mixture_config)
+        mixture_tournament = MixtureTournament(collective_players=collective_players,
+                                               selfish_players=selfish_players,
+                                               config=mixture_config)
 
         return mixture_tournament.run_tournament()

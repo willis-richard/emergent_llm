@@ -5,15 +5,17 @@ from pathos.multiprocessing import ProcessPool
 
 from emergent_llm.players import LLMPlayer
 from emergent_llm.tournament.base_tournament import BaseTournament
-from emergent_llm.tournament.configs import BaseTournamentConfig, MixtureKey
-from emergent_llm.tournament.results import MatchResult, MixtureTournamentResults, MixtureTournamentSummary
+from emergent_llm.tournament.configs import BaseTournamentConfig
+from emergent_llm.tournament.configs import MixtureKey
+from emergent_llm.tournament.results import MatchResult
+from emergent_llm.tournament.results import MixtureTournamentResults
+from emergent_llm.tournament.results import MixtureTournamentSummary
 
 
 class MixtureTournament(BaseTournament):
     """Tournament testing different mixtures of collective vs selfish players for a single group size."""
 
-    def __init__(self, collective_players: list[LLMPlayer],
-                 selfish_players: list[LLMPlayer],
+    def __init__(self, collective_players: list[LLMPlayer], selfish_players: list[LLMPlayer],
                  config: BaseTournamentConfig):
         """
         Initialize mixture tournament.
@@ -32,18 +34,15 @@ class MixtureTournament(BaseTournament):
         # Validate we have enough strategies
         if len(collective_players) < group_size:
             raise ValueError(
-                f"Need at least {group_size} collective players, got {len(collective_players)}"
-            )
+                f"Need at least {group_size} collective players, got {len(collective_players)}")
         if len(selfish_players) < group_size:
             raise ValueError(
-                f"Need at least {group_size} selfish players, got {len(selfish_players)}"
-            )
+                f"Need at least {group_size} selfish players, got {len(selfish_players)}")
 
     def run_tournament(self) -> MixtureTournamentResults:
         """Run tournament across all mixture ratios for this group size."""
         group_size = self.config.game_description.n_players
-        self.logger.info(
-            f"Running mixture tournament for group size {group_size}")
+        self.logger.info(f"Running mixture tournament for group size {group_size}")
 
         # Test all possible mixtures
         # Step size: for large tournaments, only test every 4th
@@ -60,12 +59,9 @@ class MixtureTournament(BaseTournament):
             with ProcessPool(processes=self.config.n_processes) as pool:
                 results = pool.map(self._run_mixture, mixture_keys)
 
-        match_results: list[MatchResult] = [
-            entry for sublist in results for entry in sublist
-        ]
+        match_results: list[MatchResult] = [entry for sublist in results for entry in sublist]
 
-        summary = MixtureTournamentSummary.from_match_results(
-            match_results, self.config)
+        summary = MixtureTournamentSummary.from_match_results(match_results, self.config)
 
         return MixtureTournamentResults(
             config=self.config,
@@ -98,15 +94,11 @@ class MixtureTournament(BaseTournament):
 
         # Sample collective players
         if mixture_key.n_collective > 0:
-            players.extend(
-                random.sample(self.collective_players,
-                              mixture_key.n_collective))
+            players.extend(random.sample(self.collective_players, mixture_key.n_collective))
 
         # Sample selfish players
         if mixture_key.n_selfish > 0:
-            players.extend(
-                random.sample(self.selfish_players,
-                              mixture_key.n_selfish))
+            players.extend(random.sample(self.selfish_players, mixture_key.n_selfish))
 
         # Shuffle to randomize positions
         random.shuffle(players)

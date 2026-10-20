@@ -14,8 +14,7 @@ from emergent_llm.players import BasePlayer
 
 
 @lru_cache(maxsize=None)
-def _compute_payoff_bounds(n_players: int, n_rounds: int,
-                           capacity: int) -> tuple[float, float]:
+def _compute_payoff_bounds(n_players: int, n_rounds: int, capacity: int) -> tuple[float, float]:
     """Compute (min_payoff, max_payoff) for one focal player over r rounds.
 
     Stock dynamics replicate CommonPoolGame._calculate_payoffs exactly.
@@ -37,7 +36,7 @@ def _compute_payoff_bounds(n_players: int, n_rounds: int,
     min_payoff = 0.0
     for _ in range(r):
         share = 0.5 * S / n
-        focal = share                          # cooperate
+        focal = share  # cooperate
         total_extracted = share + (n - 1) * 2 * share
         min_payoff += focal
         S = max(S - total_extracted, 0.0)
@@ -55,7 +54,7 @@ def _compute_payoff_bounds(n_players: int, n_rounds: int,
     def_payoffs: list[float] = []
     for _ in range(r):
         share = 0.5 * S / n
-        focal = 2 * share                      # defect
+        focal = 2 * share  # defect
         total_extracted = focal + (n - 1) * share
         def_payoffs.append(focal)
         S = max(S - total_extracted, 0.0)
@@ -63,7 +62,7 @@ def _compute_payoff_bounds(n_players: int, n_rounds: int,
         S = min(S, K)
 
     # Sweep switch points: k = number of trailing defection rounds, 0..r.
-    max_payoff = r * coop_payoff               # k = 0 (always cooperate)
+    max_payoff = r * coop_payoff  # k = 0 (always cooperate)
     cum_def = 0.0
     for k in range(1, r + 1):
         cum_def += def_payoffs[k - 1]
@@ -83,8 +82,7 @@ class CommonPoolDescription(GameDescription):
         super().__post_init__()
         if not (self.capacity >= 2 * self.n_players):
             raise ValueError(
-                f"capacity must be greater than {2*self.n_players}, got {self.capacity}"
-            )
+                f"capacity must be greater than {2*self.n_players}, got {self.capacity}")
 
     @classmethod
     def has_stock(cls) -> bool:
@@ -104,13 +102,11 @@ class CommonPoolDescription(GameDescription):
 
     def max_payoff(self) -> float:
         """Optimal C-then-D against (n-1) All-C opponents (cached)."""
-        return _compute_payoff_bounds(
-            self.n_players, self.n_rounds, self.capacity)[1]
+        return _compute_payoff_bounds(self.n_players, self.n_rounds, self.capacity)[1]
 
     def min_payoff(self) -> float:
         """Focal All-C against (n-1) All-D opponents (cached)."""
-        return _compute_payoff_bounds(
-            self.n_players, self.n_rounds, self.capacity)[0]
+        return _compute_payoff_bounds(self.n_players, self.n_rounds, self.capacity)[0]
 
 
 class CommonPoolGame(BaseGame):
@@ -121,13 +117,11 @@ class CommonPoolGame(BaseGame):
     - Remaining stock grows by growth rate
     """
 
-    def __init__(self, players: Sequence[BasePlayer],
-                 description: CommonPoolDescription):
+    def __init__(self, players: Sequence[BasePlayer], description: CommonPoolDescription):
         super().__init__(players, description)
         self.stock = self.description.capacity
 
-    def _calculate_payoffs(self,
-                           actions: NDArray[np.bool_]) -> NDArray[np.float64]:
+    def _calculate_payoffs(self, actions: NDArray[np.bool_]) -> NDArray[np.float64]:
         share = 0.5 * self.stock / self.description.n_players
         payoffs = share + share * (~actions).astype(np.float64)
 

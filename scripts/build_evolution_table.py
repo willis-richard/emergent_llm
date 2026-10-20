@@ -10,11 +10,9 @@ from pathlib import Path
 import numpy as np
 
 from emergent_llm.common import Attitude
-from emergent_llm.tournament.results import (
-    BatchCulturalEvolutionSummary,
-    collapse_to_base,
-    pretty_model,
-)
+from emergent_llm.tournament.results import BatchCulturalEvolutionSummary
+from emergent_llm.tournament.results import collapse_to_base
+from emergent_llm.tournament.results import pretty_model
 
 GAME_SHORT = {
     "public_goods": "PGG",
@@ -51,9 +49,7 @@ def find_experiment_dirs(results_dir: Path, game: str, group_size: int) -> list[
 
 
 def compute_metrics(summary: BatchCulturalEvolutionSummary):
-    per_run_collapsed = [
-        collapse_to_base(run) for run in summary.final_window_mean_frequencies
-    ]
+    per_run_collapsed = [collapse_to_base(run) for run in summary.final_window_mean_frequencies]
     n_runs = len(per_run_collapsed)
     sqrt_n = np.sqrt(n_runs) if n_runs > 0 else float('nan')
     all_genes = set().union(*per_run_collapsed)
@@ -70,8 +66,7 @@ def compute_metrics(summary: BatchCulturalEvolutionSummary):
     max_w = gd.max_player_welfare() / n_rounds
     min_w = gd.min_player_welfare() / n_rounds
     if max_w > min_w:
-        effs = [(w - min_w) / (max_w - min_w)
-                for w in summary.normalised_social_welfares]
+        effs = [(w - min_w) / (max_w - min_w) for w in summary.normalised_social_welfares]
         eff_mean = float(np.mean(effs))
         eff_se = float(np.std(effs, ddof=1) / sqrt_n) if len(effs) > 1 else float('nan')
         eff_stats = (eff_mean, eff_se)
@@ -79,8 +74,8 @@ def compute_metrics(summary: BatchCulturalEvolutionSummary):
         eff_stats = (float('nan'), float('nan'))
 
     cf_mean = float(np.mean(summary.collective_frequencies))
-    cf_se = (float(np.std(summary.collective_frequencies, ddof=1) / sqrt_n)
-             if len(summary.collective_frequencies) > 1 else float('nan'))
+    cf_se = (float(np.std(summary.collective_frequencies, ddof=1) /
+                   sqrt_n) if len(summary.collective_frequencies) > 1 else float('nan'))
     cf_stats = (cf_mean, cf_se)
     return gene_stats, eff_stats, cf_stats, n_runs
 
@@ -88,8 +83,7 @@ def compute_metrics(summary: BatchCulturalEvolutionSummary):
 def select_bolded(gene_stats: dict, n_runs: int) -> set:
     if not gene_stats:
         return set()
-    leader_gene, (leader_mean, leader_se) = max(gene_stats.items(),
-                                                key=lambda x: x[1][0])
+    leader_gene, (leader_mean, leader_se) = max(gene_stats.items(), key=lambda x: x[1][0])
     bolded = set()
     for gene, (mean, se) in gene_stats.items():
         combined_se = np.sqrt(leader_se**2 + se**2)
@@ -98,8 +92,7 @@ def select_bolded(gene_stats: dict, n_runs: int) -> set:
     return bolded
 
 
-def build_table(games: list[str], group_sizes: list[int],
-                data: dict, ordered_models: list[str],
+def build_table(games: list[str], group_sizes: list[int], data: dict, ordered_models: list[str],
                 combo: ComboKey) -> str:
     """Build one table for a single (beta, games_per_agent) combination.
 
@@ -137,16 +130,14 @@ def build_table(games: list[str], group_sizes: list[int],
     lines.append(r"\midrule")
 
     bolded_per_col = {
-        (game, gs): (select_bolded(data[(game, gs)][0], data[(game, gs)][3])
-                     if (game, gs) in data else set())
-        for gs in group_sizes for game in games
+        (game, gs): (select_bolded(data[(game, gs)][0], data[(game, gs)][3]) if
+                     (game, gs) in data else set()) for gs in group_sizes for game in games
     }
 
     attitudes = [Attitude.COLLECTIVE, Attitude.SELFISH]
     for model_idx, model in enumerate(ordered_models):
         for att_idx, attitude in enumerate(attitudes):
-            model_cell = (rf"\multirow{{2}}{{*}}{{{pretty_model(model)}}}"
-                          if att_idx == 0 else "")
+            model_cell = (rf"\multirow{{2}}{{*}}{{{pretty_model(model)}}}" if att_idx == 0 else "")
             row = f"{model_cell} & {attitude.value.capitalize()}"
             for gs in group_sizes:
                 for game in games:
@@ -155,8 +146,7 @@ def build_table(games: list[str], group_sizes: list[int],
                     if entry is not None:
                         gene_stats = entry[0]
                         gene = next(
-                            (g for g in gene_stats
-                             if g.model == model and g.attitude == attitude),
+                            (g for g in gene_stats if g.model == model and g.attitude == attitude),
                             None)
                         if gene is not None:
                             m, se = gene_stats[gene]
@@ -210,10 +200,9 @@ def collect_data(results_dir: Path, games: list[str], group_sizes: list[int]):
                 combo = (cfg.beta, cfg.games_per_agent)
 
                 if (game, gs) in data[combo]:
-                    raise ValueError(
-                        f"Duplicate experiment for {game} n={gs} with "
-                        f"beta={cfg.beta}, games_per_agent={cfg.games_per_agent}: "
-                        f"{exp_dir}")
+                    raise ValueError(f"Duplicate experiment for {game} n={gs} with "
+                                     f"beta={cfg.beta}, games_per_agent={cfg.games_per_agent}: "
+                                     f"{exp_dir}")
 
                 metrics = compute_metrics(summary)
                 data[combo][(game, gs)] = metrics
@@ -225,12 +214,15 @@ def collect_data(results_dir: Path, games: list[str], group_sizes: list[int]):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--results_dir", type=Path, required=True)
-    parser.add_argument("--games", nargs="+",
+    parser.add_argument("--games",
+                        nargs="+",
                         default=["public_goods", "collective_risk", "common_pool"])
     parser.add_argument("--group_sizes", nargs="+", type=int, required=True)
-    parser.add_argument("--output_dir", type=Path, default=None,
+    parser.add_argument("--output_dir",
+                        type=Path,
+                        default=None,
                         help="If given, write one .tex file per "
-                             "(beta, games_per_agent) combination here.")
+                        "(beta, games_per_agent) combination here.")
     args = parser.parse_args()
 
     data, models = collect_data(args.results_dir, args.games, args.group_sizes)
@@ -239,15 +231,16 @@ def main():
         beta, games_per_agent = combo
         combo_data = data[combo]
 
-        missing = [(game, gs) for gs in args.group_sizes for game in args.games
+        missing = [(game, gs)
+                   for gs in args.group_sizes
+                   for game in args.games
                    if (game, gs) not in combo_data]
         if missing:
             print(f"% WARNING: beta={beta:g}, games_per_agent={games_per_agent}: "
                   f"missing {missing}")
 
         ordered_models = sorted(models[combo])
-        table = build_table(args.games, args.group_sizes, combo_data,
-                            ordered_models, combo)
+        table = build_table(args.games, args.group_sizes, combo_data, ordered_models, combo)
         print(table)
         print()
 

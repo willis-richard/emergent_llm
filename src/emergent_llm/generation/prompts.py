@@ -1,6 +1,7 @@
-from emergent_llm.common import Action, Attitude, GameDescription
+from emergent_llm.common import Action
+from emergent_llm.common import Attitude
+from emergent_llm.common import GameDescription
 from emergent_llm.games import get_game_type
-
 
 HEADER_IMPORTS = """from dataclasses import dataclass
 from enum import Enum
@@ -8,6 +9,7 @@ import math
 import numpy as np
 from numpy.typing import NDArray
 import random"""
+
 
 def format_game_description(game_name: str) -> str:
     """Format game description for prompts."""
@@ -175,9 +177,7 @@ Design a {attitude} strategy for this game that only depends on the game paramet
 3. Be {attitude} - Clearly align with the {attitude} mindset."""
 
 
-def create_code_user_prompt(
-        strategy_description: str,
-        game_name: str) -> str:
+def create_code_user_prompt(strategy_description: str, game_name: str) -> str:
     """Create user prompt for code generation."""
 
     _, game_description_class = get_game_type(game_name)
@@ -246,8 +246,8 @@ class Strategy(BaseStrategy):
         return Action.D
 ```"""
 
-def get_interface_description(
-        game_description_class: type[GameDescription]) -> str:
+
+def get_interface_description(game_description_class: type[GameDescription]) -> str:
     return f"""```python
 {HEADER_IMPORTS}
 

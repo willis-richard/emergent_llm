@@ -1,12 +1,15 @@
 """Base game class for social dilemma experiments."""
-from abc import ABC, abstractmethod
+from abc import ABC
+from abc import abstractmethod
 from dataclasses import dataclass
 from typing import Sequence
 
 import numpy as np
 from numpy.typing import NDArray
 
-from emergent_llm.common import Action, GameDescription, GameHistory
+from emergent_llm.common import Action
+from emergent_llm.common import GameDescription
+from emergent_llm.common import GameHistory
 from emergent_llm.players.base_player import BasePlayer
 
 
@@ -24,13 +27,10 @@ class GameResult:
 class BaseGame(ABC):
     """Abstract base class for social dilemma games."""
 
-    def __init__(self, players: Sequence[BasePlayer],
-                 description: GameDescription):
+    def __init__(self, players: Sequence[BasePlayer], description: GameDescription):
         if len(players) != description.n_players:
-            raise ValueError(
-                f"Number of players ({len(players)}) must match "
-                f"description.n_players ({description.n_players})"
-            )
+            raise ValueError(f"Number of players ({len(players)}) must match "
+                             f"description.n_players ({description.n_players})")
 
         self.players: Sequence[BasePlayer] = players
         self.description: GameDescription = description
@@ -40,8 +40,7 @@ class BaseGame(ABC):
         )
 
     @abstractmethod
-    def _calculate_payoffs(
-            self, actions: NDArray[np.bool_]) -> NDArray[np.float64]:
+    def _calculate_payoffs(self, actions: NDArray[np.bool_]) -> NDArray[np.float64]:
         """Calculate payoffs for a single round given actions."""
 
     def get_current_stock(self):

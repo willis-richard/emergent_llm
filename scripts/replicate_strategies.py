@@ -25,48 +25,46 @@ the same --seed and output directory.
 # pylint: disable=missing-function-docstring,broad-except
 import argparse
 import ast
+from collections import Counter
+from dataclasses import dataclass
 import logging
 import os
+from pathlib import Path
 import pickle
 import random
 import re
 import sys
 import time
-from collections import Counter
-from dataclasses import dataclass
-from pathlib import Path
 
 import anthropic
+from google import genai
 import numpy as np
 import ollama
 import openai
 import pandas as pd
-from google import genai
 
 from emergent_llm.common import Gene
-from emergent_llm.games import STANDARD_GENERATORS, get_game_type
-from emergent_llm.generation import FixedCooperatorCount, StrategyRegistry
-from emergent_llm.generation.create_strategies import (
-    LLMConfig,
-    get_llm_response,
-    make_safe,
-    parse_strategy_description_file,
-    EFFORT_LEVELS,
-)
-from emergent_llm.generation.replication_prompts import (
-    HISTORY_FORMATS,
-    SOURCES,
-    create_replication_system_prompt,
-    create_replication_user_prompt,
-)
-from emergent_llm.players import LLMPlayer, SimplePlayer
+from emergent_llm.games import get_game_type
+from emergent_llm.games import STANDARD_GENERATORS
+from emergent_llm.generation import FixedCooperatorCount
+from emergent_llm.generation import StrategyRegistry
+from emergent_llm.generation.create_strategies import EFFORT_LEVELS
+from emergent_llm.generation.create_strategies import get_llm_response
+from emergent_llm.generation.create_strategies import LLMConfig
+from emergent_llm.generation.create_strategies import make_safe
+from emergent_llm.generation.create_strategies import parse_strategy_description_file
+from emergent_llm.generation.replication_prompts import create_replication_system_prompt
+from emergent_llm.generation.replication_prompts import create_replication_user_prompt
+from emergent_llm.generation.replication_prompts import HISTORY_FORMATS
+from emergent_llm.generation.replication_prompts import SOURCES
+from emergent_llm.players import LLMPlayer
+from emergent_llm.players import SimplePlayer
 
 # Generated strategies occasionally recurse deeply.
 sys.setrecursionlimit(10000)
 
 ACTION_RE = re.compile(r"<action>\s*([CD])\s*</action>", re.IGNORECASE)
-DETERMINATE_RE = re.compile(r"<determinate>\s*(yes|no)\s*</determinate>",
-                            re.IGNORECASE)
+DETERMINATE_RE = re.compile(r"<determinate>\s*(yes|no)\s*</determinate>", re.IGNORECASE)
 CLASS_NAME_RE = re.compile(r"^Strategy_([A-Z_]+)_(\d+)$")
 
 EPISODE_KEYS = ["strategy_class", "trajectory"]
@@ -118,49 +116,58 @@ def trajectory_key(combo) -> str:
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
 
-    parser.add_argument("--game", default="public_goods",
-                        choices=["public_goods", "collective_risk",
-                                 "common_pool"])
-    parser.add_argument("--strategy_model", required=True,
+    parser.add_argument("--game",
+                        default="public_goods",
+                        choices=["public_goods", "collective_risk", "common_pool"])
+    parser.add_argument("--strategy_model",
+                        required=True,
                         help="Model whose strategies/descriptions are loaded")
-    parser.add_argument("--inference_model", default=None,
+    parser.add_argument("--inference_model",
+                        default=None,
                         help="Model queried round-by-round (default: "
-                             "--strategy_model)")
-    parser.add_argument("--llm_provider", required=True,
-                        choices=["openai", "anthropic", "ollama", "google",
-                                 "openrouter"])
-    parser.add_argument("--reasoning_effort", default="medium",
-                        choices=list(EFFORT_LEVELS))
+                        "--strategy_model)")
+    parser.add_argument("--llm_provider",
+                        required=True,
+                        choices=["openai", "anthropic", "ollama", "google", "openrouter"])
+    parser.add_argument("--reasoning_effort", default="medium", choices=list(EFFORT_LEVELS))
 
-    parser.add_argument("--sources", nargs="+", default=list(SOURCES),
+    parser.add_argument("--sources",
+                        nargs="+",
+                        default=list(SOURCES),
                         choices=SOURCES,
                         help="Conditions run per episode. Both by default; "
-                             "each sees the same strategy and trajectory, so "
-                             "the rows are paired.")
-    parser.add_argument("--history_format", default="jsonl",
-                        choices=HISTORY_FORMATS)
-    parser.add_argument("--description_source", default="parsed",
+                        "each sees the same strategy and trajectory, so "
+                        "the rows are paired.")
+    parser.add_argument("--history_format", default="jsonl", choices=HISTORY_FORMATS)
+    parser.add_argument("--description_source",
+                        default="parsed",
                         choices=["parsed", "raw"],
                         help="'parsed' reproduces the backslash-escape "
-                             "corruption the code generator also saw "
-                             "(preserves parity); 'raw' recovers the model's "
-                             "original text")
-    parser.add_argument("--strip_docstring", action="store_true",
+                        "corruption the code generator also saw "
+                        "(preserves parity); 'raw' recovers the model's "
+                        "original text")
+    parser.add_argument("--strip_docstring",
+                        action="store_true",
                         help="Drop class docstrings in the code condition; "
-                             "they can restate the attitude")
-    parser.add_argument("--include_derived", action="store_true",
+                        "they can restate the attitude")
+    parser.add_argument("--include_derived",
+                        action="store_true",
                         help="Add total_cooperators and cumulative aggregates")
 
     parser.add_argument("--n_episodes", type=int, default=30)
-    parser.add_argument("--n_samples", type=int, default=1,
+    parser.add_argument("--n_samples",
+                        type=int,
+                        default=1,
                         help="Queries per round; >1 gives a majority vote and "
-                             "a self-consistency figure")
+                        "a self-consistency figure")
     parser.add_argument("--n_players", type=int, default=4)
     parser.add_argument("--n_rounds", type=int, default=7)
-    parser.add_argument("--diversity_games", type=int, default=30,
+    parser.add_argument("--diversity_games",
+                        type=int,
+                        default=30,
                         help="Selects which diversity.py cache to require: "
-                             "results/diversity/cache/{game}_{gene}"
-                             "_p{n_players}_r{n_rounds}_g{diversity_games}.pkl")
+                        "results/diversity/cache/{game}_{gene}"
+                        "_p{n_players}_r{n_rounds}_g{diversity_games}.pkl")
 
     parser.add_argument("--strategies_dir", type=str, default="strategies")
     parser.add_argument("--results_dir", type=str, default="results")
@@ -220,18 +227,21 @@ class QueryLogger:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.handle = open(path, "a", encoding="utf-8")
 
-    def write(self, header: dict, system_prompt: str, user_prompt: str,
-              native_reasoning: str, raw: str, note: str = ""):
+    def write(self,
+              header: dict,
+              system_prompt: str,
+              user_prompt: str,
+              native_reasoning: str,
+              raw: str,
+              note: str = ""):
         rule = "=" * 79
         self.handle.write(f"\n{rule}\n")
         for key, value in header.items():
             self.handle.write(f"{key}: {value}\n")
         if note:
             self.handle.write(f"note: {note}\n")
-        for title, body in (("SYSTEM PROMPT", system_prompt),
-                            ("USER PROMPT", user_prompt),
-                            ("NATIVE REASONING", native_reasoning),
-                            ("VISIBLE RESPONSE", raw)):
+        for title, body in (("SYSTEM PROMPT", system_prompt), ("USER PROMPT", user_prompt),
+                            ("NATIVE REASONING", native_reasoning), ("VISIBLE RESPONSE", raw)):
             self.handle.write(f"\n{'-' * 79}\n{title}\n{'-' * 79}\n")
             self.handle.write((body or "(none)") + "\n")
         self.handle.write(f"{rule}\n")
@@ -246,8 +256,7 @@ class QueryLogger:
 # =============================================================================
 
 
-def _strategy_sources(strategy_file: Path,
-                      strip_docstring: bool) -> dict[str, str]:
+def _strategy_sources(strategy_file: Path, strip_docstring: bool) -> dict[str, str]:
     """Map stored class name -> source text, each renamed to `Strategy`.
 
     Read from disk rather than via `inspect.getsource`: `StrategyRegistry`
@@ -272,9 +281,8 @@ def _strategy_sources(strategy_file: Path,
 
         if strip_docstring:
             first = node.body[0] if node.body else None
-            if (isinstance(first, ast.Expr)
-                    and isinstance(first.value, ast.Constant)
-                    and isinstance(first.value.value, str)):
+            if (isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and
+                    isinstance(first.value.value, str)):
                 node.body.pop(0)
                 if not node.body:
                     node.body.append(ast.Pass())
@@ -283,8 +291,7 @@ def _strategy_sources(strategy_file: Path,
 
         # Renaming the definition does not rewrite references in the body.
         if stored_name in source:
-            logging.warning("%s hardcodes its own class name; scrubbing",
-                            stored_name)
+            logging.warning("%s hardcodes its own class name; scrubbing", stored_name)
             source = source.replace(stored_name, "Strategy")
 
         sources[stored_name] = source
@@ -292,7 +299,9 @@ def _strategy_sources(strategy_file: Path,
     return sources
 
 
-def load_pairs(strategies_dir: Path, game_name: str, model: str,
+def load_pairs(strategies_dir: Path,
+               game_name: str,
+               model: str,
                need_source: bool = False,
                strip_docstring: bool = False) -> list[StrategyPair]:
     """Join `description_{ATTITUDE}_{n}` to `Strategy_{ATTITUDE}_{n}`."""
@@ -305,11 +314,11 @@ def load_pairs(strategies_dir: Path, game_name: str, model: str,
     if not descriptions:
         raise ValueError(f"No descriptions found in {description_file}")
 
-    sources = (_strategy_sources(strategy_file, strip_docstring)
-               if need_source else {})
+    sources = (_strategy_sources(strategy_file, strip_docstring) if need_source else {})
 
     registry = StrategyRegistry(strategies_dir=Path(strategies_dir),
-                                game_name=game_name, models=[model])
+                                game_name=game_name,
+                                models=[model])
 
     pairs, unmatched = [], []
     for gene in sorted(registry.available_genes, key=str):
@@ -326,15 +335,16 @@ def load_pairs(strategies_dir: Path, game_name: str, model: str,
             if need_source and class_name not in sources:
                 unmatched.append(class_name)
                 continue
-            pairs.append(StrategyPair(
-                gene=spec.gene, index=key[1],
-                description=descriptions[key].strip(),
-                strategy_class=spec.strategy_class,
-                source=sources.get(class_name, "")))
+            pairs.append(
+                StrategyPair(gene=spec.gene,
+                             index=key[1],
+                             description=descriptions[key].strip(),
+                             strategy_class=spec.strategy_class,
+                             source=sources.get(class_name, "")))
 
     if unmatched:
-        logging.warning("No description/source for %d implementations: %s",
-                        len(unmatched), unmatched[:5])
+        logging.warning("No description/source for %d implementations: %s", len(unmatched),
+                        unmatched[:5])
     if not pairs:
         raise ValueError(f"No description/implementation pairs for {model}")
     return pairs
@@ -358,9 +368,8 @@ def _deterministic_from_features(features: dict) -> bool:
     return all(value in (0.0, 1.0) for value in features.values())
 
 
-def load_diversity_verdicts(results_dir: Path, game_name: str, genes,
-                            n_players: int, n_rounds: int, n_games: int,
-                            report) -> dict[str, bool]:
+def load_diversity_verdicts(results_dir: Path, game_name: str, genes, n_players: int, n_rounds: int,
+                            n_games: int, report) -> dict[str, bool]:
     """Reuse diversity.py's exhaustive sweep as a determinism oracle.
 
     Exact parameters only: the filename must be
@@ -389,8 +398,7 @@ def load_diversity_verdicts(results_dir: Path, game_name: str, genes,
                 with open(path, "rb") as handle:
                     features = pickle.load(handle)
             except Exception as error:
-                logging.warning("Could not read %s: %s: %s", path.name,
-                                type(error).__name__, error)
+                logging.warning("Could not read %s: %s: %s", path.name, type(error).__name__, error)
                 continue
             for class_name, feature_dict in features.items():
                 verdicts[class_name] = _deterministic_from_features(feature_dict)
@@ -404,17 +412,15 @@ def load_diversity_verdicts(results_dir: Path, game_name: str, genes,
             logging.info("  %s", name)
         return verdicts
 
-    others = (sorted(p.name for p in cache_dir.glob("*.pkl")
-                     if p.name.startswith(f"{game_name}_"))
+    others = (sorted(p.name for p in cache_dir.glob("*.pkl") if p.name.startswith(f"{game_name}_"))
               if cache_dir.is_dir() else [])
     for name in others:
         logging.info("ignored (wrong parameters): %s", name)
-    raise FileNotFoundError(
-        f"No diversity cache at p{n_players}_r{n_rounds}_g{n_games} for "
-        f"{game_name}. {len(others)} file(s) exist for this game at other "
-        f"parameters and were ignored; see run.log. Run diversity.py with "
-        f"--n_players {n_players} --n_rounds {n_rounds} --n_games {n_games} "
-        f"and no --n_strategies.")
+    raise FileNotFoundError(f"No diversity cache at p{n_players}_r{n_rounds}_g{n_games} for "
+                            f"{game_name}. {len(others)} file(s) exist for this game at other "
+                            f"parameters and were ignored; see run.log. Run diversity.py with "
+                            f"--n_players {n_players} --n_rounds {n_rounds} --n_games {n_games} "
+                            f"and no --n_strategies.")
 
 
 def select_deterministic(pairs, verdicts, report):
@@ -436,8 +442,7 @@ def select_deterministic(pairs, verdicts, report):
     report(f"Deterministic: {len(kept)}/{len(pairs)} strategies "
            f"({len(stochastic)} stochastic, {len(unknown)} absent from cache)")
     if unknown:
-        logging.warning("Absent from diversity cache (%d): %s",
-                        len(unknown), unknown[:5])
+        logging.warning("Absent from diversity cache (%d): %s", len(unknown), unknown[:5])
     if not kept:
         raise ValueError("No deterministic strategies to sample from")
     return kept, len(stochastic), len(unknown)
@@ -448,8 +453,7 @@ def select_deterministic(pairs, verdicts, report):
 # =============================================================================
 
 
-def play_algorithm(pair: StrategyPair, game_name: str, description,
-                   combo: tuple[int, ...]):
+def play_algorithm(pair: StrategyPair, game_name: str, description, combo: tuple[int, ...]):
     """Run the implementation against one trajectory.
 
     Returns (my_actions, my_payoffs, opponent_cooperators, stocks) as
@@ -462,22 +466,20 @@ def play_algorithm(pair: StrategyPair, game_name: str, description,
     game_class, _ = get_game_type(game_name)
     n_opponents = description.n_players - 1
     counts = list(combo) + [0]  # final round's opponent actions are unused
-    opponents = [SimplePlayer(f"opp_{i}", FixedCooperatorCount(i, counts))
-                 for i in range(n_opponents)]
+    opponents = [
+        SimplePlayer(f"opp_{i}", FixedCooperatorCount(i, counts)) for i in range(n_opponents)
+    ]
 
-    player = StockRecorder("focal", pair.gene, description, pair.strategy_class,
-                       max_errors=0)
+    player = StockRecorder("focal", pair.gene, description, pair.strategy_class, max_errors=0)
     history = game_class([player] + opponents, description).play_game().history
 
     my_actions = history.actions[:, 0]
     my_payoffs = history.payoffs[:, 0]
-    opponent_cooperators = (history.actions.sum(axis=1)
-                            - history.actions[:, 0].astype(np.int_))
+    opponent_cooperators = (history.actions.sum(axis=1) - history.actions[:, 0].astype(np.int_))
 
     if tuple(int(c) for c in opponent_cooperators[:len(combo)]) != combo:
         raise RuntimeError("trajectory not reproduced by the game engine")
-    stocks = (np.array(player.stocks, dtype=float)
-              if description.has_stock() else None)
+    stocks = (np.array(player.stocks, dtype=float) if description.has_stock() else None)
     if stocks is not None and len(stocks) != len(my_actions):
         raise RuntimeError("stock not recorded every round")
     return my_actions, my_payoffs, opponent_cooperators, stocks
@@ -493,8 +495,7 @@ def parse_response(text: str) -> tuple[str, str]:
     if not action_matches:
         raise ParseFailure("no <action> tag")
     determinate_matches = DETERMINATE_RE.findall(text or "")
-    determinate = (determinate_matches[-1].lower()
-                   if determinate_matches else "missing")
+    determinate = (determinate_matches[-1].lower() if determinate_matches else "missing")
     return action_matches[-1].upper(), determinate
 
 
@@ -505,8 +506,7 @@ def ask_round(config, args, query_logger, header, system_prompt, user_prompt):
     for sample in range(args.n_samples):
         for attempt in range(args.max_retries):
             started = time.time()
-            response = get_llm_response(config, system_prompt, user_prompt,
-                                        thinking=True)
+            response = get_llm_response(config, system_prompt, user_prompt, thinking=True)
             latency += time.time() - started
             usage = response.usage or usage
 
@@ -514,9 +514,13 @@ def ask_round(config, args, query_logger, header, system_prompt, user_prompt):
                 action, determinate = parse_response(response.text)
             except ParseFailure as failure:
                 retries += 1
-                query_logger.write({**header, "sample": sample,
-                                    "attempt": attempt}, system_prompt,
-                                   user_prompt, response.reasoning,
+                query_logger.write({
+                    **header, "sample": sample,
+                    "attempt": attempt
+                },
+                                   system_prompt,
+                                   user_prompt,
+                                   response.reasoning,
                                    response.text,
                                    note=f"PARSE FAILURE: {failure}")
                 if attempt == args.max_retries - 1:
@@ -524,17 +528,18 @@ def ask_round(config, args, query_logger, header, system_prompt, user_prompt):
                 continue
 
             query_logger.write(
-                {**header, "sample": sample, "attempt": attempt,
-                 "llm_action": action, "determinate": determinate},
-                system_prompt, user_prompt, response.reasoning, response.text)
+                {
+                    **header, "sample": sample,
+                    "attempt": attempt,
+                    "llm_action": action,
+                    "determinate": determinate
+                }, system_prompt, user_prompt, response.reasoning, response.text)
             votes.append(action)
             determinates.append(determinate)
             break
 
     modal_action, modal_count = Counter(votes).most_common(1)[0]
-    return (modal_action,
-            Counter(determinates).most_common(1)[0][0],
-            modal_count / len(votes),
+    return (modal_action, Counter(determinates).most_common(1)[0][0], modal_count / len(votes),
             retries, latency, usage)
 
 
@@ -543,8 +548,8 @@ def ask_round(config, args, query_logger, header, system_prompt, user_prompt):
 # =============================================================================
 
 
-def run_episode(episode: int, pair: StrategyPair, combo, source: str, args,
-                config, description, played, query_logger) -> pd.DataFrame:
+def run_episode(episode: int, pair: StrategyPair, combo, source: str, args, config, description,
+                played, query_logger) -> pd.DataFrame:
     my_actions, my_payoffs, opponent_cooperators, stocks = played
     strategy_text = pair.text_for(source)
     system_prompt = create_replication_system_prompt(source)
@@ -567,12 +572,16 @@ def run_episode(episode: int, pair: StrategyPair, combo, source: str, args,
         )
         algo_action = "C" if my_actions[round_index] else "D"
         header = {
-            "episode": episode, "game": args.game,
+            "episode": episode,
+            "game": args.game,
             "strategy_model": args.strategy_model,
             "inference_model": args.inference_model,
-            "source": source, "gene": str(pair.gene),
-            "strategy_class": pair.name, "trajectory": trajectory,
-            "round": round_index, "algo_action": algo_action,
+            "source": source,
+            "gene": str(pair.gene),
+            "strategy_class": pair.name,
+            "trajectory": trajectory,
+            "round": round_index,
+            "algo_action": algo_action,
         }
         action, determinate, agreement, retries, latency, usage = ask_round(
             config, args, query_logger, header, system_prompt, user_prompt)
@@ -590,10 +599,8 @@ def run_episode(episode: int, pair: StrategyPair, combo, source: str, args,
             "strategy_class": pair.name,
             "trajectory": trajectory,
             "round": round_index,
-            "opp_coops_prev": (int(opponent_cooperators[round_index - 1])
-                               if round_index else None),
-            "stock": (round(float(stocks[round_index]), 4)
-                      if stocks is not None else None),
+            "opp_coops_prev": (int(opponent_cooperators[round_index - 1]) if round_index else None),
+            "stock": (round(float(stocks[round_index]), 4) if stocks is not None else None),
             "algo": algo_action,
             "llm": action,
             "match": action == algo_action,
@@ -608,8 +615,8 @@ def run_episode(episode: int, pair: StrategyPair, combo, source: str, args,
     return pd.DataFrame(rows)
 
 
-def print_episode(episode: int, pair: StrategyPair, combo,
-                  frames: dict[str, pd.DataFrame], args, report: Report):
+def print_episode(episode: int, pair: StrategyPair, combo, frames: dict[str, pd.DataFrame], args,
+                  report: Report):
     order = [s for s in SOURCES if s in frames]
 
     report("\n" + "=" * 79)
@@ -678,8 +685,7 @@ def build_plan(pairs, args, rng, report):
     while len(plan) < args.n_episodes and attempts < max_attempts:
         attempts += 1
         pair = pairs[rng.randrange(len(pairs))]
-        combo = tuple(rng.randrange(args.n_players)
-                      for _ in range(args.n_rounds - 1))
+        combo = tuple(rng.randrange(args.n_players) for _ in range(args.n_rounds - 1))
         if (pair.name, combo) in seen:
             continue
         seen.add((pair.name, combo))
@@ -696,8 +702,8 @@ def build_plan(pairs, args, rng, report):
 # =============================================================================
 
 
-def print_summary(results: pd.DataFrame, n_stochastic: int, n_unknown: int,
-                  discarded: int, results_path: Path, report: Report):
+def print_summary(results: pd.DataFrame, n_stochastic: int, n_unknown: int, discarded: int,
+                  results_path: Path, report: Report):
     results = results.copy()
     results["match"] = results["match"].astype(bool)
     fmt = lambda v: f"{v:.3f}"  # noqa: E731
@@ -725,43 +731,46 @@ def print_summary(results: pd.DataFrame, n_stochastic: int, n_unknown: int,
     report(pd.DataFrame(per_source).to_string(index=False, float_format=fmt))
 
     report("\nAction match by round:")
-    report(results.pivot_table(index="round", columns="source",
-                               values="match", aggfunc="mean")
-           .to_string(float_format=fmt))
+    report(
+        results.pivot_table(index="round", columns="source", values="match",
+                            aggfunc="mean").to_string(float_format=fmt))
 
     report("\nAction match by self-reported determinacy:")
-    report(results.pivot_table(index="determinate", columns="source",
-                               values="match", aggfunc=["mean", "size"])
-           .to_string(float_format=fmt))
+    report(
+        results.pivot_table(index="determinate",
+                            columns="source",
+                            values="match",
+                            aggfunc=["mean", "size"]).to_string(float_format=fmt))
 
     report("\nConfusion (rows algo, cols llm):")
-    report(pd.crosstab([results["source"], results["algo"]],
-                       results["llm"]).to_string())
+    report(pd.crosstab([results["source"], results["algo"]], results["llm"]).to_string())
 
     if results["source"].nunique() > 1:
-        wide = (results.pivot_table(
-            index=EPISODE_KEYS + ["round", "algo"], columns="source",
-            values="llm", aggfunc="first").dropna().reset_index())
+        wide = (results.pivot_table(index=EPISODE_KEYS + ["round", "algo"],
+                                    columns="source",
+                                    values="llm",
+                                    aggfunc="first").dropna().reset_index())
         report("-" * 79)
         report(f"PAIRED  ({len(wide)} decisions present in both conditions)")
         report("conditions agree with each other: "
                f"{(wide['description'] == wide['code']).mean():.1%}")
         report("\nCorrectness cross-tab:")
-        report(pd.crosstab(wide["description"] == wide["algo"],
-                           wide["code"] == wide["algo"],
-                           rownames=["description correct"],
-                           colnames=["code correct"]).to_string())
+        report(
+            pd.crosstab(wide["description"] == wide["algo"],
+                        wide["code"] == wide["algo"],
+                        rownames=["description correct"],
+                        colnames=["code correct"]).to_string())
 
-    ranking = results.assign(error=~results["match"]).pivot_table(
-        index="strategy_class", columns="source", values="error",
-        aggfunc="sum", fill_value=0)
+    ranking = results.assign(error=~results["match"]).pivot_table(index="strategy_class",
+                                                                  columns="source",
+                                                                  values="error",
+                                                                  aggfunc="sum",
+                                                                  fill_value=0)
     ranking.columns = [f"errors_{c}" for c in ranking.columns]
     ranking["errors_total"] = ranking.sum(axis=1)
-    ranking = ranking.join(
-        results.groupby("strategy_class").size().rename("decisions"))
+    ranking = ranking.join(results.groupby("strategy_class").size().rename("decisions"))
     ranking["error_rate"] = ranking["errors_total"] / ranking["decisions"]
-    ranking = ranking.sort_values(["errors_total", "error_rate"],
-                                  ascending=False)
+    ranking = ranking.sort_values(["errors_total", "error_rate"], ascending=False)
     report("-" * 79)
     report("STRATEGIES BY DESCENDING ERRORS")
     report(ranking.to_string(float_format=fmt))
@@ -800,29 +809,29 @@ def main():
     report = Report(output_dir / "report.log")
     query_logger = QueryLogger(output_dir / "queries.log")
 
-    config = LLMConfig(create_client(args.llm_provider), args.inference_model,
+    config = LLMConfig(create_client(args.llm_provider),
+                       args.inference_model,
                        reasoning_effort=args.reasoning_effort)
-    description = STANDARD_GENERATORS[args.game + "_default"](
-        n_players=args.n_players, n_rounds=args.n_rounds)
+    description = STANDARD_GENERATORS[args.game + "_default"](n_players=args.n_players,
+                                                              n_rounds=args.n_rounds)
 
-    pairs = load_pairs(Path(args.strategies_dir), args.game,
+    pairs = load_pairs(Path(args.strategies_dir),
+                       args.game,
                        args.strategy_model,
                        need_source=("code" in args.sources),
                        strip_docstring=args.strip_docstring)
-    logging.info("Loaded %d description/implementation pairs across %d genes",
-                 len(pairs), len({p.gene for p in pairs}))
+    logging.info("Loaded %d description/implementation pairs across %d genes", len(pairs),
+                 len({p.gene for p in pairs}))
 
-    verdicts = load_diversity_verdicts(
-        Path(args.results_dir), args.game,
-        sorted({p.gene for p in pairs}, key=str),
-        args.n_players, args.n_rounds, args.diversity_games, report)
-    pairs, n_stochastic, n_unknown = select_deterministic(pairs, verdicts,
-                                                          report)
+    verdicts = load_diversity_verdicts(Path(args.results_dir), args.game,
+                                       sorted({p.gene for p in pairs}, key=str), args.n_players,
+                                       args.n_rounds, args.diversity_games, report)
+    pairs, n_stochastic, n_unknown = select_deterministic(pairs, verdicts, report)
 
     results_path = output_dir / "results.csv"
     done = load_partial(results_path)
-    completed = (set(zip(done["strategy_class"], done["trajectory"],
-                         done["source"])) if not done.empty else set())
+    completed = (set(zip(done["strategy_class"], done["trajectory"], done["source"]))
+                 if not done.empty else set())
     if completed:
         report(f"Resuming: {len(completed)} episode-conditions already in "
                f"{results_path}")
@@ -832,31 +841,28 @@ def main():
     discarded = 0
     for episode, (pair, combo) in enumerate(plan, 1):
         trajectory = trajectory_key(combo)
-        pending = [s for s in args.sources
-                   if (pair.name, trajectory, s) not in completed]
+        pending = [s for s in args.sources if (pair.name, trajectory, s) not in completed]
         if not pending:
             continue
 
         frames = {
-            source: done[(done["strategy_class"] == pair.name)
-                         & (done["trajectory"] == trajectory)
-                         & (done["source"] == source)]
-            for source in args.sources if source not in pending
+            source:
+                done[(done["strategy_class"] == pair.name) & (done["trajectory"] == trajectory) &
+                     (done["source"] == source)] for source in args.sources if source not in pending
         }
 
         try:
             played = play_algorithm(pair, args.game, description, combo)
             for source in pending:
-                frames[source] = run_episode(
-                    episode, pair, combo, source, args, config, description,
-                    played, query_logger)
+                frames[source] = run_episode(episode, pair, combo, source, args, config,
+                                             description, played, query_logger)
         except Exception as failure:
             # One broken strategy or one unparseable response must not kill the
             # run. Written all-or-nothing so paired rows are never half-present;
             # with no prompt cache, a discard re-pays for the completed half.
             discarded += 1
-            logging.warning("Discarded episode %d (%s / %s): %s: %s",
-                            episode, pair.name, trajectory,
+            logging.warning("Discarded episode %d (%s / %s): %s: %s", episode, pair.name,
+                            trajectory,
                             type(failure).__name__, failure)
             continue
 
@@ -870,8 +876,7 @@ def main():
     if results.empty:
         report("No episodes completed.")
     else:
-        print_summary(results, n_stochastic, n_unknown, discarded,
-                      results_path, report)
+        print_summary(results, n_stochastic, n_unknown, discarded, results_path, report)
     report.close()
 
 

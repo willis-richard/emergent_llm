@@ -1,17 +1,16 @@
 """Player classes for social dilemma experiments."""
-import logging
 from dataclasses import dataclass
+import logging
 from typing import Callable
 
-from emergent_llm.common import (
-    Action,
-    Attitude,
-    GameDescription,
-    Gene,
-    PlayerHistory,
-    PlayerId,
-)
-from emergent_llm.players.base_player import BasePlayer, BaseStrategy
+from emergent_llm.common import Action
+from emergent_llm.common import Attitude
+from emergent_llm.common import GameDescription
+from emergent_llm.common import Gene
+from emergent_llm.common import PlayerHistory
+from emergent_llm.common import PlayerId
+from emergent_llm.players.base_player import BasePlayer
+from emergent_llm.players.base_player import BaseStrategy
 
 
 class LLMPlayer(BasePlayer):
@@ -25,9 +24,7 @@ class LLMPlayer(BasePlayer):
                  max_errors: int = 2):
         super().__init__(name)
         self.gene = gene
-        self.id = PlayerId(
-            name, gene,
-            f"{strategy_class.__module__}.{strategy_class.__name__}")
+        self.id = PlayerId(name, gene, f"{strategy_class.__module__}.{strategy_class.__name__}")
         self.game_description: GameDescription = game_description
         self.strategy_class: type[BaseStrategy] = strategy_class
         self._takes_stock = game_description.has_stock()
@@ -51,9 +48,7 @@ class LLMPlayer(BasePlayer):
                 action = self.strategy_function(history)
 
             if not isinstance(action, Action):
-                raise TypeError(
-                    f"Strategy returned {type(action).__name__} instead of Action"
-                )
+                raise TypeError(f"Strategy returned {type(action).__name__} instead of Action")
             return action
 
         except Exception as e:
@@ -80,8 +75,7 @@ class LLMPlayer(BasePlayer):
 class SimplePlayer(BasePlayer):
     """Simple player for testing. Strategy function takes history only."""
 
-    def __init__(self, name: str,
-                 strategy_function: Callable[[PlayerHistory], Action]):
+    def __init__(self, name: str, strategy_function: Callable[[PlayerHistory], Action]):
         super().__init__(name)
         self.strategy_function = strategy_function
 
@@ -98,8 +92,7 @@ class StrategySpec:
     gene: Gene
     strategy_class: type[BaseStrategy]
 
-    def create_player(self, name: str,
-                      game_description: GameDescription) -> LLMPlayer:
+    def create_player(self, name: str, game_description: GameDescription) -> LLMPlayer:
         return LLMPlayer(name=name,
                          gene=self.gene,
                          game_description=game_description,

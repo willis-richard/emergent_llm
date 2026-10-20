@@ -2,15 +2,13 @@
 
 import argparse
 import logging
-import sys
 from pathlib import Path
+import sys
 
 from emergent_llm.generation import StrategyRegistry
-from emergent_llm.tournament import (
-    BatchMixtureTournament,
-    BatchTournamentConfig,
-    POOL_SEPARATOR,
-)
+from emergent_llm.tournament import BatchMixtureTournament
+from emergent_llm.tournament import BatchTournamentConfig
+from emergent_llm.tournament import POOL_SEPARATOR
 
 sys.setrecursionlimit(10000)
 
@@ -19,24 +17,34 @@ def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Run mixture tournament")
 
-    parser.add_argument("--strategies", type=str, nargs="+", required=True,
+    parser.add_argument("--strategies",
+                        type=str,
+                        nargs="+",
+                        required=True,
                         help="Path to Python file containing strategy classes. "
-                             "Passing more than one file pools strategies "
-                             "across models into a single cross-play "
-                             "tournament; the intended use is one file.")
-    parser.add_argument("--game", choices=["public_goods", "collective_risk", "common_pool"],
-                       default="public_goods", help="Game type")
-    parser.add_argument("--matches", type=int, default=100,
-                       help="Number of matches per mixture ratio")
-    parser.add_argument("--group-sizes", type=int, nargs="+", default=[4, 16, 64],
-                       help="Group sizes to test")
-    parser.add_argument("--n_processes", type=int, default=1,
-                        help="Number of processes to use")
+                        "Passing more than one file pools strategies "
+                        "across models into a single cross-play "
+                        "tournament; the intended use is one file.")
+    parser.add_argument("--game",
+                        choices=["public_goods", "collective_risk", "common_pool"],
+                        default="public_goods",
+                        help="Game type")
+    parser.add_argument("--matches",
+                        type=int,
+                        default=100,
+                        help="Number of matches per mixture ratio")
+    parser.add_argument("--group-sizes",
+                        type=int,
+                        nargs="+",
+                        default=[4, 16, 64],
+                        help="Group sizes to test")
+    parser.add_argument("--n_processes", type=int, default=1, help="Number of processes to use")
     parser.add_argument("--results_dir", type=str, default="results")
-    parser.add_argument("--output_style", choices=["full", "compressed", "summary"],
-                        default="full", help="What compression to apply to the results")
-    parser.add_argument("--verbose", action="store_true",
-                        help="Enable verbose logging")
+    parser.add_argument("--output_style",
+                        choices=["full", "compressed", "summary"],
+                        default="full",
+                        help="What compression to apply to the results")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
 
     return parser.parse_args()
 
@@ -77,14 +85,10 @@ def main():
     log_file = logs_dir / "tournament.log"
 
     level = logging.INFO if args.verbose else logging.WARNING
-    logging.basicConfig(
-        level=level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler()
-        ]
-    )
+    logging.basicConfig(level=level,
+                        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                        handlers=[logging.FileHandler(log_file),
+                                  logging.StreamHandler()])
     logger = logging.getLogger(__name__)
     logger.info(f"Starting batch mixture tournament: {args.game}")
     logger.info(f"Output directory: {config.output_dir}")
@@ -109,11 +113,9 @@ def main():
         raise ValueError("Need both collective and selfish strategy classes")
 
     # Create and run tournament (automatically loads completed groups)
-    tournament = BatchMixtureTournament(
-        collective_specs=collective_specs,
-        selfish_specs=selfish_specs,
-        config=config
-    )
+    tournament = BatchMixtureTournament(collective_specs=collective_specs,
+                                        selfish_specs=selfish_specs,
+                                        config=config)
 
     logger.info("Running tournament...")
     results = tournament.run_tournament()

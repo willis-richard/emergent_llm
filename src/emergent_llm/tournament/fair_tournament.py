@@ -1,14 +1,12 @@
-import random
 from multiprocessing import Pool
+import random
 
 from emergent_llm.players import LLMPlayer
 from emergent_llm.tournament.base_tournament import BaseTournament
 from emergent_llm.tournament.configs import BaseTournamentConfig
-from emergent_llm.tournament.results import (
-    FairTournamentResults,
-    FairTournamentSummary,
-    MatchResult,
-)
+from emergent_llm.tournament.results import FairTournamentResults
+from emergent_llm.tournament.results import FairTournamentSummary
+from emergent_llm.tournament.results import MatchResult
 
 
 class FairTournament(BaseTournament):
@@ -19,16 +17,14 @@ class FairTournament(BaseTournament):
 
         # Validate population size
         if len(players) % config.game_description.n_players != 0:
-            raise ValueError(
-                f"Population size ({len(players)}) must be divisible by "
-                f"n_players ({config.game_description.n_players})")
+            raise ValueError(f"Population size ({len(players)}) must be divisible by "
+                             f"n_players ({config.game_description.n_players})")
 
         self.players = players
 
     def run_tournament(self) -> FairTournamentResults:
         """Run complete tournament and return results."""
-        self.logger.info(
-            f"Starting fair tournament: {self.config.repetitions} repetitions")
+        self.logger.info(f"Starting fair tournament: {self.config.repetitions} repetitions")
 
         repetitions = [i for i in range(self.config.repetitions)]
 
@@ -38,13 +34,10 @@ class FairTournament(BaseTournament):
             with Pool(processes=self.config.n_processes) as pool:
                 results = pool.map(self._run_repetition, repetitions)
 
-        match_results: list[MatchResult] = [
-            entry for sublist in results for entry in sublist
-        ]
+        match_results: list[MatchResult] = [entry for sublist in results for entry in sublist]
 
         player_ids = [p.id for p in self.players]
-        summary = FairTournamentSummary.from_match_results(
-            match_results, player_ids)
+        summary = FairTournamentSummary.from_match_results(match_results, player_ids)
 
         return FairTournamentResults(config=self.config,
                                      player_ids=player_ids,

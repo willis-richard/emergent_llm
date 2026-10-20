@@ -23,10 +23,8 @@ import numpy as np
 
 from emergent_llm.common import GameDescription
 from emergent_llm.games import get_game_type
-from emergent_llm.generation.prompts import (
-    format_game_description,
-    get_interface_description,
-)
+from emergent_llm.generation.prompts import format_game_description
+from emergent_llm.generation.prompts import get_interface_description
 
 HISTORY_FORMATS = ("jsonl", "xml", "markdown")
 SOURCES = ("description", "code")
@@ -84,8 +82,7 @@ def _round_records(my_actions: np.ndarray,
             "my_payoff": round(float(my_payoffs[j]), 4),
         }
         if include_derived:
-            record["total_cooperators"] = (int(opponent_cooperators[j])
-                                           + int(cooperated))
+            record["total_cooperators"] = (int(opponent_cooperators[j]) + int(cooperated))
         records.append(record)
     return records
 
@@ -135,16 +132,13 @@ def render_history(my_actions: np.ndarray,
                    stocks: np.ndarray | None = None) -> str:
     if n_played == 0:
         return "No rounds have been played yet."
-    records = _round_records(my_actions, my_payoffs, opponent_cooperators,
-                             n_played, base, include_derived, stocks)
+    records = _round_records(my_actions, my_payoffs, opponent_cooperators, n_played, base,
+                             include_derived, stocks)
     return _RENDERERS[history_format](records)
 
 
-def render_summary(my_actions: np.ndarray,
-                   my_payoffs: np.ndarray,
-                   opponent_cooperators: np.ndarray,
-                   n_played: int,
-                   n_rounds: int) -> str:
+def render_summary(my_actions: np.ndarray, my_payoffs: np.ndarray, opponent_cooperators: np.ndarray,
+                   n_played: int, n_rounds: int) -> str:
     """Derived aggregates. Not part of the algorithm's information set — the
     code can compute these trivially, an LLM cannot. Off by default."""
     return "\n".join([
@@ -158,7 +152,9 @@ def render_summary(my_actions: np.ndarray,
     ])
 
 
-def render_round_header(n_played: int, n_rounds: int, source: str,
+def render_round_header(n_played: int,
+                        n_rounds: int,
+                        source: str,
                         current_stock: float | None = None) -> str:
     """`n_played` is the 0-indexed round about to be played."""
     header = _round_position(n_played, n_rounds, source)
@@ -301,16 +297,14 @@ def create_replication_user_prompt(
 
     blocks += [
         "HISTORY SO FAR",
-        render_history(my_actions, my_payoffs, opponent_cooperators,
-                       n_played, base, history_format, include_derived,
-                       stocks),
+        render_history(my_actions, my_payoffs, opponent_cooperators, n_played, base, history_format,
+                       include_derived, stocks),
         "",
     ]
 
     if include_derived:
         blocks += [
-            render_summary(my_actions, my_payoffs, opponent_cooperators,
-                           n_played, n_rounds),
+            render_summary(my_actions, my_payoffs, opponent_cooperators, n_played, n_rounds),
             "",
         ]
 
@@ -320,8 +314,7 @@ def create_replication_user_prompt(
                             None if stocks is None else stocks[n_played]),
         "",
         "What action does the strategy prescribe for this round?"
-        if source == "description" else
-        "What action does the code return for this round?",
+        if source == "description" else "What action does the code return for this round?",
     ]
 
     return "\n".join(blocks)

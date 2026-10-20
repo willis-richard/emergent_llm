@@ -1,24 +1,22 @@
 """Cultural evolution under Fermi pairwise-comparison dynamics."""
+from collections import Counter
+from collections import defaultdict
 import logging
 import math
 import random
-from collections import Counter, defaultdict
 
 import numpy as np
 
-from emergent_llm.common import Attitude, Gene
+from emergent_llm.common import Attitude
+from emergent_llm.common import Gene
 from emergent_llm.generation.strategy_registry import StrategyRegistry
 from emergent_llm.players import StrategySpec
-from emergent_llm.tournament.configs import (
-    BaseTournamentConfig,
-    CulturalEvolutionConfig,
-)
+from emergent_llm.tournament.configs import BaseTournamentConfig
+from emergent_llm.tournament.configs import CulturalEvolutionConfig
 from emergent_llm.tournament.fair_tournament import FairTournament
-from emergent_llm.tournament.results import (
-    CulturalEvolutionResults,
-    CulturalEvolutionSummary,
-    collapse_to_base,
-)
+from emergent_llm.tournament.results import collapse_to_base
+from emergent_llm.tournament.results import CulturalEvolutionResults
+from emergent_llm.tournament.results import CulturalEvolutionSummary
 
 # Per-generation retention map: (gene, strategy class name) -> count
 RetentionMap = dict[tuple[Gene, str], int]
@@ -30,8 +28,7 @@ class CulturalEvolution:
     on genotype change. Runs natively over all attitudes; reporting collapses
     to the two base attitudes."""
 
-    def __init__(self, config: CulturalEvolutionConfig,
-                 strategy_registry: StrategyRegistry):
+    def __init__(self, config: CulturalEvolutionConfig, strategy_registry: StrategyRegistry):
         self.config = config
         self.registry = strategy_registry
         self.logger = logging.getLogger(__name__)
@@ -64,8 +61,7 @@ class CulturalEvolution:
 
         per_gene = math.ceil(self.config.population_size / len(genes))
         self.population: list[StrategySpec] = [
-            self.registry.sample_spec(gene)
-            for gene in genes for _ in range(per_gene)
+            self.registry.sample_spec(gene) for gene in genes for _ in range(per_gene)
         ]
         random.shuffle(self.population)
         self.population = self.population[:self.config.population_size]
@@ -77,10 +73,8 @@ class CulturalEvolution:
     def run_tournament(self) -> CulturalEvolutionResults:
         self.logger.info(
             "Starting cultural evolution: pop=%d, beta=%g, mu=%g, "
-            "n_generations=%d, final_window=%d",
-            self.config.population_size, self.config.beta,
-            self.config.mutation_rate, self.config.n_generations,
-            self.config.final_window)
+            "n_generations=%d, final_window=%d", self.config.population_size, self.config.beta,
+            self.config.mutation_rate, self.config.n_generations, self.config.final_window)
 
         for _ in range(self.config.n_generations):
             frequencies = self._calculate_gene_frequencies()
@@ -100,9 +94,9 @@ class CulturalEvolution:
 
         window_mean, window_std = self._compute_window_statistics()
 
-        summary = CulturalEvolutionSummary.from_raw_data(
-            self.gene_frequencies, self.generation_results,
-            self.retention_history, self.config)
+        summary = CulturalEvolutionSummary.from_raw_data(self.gene_frequencies,
+                                                         self.generation_results,
+                                                         self.retention_history, self.config)
 
         return CulturalEvolutionResults(
             config=self.config,
@@ -113,15 +107,13 @@ class CulturalEvolution:
             generation_results=self.generation_results,
         )
 
-    def _compute_window_statistics(
-            self) -> tuple[dict[Gene, float], dict[Gene, float]]:
+    def _compute_window_statistics(self) -> tuple[dict[Gene, float], dict[Gene, float]]:
         """Mean and population std of base-attitude-collapsed genotype
         frequencies across the final `final_window` recorded states.
         Reporting (dominant_gene, batch summaries) operates at base-attitude
         granularity; the fine-grained history remains on
         CulturalEvolutionResults.gene_frequency_history."""
-        window = [collapse_to_base(g) for g in
-                  self.gene_frequencies[-self.config.final_window:]]
+        window = [collapse_to_base(g) for g in self.gene_frequencies[-self.config.final_window:]]
         all_genes: set[Gene] = set()
         for gen_freqs in window:
             all_genes.update(gen_freqs.keys())
@@ -129,9 +121,7 @@ class CulturalEvolution:
         means: dict[Gene, float] = {}
         stds: dict[Gene, float] = {}
         for gene in all_genes:
-            values = np.array(
-                [gen_freqs.get(gene, 0.0) for gen_freqs in window],
-                dtype=np.float64)
+            values = np.array([gen_freqs.get(gene, 0.0) for gen_freqs in window], dtype=np.float64)
             means[gene] = float(values.mean())
             stds[gene] = float(values.std(ddof=0))
 
@@ -146,17 +136,14 @@ class CulturalEvolution:
             spec.create_player(f"player_{i}", self.config.game_description)
             for i, spec in enumerate(self.population)
         ]
-        fair_config = BaseTournamentConfig(
-            game_description=self.config.game_description,
-            repetitions=self.config.games_per_agent,
-            n_processes=1)
+        fair_config = BaseTournamentConfig(game_description=self.config.game_description,
+                                           repetitions=self.config.games_per_agent,
+                                           n_processes=1)
         results = FairTournament(players, fair_config).run_tournament()
         self.generation_results.append(results)
 
-        scores_by_name = results.results_df.set_index(
-            'player_name')['total_payoff'].to_dict()
-        fitnesses = np.array(
-            [scores_by_name[p.id.name] for p in players], dtype=np.float64)
+        scores_by_name = results.results_df.set_index('player_name')['total_payoff'].to_dict()
+        fitnesses = np.array([scores_by_name[p.id.name] for p in players], dtype=np.float64)
 
         pi_max = self.config.game_description.max_payoff() * self.config.games_per_agent
         pi_min = self.config.game_description.min_payoff() * self.config.games_per_agent
@@ -174,17 +161,16 @@ class CulturalEvolution:
             self.registry.sample_spec(new_genes[i]) if changed[i] else spec
             for i, spec in enumerate(self.population)
         ]
-        retention = Counter(
-            (spec.gene, spec.strategy_class.__name__)
-            for i, spec in enumerate(self.population) if not changed[i])
+        retention = Counter((spec.gene, spec.strategy_class.__name__)
+                            for i, spec in enumerate(self.population)
+                            if not changed[i])
 
         self.population = new_population
         self.retention_history.append(retention)
 
-        self.logger.info(
-            "Generation %d: imitated=%d, mutated=%d, retained=%d",
-            self.generation, int(imitated.sum()), int(mutated.sum()),
-            len(self.population) - int(changed.sum()))
+        self.logger.info("Generation %d: imitated=%d, mutated=%d, retained=%d", self.generation,
+                         int(imitated.sum()), int(mutated.sum()),
+                         len(self.population) - int(changed.sum()))
 
     def _imitate(self, fitnesses: np.ndarray) -> tuple[list[Gene], np.ndarray]:
         """Fermi pairwise-comparison rule (Traulsen, Nowak, Pacheco, 2006)."""
@@ -241,14 +227,12 @@ class CulturalEvolution:
         counts = Counter(spec.gene for spec in self.population)
         total = len(self.population)
         return dict(
-            sorted(((g, c / total) for g, c in counts.items()),
-                   key=lambda kv: kv[1], reverse=True))
+            sorted(((g, c / total) for g, c in counts.items()), key=lambda kv: kv[1], reverse=True))
 
     @staticmethod
     def _format_frequencies(frequencies: dict[Gene, float]) -> str:
         """Log base-attitude collapsed frequencies; the full 8-attitude × N-model
         table is too noisy for per-generation logging."""
         collapsed = collapse_to_base(frequencies)
-        sorted_items = sorted(collapsed.items(), key=lambda kv: kv[1],
-                              reverse=True)
+        sorted_items = sorted(collapsed.items(), key=lambda kv: kv[1], reverse=True)
         return ", ".join(f"{g}: {f:.2%}" for g, f in sorted_items)

@@ -2,52 +2,45 @@
 import logging
 from pathlib import Path
 
-from emergent_llm.common import (
-    COLLECTIVE,
-    SELFISH,
-    C,
-    D,
-    GameDescription,
-    Gene,
-)
-from emergent_llm.games import (
-    CollectiveRiskDescription,
-    CommonPoolDescription,
-    PublicGoodsDescription,
-)
+from emergent_llm.common import C
+from emergent_llm.common import COLLECTIVE
+from emergent_llm.common import D
+from emergent_llm.common import GameDescription
+from emergent_llm.common import Gene
+from emergent_llm.common import SELFISH
+from emergent_llm.games import CollectiveRiskDescription
+from emergent_llm.games import CommonPoolDescription
+from emergent_llm.games import PublicGoodsDescription
 from emergent_llm.generation import StrategyRegistry
-from emergent_llm.players import BaseStrategy, LLMPlayer, StrategySpec
-from emergent_llm.tournament import (
-    BaseTournamentConfig,
-    BatchCulturalEvolution,
-    BatchCulturalEvolutionConfig,
-    BatchCulturalEvolutionResults,
-    BatchFairTournament,
-    BatchFairTournamentResults,
-    BatchMixtureTournament,
-    BatchMixtureTournamentResults,
-    BatchTournamentConfig,
-    CulturalEvolution,
-    CulturalEvolutionConfig,
-    CulturalEvolutionResults,
-    FairTournament,
-    FairTournamentResults,
-    MixtureTournament,
-    MixtureTournamentResults,
-)
+from emergent_llm.players import BaseStrategy
+from emergent_llm.players import LLMPlayer
+from emergent_llm.players import StrategySpec
+from emergent_llm.tournament import BaseTournamentConfig
+from emergent_llm.tournament import BatchCulturalEvolution
+from emergent_llm.tournament import BatchCulturalEvolutionConfig
+from emergent_llm.tournament import BatchCulturalEvolutionResults
+from emergent_llm.tournament import BatchFairTournament
+from emergent_llm.tournament import BatchFairTournamentResults
+from emergent_llm.tournament import BatchMixtureTournament
+from emergent_llm.tournament import BatchMixtureTournamentResults
+from emergent_llm.tournament import BatchTournamentConfig
+from emergent_llm.tournament import CulturalEvolution
+from emergent_llm.tournament import CulturalEvolutionConfig
+from emergent_llm.tournament import CulturalEvolutionResults
+from emergent_llm.tournament import FairTournament
+from emergent_llm.tournament import FairTournamentResults
+from emergent_llm.tournament import MixtureTournament
+from emergent_llm.tournament import MixtureTournamentResults
 
 # Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('fair_tournament.log'),
-        logging.StreamHandler()
-    ]
-)
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    handlers=[logging.FileHandler('fair_tournament.log'),
+                              logging.StreamHandler()])
 
 
 class CollectiveStrategy(BaseStrategy):
+
     def __init__(self, game_description):
         pass
 
@@ -56,6 +49,7 @@ class CollectiveStrategy(BaseStrategy):
 
 
 class SelfishStrategy(BaseStrategy):
+
     def __init__(self, game_description):
         pass
 
@@ -68,23 +62,26 @@ def create_test_population(game_description):
     collective_players = []
 
     for i in range(18):
-        collective_players.append(LLMPlayer(
-            name=f"llm_coop_{i}",
-            gene=Gene("", COLLECTIVE),
-            game_description=game_description,
-            strategy_class=CollectiveStrategy,
-        ))
+        collective_players.append(
+            LLMPlayer(
+                name=f"llm_coop_{i}",
+                gene=Gene("", COLLECTIVE),
+                game_description=game_description,
+                strategy_class=CollectiveStrategy,
+            ))
 
     selfish_players = []
     for i in range(18):
-        selfish_players.append(LLMPlayer(
-            name=f"llm_aggr_{i}",
-            gene=Gene("", SELFISH),
-            game_description=game_description,
-            strategy_class=SelfishStrategy,
-        ))
+        selfish_players.append(
+            LLMPlayer(
+                name=f"llm_aggr_{i}",
+                gene=Gene("", SELFISH),
+                game_description=game_description,
+                strategy_class=SelfishStrategy,
+            ))
 
     return collective_players, selfish_players
+
 
 def run_fair_tournament(game_description):
     """Run tournament with Public Goods Game."""
@@ -94,34 +91,28 @@ def run_fair_tournament(game_description):
     config = BaseTournamentConfig(game_description, repetitions=2, n_processes=2)
 
     # Create and run tournament
-    tournament = FairTournament(
-        players=c_p + a_p,
-        config=config
-    )
+    tournament = FairTournament(players=c_p + a_p, config=config)
 
     return tournament.run_tournament()
+
 
 def run_mixture_tournament(game_description):
     """Run tournament with Public Goods Game."""
     # Create population (36 players = 6 matches)
     c_p, a_p = create_test_population(game_description)
 
-
     config = BaseTournamentConfig(game_description, repetitions=2, n_processes=2)
 
     # Create and run tournament
-    tournament = MixtureTournament(
-        collective_players=c_p,
-        selfish_players=a_p,
-        config=config
-    )
+    tournament = MixtureTournament(collective_players=c_p, selfish_players=a_p, config=config)
 
     return tournament.run_tournament()
+
 
 def run_batch_fair_tournament(generator_name):
     """Run tournament with Public Goods Game."""
     config = BatchTournamentConfig(
-        group_sizes=[2,4,48],
+        group_sizes=[2, 4, 48],
         repetitions=2,
         generator_name=generator_name,
         n_processes=2,
@@ -136,16 +127,15 @@ def run_batch_fair_tournament(generator_name):
 
     # Create and run tournament
     tournament = BatchFairTournament(
-        strategies=[StrategySpec(g, s) for g, s in zip(genes, strategies)],
-        config=config
-    )
+        strategies=[StrategySpec(g, s) for g, s in zip(genes, strategies)], config=config)
 
     return tournament.run_tournament()
+
 
 def run_batch_mixture_tournament(generator_name):
     """Run tournament with Public Goods Game."""
     config = BatchTournamentConfig(
-        group_sizes=[2,4,48],
+        group_sizes=[2, 4, 48],
         repetitions=2,
         generator_name=generator_name,
         n_processes=2,
@@ -157,14 +147,14 @@ def run_batch_mixture_tournament(generator_name):
 
     # Create and run tournament
     tournament = BatchMixtureTournament(
-        collective_specs=[StrategySpec(Gene("", COLLECTIVE), CollectiveStrategy)]*96,
-        selfish_specs=[StrategySpec(Gene("", SELFISH), SelfishStrategy)]*96,
-        config=config
-    )
+        collective_specs=[StrategySpec(Gene("", COLLECTIVE), CollectiveStrategy)] * 96,
+        selfish_specs=[StrategySpec(Gene("", SELFISH), SelfishStrategy)] * 96,
+        config=config)
 
     return tournament.run_tournament()
 
-def create_ce_config(game_description : GameDescription):
+
+def create_ce_config(game_description: GameDescription):
     return CulturalEvolutionConfig(game_description,
                                    population_size=18,
                                    mutation_rate=0.1,
@@ -172,6 +162,7 @@ def create_ce_config(game_description : GameDescription):
                                    n_generations=5,
                                    final_window=2,
                                    games_per_agent=2)
+
 
 def run_cultural_evolution(game_description: GameDescription):
     """Run tournament with Public Goods Game."""
@@ -188,6 +179,7 @@ def run_cultural_evolution(game_description: GameDescription):
 
     return tournament.run_tournament()
 
+
 def run_batch_cultural_evolution(game_description):
     config = BatchCulturalEvolutionConfig(create_ce_config(game_description),
                                           n_runs=2,
@@ -201,13 +193,10 @@ def run_batch_cultural_evolution(game_description):
 
     return tournament.run_tournament()
 
+
 def main():
 
-    pgg_description = PublicGoodsDescription(
-        n_players=6,
-        n_rounds=20,
-        k=2.0
-    )
+    pgg_description = PublicGoodsDescription(n_players=6, n_rounds=20, k=2.0)
 
     crd_description = CollectiveRiskDescription(
         n_players=6,
@@ -216,12 +205,7 @@ def main():
         k=2.0  # Reward if threshold met
     )
 
-    cpr_description = CommonPoolDescription(
-        n_players=6,
-        n_rounds=20,
-        capacity=36
-    )
-
+    cpr_description = CommonPoolDescription(n_players=6, n_rounds=20, capacity=36)
     """Run fair tournament."""
     print("Running Fair Public Goods Tournament...")
     pgg_results = run_fair_tournament(pgg_description)
@@ -230,8 +214,6 @@ def main():
 
     check = FairTournamentResults.load("./test/fair_pgg")
     print(check)
-
-
     """Run mixture tournament."""
     print("\nRunning Mixture Collective Risk Tournament...")
     crd_results = run_mixture_tournament(crd_description)
@@ -275,8 +257,10 @@ def main():
     bce_results.save()
     bce_results.plots()
 
-    check = BatchCulturalEvolutionResults.load("./test/cultural_evolution/public_goods/n6_r20_pop18_mut0.1_beta1_gen5_win2_games2")
+    check = BatchCulturalEvolutionResults.load(
+        "./test/cultural_evolution/public_goods/n6_r20_pop18_mut0.1_beta1_gen5_win2_games2")
     print(check)
+
 
 if __name__ == "__main__":
     main()

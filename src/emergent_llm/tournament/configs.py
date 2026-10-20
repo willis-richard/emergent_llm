@@ -1,20 +1,21 @@
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Callable
 
-from emergent_llm.common import GameDescription, Gene
-from emergent_llm.games import (
-    STANDARD_GENERATORS,
-    get_description_type,
-    CollectiveRiskDescription,
-    CommonPoolDescription,
-    PublicGoodsDescription,
-)
+from emergent_llm.common import GameDescription
+from emergent_llm.common import Gene
+from emergent_llm.games import CollectiveRiskDescription
+from emergent_llm.games import CommonPoolDescription
+from emergent_llm.games import get_description_type
+from emergent_llm.games import PublicGoodsDescription
+from emergent_llm.games import STANDARD_GENERATORS
 
 # Joins model names when strategies from several models are pooled into one
 # cross-play run. Not '-': model names contain hyphens.
 POOL_SEPARATOR = "+"
+
 
 class OutputStyle(StrEnum):
     FULL = "full"
@@ -51,8 +52,7 @@ class BaseTournamentConfig:
         game_cls = get_description_type(config_data['game_description_type'])
         game_description = game_cls(**config_data['game_description'])
 
-        return cls(game_description=game_description,
-                   repetitions=config_data['repetitions'])
+        return cls(game_description=game_description, repetitions=config_data['repetitions'])
 
 
 @dataclass
@@ -73,9 +73,7 @@ class BatchTournamentConfig:
             self.output_style = OutputStyle(self.output_style)
         if self.generator_name not in STANDARD_GENERATORS:
             available = list(STANDARD_GENERATORS.keys())
-            raise ValueError(
-                f"Unknown generator '{self.generator_name}'. Available: {available}"
-            )
+            raise ValueError(f"Unknown generator '{self.generator_name}'. Available: {available}")
 
     @property
     def game_description_generator(self) -> Callable[..., GameDescription]:
@@ -89,8 +87,8 @@ class BatchTournamentConfig:
     @property
     def output_dir(self) -> Path:
         """Full output directory including experiment subdirectory."""
-        return (Path(self.results_dir) / self.play_mode / self.game_name /
-                self.model_name / self._experiment_dir_name)
+        return (Path(self.results_dir) / self.play_mode / self.game_name / self.model_name /
+                self._experiment_dir_name)
 
 
 @dataclass
@@ -108,21 +106,17 @@ class CulturalEvolutionConfig:
         if self.population_size <= 0:
             raise ValueError("population_size must be positive")
         if self.population_size % self.game_description.n_players != 0:
-            raise ValueError(
-                f"population_size ({self.population_size}) must be divisible by "
-                f"n_players ({self.game_description.n_players})")
+            raise ValueError(f"population_size ({self.population_size}) must be divisible by "
+                             f"n_players ({self.game_description.n_players})")
         if self.beta <= 0:
-            raise ValueError(
-                f"beta (selection intensity) must be positive, got {self.beta}")
+            raise ValueError(f"beta (selection intensity) must be positive, got {self.beta}")
         if not (0 <= self.mutation_rate <= 1):
-            raise ValueError(
-                f"mutation_rate must be in [0, 1], got {self.mutation_rate}")
+            raise ValueError(f"mutation_rate must be in [0, 1], got {self.mutation_rate}")
         if self.n_generations <= 0:
             raise ValueError("n_generations must be positive")
         if not (0 < self.final_window <= self.n_generations):
-            raise ValueError(
-                f"final_window must be in (0, n_generations], got "
-                f"{self.final_window} (n_generations={self.n_generations})")
+            raise ValueError(f"final_window must be in (0, n_generations], got "
+                             f"{self.final_window} (n_generations={self.n_generations})")
         if self.games_per_agent <= 0:
             raise ValueError("games_per_agent must be positive")
 
@@ -173,8 +167,7 @@ class BatchCulturalEvolutionConfig:
     def output_dir(self) -> Path:
         """Full output directory including experiment subdirectory."""
         return Path(
-            self.results_dir
-        ) / "cultural_evolution" / self.game_name / self._experiment_dir_name
+            self.results_dir) / "cultural_evolution" / self.game_name / self._experiment_dir_name
 
     @property
     def _experiment_dir_name(self) -> str:

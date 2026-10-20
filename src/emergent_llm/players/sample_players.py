@@ -3,7 +3,10 @@ from typing import Callable
 
 import numpy as np
 
-from emergent_llm.common import C, D, Action, PlayerHistory
+from emergent_llm.common import Action
+from emergent_llm.common import C
+from emergent_llm.common import D
+from emergent_llm.common import PlayerHistory
 
 Cooperator = lambda _: C
 Defector = lambda _: D
@@ -13,6 +16,7 @@ RandomDefector = lambda _: D if np.random.random() < 0.9 else C
 
 
 class GradualDefector:
+
     def __init__(self, threshold=10):
         self.threshold = threshold
 
@@ -21,6 +25,7 @@ class GradualDefector:
 
 
 class PeriodicDefector:
+
     def __init__(self, period):
         self.period = period
 
@@ -29,6 +34,7 @@ class PeriodicDefector:
 
 
 class Altenator:
+
     def __init__(self, initial_action: Action):
         self.action = initial_action
 
@@ -37,6 +43,7 @@ class Altenator:
 
 
 class ConditionalCooperator:
+
     def __init__(self, initial_action: Action, threshold: int, include_self: bool = False):
         self.initial_action = initial_action
         self.threshold = threshold
@@ -54,6 +61,7 @@ class ConditionalCooperator:
 
 
 class ConditionalDefector:
+
     def __init__(self, initial_action: Action, threshold: int, include_self: bool = False):
         self.initial_action = initial_action
         self.threshold = threshold
@@ -71,6 +79,7 @@ class ConditionalDefector:
 
 
 class HistoricalCooperator:
+
     def __init__(self, initial_action: Action, threshold: float, include_self: bool = False):
         self.initial_action = initial_action
         self.threshold = threshold
@@ -90,6 +99,7 @@ class HistoricalCooperator:
 
 
 class AntiTFT:
+
     def __init__(self, initial_action: Action, threshold: int):
         self.initial_action = initial_action
         self.threshold = threshold
@@ -101,6 +111,7 @@ class AntiTFT:
 
 
 class FirstImpressions:
+
     def __init__(self, initial_action: Action, threshold: int):
         self.initial_action = initial_action
         self.threshold = threshold
@@ -112,8 +123,9 @@ class FirstImpressions:
 
 
 class Flipper:
-    def __init__(self, flip_action: Action, n_rounds: int,
-                 default: Callable[[PlayerHistory], Action]):
+
+    def __init__(self, flip_action: Action, n_rounds: int, default: Callable[[PlayerHistory],
+                                                                             Action]):
         self.flip_action = flip_action
         self.n_rounds = n_rounds
         self.default = default
@@ -127,9 +139,9 @@ class Flipper:
 
 
 class SpecialRounds:
+
     def __init__(self, default: Callable[[PlayerHistory], Action],
-                 special: Callable[[PlayerHistory], Action],
-                 rounds: list[int]):
+                 special: Callable[[PlayerHistory], Action], rounds: list[int]):
         self.default = default
         self.special = special
         self.rounds = rounds

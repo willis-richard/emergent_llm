@@ -6,27 +6,33 @@ import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-from matplotlib.ticker import MultipleLocator, PercentFormatter
+from matplotlib.ticker import MultipleLocator
+from matplotlib.ticker import PercentFormatter
 
 from emergent_llm.common import setup
-from emergent_llm.tournament.results import (
-    BatchMixtureTournamentResults,
-    plot_welfare_curves,
-    pretty_model,
-)
+from emergent_llm.tournament.results import BatchMixtureTournamentResults
+from emergent_llm.tournament.results import plot_welfare_curves
+from emergent_llm.tournament.results import pretty_model
 
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
         description="Combine social welfare diagrams across models, per game")
-    parser.add_argument("--results_dir", type=Path,
+    parser.add_argument("--results_dir",
+                        type=Path,
                         help="Top-level dir containing <game>/<model> subdirs")
-    parser.add_argument("--games", nargs="+", default=None,
+    parser.add_argument("--games",
+                        nargs="+",
+                        default=None,
                         help="Games to include; defaults to all subdirs")
-    parser.add_argument("--models", nargs="+", default=None,
+    parser.add_argument("--models",
+                        nargs="+",
+                        default=None,
                         help="Model order; defaults to alphabetical discovery")
     parser.add_argument("--output_dir", type=Path, default=Path("figures"))
-    parser.add_argument("--n_se", type=float, default=1.96,
+    parser.add_argument("--n_se",
+                        type=float,
+                        default=1.96,
                         help="Error bar half-width in SEs of the mean")
     return parser.parse_args()
 
@@ -46,9 +52,7 @@ def discover_models(game_dir: Path) -> list[str]:
     """Return model subdirs that contain a batch_mixture results file
     anywhere underneath them."""
     return sorted(
-        d.name for d in game_dir.iterdir()
-        if d.is_dir() and find_results_dir(d) is not None
-    )
+        d.name for d in game_dir.iterdir() if d.is_dir() and find_results_dir(d) is not None)
 
 
 def plot_combined(results_list: list[BatchMixtureTournamentResults],
@@ -57,8 +61,12 @@ def plot_combined(results_list: list[BatchMixtureTournamentResults],
                   n_se: float = 1.96) -> Path:
     figsize, fmt, _ = setup('royal_self_play')
     n = len(results_list)
-    fig, axes = plt.subplots(1, n, figsize=figsize, facecolor='white',
-                             sharey=True, gridspec_kw={'wspace': 0.08})
+    fig, axes = plt.subplots(1,
+                             n,
+                             figsize=figsize,
+                             facecolor='white',
+                             sharey=True,
+                             gridspec_kw={'wspace': 0.08})
     if n == 1:
         axes = [axes]
 
@@ -81,14 +89,15 @@ def plot_combined(results_list: list[BatchMixtureTournamentResults],
     # Middle panel; axes[1] IndexErrors when only one model is discovered.
     axes[len(axes) // 2].set_xlabel('Proportion of Collective prompts (%)')
 
-    fig.legend(handles, labels,
-            loc='outside upper center',
-            ncol=len(handles),
-            frameon=False,
-            handletextpad=0.4,
-            columnspacing=0.6,
-            borderpad=0,
-            borderaxespad=0.3)
+    fig.legend(handles,
+               labels,
+               loc='outside upper center',
+               ncol=len(handles),
+               frameon=False,
+               handletextpad=0.4,
+               columnspacing=0.6,
+               borderpad=0,
+               borderaxespad=0.3)
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -127,8 +136,7 @@ def main():
         if not results_list:
             continue
 
-        output_file = plot_combined(results_list, game, args.output_dir,
-                                    n_se=args.n_se)
+        output_file = plot_combined(results_list, game, args.output_dir, n_se=args.n_se)
         worst = max(r.max_welfare_se() for r in results_list)
         print(f"Saved {game}: {output_file}  (max SE = {worst:.4f})")
 

@@ -26,7 +26,6 @@ class PlayerId:
         """Load PlayerId from dictionary data."""
         gene = None
         if data['gene'] is not None:
-            gene = Gene(model=data['gene']['model'],
-                        attitude=Attitude(data['gene']['attitude']))
+            gene = Gene(model=data['gene']['model'], attitude=Attitude(data['gene']['attitude']))
 
         return cls(name=data['name'], gene=gene, strategy=data['strategy'])

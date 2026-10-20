@@ -1,7 +1,11 @@
 """Player classes for social dilemma experiments."""
-from abc import ABC, abstractmethod
+from abc import ABC
+from abc import abstractmethod
 
-from emergent_llm.common import Action, GameDescription, PlayerHistory, PlayerId
+from emergent_llm.common import Action
+from emergent_llm.common import GameDescription
+from emergent_llm.common import PlayerHistory
+from emergent_llm.common import PlayerId
 
 
 class BaseStrategy(ABC):
