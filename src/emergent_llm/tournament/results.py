@@ -96,7 +96,7 @@ def plot_welfare_curves(ax, results: 'BatchMixtureTournamentResults', n_se: floa
                     efficiency,
                     yerr=half,
                     label=f'n={group_size}',
-                    lw=1.5,
+                    lw=0.75,
                     marker='o',
                     capsize=1.5,
                     elinewidth=0.8,

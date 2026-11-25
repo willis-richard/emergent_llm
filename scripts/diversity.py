@@ -33,7 +33,7 @@ from emergent_llm.players import LLMPlayer
 from emergent_llm.players import SimplePlayer
 from emergent_llm.tournament import pretty_model
 
-FIGSIZE, FORMAT, _ = setup('royal_pca')
+FIGSIZE, FORMAT, _ = setup('beamer_pca')
 
 GAME_MAPPING = {
     'public_goods': 'Public Goods Game',
@@ -725,6 +725,7 @@ def plot_baselines(ax, baseline_pca, baseline_labels, marker_size=100):
         ax.annotate(name, (baseline_pca[i, 0], baseline_pca[i, 1]),
                     ha=ha,
                     va=va,
+                    fontsize='x-small',   # or 'xx-small'
                     xytext=xy,
                     textcoords='offset points')
 
@@ -754,6 +755,7 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels, baseline
     models = sorted(set(g.model for g in all_genes))
     cmap = plt.colormaps.get_cmap('tab10')
     model_colors = {m: cmap(i) for i, m in enumerate(models)}
+    ms = plt.rcParams['lines.markersize']
 
     # Reserve the top strip of the figure for the legend.
     legend_rows = 2 if len(models) > 4 else 1
@@ -790,20 +792,21 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels, baseline
                     continue
 
                 color = model_colors[model]
-                ax.scatter(points[:, 0], points[:, 1], alpha=0.5, s=10, color=color)
+                # ax.scatter(points[:, 0], points[:, 1], alpha=0.5, s=10, color=color)
+                ax.scatter(points[:, 0], points[:, 1], alpha=0.6, s=(1 * ms)**2, color=color, edgecolors='none')
                 mean_pt = points.mean(axis=0)
                 ax.scatter(mean_pt[0],
                            mean_pt[1],
                            marker='o',
-                           s=70,
+                           s=(2.5 * ms)**2,
                            color=color,
                            alpha=0.7,
                            edgecolors='black',
-                           linewidths=1.5,
+                           linewidths=0.75,
                            zorder=5)
 
             if args.plot_baselines:
-                plot_baselines(ax, baseline_pca, baseline_labels, marker_size=60)
+                plot_baselines(ax, baseline_pca, baseline_labels, marker_size=(2 * ms)**2)
                 # Let labels overhang into neighbouring panels without the
                 # layout making room for them.
                 for t in ax.texts:
@@ -840,7 +843,7 @@ def plot_pca_by_game(pca_data, X_pca_combined, labels_all, game_labels, baseline
                    marker='o',
                    color='w',
                    markerfacecolor=model_colors[m],
-                   markersize=10,
+                   markersize=4*ms,
                    label=pretty_model(m)) for m in models
     ]
     ncol = len(legend_handles) // 2 if legend_rows == 2 else len(legend_handles)
@@ -880,7 +883,7 @@ def plot_per_round_cooperation(df_rounds: pd.DataFrame, games: list[str], n_roun
     linestyles = {Attitude.COLLECTIVE: '-', Attitude.SELFISH: '--'}
 
     # NOTE: resets global rcParams; call after the PCA plot.
-    figsize, _, _ = setup('royal_cooperation')
+    figsize, _, _ = setup('beamer_cooperation')
     fig, axes = plt.subplots(1, len(games), figsize=figsize, sharex=True, sharey=True)
     axes = np.atleast_1d(axes)
 
@@ -890,7 +893,7 @@ def plot_per_round_cooperation(df_rounds: pd.DataFrame, games: list[str], n_roun
                     row[round_cols].to_numpy(dtype=float),
                     color=model_colors[model],
                     linestyle=linestyles[Attitude(base_value)],
-                    lw=1.25,
+                    lw=0.75,
                     marker='o',
                     alpha=0.8)
         ax.set_title(GAME_MAPPING.get(game, game))
@@ -1014,7 +1017,7 @@ def plot_extrema(extrema_info, ax):
                     textcoords='offset points',
                     bbox=dict(boxstyle='round,pad=0.5', facecolor='yellow', alpha=0.7),
                     arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0', lw=1.5),
-                    fontsize=8,
+                    fontsize='x-small',
                     zorder=10)
 
 

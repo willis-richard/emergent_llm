@@ -1,6 +1,10 @@
 """Combine social welfare diagrams from multiple BatchMixtureTournamentResults
 into a 1xN figure with a shared y-axis. Loops over all games found under
-<results_dir>/<game>/<model>, producing one figure per game."""
+<results_dir>/<game>/<model>, producing one figure per game.
+
+The first game gets titles and legend, the last game gets the x-axis label.
+Every figure's axes are sized to the same height in inches (setup()'s height),
+so the figures can be stacked with only the decorations each actually needs."""
 
 import argparse
 from pathlib import Path
@@ -24,7 +28,7 @@ def parse_arguments():
     parser.add_argument("--games",
                         nargs="+",
                         default=None,
-                        help="Games to include; defaults to all subdirs")
+                        help="Games to include, in row order; defaults to all subdirs")
     parser.add_argument("--models",
                         nargs="+",
                         default=None,
@@ -58,15 +62,22 @@ def discover_models(game_dir: Path) -> list[str]:
 def plot_combined(results_list: list[BatchMixtureTournamentResults],
                   game_name: str,
                   output_path: Path,
-                  n_se: float = 1.96) -> Path:
-    figsize, fmt, _ = setup('royal_self_play')
+                  n_se: float = 1.96,
+                  show_header: bool = True,
+                  show_xlabel: bool = True) -> Path:
+    figsize, fmt, _ = setup('beamer_self_play')
+    axes_height = figsize[1]  # setup()'s height is the axes height here
     n = len(results_list)
+    # Start tall enough that constrained layout doesn't collapse; the
+    # height is shrunk to fit below.
     fig, axes = plt.subplots(1,
                              n,
-                             figsize=figsize,
+                             figsize=(figsize[0], axes_height + 1.5),
                              facecolor='white',
-                             sharey=True,
-                             gridspec_kw={'wspace': 0.08})
+                             sharey=True)
+    # Gap between panels (fraction of figure width); gridspec wspace is
+    # ignored under constrained layout. Tune to taste.
+    fig.get_layout_engine().set(wspace=0.02)
     if n == 1:
         axes = [axes]
 
@@ -76,32 +87,47 @@ def plot_combined(results_list: list[BatchMixtureTournamentResults],
 
         ax.set_xlim(0, 100)
         ax.set_ylim(0, 1)
-        ax.set_title(pretty_model(results.config.model_name))
+        if show_header:
+            ax.set_title(pretty_model(results.config.model_name))
 
         if handles is None:
             handles, labels = ax.get_legend_handles_labels()
 
     for ax in axes:
         ax.xaxis.set_major_locator(MultipleLocator(25))
-    axes[0].set_ylabel('Welfare efficiency (%)')
+    axes[0].set_ylabel('Welfare\nefficiency (%)')
     axes[0].yaxis.set_major_locator(MultipleLocator(0.25))
     axes[0].yaxis.set_major_formatter(PercentFormatter(xmax=1))
-    # Middle panel; axes[1] IndexErrors when only one model is discovered.
-    axes[len(axes) // 2].set_xlabel('Proportion of Collective prompts (%)')
+    if show_xlabel:
+        # Middle panel; axes[1] IndexErrors when only one model is discovered.
+        axes[len(axes) // 2].set_xlabel('Proportion of Collective prompts (%)')
 
-    fig.legend(handles,
-               labels,
-               loc='outside upper center',
-               ncol=len(handles),
-               frameon=False,
-               handletextpad=0.4,
-               columnspacing=0.6,
-               borderpad=0,
-               borderaxespad=0.3)
+    if show_header:
+        fig.legend(handles,
+                   labels,
+                   loc='outside upper center',
+                   ncol=len(handles),
+                   frameon=False,
+                   handletextpad=0.4,
+                   columnspacing=0.6,
+                   borderpad=0,
+                   borderaxespad=0.3)
+
+    # Constrained-layout margins are fixed in inches, so adjusting the figure
+    # height by the shortfall converges in one or two steps.
+    for _ in range(10):
+        fig.canvas.draw()  # forces constrained layout to run
+        current = axes[0].get_position().height * fig.get_figheight()
+        diff = axes_height - current
+        if abs(diff) < 1e-3:
+            break
+        fig.set_figheight(fig.get_figheight() + diff)
+    else:
+        print(f"  Warning: {game_name} axes height did not converge ({current:.3f} in)")
 
     output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_file = (output_path / f"{game_name}").with_suffix(f".{fmt}")
+    output_path.mkdir(parents=True, exist_ok=True)
+    output_file = (output_path / game_name).with_suffix(f".{fmt}")
     fig.savefig(output_file, format=fmt)
     plt.close(fig)
     return output_file
@@ -115,7 +141,7 @@ def main():
     else:
         games = sorted(d.name for d in args.results_dir.iterdir() if d.is_dir())
 
-    for game in games:
+    for i, game in enumerate(games):
         game_dir = args.results_dir / game
         if not game_dir.is_dir():
             print(f"Skipping {game}: not a directory")
@@ -136,7 +162,12 @@ def main():
         if not results_list:
             continue
 
-        output_file = plot_combined(results_list, game, args.output_dir, n_se=args.n_se)
+        output_file = plot_combined(results_list,
+                                    game,
+                                    args.output_dir,
+                                    n_se=args.n_se,
+                                    show_header=i == 0,
+                                    show_xlabel=i == len(games) - 1)
         worst = max(r.max_welfare_se() for r in results_list)
         print(f"Saved {game}: {output_file}  (max SE = {worst:.4f})")
 

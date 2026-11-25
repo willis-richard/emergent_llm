@@ -4,9 +4,14 @@ import matplotlib.pyplot as plt
 
 def setup(configuration: str) -> tuple[tuple[float, float], str, float]:
     matplotlib.use('Agg')
+
+    # find by compiling with \the\textwidth
     royal_width = 384.1122 / 72.27
+    beamer_width = (344.19536 / 72.27) * 0.975
     royal_format = 'png'
+    beamer_format = 'svg'
     royal_font = 9.
+    beamer_font = 8.
 
     if configuration == 'aamas_self_play_single':
         FIGSIZE, SIZE, FORMAT = (2.7, 1.5), 7., 'svg'
@@ -14,16 +19,22 @@ def setup(configuration: str) -> tuple[tuple[float, float], str, float]:
         FIGSIZE, SIZE, FORMAT = (8.2, 1.5), 7., 'svg'
     elif configuration == 'royal_self_play':
         FIGSIZE, SIZE, FORMAT = (royal_width, 1.5), royal_font, royal_format
+    elif configuration == 'beamer_self_play':
+        FIGSIZE, SIZE, FORMAT = (beamer_width, 0.51), beamer_font, beamer_format
     elif configuration == 'aamas_pca':
         FIGSIZE, SIZE, FORMAT = (8.2, 4), 7., 'svg'
     elif configuration == 'royal_pca':
         FIGSIZE, SIZE, FORMAT = (royal_width, 4), royal_font, royal_format
+    elif configuration == 'beamer_pca':
+        FIGSIZE, SIZE, FORMAT = (beamer_width, 3.2), beamer_font, 'svg'
     elif configuration == 'poster_pca':
         FIGSIZE, SIZE, FORMAT = (13.5, 7.5), 27., 'svg'
     elif configuration == 'aamas_cooperation':
         FIGSIZE, SIZE, FORMAT = (7, 1.5), 7., 'svg'
     elif configuration == 'royal_cooperation':
         FIGSIZE, SIZE, FORMAT = (royal_width, 1.7), royal_font, royal_format
+    elif configuration == 'beamer_cooperation':
+        FIGSIZE, SIZE, FORMAT = (beamer_width, 1.5), beamer_font, beamer_format
     elif configuration == 'viewing':
         FIGSIZE, SIZE, FORMAT = (7, 4), 8., 'svg'
     else:
@@ -55,6 +66,14 @@ def setup(configuration: str) -> tuple[tuple[float, float], str, float]:
             'font.serif': ['Times New Roman', 'Times', 'STIXGeneral'],
             'mathtext.fontset': 'stix',  # Times-like maths
             "savefig.dpi": 600,
+        })
+    elif 'beamer' in configuration:
+        plt.rcParams.update({
+            'font.family': 'CMU Sans Serif',
+            'mathtext.fontset': 'custom',
+            'mathtext.rm': 'CMU Sans Serif',
+            'mathtext.it': 'CMU Sans Serif:italic',
+            'mathtext.bf': 'CMU Sans Serif:bold',
         })
 
     return FIGSIZE, FORMAT, SIZE
